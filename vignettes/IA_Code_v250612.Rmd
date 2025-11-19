@@ -1,0 +1,539 @@
+---
+title: "03. Jordan Interim Analysis"
+output: html_document
+date: "2025-05-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Data loading and pre-processing
+
+```{r Load packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+#library(lmerTest)
+#library(clubSandwich)
+#library(rstanarm)
+#library(rstan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+require(ggplot2) # for plotting
+require(ggsci) # for plotting colors
+require(hexbin) # for plotting pair plots
+require(bayesplot) # for plotting Stan outputs
+require(knitr) # for Rmarkdown
+require(kableExtra) # for Rmarkdown
+require(cmdstanr) # for Stan
+```
+
+```{r Define data locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+dir.home <- '/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan'
+dir.data <- file.path(dir.home, 'data')
+dir.out <- file.path(dir.home, 'analysis-250612')
+file.data <- file.path(dir.data,'JORDAN_DATASET_4_Olli.csv')
+set.seed(42L)
+```
+
+```{r Load and preprocess data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data
+dp <- as.data.table(read.csv( file.data )) 
+dp[, arm := as.integer(treatment_arm == 'Intervention')]
+dp[, time := as.integer(timepoint == 'endline')]
+setnames(dp, c('f_participants','facilitator_name','treatment_arm','timepoint'), c('pid','fid','arm_label','time_label'))
+
+# TODO
+# plse check missing data
+dp <- subset(dp, !is.na(PHQ_total) | !is.na(Violence_Against_Children))
+
+# TODO based on:
+# *** Survey questions asked for frequency of occurrence in the number of days in the past week. When multiple items are used, responses are averaged together to result in a range still between 0-7
+# I suggest we consider the primary data without averaging
+# For now I will make it two items:
+dp[, y_violence_against_children_item_1 := floor(Violence_Against_Children)]
+dp[, y_violence_against_children_item_2 := ceiling(Violence_Against_Children)]
+
+# TODO based on:
+# Survey questions are on the following ordinal scale to indicate occurrence in the past week: Not at all, Several days, More than half the days, Nearly every day.
+# there are 4 items
+# I don t understand how the sum can then range 0-12, it should be 0-11 or 1-12
+# for now I 'll fix this temporarily by allocating all 12's to 11's
+# code below assumes the lowest category is 0
+# 
+# I suggest we consider the primary data without summing
+# For now I will re-engineer 4 items:
+set(dp, dp[, which(PHQ_total == 12)], 'PHQ_total', 11L)
+
+
+dp[, y_parent_mental_health_item_1 := floor(PHQ_total/4)]
+dp[, y_parent_mental_health_item_2 := floor(PHQ_total/4)]
+dp[, y_parent_mental_health_item_3 := floor(PHQ_total/4)]
+dp[, y_parent_mental_health_item_4 := PHQ_total - ( y_parent_mental_health_item_1 + y_parent_mental_health_item_2 + y_parent_mental_health_item_3)]
+tmp <- dp[, which( y_parent_mental_health_item_4 == 5)]
+set(dp, tmp, 'y_parent_mental_health_item_4', 3L)
+set(dp, tmp, 'y_parent_mental_health_item_3', dp[tmp, y_parent_mental_health_item_3 + 1L])
+set(dp, tmp, 'y_parent_mental_health_item_2', dp[tmp, y_parent_mental_health_item_2 + 1L])
+tmp <- dp[, which( y_parent_mental_health_item_4 == 4)]
+set(dp, tmp, 'y_parent_mental_health_item_4', 3L)
+set(dp, tmp, 'y_parent_mental_health_item_3', dp[tmp, y_parent_mental_health_item_3 + 1L])
+stopifnot( !any(dp$y_parent_mental_health_item_1 >= 4) )
+stopifnot( !any(dp$y_parent_mental_health_item_2 >= 4) )
+stopifnot( !any(dp$y_parent_mental_health_item_3 >= 4) )
+stopifnot( !any(dp$y_parent_mental_health_item_4 >= 4) )
+
+set(dp, NULL, c('Violence_Against_Children','PHQ_total'), NULL)
+
+# get data into long format per survey item
+dp2 <- data.table::melt(dp, id.vars = c('pid','fid','arm','arm_label','time','time_label'))
+dp2[, item := as.integer(gsub('.*_item_([0-9]+)','\\1',variable))]
+dp2[, variable := gsub('(.*)(_item_[0-9]+)','\\1',variable) ]
+```
+
+# Ordered Cat model - intervention versus control, no participant or facilitator effect
+
+```{r Subset data for m1, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# select ordered categorical outcome
+dcat1 <- subset(dp2, variable == 'y_parent_mental_health')
+
+# select data to compare intervention/endline to control/baseline
+dcat1 <- subset(dcat1, (arm == 1 & time == 1) | (arm == 0 & time == 0))
+
+dcat1[, oid := seq_len(nrow(dcat1))]
+
+set(dcat1, NULL, 'value', dcat1[, value + 1L])
+set(dcat1, NULL, 'arm', dcat1[, arm + 1L])
+
+tmp <- data.table(value = 1:4,
+                  value_label = factor(1:4, 
+                                       levels = 1:4, 
+                                       labels = c('Not at all','Several days','More than half the days','Nearly every day')
+                                       )
+                  )
+dcat1 <- merge(dcat1, tmp, by = 'value')
+
+dcat1 <- dcat1[order(pid, arm, time, item)]
+```
+
+```{r stan_code_ordered_logistic oldv1, include=FALSE, eval=FALSE, echo=FALSE, tidy=FALSE, cache=TRUE}
+#
+# old version 1, no arm specific cutpoints and no facilitator effects
+#
+ordered_categorical_logit_m1_txt <- "
+functions{
+  matrix sum2zero_generating_matrix(int K) {
+    matrix[K, K] A = diag_matrix(rep_vector(1, K));
+    for (i in 1:K - 1) A[K, i] = -1;
+    A[K, K] = 0;
+    return qr_Q(A)[ , 1:(K - 1)];
+  }
+}
+data{
+  int<lower=1> N; // number of observations
+  int<lower=3> K; // number of categories
+  int<lower=2> P; // number of arms
+  array[N] int<lower=1, upper=K> y; // observations
+  array [N] int<lower=1,upper=P> arm_of_obs;
+}
+transformed data{
+    real s2z_sd_arm;
+    matrix[P,P-1] s2z_Q_arm;
+    s2z_sd_arm = inv(sqrt(1. - inv(P)));
+    s2z_Q_arm = sum2zero_generating_matrix(P);
+}
+parameters{
+  vector[P-1] beta_arm_m1;
+  // the cutpoints in logit space, using the 'ordered' variable type
+  real cut_point_1;
+  vector<lower=0>[K - 2] cut_point_gaps; 
+}
+transformed parameters{
+  vector[N] logit_p;
+  vector[P] beta_arm;
+  ordered[K-1] cut_points;
+  
+  beta_arm =  s2z_Q_arm * beta_arm_m1;
+  logit_p = beta_arm[ arm_of_obs ];
+  cut_points = 
+    append_row(
+      rep_vector(cut_point_1, 1), 
+      rep_vector(cut_point_1, K-2) + cumulative_sum(cut_point_gaps)
+      );
+}
+model{
+  // likelihood
+  for (n in 1:N) {
+    y[n] ~ ordered_logistic(logit_p[n], cut_points);
+  }
+  // priors
+  beta_arm_m1 ~ normal(0, s2z_sd_arm); // gtools::inv.logit(2*3.5) = 0.9991
+  cut_point_1 ~ normal(0, 3.5); // gtools::inv.logit(2*3.5) = 0.9991
+  cut_point_gaps ~ normal(0, 2); // gtools::inv.logit(2*2) = 0.98
+}
+"
+
+#
+# old version 2, with arm specific cutpoints but still no facilitator effects
+#
+ordered_categorical_logit_m1_txt <- "
+functions{
+  matrix sum2zero_generating_matrix(int K) {
+    matrix[K, K] A = diag_matrix(rep_vector(1, K));
+    for (i in 1:K - 1) A[K, i] = -1;
+    A[K, K] = 0;
+    return qr_Q(A)[ , 1:(K - 1)];
+  }
+}
+data{
+  int<lower=1> N; // number of observations
+  int<lower=3> K; // number of categories
+  int<lower=2, upper=2> P; // number of arms
+  array[N] int<lower=1, upper=K> y; // observations
+  array [N] int<lower=1,upper=P> arm_of_obs;
+}
+transformed data{
+    real s2z_sd_arm;
+    matrix[P,P-1] s2z_Q_arm;
+    s2z_sd_arm = inv(sqrt(1. - inv(P)));
+    s2z_Q_arm = sum2zero_generating_matrix(P);
+}
+parameters{
+  vector[P-1] beta_arm_m1;
+  // the cutpoints in logit space, using the 'ordered' variable type
+  real cut_point_1;
+  vector<lower=0>[K - 2] cut_point_gaps_arm1;
+  vector<lower=0>[K - 2] cut_point_gaps_arm2;
+}
+transformed parameters{
+  vector[P] beta_arm;
+  array[P] ordered[K-1] cut_points;
+  
+  beta_arm =  s2z_Q_arm * beta_arm_m1;
+  
+  cut_points[1] = 
+    append_row(
+      rep_vector(cut_point_1, 1), 
+      rep_vector(cut_point_1, K-2) + cumulative_sum(cut_point_gaps_arm1)
+      );
+      
+  cut_points[2] = 
+    append_row(
+      rep_vector(cut_point_1, 1), 
+      rep_vector(cut_point_1, K-2) + cumulative_sum(cut_point_gaps_arm2)
+      );
+}
+model{
+  // likelihood, cannot be vectorized
+  for (n in 1:N) {
+    y[n] ~ ordered_logistic(beta_arm[arm_of_obs[n]], cut_points[arm_of_obs[n]]);
+  }
+  // priors
+  beta_arm_m1 ~ normal(0, s2z_sd_arm); // gtools::inv.logit(2*3.5) = 0.9991
+  cut_point_1 ~ normal(0, 3.5); // gtools::inv.logit(2*3.5) = 0.9991
+  cut_point_gaps_arm1 ~ normal(0, 2); // gtools::inv.logit(2*2) = 0.98
+  cut_point_gaps_arm2 ~ normal(0, 2); // gtools::inv.logit(2*2) = 0.98
+}
+"
+```
+
+```{r stan_code_ordered_logistic, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+ordered_categorical_logit_m1_txt <- "
+functions{
+  matrix sum2zero_generating_matrix(int K) {
+    matrix[K, K] A = diag_matrix(rep_vector(1, K));
+    for (i in 1:K - 1) A[K, i] = -1;
+    A[K, K] = 0;
+    return qr_Q(A)[ , 1:(K - 1)];
+  }
+}
+data{
+  int<lower=1> N; // number of observations
+  int<lower=3> K; // number of categories
+  int<lower=2, upper=2> P; // number of arms
+  int<lower=1> F; // number of facilitators
+  array[N] int<lower=1, upper=K> y; // observations
+  array [N] int<lower=1,upper=P> arm_of_obs;
+  array [N] int<lower=1,upper=F> facilitator_of_obs;
+}
+transformed data{
+    real s2z_sd_arm;
+    matrix[P,P-1] s2z_Q_arm;
+    real s2z_sd_fac;
+    matrix[F,F-1] s2z_Q_fac;
+    
+    s2z_sd_arm = inv(sqrt(1. - inv(P)));
+    s2z_Q_arm = sum2zero_generating_matrix(P);
+    
+    s2z_sd_fac = inv(sqrt(1. - inv(F)));
+    s2z_Q_fac = sum2zero_generating_matrix(F);
+}
+parameters{
+  vector[P-1] beta_arm_m1;
+  real<lower=0> beta_fac_sd;
+  vector[F-1] beta_fac_m1;
+  
+  // the cutpoints in logit space, using the 'ordered' variable type
+  real cut_point_1;
+  vector<lower=0>[K - 2] cut_point_gaps_arm1;
+  vector<lower=0>[K - 2] cut_point_gaps_arm2;
+}
+transformed parameters{
+  vector[P] beta_arm;
+  vector[F] beta_fac;
+  array[P] ordered[K-1] cut_points;
+  
+  beta_arm =  s2z_Q_arm * beta_arm_m1;
+  beta_fac =  s2z_Q_fac * beta_fac_m1;
+  
+  cut_points[1] = 
+    append_row(
+      rep_vector(cut_point_1, 1), 
+      rep_vector(cut_point_1, K-2) + cumulative_sum(cut_point_gaps_arm1)
+      );
+      
+  cut_points[2] = 
+    append_row(
+      rep_vector(cut_point_1, 1), 
+      rep_vector(cut_point_1, K-2) + cumulative_sum(cut_point_gaps_arm2)
+      );
+}
+model{
+  // likelihood, cannot be vectorized
+  for (n in 1:N) {
+    y[n] ~ ordered_logistic(
+      beta_arm[arm_of_obs[n]] + beta_fac_sd * beta_fac[facilitator_of_obs[n]], 
+      cut_points[arm_of_obs[n]]);
+  }
+  
+  // priors
+  beta_arm_m1 ~ normal(0, s2z_sd_arm); 
+  beta_fac_m1 ~ normal(0, s2z_sd_fac); 
+  beta_fac_sd ~ cauchy(0, 1);
+  cut_point_1 ~ normal(0, 3.5); // gtools::inv.logit(2*3.5) = 0.9991
+  cut_point_gaps_arm1 ~ normal(0, 2); // gtools::inv.logit(2*2) = 0.98
+  cut_point_gaps_arm2 ~ normal(0, 2); // gtools::inv.logit(2*2) = 0.98
+}
+"
+
+# compile the model
+ordered_categorical_logit_m1_filename <- cmdstanr::write_stan_file(
+  gsub('\t',' ', ordered_categorical_logit_m1_txt),
+  dir = dir.out,
+  basename = NULL,
+  force_overwrite = FALSE,
+  hash_salt = ""
+)
+
+# compile Stan model
+ordered_categorical_logit_m1_compiled <- cmdstanr::cmdstan_model(ordered_categorical_logit_m1_filename)
+```
+
+
+```{r Run model m1, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+# define data in format needed for model specification
+stan_data <- list()
+stan_data$N <- nrow(dcat1)
+stan_data$P <- 2L
+stan_data$F <- max(dcat1$fid)
+stan_data$K <- length(unique(dcat1$value))
+stan_data$y <- dcat1$value
+stan_data$arm_of_obs <- dcat1$arm
+stan_data$facilitator_of_obs <- dcat1$fid
+
+# sample
+ordered_categorical_logit_m1_fit <- ordered_categorical_logit_m1_compiled$sample(
+  data = stan_data,
+  seed = 123,
+  chains = 2,
+  parallel_chains = 2,
+  iter_warmup = 5e2,
+  iter_sampling = 15e2,
+  refresh = 500,
+  save_warmup = TRUE
+)
+
+# save output to RDS
+ordered_categorical_logit_m1_fit$save_object(file = file.path(dir.out, "parentalmh_ordered_categorical_logit_m1_stan.rds"))
+```
+
+
+```{r check mixing convergence m1, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+#	check convergence and check mixing
+#	get 95% credible intervals
+tmp <- ordered_categorical_logit_m1_fit$summary(
+  variables = c('beta_arm_m1','beta_fac_m1','beta_fac_sd','cut_point_1','cut_point_gaps_arm1','cut_point_gaps_arm2'),
+  posterior::default_summary_measures(),
+  posterior::default_convergence_measures(),
+  extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+)
+tmp <- as.data.table(tmp)
+tmp
+  
+# parameter with lowest ess_bulk
+worst_var <- tmp$variable[ which.min(tmp$ess_bulk) ]
+
+# extract samples
+po <- ordered_categorical_logit_m1_fit$draws(
+  variables = c("lp__", worst_var),
+  inc_warmup = TRUE,
+  format = "draws_array"
+  )
+
+# make trace plot
+p <- bayesplot:::mcmc_trace(po,  
+                            pars = c("lp__",worst_var), 
+                            n_warmup = 500,
+                            facet_args = list(nrow = 2)
+                            )
+p <- p + theme_bw()
+ggsave(file = file.path(dir.out,'parentalmh_ordered_categorical_logit_m1_worsttrace.png'), 
+       plot = p, 
+       h = 10, 
+       w = 8
+       )
+
+# make pairs plot
+po <- ordered_categorical_logit_m1_fit$draws(
+  variables = c('beta_arm_m1','beta_fac_m1','beta_fac_sd','cut_point_1','cut_point_gaps_arm1','cut_point_gaps_arm2'),
+  inc_warmup = FALSE,
+  format = "draws_array"
+  )
+
+bayesplot::color_scheme_set('viridisC')
+p <- bayesplot::mcmc_pairs(po, 
+                           diag_fun = "dens", 
+                           off_diag_fun = "hex"
+                           ) 
+ggsave(file = file.path(dir.out,'parentalmh_ordered_categorical_logit_m1_pairsplot.png'), 
+       plot = p, 
+       h = 30, 
+       w = 30, 
+       limitsize = FALSE
+       )
+bayesplot::color_scheme_set('brewer-RdYlBu')
+```
+
+
+```{r Extract class probs for each arm, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+# extract model parameters: arm effect sizes and cut points
+po <- ordered_categorical_logit_m1_fit$draws(
+  variables = c('beta_arm','cut_points'),
+  inc_warmup = FALSE,
+  format = "draws_df"
+  )
+po <- as.data.table(po)
+setnames(po, colnames(po), gsub('\\]','',gsub('\\[','_',colnames(po))))
+setnames(po, colnames(po), gsub('_2,','_arm_2_',gsub('_1,','_arm_1_',colnames(po))))
+
+# calculate Categorical probabilities
+po[, p1_arm1 := 1 - gtools::inv.logit(beta_arm_1 - cut_points_arm_1_1)]
+po[, p2_arm1 := gtools::inv.logit(beta_arm_1 - cut_points_arm_1_1) - gtools::inv.logit(beta_arm_1 - cut_points_arm_1_2)]
+po[, p3_arm1 := gtools::inv.logit(beta_arm_1 - cut_points_arm_1_2) - gtools::inv.logit(beta_arm_1 - cut_points_arm_1_3)]
+po[, p4_arm1 := gtools::inv.logit(beta_arm_1 - cut_points_arm_1_3)]
+po[, p1_arm2 := 1 - gtools::inv.logit(beta_arm_2 - cut_points_arm_2_1)]
+po[, p2_arm2 := gtools::inv.logit(beta_arm_2 - cut_points_arm_2_1) - gtools::inv.logit(beta_arm_2 - cut_points_arm_2_2)]
+po[, p3_arm2 := gtools::inv.logit(beta_arm_2 - cut_points_arm_2_2) - gtools::inv.logit(beta_arm_2 - cut_points_arm_2_3)]
+po[, p4_arm2 := gtools::inv.logit(beta_arm_2 - cut_points_arm_2_3)]
+po <- subset(po, select = c(.draw, p1_arm1,  p2_arm1, p3_arm1, p4_arm1, p1_arm2,  p2_arm2, p3_arm2, p4_arm2))
+po <- data.table::melt(po, id.vars = '.draw', value.name = 'prob')
+po[, value := as.integer(gsub('p([0-9])_arm([0-9])','\\1',variable))]
+po[, arm := as.integer(gsub('p([0-9])_arm([0-9])','\\2',variable))]
+tmp <- unique( subset(dcat1, select = c(arm, arm_label, value, value_label)) )
+po <- merge(po, tmp, by = c('arm','value'))
+```
+
+```{r Make histogram of cat probs across arms, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+pos <- po[, 
+          list( summary_value = quantile(prob, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                ), 
+          by = c('arm','arm_label','value','value_label')
+          ]
+pos <- data.table::dcast(pos, arm + arm_label + value + value_label ~ summary_name, value.var = 'summary_value')
+
+p <- ggplot(data = pos, aes( x = value_label, fill = arm_label)) +
+  geom_bar(aes( y = median), 
+           stat = 'identity', 
+           position = position_dodge()) +
+  geom_errorbar( aes(ymin = q_lower, ymax = q_upper), 
+                 position = position_dodge(0.9),
+                 width = 0.2) +
+  scale_fill_bmj() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = '\nParental mental health\nPHQ4 outcome', y = 'group-level posterior probability', fill = '') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        )
+ggsave(file = file.path(dir.out,'parentalmh_ordered_categorical_logit_m1_categorial_probs_barplot.png'), 
+       plot = p, 
+       h = 8, 
+       w = 8
+       )
+```
+
+```{r Make risk differences, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+po2 <- data.table::dcast(po, .draw + value + value_label ~ arm_label, value.var = 'prob')
+po2[, diff := Intervention - Control]
+
+po2s <- po2[, 
+            list( summary_value = quantile(diff, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                  summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                  ), 
+            by = c('value','value_label')
+            ]
+po2s <- data.table::dcast(po2s, value + value_label ~ summary_name, value.var = 'summary_value')
+
+p <- ggplot(data = po2s, aes( x = value_label )) +
+  geom_bar(aes( y = median), 
+           stat = 'identity') +
+  geom_errorbar( aes(ymin = q_lower, ymax = q_upper),
+                 width = 0.2) +
+  scale_fill_bmj() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = '\nParental mental health\nPHQ4 outcome', 
+       y = 'difference in\ngroup-level posterior probabilities,\nIntervention-Control', 
+       fill = '') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        )
+ggsave(file = file.path(dir.out,'parentalmh_ordered_categorical_logit_m1_categorial_differences_barplot.png'), 
+       plot = p, 
+       h = 8, 
+       w = 8
+       )
+```
+
+
+Model with a random effect on participant to nest participant within timepoint, and with a fixed effect on facilitator to control for any differences across facilitator strata.
+
+```{r}
+  formula <-
+    paste0(
+      "PHQ_total", # NOTE: Can change this to outcome, then include a list of all outcomes to be run through function. For now, I have only looked at mental health.
+      " ~ ",
+      "treatment_arm",
+      "*",
+      "timepoint",
+      "+",
+      "facilitator_name",
+      "+",
+      "(",
+      "1",
+      "|",
+      "f_participants",
+      ")"
+       
+    )
+  
+stan <- stan_lmer(as.formula(formula), iter = 100, chains = 4, cores = 1, data=final_dataset,  refresh=0, prior = normal(0,2.5))
+
+summary(stan)
+# parameters::parameters(stan)
+
+parameters::parameters(stan)[5,2:5] %>% round(2)
+
+# OPTIONAL: Also including frequentist code to compare 
+example_model <- lmer(as.formula(formula), data=JORDAN_DATASET_4_Olli.csv)
+summary(example_model)
+
+```

@@ -1,0 +1,1176 @@
+---
+title: "Colombia interim analyses"
+date: "2025-10-07"
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Data loading and pre-processing
+
+```{r Load packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+library(tidyverse)
+library(data.table)
+library(purrr)  
+require(ggplot2) # for plotting
+require(ggsci) # for plotting colors
+require(hexbin) # for plotting pair plots
+require(bayesplot) # for plotting Stan outputs
+require(knitr) # for Rmarkdown
+require(kableExtra) # for Rmarkdown
+require(cmdstanr) # for Stan
+require(loo) # for Bayesian LOO
+require(polycor) # esetimate polychoric correlations via ML
+require(GGally) # plotting of pair plots
+```
+
+```{r Define data locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+dir.home <- '/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan'
+dir.data <- file.path(dir.home, 'data')
+dir.out <- file.path(dir.home, 'colombia-251007')
+file.data <- file.path(dir.data,'Colombia_data_baseline_endline_itemised_250927.csv')
+file.data.quasi <- file.path(dir.data,'Colombia_data_quasi_assignments_250927.csv')
+set.seed(42L)
+```
+
+```{r Load and preprocess data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data
+dp <- as.data.table(read.csv( file.data )) 
+
+setnames(dp, c('SID','Timepoint','staff_name'),c('pid','time_label','f_label'))
+
+# Separate out meta data/ covariates
+col.meta <- c('age','sex','household_adults','household_children','child_impairment',
+              'education','moved','maritalstat','income','income.adj',
+              'income.per.person','outfhelp','ngp','services','services_FOOD',
+              'services_HOUSING_SUBS','services_CHILDCARE','services_COUNSELING',
+              'stressmeals','ruv','time_since_death', 
+              'Months.since.caregiver.death','Months.since.caregiver.death.v2',
+              'Months.since.caregiver.death.v3')
+dmeta <- subset(dp, select = c('pid','time_label',col.meta))
+
+# Keep core outcome data
+set(dp, NULL, col.meta, NULL)
+
+# Clean up outcome labels
+setnames(dp, 
+         c('CAREGIVER_MENTAL_HEALTH','nervous','hopeless','restless','sad','effort','worthless'),
+         c('CG-MH_agg','CG-MH_nervous','CG-MH_hopeless','CG-MH_restless','CG-MH_sad','CG-MH_effort','CG-MH_worthless')
+         )
+setnames(dp, 
+         c('PHYSICAL_EMOTIONAL_VIOLENCE','physic_punish','scream'),
+         c('CG-VIO_agg','CG-VIO_ph-punish','CG-VIO_scream')
+         )
+setnames(dp, 
+         c('POSITIVE_PARENTING','praise','play'),
+         c('CG-POS_agg','CG-POS_praise','CG-POS_play')
+         )
+setnames(dp, 
+         c('CHILD_MONITORING','safe_time','child_safe'),
+         c('CG-MONITOR-CHI_agg','CG-MONITOR-CHI_safe-time','CG-MONITOR-CHI_child-safe')
+         )
+setnames(dp, 
+         c('PARENTAL_INVOLVEMENT','help_learn','child_problems'),
+         c('CG-INVOLVE_agg','CG-INVOLVE_help-learn','CG-INVOLVE_child-problems')
+         )
+setnames(dp, 
+         c('CHILD_BEHAVIOURAL_ISSUES','angry','unhappy','no_interest'),
+         c('CHI-BEHAVIOUR_agg','CHI-BEHAVIOUR_angry','CHI-BEHAVIOUR_unhappy','CHI-BEHAVIOUR_no-interest')
+         )
+setnames(dp, 
+         c('DEPRESSION','SELFCARE','RESILIENCE','NONVIOLENT_DISCIPLINE'), 
+         c('CG-DEPRESSION','CG-SELFCARE','CG-RESILIENCE','CG-NONVIOLENT-DISCIPLINE'))
+
+# Clean up date
+set(dp, NULL, 'submission_date', dp[, as.Date(submission_date, format = '%m/%d/%y')])
+
+# Set time id
+dp[, time := as.integer(time_label == 'Endline')]
+
+# Remove participant with double endline - remove last record
+dp <- subset(dp, !(pid %in% c('otmar20231963') & submission_date == '2024-12-12'))
+
+# Remove participants with only baseline records 
+# as we are interested in pre-post comparison
+tmp <- dp[, list(n = length(submission_date)), by = 'pid']
+tmp <- subset(tmp, n == 2, select = pid)
+dp <- merge(tmp, dp, by = 'pid')
+
+# Set participant id
+tmp <- data.table( pid = dp[, sort(unique(pid))] )
+tmp[, pid_new := 1:nrow(tmp)]
+dp <- merge(dp, tmp, by = 'pid')
+setnames(dp, c('pid','pid_new'), c('pid_label','pid'))
+
+# Set facilitator id
+tmp <- data.table( f_label = dp[, sort(unique(f_label))] )
+tmp[, fid := 1:nrow(tmp)]
+dp <- merge(dp, tmp, by = 'f_label')
+
+# Bring table into long format
+dp <- data.table::melt(dp, 
+                       id.vars = c('time','time_label','pid','pid_label','fid','f_label','submission_date','d_year'),
+                       variable.name = 'item_label',
+                       value.name = 'y')
+
+# Remove NA's
+dp <- subset(dp, !is.na(y))
+
+# Define character values for y
+dp[, y_label := NA_character_]
+tmp <- dp[, which(grepl('^CG-MH_.*',item_label) & !grepl('agg',item_label))]
+set(dp, 
+    tmp, 
+    'y_label',
+    c('a - none of the time','b - a little of the time','c - some of the time','d - most of the time', 'e - all of the time')[ dp[tmp,y] + 1L ]
+    )
+tmp <- dp[, which(is.na(y_label) & !grepl('agg',item_label))]
+set(dp, tmp, 'y_label', dp[tmp, paste0(as.character(y), ' of 7 days')])
+
+# Show value mins and maxs
+dp[, list(ymin = min(y), ymax = max(y)), by = 'item_label']
+
+dit <- unique(subset(dp, select = 'item_label'))
+dit[, item_type := ifelse(grepl('CG-MH',item_label), 'categorical', 'out-of-7')]
+dit[, item_high_label := ifelse(grepl('CG-MH|CG-DEPRESSION|CG-VIO|CHI-BEHAVIOUR',item_label),'lower_is_better','higher_is_better') ]
+dit[, group_label := factor(gsub('([^_]+)_([^_]+)','\\1',item_label))]
+dit[, item_label_short := gsub('([^_]+)_([^_]+)','\\2',item_label)]
+set(dit, dit[, which(grepl('^CG', item_label_short))], 'item_label_short', '')
+dit[, group_label_long := group_label]
+tmp <- dit[, levels(group_label_long) ]
+tmp <- sapply(tmp, function(x) switch(x,
+    'CG-MH' = "Caregiver mental health",
+    'CG-VIO' = "Caregiver exercising physical or emotional violence",
+    'CG-MONITOR-CHI_agg' = 'Child monitoring',
+    'CG-INVOLVE' = 'Caregiver involvement',
+    'CHI-BEHAVIOUR' = 'Child behavioural issues',
+    'CG-DEPRESSION' = 'Caregiver depression',
+    'CG-SELFCARE' = 'Caregiver self-care',
+    'CG-RESILIENCE' = 'Caregiver resilience',
+    'CG-POS' = 'Caregiver positive parenting',
+    'CG-MONITOR-CHI' = 'Caregiver monitoring child',
+    'CG-NONVIOLENT-DISCIPLINE' = 'Caregiver exercising nonviolent discipline',
+    x  
+))
+levels(dit$group_label_long) <- tmp
+dit[, endpoint_measure := sapply(item_type, function(x) switch(x,
+  'categorical' = 'events occurring most or all of the time',
+  'out-of-7' = 'mean days in week',
+  x
+  ))]
+
+```
+
+# Data viz
+
+```{r data_viz_response_frequencies, include=TRUE, eval=TRUE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+# Select ordered categorical outcome
+dp1 <- subset(dp, !grepl('agg', item_label))
+file.prefix <- 'colombia_end_'
+
+# Frequency plot
+tmp <- dp1[, list(n = length(pid)), by = c('time_label','item_label','y_label')]
+tmp2 <- tmp[, list(total = sum(n)), by = c('time_label','item_label')]
+tmp <- merge(tmp, tmp2, by = c('time_label','item_label'))
+tmp[, p := n/total]
+tmp <- merge(tmp, dit, by = c('item_label'))
+tmp[, item_label_long := paste0(group_label_long, ' --- ', item_label_short)]
+
+pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(tmp[, length(unique(item_label))])
+
+p <- ggplot(tmp, aes(x = y_label, y = p)) +
+  geom_col(aes(fill = item_label_long), position = position_dodge2(width = 0.9, preserve = "single"), width = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = pal) +
+  facet_wrap(group_label_long ~ time_label, scales = "free_x", ncol = 2) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        ) +
+  labs(x = '', fill = 'survey items', y = 'proportion of outcomes') +
+  guides(fill = guide_legend(ncol = 3)) 
+ggsave(file = file.path(dir.out, paste0(file.prefix,'response_frequencies.png')), 
+       plot = p, 
+       h = 40, 
+       w = 12
+       )
+ggsave(file = file.path(dir.out, paste0(file.prefix,'response_frequencies.pdf')), 
+       plot = p, 
+       h = 40, 
+       w = 12
+       )
+```
+
+```{r data_participants over time, include=TRUE, eval=TRUE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+dp1 <- subset(dp, !grepl('agg', item_label))
+file.prefix <- 'colombia_interim_'
+
+tmp <- dp1[time_label == 'Endline', list(n_pid = length(unique(pid))), by = 'submission_date']
+tmp <- tmp[order(submission_date),]
+tmp[, cn_pid := cumsum(n_pid)]
+p <- ggplot(tmp, aes(x = submission_date, y = cn_pid)) +
+  geom_line() +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        ) +
+  labs(x = 'Endline assessment completed', y = 'total number participants')
+ggsave(file = file.path(dir.out, paste0(file.prefix,'accrueing_number_participants.png')), 
+       plot = p, 
+       h = 7, 
+       w = 7
+       )
+
+di <- data.table( interim_date = seq(from = as.Date('2024-07-01'), to = as.Date('2025-05-01'), by = "month"))
+di[, interim_id := 1:nrow(di)]
+```
+
+# Fit unstructured generalised partial credit model at each interim
+
+Here is the Stan code:
+
+```{r upgcm1all_stan_code, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
+ugpcm_m1_txt <- "
+functions
+{
+  matrix upgcm_get_skill_thresholds( vector skill_thresholds_1,
+                                     matrix skill_thresholds_incs
+                                     )
+  {
+    int Q = size(skill_thresholds_1);
+    int Km1 = cols(skill_thresholds_incs) + 1;
+    matrix [Q, Km1] skill_thresholds;
+    skill_thresholds = rep_matrix(skill_thresholds_1, Km1);
+    for(j in 1:Q)
+    { 
+      skill_thresholds[j,2:Km1] += cumulative_sum( skill_thresholds_incs[j,:] );  
+    }
+    return skill_thresholds;
+  }
+  
+  matrix upgcm_get_etas(  vector loadings_questions,
+                          matrix skill_thresholds,
+                          vector latent_factor_obs,
+                          array [] int question_of_obs,
+                          array [] int unit_of_obs
+                          )
+  {
+    int N = num_elements(unit_of_obs);
+    int Q = rows(skill_thresholds);
+    int K = cols(skill_thresholds) + 1;
+    
+    matrix[N, K] etas;
+    etas[:,1] = rep_vector(0., N);
+    for(n in 1:N)
+    {
+      etas[n,2:K]  = loadings_questions[question_of_obs[n]] * 
+                     ( 
+                        latent_factor_obs[n] - skill_thresholds[question_of_obs[n],:]
+                     );
+    }
+    return etas;
+  }
+  
+  matrix upgcm_get_etas(  matrix loadings_questions,
+                          matrix skill_thresholds,
+                          vector latent_factor_obs,
+                          array [] int question_of_obs,
+                          array [] int unit_of_obs
+                          )
+  {
+    int N = num_elements(unit_of_obs);
+    int Q = rows(skill_thresholds);
+    int K = cols(skill_thresholds) + 1;
+    
+    matrix[N, K] etas;
+    etas[:,1] = rep_vector(0., N);
+    for(n in 1:N)
+    {
+      etas[n,2:K]  = loadings_questions[question_of_obs[n], :] .* 
+                     ( 
+                        latent_factor_obs[n] - skill_thresholds[question_of_obs[n],:]
+                     );
+    }
+    return etas;
+  }
+}
+data
+{
+  int<lower=1> P; // number of predictors
+  int<lower=1> U; // number of units
+  
+  int<lower=1> Ncat1; // number of ordered categorial observations
+  int<lower=2> Qcat1; // number of ordered categorial questions
+  int<lower=3> Kcat1; // number of categories
+  array [Ncat1] int<lower=1, upper=Kcat1> cat1_y; // observations
+  array [Ncat1] int<lower=1,upper=U> cat1_unit_of_obs;
+  array [Ncat1] int<lower=1,upper=Qcat1> cat1_question_of_obs;
+  matrix [Ncat1,P] cat1_X;
+  
+  int<lower=1> Ncat2; 
+  int<lower=2> Qcat2; 
+  int<lower=3> Kcat2; 
+  array [Ncat2] int<lower=1, upper=Kcat2> cat2_y; // observations
+  array [Ncat2] int<lower=1,upper=U> cat2_unit_of_obs;
+  array [Ncat2] int<lower=1,upper=Qcat2> cat2_question_of_obs;
+  matrix [Ncat2,P] cat2_X;
+}
+transformed data
+{
+    real s2z_sd_unit;
+    s2z_sd_unit = inv(sqrt(1. - inv(U)));
+}
+parameters
+{
+  sum_to_zero_vector[U] latent_factor_unit;
+  vector [P] latent_factor_beta;
+  
+  vector [Qcat1] cat1_skill_thresholds_1;
+  matrix [Qcat1, Kcat1 - 2] cat1_skill_thresholds_incs;
+  vector<lower=0>[Qcat1] cat1_loadings_questions;
+  
+  vector [Qcat2] cat2_skill_thresholds_1;
+  matrix [Qcat2, Kcat2 - 2] cat2_skill_thresholds_incs;
+  vector<lower=0>[Qcat2] cat2_loadings_questions;
+}
+transformed parameters
+{
+  matrix [Ncat1, Kcat1] cat1_eta;
+  matrix [Ncat2, Kcat2] cat2_eta;
+  
+  {
+    matrix [Qcat1, Kcat1 - 1] cat1_skill_thresholds;
+    matrix [Qcat2, Kcat2 - 1] cat2_skill_thresholds;
+    
+    cat1_skill_thresholds 
+      =
+      upgcm_get_skill_thresholds( cat1_skill_thresholds_1,
+                                  cat1_skill_thresholds_incs
+                                  );
+    cat2_skill_thresholds 
+      =
+      upgcm_get_skill_thresholds( cat2_skill_thresholds_1,
+                                  cat2_skill_thresholds_incs
+                                  );
+  
+    cat1_eta
+        = 
+        upgcm_get_etas( cat1_loadings_questions,
+                        cat1_skill_thresholds,
+                        latent_factor_unit[cat1_unit_of_obs] + cat1_X * latent_factor_beta,
+                        cat1_question_of_obs,
+                        cat1_unit_of_obs
+                        );
+    cat2_eta
+        = 
+        upgcm_get_etas( cat2_loadings_questions,
+                        cat2_skill_thresholds,
+                        latent_factor_unit[cat2_unit_of_obs] + cat2_X * latent_factor_beta,
+                        cat2_question_of_obs,
+                        cat2_unit_of_obs
+                        );
+  }
+}
+model
+{
+  // likelihood under unsummed generalised partial credits model
+  for (n in 1:Ncat1) 
+  {
+    target += categorical_logit_lupmf( cat1_y[n] | cat1_eta[n]' );
+  }
+  for (n in 1:Ncat2) 
+  {
+    target += categorical_logit_lupmf( cat2_y[n] | cat2_eta[n]' );
+  }
+  
+  // priors for latent factors
+  target += normal_lupdf( latent_factor_unit | 0, s2z_sd_unit ); 
+  target += std_normal_lupdf(latent_factor_beta);
+  
+  // priors for skill thresholds
+  target += normal_lupdf( cat1_skill_thresholds_1 | 0, 3.5 ); 
+  target += normal_lupdf( to_vector(cat1_skill_thresholds_incs) | 0, 2.5); 
+  target += normal_lupdf( cat2_skill_thresholds_1 | 0, 3.5 ); 
+  target += normal_lupdf( to_vector(cat2_skill_thresholds_incs) | 0, 2.5); 
+  
+  // priors for loadings
+  target += student_t_lupdf(cat1_loadings_questions | 3, 0, 1);
+  target += student_t_lupdf(cat2_loadings_questions | 3, 0, 1);
+}
+generated quantities
+{
+  matrix [Ncat1,Kcat1] cat1_ordered_prob_by_obs;
+  matrix [Ncat2,Kcat2] cat2_ordered_prob_by_obs;
+  array [Ncat1] int<lower=0> cat1_ypred;
+  array [Ncat2] int<lower=0> cat2_ypred;
+  array [Ncat1+Ncat2] real log_lik;
+  
+  for (n in 1:Ncat1) 
+  {
+    cat1_ordered_prob_by_obs[n,:] = softmax( cat1_eta[n]' )';
+    cat1_ypred[n] = categorical_logit_rng( cat1_eta[n]' );
+  }
+  for (n in 1:Ncat2) 
+  {
+    cat2_ordered_prob_by_obs[n,:] = softmax( cat2_eta[n]' )';
+    cat2_ypred[n] = categorical_logit_rng( cat2_eta[n]' ); 
+  }
+  for(n in 1:Ncat1)
+  {
+    log_lik[n] =  categorical_logit_lpmf( cat1_y[n] | cat1_eta[n]' );
+  }
+  for(n in 1:Ncat2)
+  {
+    log_lik[ Ncat1+n ] = categorical_logit_lpmf( cat2_y[n] | cat2_eta[n]' );
+  }
+}
+"
+# compile the model
+ugpcm_m1_filename <- cmdstanr::write_stan_file(
+  gsub('\t',' ', ugpcm_m1_txt),
+  dir = dir.out,
+  basename = NULL,
+  force_overwrite = FALSE,
+  hash_salt = ""
+)
+
+# compile Stan model
+ugpcm_m1_compiled <- cmdstanr::cmdstan_model(ugpcm_m1_filename)
+```
+
+```{r upgcm1all2_prepare data, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+dcat6 <- copy(dp1)
+dcat6[, time := time + 1L]
+dcat6[, y_stan := y + 1L]
+tmp <- CJ(item_label = sort(unique(dcat6$item_label)),
+          time = unique(dcat6$time)
+          )
+tmp[, item_type := ifelse(grepl('CG-MH',item_label), 'categorical', 'out-of-7')]
+tmp <- tmp[, list(item_label = item_label, time = time, item_time_id = 1:length(item_label)), by = 'item_type']
+dcat6 <- merge(dcat6, tmp, by = c('item_label','time'))
+setkey(dcat6, pid, time, item_label)
+dcat6[, oid := 1:nrow(dcat6)]
+tmp <- dcat6[, list(oid = oid, oidt = 1:length(y_stan)), by = 'item_type' ]
+dcat6 <- merge(dcat6, tmp, by  = c('item_type','oid'))
+setkey(dcat6, pid, time, item_label)
+```
+
+```{r upgcm1all2_run_model, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+file.prefix <- 'cg_chi_all2_upgcm1_interim'
+for (i in 1:nrow(di))
+{
+  cat('\n\nProcess interim analysis',i,'\n\n')
+  dcati <- subset(dcat6, submission_date <= di[i, interim_date])
+  tmp <- dcati[, list(n = length(unique(time))), by = c('pid','item_label')]
+  tmp <- tmp[, list(complete = all(n == 2)), by = 'pid']
+  tmp <- subset(tmp, complete)
+  tmp[, pid_new := 1:nrow(tmp)]
+  dcati <- merge(dcati, tmp, by = 'pid')
+  setnames(dcati, c('pid','oid','oidt','pid_new'), c('pid_orig','oid_orig','oidt_orig','pid') )
+  dcati[, oid := 1:nrow(dcati)]
+  tmp <- dcati[, list(oid = oid, oidt = 1:length(y_stan)), by = 'item_type' ]
+  dcati <- merge(dcati, tmp, by  = c('item_type','oid'))
+  cat('\nNumber of observations',nrow(dcati))
+  
+  upgcm_m1_all2_fit <- NULL
+  gc()
+  if (0)
+  {
+  # define data in format needed for model specification
+  stan_data <- list()
+  stan_data$P <- 1L
+  stan_data$U <- max(dcati$pid)
+  stan_data$Ncat1 <- nrow(dcati[item_type == 'categorical',])
+  stan_data$Qcat1 <- max(dcati[item_type == 'categorical', item_time_id])
+  stan_data$Kcat1 <- length(unique(dcati[item_type == 'categorical', y_stan]))
+  stan_data$cat1_y <- dcati[item_type == 'categorical', y_stan]
+  stan_data$cat1_question_of_obs <- dcati[item_type == 'categorical', item_time_id]
+  stan_data$cat1_unit_of_obs <- dcati[item_type == 'categorical', pid]
+  stan_data$cat1_X <- as.matrix(dcati[item_type == 'categorical', time - 1L], ncol = 1)
+  stan_data$Ncat2 <- nrow(dcati[item_type == 'out-of-7',])
+  stan_data$Qcat2 <- max(dcati[item_type == 'out-of-7', item_time_id])
+  stan_data$Kcat2 <- length(unique(dcati[item_type == 'out-of-7', y_stan]))
+  stan_data$cat2_y <- dcati[item_type == 'out-of-7', y_stan]
+  stan_data$cat2_question_of_obs <- dcati[item_type == 'out-of-7', item_time_id]
+  stan_data$cat2_unit_of_obs <- dcati[item_type == 'out-of-7', pid]
+  stan_data$cat2_X <- as.matrix(dcati[item_type == 'out-of-7', time - 1L], ncol = 1)
+  
+  # sample
+  upgcm_m1_all2_fit <- ugpcm_m1_compiled$sample(
+    data = stan_data,
+    seed = 123,
+    chains = 2,
+    parallel_chains = 2,
+    iter_warmup = 5e2,
+    iter_sampling = 15e2,
+    refresh = 500,
+    save_warmup = TRUE
+    )
+
+  # save output to RDS
+  upgcm_m1_all2_fit$save_object(file = file.path(dir.out, paste0(file.prefix,"_",i,"_stan.rds")))
+  }
+  if (1)
+  {
+  upgcm_m1_all2_fit <- NULL
+  gc()
+  upgcm_m1_all2_fit <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_",i,"_stan.rds")))
+  }
+  
+  #	check convergence and check mixing
+  #	get 95% credible intervals
+  tmp <- upgcm_m1_all2_fit$summary(
+    variables = c('latent_factor_unit', 'latent_factor_beta',
+                  'cat1_skill_thresholds_1','cat1_skill_thresholds_incs','cat1_loadings_questions',
+                  'cat2_skill_thresholds_1','cat2_skill_thresholds_incs','cat2_loadings_questions'
+                  ),
+    posterior::default_summary_measures(),
+    posterior::default_convergence_measures(),
+    extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+    )
+  tmp <- as.data.table(tmp)
+  tmp <- tmp[order(ess_bulk),]
+  write.csv(tmp, file = file.path(dir.out, paste0(file.prefix,'_',i,'_convergence_mixing.csv')))
+  
+  # worst 14 parameters with lowest ess_bulk
+  worst_var <- tmp$variable[ 1:9 ]
+
+  # extract samples
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c("lp__", worst_var),
+    inc_warmup = TRUE,
+    format = "draws_array"
+    )
+
+  # make worst trace plot
+  p <- bayesplot:::mcmc_trace(po,  
+                              pars = c("lp__",worst_var), 
+                              n_warmup = 500,
+                              facet_args = list(nrow = 2)
+                              )
+  p <- p + theme_bw()
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_worsttrace.png')), 
+       plot = p, 
+       h = 10, 
+       w = 20
+       )
+  
+  # make intervals/areas plot
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('latent_factor_unit', 'latent_factor_beta',
+                'cat1_skill_thresholds_1','cat1_skill_thresholds_incs','cat1_loadings_questions',
+                'cat2_skill_thresholds_1','cat2_skill_thresholds_incs','cat2_loadings_questions'
+                ),
+    inc_warmup = FALSE,
+    format = "draws_array"
+    )
+
+  color_scheme_set("teal")
+  p <- bayesplot::mcmc_intervals(po, prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2) + theme_bw()
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_intervals.png')), 
+       plot = p, 
+       h = 50, 
+       w = 8, 
+       limitsize = FALSE
+       )
+  
+  p <- bayesplot::mcmc_areas(po, prob = 0.5, prob_outer = 0.95, point_est = 'median') + theme_bw()
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_areas.png')), 
+       plot = p, 
+       h = 150, 
+       w = 8, 
+       limitsize = FALSE
+       )
+  
+  # make posterior predictive check
+
+  # create median and 95\% credible intervals
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat1_ypred','cat2_ypred'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'ypred')
+  po[, item_type := gsub('([a-z0-9_]+)\\[([0-9]+)\\]','\\1',variable) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+)\\]','\\2',variable)) ]
+  tmp <- po[, which(grepl('cat2',item_type))]
+  set(po, tmp, 'item_type', 'out-of-7')
+  set(po, po[, which(grepl('ypred',item_type))], 'item_type', 'categorical')  
+
+  pos <- 
+    po[,
+       list( summary_value = quantile(ypred, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+           summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+           ),
+       by = c('item_type','oidt')
+       ]
+  pos <- 
+    data.table::dcast(pos,
+                    item_type + oidt ~ summary_name, 
+                    value.var = 'summary_value'
+                    )
+
+  pos <- merge(pos, dcati, by = c('item_type','oidt'))
+  pos[, IN_PPI := y_stan >= q_lower & y_stan <= q_upper]
+  pos[, mean(IN_PPI)]
+
+  # plot posterior predictive check
+  p <- ggplot(pos, aes(x = oid, group = oid)) + 
+    geom_boxplot( aes( ymin = q_lower,
+                     lower = iqr_lower,
+                     middle = median,
+                     upper = iqr_upper,
+                     ymax = q_upper),
+                stat = 'identity') +
+    geom_point( aes(y = y_stan, colour = IN_PPI ) ) +
+    facet_grid(item_label ~ time_label, scales = 'free') +
+    scale_x_discrete() +
+    scale_y_continuous() +
+    ggsci::scale_color_npg() +
+    labs(x = '', 
+         y = 'outcome', 
+         colour = 'within\n95% posterior\nprediction\ninterval') +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1))
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_ppcheck.png')), 
+       p, 
+       w = 20, 
+       h = 20)
+  
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat1_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'categorical',], select = c(oidt, pid, item_time_id, time )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- po[, list(prob = mean(prob)), by = c('.draw','time','item_time_id','y_stan')]
+  pos <- po[, 
+          list( summary_value = quantile(prob, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                ), 
+          by = c('time','item_time_id','y_stan')
+          ]
+  pos <- data.table::dcast(pos, time + item_time_id + y_stan ~ summary_name, value.var = 'summary_value')
+  tmp <- unique( subset(dcati[item_type == 'categorical',], select = c(time, time_label)) )
+  pos <- merge(pos, tmp, by = c('time'))
+  tmp <- unique( subset(dcati[item_type == 'categorical',], select = c(item_time_id, item_label)) )
+  pos <- merge(pos, tmp, by = c('item_time_id'))
+  tmp <- unique( subset(dcati[item_type == 'categorical',], select = c(y, y_stan, y_label)) )
+  pos <- merge(pos, tmp, by = c('y_stan'))
+  tmp <- dcati[item_type == 'categorical', list(n = length(pid)), by = c('time_label','item_label','y_label')]
+  tmp2 <- tmp[, list(total = sum(n)), by = c('time_label','item_label')]
+  tmp <- merge(tmp, tmp2, by = c('time_label','item_label'))
+  tmp[, p_emp := n/total]
+  pos <- merge(pos, subset(tmp, select = -c(n, total)), by = c('time_label','item_label','y_label'), all.x = TRUE)
+  set(pos, pos[, which(is.na(p_emp))], 'p_emp', 0.)
+  pos[, y_stan := NULL]
+  pos.cat <- copy(pos)
+
+
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat2_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'out-of-7',], select = c(oidt, pid, item_time_id, time )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- po[, list(prob = mean(prob)), by = c('.draw','time','item_time_id','y_stan')]
+  pos <- po[, 
+          list( summary_value = quantile(prob, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                ), 
+          by = c('time','item_time_id','y_stan')
+          ]
+  pos <- data.table::dcast(pos, time + item_time_id + y_stan ~ summary_name, value.var = 'summary_value')
+  tmp <- unique( subset(dcati[item_type == 'out-of-7',], select = c(time, time_label)) )
+  pos <- merge(pos, tmp, by = c('time'))
+  tmp <- unique( subset(dcati[item_type == 'out-of-7',], select = c(item_time_id, item_label)) )
+  pos <- merge(pos, tmp, by = c('item_time_id'))
+  tmp <- unique( subset(dcati[item_type == 'out-of-7',], select = c(y, y_stan, y_label)) )
+  pos <- merge(pos, tmp, by = c('y_stan'))
+  tmp <- dcati[item_type == 'out-of-7', list(n = length(pid)), by = c('time_label','item_label','y_label')]
+  tmp2 <- tmp[, list(total = sum(n)), by = c('time_label','item_label')]
+  tmp <- merge(tmp, tmp2, by = c('time_label','item_label'))
+  tmp[, p_emp := n/total]
+  pos <- merge(pos, subset(tmp, select = -c(n, total)), by = c('time_label','item_label','y_label'), all.x = TRUE)
+  set(pos, pos[, which(is.na(p_emp))], 'p_emp', 0.)
+  pos[, y_stan := NULL]
+  pos.cat2 <- copy(pos)
+
+  pos <- rbind(pos.cat, pos.cat2)
+  pos <- merge(pos, dit, by = c('item_label'))
+  pos[, item_label_long := paste0(group_label_long,' --- ',item_label_short)]
+
+  pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(pos[, length(unique(item_label))])
+
+
+  p <- ggplot(pos, aes(x = y_label, group = interaction(item_label_long, y_label))) +
+    geom_col(aes(fill = item_label_long, y = p_emp), 
+           position = position_dodge(width = 0.9, preserve = "single"), 
+           alpha = 0.8,
+           width = 0.8 ) +
+    geom_boxplot( aes(ymin = q_lower, lower = iqr_lower, middle = median, upper = iqr_upper, ymax = q_upper), 
+                position = position_dodge(0.9, preserve = "single"),
+                stat = 'identity',
+                alpha = 0,
+                width = 0.3) +
+    scale_y_continuous(labels = scales::percent) +
+    scale_fill_manual(values = pal) +
+    facet_wrap(group_label_long ~ time_label, scales = "free_x", ncol = 2) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        ) +
+    labs(x = '', y = 'proportion of outcomes', fill = 'survey items') +
+    guides(fill = guide_legend(ncol = 3)) 
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_probs_barplot_v2.png')), 
+       plot = p, 
+       h = 40, 
+       w = 12
+       )
+  ggsave(file = file.path(dir.out, paste0(file.prefix,'_',i,'_probs_barplot_v2.pdf')), 
+       plot = p, 
+       h = 40, 
+       w = 12
+       )
+}
+```
+
+# Compare interim runs
+
+```{r upgcm1all2_compare_runs, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+dir.home <- '/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan'
+dir.data <- file.path(dir.home, 'data')
+dir.out <- file.path(dir.home, 'colombia-251007')
+file.prefix <- 'cg_chi_all2_upgcm1_interim'
+upgcm_m1_all2_fit_11g <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_",11,"_stan.rds")))
+upgcm_m1_all2_fit_11b <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_",11,"_stan-bad-run.rds")))
+
+tmp <- upgcm_m1_all2_fit_11g$summary(
+    variables = c('latent_factor_unit', 'latent_factor_beta',
+                  'cat1_skill_thresholds_1','cat1_skill_thresholds_incs','cat1_loadings_questions',
+                  'cat2_skill_thresholds_1','cat2_skill_thresholds_incs','cat2_loadings_questions'
+                  ),
+    posterior::default_summary_measures(),
+    posterior::default_convergence_measures(),
+    extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+    )
+tmp <- as.data.table(tmp)
+tmp <- tmp[order(ess_bulk),]
+tmp[, interim_id := '11-good']
+dcmp <- copy(tmp)
+
+tmp <- upgcm_m1_all2_fit_11b$summary(
+    variables = c('latent_factor_unit', 'latent_factor_beta',
+                  'cat1_skill_thresholds_1','cat1_skill_thresholds_incs','cat1_loadings_questions',
+                  'cat2_skill_thresholds_1','cat2_skill_thresholds_incs','cat2_loadings_questions'
+                  ),
+    posterior::default_summary_measures(),
+    posterior::default_convergence_measures(),
+    extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+    )
+tmp <- as.data.table(tmp)
+tmp <- tmp[order(ess_bulk),]
+tmp[, interim_id := '11-bad']
+
+dcmp <- rbind(dcmp, tmp)
+p <- ggplot(dcmp, aes(x = variable, y = median, fill = factor(interim_id), ymin = q5, ymax = q95)) +
+  geom_col(position = position_dodge(0.9)) +
+  geom_errorbar(position = position_dodge(0.9), width = 0.3, colour = 'grey30') +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'bottom'
+        ) 
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_11-11_compare_intervals.pdf')), 
+       plot = p, 
+       h = 8, 
+       w = 100,
+       limitsize = FALSE
+       )
+
+tmp <- subset(dcmp, interim_id == '11-bad', select = c(variable, median))
+setnames(tmp, 'median', 'median_bad')
+tmp <- merge(subset(dcmp, interim_id == '11-good'), tmp, by = 'variable' )
+tmp <- subset(tmp, median_bad < q5 | median_bad > q95)
+tmp$variable
+# output: only latent factors!
+
+
+tmp <- upgcm_m1_all2_fit_11g$summary(
+    variables = c('log_lik'),
+    posterior::default_summary_measures(),
+    posterior::default_convergence_measures(),
+    extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+    )
+tmp <- as.data.table(tmp)
+tmp <- tmp[order(ess_bulk),]
+tmp[, interim_id := '11-good']
+tmp[, oid := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+)\\]','\\2',variable)) ]
+tmp <- merge(tmp , subset(dcat6, select = c(oid, pid, time, item_label)), by = 'oid')
+dcmp <- copy(tmp)
+
+tmp <- upgcm_m1_all2_fit_11b$summary(
+    variables = c('log_lik'),
+    posterior::default_summary_measures(),
+    posterior::default_convergence_measures(),
+    extra_quantiles = ~posterior::quantile2(., probs = c(.0275, .975))
+    )
+tmp <- as.data.table(tmp)
+tmp <- tmp[order(ess_bulk),]
+tmp[, interim_id := '11-bad']
+dcati <- subset(dcat6, submission_date <= di[11, interim_date])
+tmp2 <- dcati[, list(n = length(unique(time))), by = c('pid','item_label')]
+tmp2 <- tmp2[, list(complete = all(n == 2)), by = 'pid']
+tmp2 <- subset(tmp2, complete)
+tmp2[, pid_new := 1:nrow(tmp2)]
+dcati <- merge(dcati, tmp2, by = 'pid')
+
+
+
+```
+
+
+# Interim pre-post analyses endpoints
+
+```{r upgcm1all2_collect_effectiveness_estimates, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+#
+# second version, aggregate most + all of the time and compute mean for out-of-7
+# 
+ipos <- vector(mode = "list", length = nrow(di))
+
+for (i in 1:nrow(di))
+{
+  cat('\n\nProcess interim analysis',i,'\n\n')
+  dcati <- subset(dcat6, submission_date <= di[i, interim_date])
+  tmp <- dcati[, list(n = length(unique(time))), by = c('pid','item_label')]
+  tmp <- tmp[, list(complete = all(n == 2)), by = 'pid']
+  tmp <- subset(tmp, complete)
+  tmp[, pid_new := 1:nrow(tmp)]
+  dcati <- merge(dcati, tmp, by = 'pid')
+  setnames(dcati, c('pid','oid','oidt','pid_new'), c('pid_orig','oid_orig','oidt_orig','pid') )
+  dcati[, oid := 1:nrow(dcati)]
+  tmp <- dcati[, list(oid = oid, oidt = 1:length(y_stan)), by = 'item_type' ]
+  dcati <- merge(dcati, tmp, by  = c('item_type','oid'))
+  cat('\nNumber of observations',nrow(dcati))
+  
+  upgcm_m1_all2_fit <- NULL
+  gc()
+  upgcm_m1_all2_fit <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_",i,"_stan.rds")))
+  
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat1_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'categorical',], select = c(oidt, pid, item_label, item_time_id, item_type, time_label )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- subset(po, y_stan > 3)
+  po <- po[, list(y_stan = 45, prob = sum(prob)), by = c('.draw','oidt','pid','item_label','item_time_id','item_type','time_label')]
+  po <- data.table::dcast(po, .draw + pid + item_type + item_label ~ time_label, value.var = 'prob')
+  po <- subset(po, !is.na(Baseline) & !is.na(Endline))
+  po[, diff := Baseline - Endline]
+  po[, ratio := 1 - Endline / Baseline]
+  po <- po[, list(diff = mean(diff), ratio = mean(ratio)), by = c('.draw','item_type','item_label')]
+  po <- melt(po, id.vars = c('.draw','item_type','item_label'), measure.vars = c('diff','ratio'))
+  pos <- po[, 
+            list( summary_value = quantile(value, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                  summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                  ), 
+            by = c('item_type','item_label','variable')
+            ]
+  pos <- data.table::dcast(pos, item_type + item_label + variable ~ summary_name, value.var = 'summary_value')
+  pos <- merge(pos, dit, by = c('item_type','item_label'))
+  pos.cat1 <- copy(pos)
+  po <- NULL
+  gc()
+  
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat2_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'out-of-7',], select = c(oidt, pid, item_label, item_time_id, item_type, time_label )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- po[, list(mean = sum((y_stan - 1) * prob)), by = c('.draw','oidt','pid','item_label','item_time_id','item_type','time_label')]
+  po <- data.table::dcast(po, .draw + pid + item_type + item_label ~ time_label, value.var = 'mean')
+  po <- subset(po, !is.na(Baseline) & !is.na(Endline))
+  po <- merge(po, subset(dit, select = c(item_type, item_label, item_high_label)), by = c('item_type','item_label'))
+  po[, diff := NA_real_]
+  po[, ratio := NA_real_]
+  tmp <- po[, which(item_high_label == 'lower_is_better')]
+  set(po, tmp, 'diff', po[tmp, Baseline - Endline])
+  set(po, tmp, 'ratio', po[tmp, 1 - Endline / Baseline])
+  tmp <- po[, which(item_high_label == 'higher_is_better')]
+  set(po, tmp, 'diff', po[tmp, Endline - Baseline])
+  set(po, tmp, 'ratio', po[tmp, Endline / Baseline - 1])
+  po <- po[, list(diff = mean(diff), ratio = mean(ratio)), by = c('.draw','item_type','item_label','item_high_label')]
+  po <- melt(po, id.vars = c('.draw','item_type','item_label','item_high_label'), measure.vars = c('diff','ratio'))
+  pos <- po[, 
+            list( summary_value = quantile(value, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                  summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                  ), 
+            by = c('item_type','item_label','item_high_label','variable')
+            ]
+  pos <- data.table::dcast(pos, item_type + item_label + item_high_label + variable ~ summary_name, value.var = 'summary_value')
+  pos.cat2 <- copy(pos)
+  po <- NULL
+  gc()
+  
+  pos <- rbind( pos.cat1, pos.cat2 )
+  pos[, interim_id := i]
+  
+  ipos[[i]] <- copy(pos)
+}
+
+ipos <- rbindlist(ipos)
+ipos <- merge(di, ipos, by = 'interim_id')
+
+cat('\nwrite ipos to file=', file.path(dir.out, paste0(file.prefix,"_primary_endpoints_b.rds")))
+saveRDS(ipos, file = file.path(dir.out, paste0(file.prefix,"_primary_endpoints_b.rds")))
+```
+
+```{r upgcm1all2_effectiveness_estimates_plot, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+ipos <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_primary_endpoints_b.rds")))
+ipos[, interim_month_year := format(interim_date, "%Y-%b")] 
+ipos <- merge(ipos, dit, by = c('item_label','item_type'))
+ipos[, item_label_long := paste0(group_label_long,' --- ',item_label_short)]
+
+pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(pos[, length(unique(item_label))])
+    
+p <- ggplot(subset(ipos, variable == 'ratio'), aes(x = interim_month_year, colour = item_label_long, group = item_label_long)) +
+  geom_hline(yintercept = 0, colour = 'black') +
+  geom_line(aes(y = median)) +
+  geom_linerange(aes(ymin = q_lower, ymax = q_upper), 
+                 colour = 'grey50', 
+                 width = 0.3,
+                 position = position_dodge(width = 0.5)) +
+  scale_colour_manual(values = pal) +
+  scale_y_continuous(labels = scales::percent) +
+  facet_wrap(. ~ paste0(group_label_long,'\n( ',endpoint_measure,' )'), ncol = 4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'top'
+        ) +
+  guides(colour = guide_legend(ncol = 3)) +
+  labs(x = '\ninterim analysis date', y = 'improvement in outcomes\n(1-Endline/Baseline or Endline/Baseline-1)', colour = 'survey items') 
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_percentchanges_over_time.png')),
+       plot = p, 
+       h = 16, 
+       w = 14
+       )
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_percentchanges_over_time.pdf')),
+       plot = p, 
+       h = 16, 
+       w = 14
+       )
+
+p <- ggplot(subset(ipos, variable == 'diff'), aes(x = interim_month_year, colour = item_label_long, group = item_label_long)) +
+  geom_hline(yintercept = 0, colour = 'black') +
+  geom_line(aes(y = median)) +
+  geom_linerange(aes(ymin = q_lower, ymax = q_upper), 
+                 colour = 'grey50', 
+                 width = 0.3,
+                 position = position_dodge(width = 0.5)) +
+  scale_colour_manual(values = pal) +
+  facet_wrap(. ~ paste0(group_label_long,'\n( ',endpoint_measure,' )'), ncol = 4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'top'
+        ) +
+  guides(colour = guide_legend(ncol = 3)) +
+  labs(x = '\ninterim analysis date', y = 'improvement in outcomes\n(Endline - Baseline or Endline - Baseline)', colour = 'survey items') 
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_differences_over_time.png')),
+       plot = p, 
+       h = 16, 
+       w = 14
+       )
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_differences_over_time.pdf')),
+       plot = p, 
+       h = 16, 
+       w = 14
+       )
+```
+
+# Interim pre-post analyses items
+
+```{r upgcm1all2_collect_relative_effectiveness_estimates, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+#
+# second version, aggregate most + all of the time and compute mean for out-of-7
+# 
+ipos <- vector(mode = "list", length = nrow(di))
+
+for (i in 1:nrow(di))
+{
+  cat('\n\nProcess interim analysis',i,'\n\n')
+  dcati <- subset(dcat6, submission_date <= di[i, interim_date])
+  tmp <- dcati[, list(n = length(unique(time))), by = c('pid','item_label')]
+  tmp <- tmp[, list(complete = all(n == 2)), by = 'pid']
+  tmp <- subset(tmp, complete)
+  tmp[, pid_new := 1:nrow(tmp)]
+  dcati <- merge(dcati, tmp, by = 'pid')
+  setnames(dcati, c('pid','oid','oidt','pid_new'), c('pid_orig','oid_orig','oidt_orig','pid') )
+  dcati[, oid := 1:nrow(dcati)]
+  tmp <- dcati[, list(oid = oid, oidt = 1:length(y_stan)), by = 'item_type' ]
+  dcati <- merge(dcati, tmp, by  = c('item_type','oid'))
+  cat('\nNumber of observations',nrow(dcati))
+  
+  upgcm_m1_all2_fit <- NULL
+  gc()
+  upgcm_m1_all2_fit <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_",i,"_stan.rds")))
+  
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat1_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'categorical',], select = c(oidt, pid, item_label, item_time_id, item_type, time_label )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- subset(po, y_stan > 3)
+  po <- po[, list(y_stan = 45, prob = sum(prob)), by = c('.draw','oidt','pid','item_label','item_time_id','item_type','time_label')]
+  po <- data.table::dcast(po, .draw + pid + item_type + item_label ~ time_label, value.var = 'prob')
+  po <- subset(po, !is.na(Baseline) & !is.na(Endline))
+  po[, ratio := 1 - Endline / Baseline]
+  po <- po[, list(ratio = mean(ratio)), by = c('.draw','item_type','item_label')]
+  tmp <- po[, list(ratio_avg = mean(ratio)), by = c('.draw')]
+  po <- merge(po, tmp, by = '.draw')
+  po[, ratio := ratio/ratio_avg]
+  pos <- po[, 
+            list( summary_value = quantile(ratio, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                  summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                  ), 
+            by = c('item_type','item_label')
+            ]
+  pos <- data.table::dcast(pos, item_type + item_label ~ summary_name, value.var = 'summary_value')
+  pos <- merge(pos, dit, by = c('item_type','item_label'))
+  pos.cat1 <- copy(pos)
+  po <- NULL
+  gc()
+  
+  po <- upgcm_m1_all2_fit$draws(
+    variables = c('cat2_ordered_prob_by_obs'),
+    inc_warmup = FALSE,
+    format = "draws_df"
+    )
+  po <- as.data.table(po)
+  po <- data.table::melt(po, id.vars = c('.draw','.chain','.iteration'), value.name = 'prob')
+  po[, y_stan := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\3',variable)) ]
+  po[, oidt := as.integer(gsub('([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]','\\2',variable)) ]
+  set(po, NULL, 'variable', NULL)
+  tmp <- unique(subset(dcati[item_type == 'out-of-7',], select = c(oidt, pid, item_label, item_time_id, item_type, time_label )))
+  po <- merge(po, tmp, by = c('oidt'))
+  po <- po[, list(mean = sum((y_stan - 1) * prob)), by = c('.draw','oidt','pid','item_label','item_time_id','item_type','time_label')]
+  po <- data.table::dcast(po, .draw + pid + item_type + item_label ~ time_label, value.var = 'mean')
+  po <- subset(po, !is.na(Baseline) & !is.na(Endline))
+  po <- merge(po, subset(dit, select = c(item_type, item_label, item_high_label)), by = c('item_type','item_label'))
+  po[, ratio := NA_real_]
+  tmp <- po[, which(item_high_label == 'lower_is_better')]
+  set(po, tmp, 'ratio', po[tmp, 1 - Endline / Baseline])
+  tmp <- po[, which(item_high_label == 'higher_is_better')]
+  set(po, tmp, 'ratio', po[tmp, Endline / Baseline - 1])
+  po <- po[, list(ratio = mean(ratio)), by = c('.draw','item_type','item_label','item_high_label')]
+  tmp <- po[, list(ratio_avg = mean(ratio)), by = '.draw']
+  po <- merge(po, tmp, by = '.draw')
+  po[, ratio := ratio/ratio_avg]
+  pos <- po[, 
+            list( summary_value = quantile(ratio, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                  summary_name = c('q_lower','iqr_lower','median','iqr_upper','q_upper') 
+                  ), 
+            by = c('item_type','item_label','item_high_label')
+            ]
+  pos <- data.table::dcast(pos, item_type + item_label + item_high_label ~ summary_name, value.var = 'summary_value')
+  pos <- merge(pos, dit, by = c('item_type','item_label','item_high_label'))
+  pos.cat2 <- copy(pos)
+  po <- NULL
+  gc()
+  
+  pos <- rbind( pos.cat1, pos.cat2 )
+  pos[, interim_id := i]
+  
+  ipos[[i]] <- copy(pos)
+}
+
+ipos <- rbindlist(ipos)
+ipos <- merge(di, ipos, by = 'interim_id')
+
+cat('\nwrite ipos to file=', file.path(dir.out, paste0(file.prefix,"_primary_endpoints_c.rds")))
+saveRDS(ipos, file = file.path(dir.out, paste0(file.prefix,"_primary_endpoints_c.rds")))
+```
+```{r upgcm1all2_relative_effectiveness_estimates_plot, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+ipos <- readRDS(file = file.path(dir.out, paste0(file.prefix,"_primary_endpoints_c.rds")))
+ipos[, interim_month_year := format(interim_date, "%Y-%b")] 
+ipos[, item_label_long := paste0(group_label_long,' --- ',item_label_short)]
+
+pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(pos[, length(unique(item_label))])
+    
+p <- ggplot(ipos, aes(x = interim_month_year, colour = item_label_long, group = item_label_long)) +
+  geom_hline(yintercept = 1, colour = 'black') +
+  geom_line(aes(y = median)) +
+  geom_linerange(aes(ymin = q_lower, ymax = q_upper), 
+                 colour = 'grey50', 
+                 width = 0.3,
+                 position = position_dodge(width = 0.5)) +
+  scale_colour_manual(values = pal) +
+  facet_wrap(. ~ paste0(group_label_long,'\n( ',endpoint_measure,' )'), ncol = 4) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45,vjust = 1,hjust = 1),
+        legend.position = 'top'
+        ) +
+  guides(colour = guide_legend(ncol = 3)) +
+  labs(x = '\ninterim analysis date', y = 'improvement in outcomes relative to average improvement', colour = 'survey items') 
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_relativeimprovement_over_time.png')),
+       plot = p, 
+       h = 12, 
+       w = 14
+       )
+ggsave(file = file.path(dir.out, paste0(file.prefix,'_relativeimprovement_over_time.pdf')),
+       plot = p, 
+       h = 12, 
+       w = 14
+       )
+```

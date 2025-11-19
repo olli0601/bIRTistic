@@ -1,0 +1,59 @@
+---
+title: "03. Jordan Interim Analysis"
+output: html_document
+date: "2025-05-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load packages
+library(lmerTest)
+library(clubSandwich)
+library(rstanarm)
+library(rstan)
+library(tidyverse)
+library(data.table)
+library(purrr)
+```
+
+```{r}
+# Read in data
+read_csv() # dataset titled JORDAN_DATASET_4_Olli.csv
+```
+
+Model with a random effect on participant to nest participant within timepoint, and with a fixed effect on facilitator to control for any differences across facilitator strata.
+
+```{r}
+  formula <-
+    paste0(
+      "PHQ_total", # NOTE: Can change this to outcome, then include a list of all outcomes to be run through function. For now, I have only looked at mental health.
+      " ~ ",
+      "treatment_arm",
+      "*",
+      "timepoint",
+      "+",
+      "facilitator_name",
+      "+",
+      "(",
+      "1",
+      "|",
+      "f_participants",
+      ")"
+       
+    )
+  
+stan <- stan_lmer(as.formula(formula), iter = 100, chains = 4, cores = 1, data=final_dataset,  refresh=0, prior = normal(0,2.5))
+
+summary(stan)
+# parameters::parameters(stan)
+
+parameters::parameters(stan)[5,2:5] %>% round(2)
+
+# OPTIONAL: Also including frequentist code to compare 
+example_model <- lmer(as.formula(formula), data=JORDAN_DATASET_4_Olli.csv)
+summary(example_model)
+
+```
