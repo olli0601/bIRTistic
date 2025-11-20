@@ -70,11 +70,11 @@ install_and_load(required_packages)
 # Data loading and pre-processing
 
 ```{r Define data locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-dir.home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
-dir.data <- file.path(dir.home, "data")
-dir.out <- file.path(dir.home, "colombia-251007")
-file.data <- file.path(dir.data, "Colombia_data_baseline_endline_itemised_250927.csv")
-file.data.quasi <- file.path(dir.data, "Colombia_data_quasi_assignments_250927.csv")
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_data <- file.path(dir_home, "data")
+dir_out <- file.path(dir_home, "colombia-251007")
+file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
+file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
 set.seed(42L)
 ```
 
@@ -89,7 +89,7 @@ setnames(
 )
 
 # Separate out meta data/ covariates
-col.meta <- c(
+col_meta <- c(
   "age", "sex", "household_adults", "household_children", "child_impairment",
   "education", "moved", "maritalstat", "income", "income.adj",
   "income.per.person", "outfhelp", "ngp", "services", "services_FOOD",
@@ -98,10 +98,10 @@ col.meta <- c(
   "Months.since.caregiver.death", "Months.since.caregiver.death.v2",
   "Months.since.caregiver.death.v3"
 )
-dmeta <- subset(dp, select = c("pid", "time_label", col.meta))
+dmeta <- subset(dp, select = c("pid", "time_label", col_meta))
 
 # Keep core outcome data
-set(dp, NULL, col.meta, NULL)
+set(dp, NULL, col_meta, NULL)
 
 # Clean up outcome labels
 setnames(
@@ -262,7 +262,7 @@ dit[, endpoint_measure := sapply(item_type, function(x) {
 ```{r data_viz_response_frequencies, include=TRUE, eval=TRUE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 # Select ordered categorical outcome
 dp1 <- subset(dp, !grepl("agg", item_label))
-file.prefix <- "colombia_end_"
+file_prefix <- "colombia_end_"
 
 # Frequency plot
 tmp <- dp1[
@@ -296,13 +296,13 @@ p <- ggplot(tmp, aes(x = y_label, y = p)) +
   labs(x = "", fill = "survey items", y = "proportion of outcomes") +
   guides(fill = guide_legend(ncol = 3))
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "response_frequencies.png")),
+  file = file.path(dir_out, paste0(file_prefix, "response_frequencies.png")),
   plot = p,
   h = 40,
   w = 12
 )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "response_frequencies.pdf")),
+  file = file.path(dir_out, paste0(file_prefix, "response_frequencies.pdf")),
   plot = p,
   h = 40,
   w = 12
@@ -311,7 +311,7 @@ ggsave(
 
 ```{r data_participants over time, include=TRUE, eval=TRUE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 dp1 <- subset(dp, !grepl("agg", item_label))
-file.prefix <- "colombia_interim_"
+file_prefix <- "colombia_interim_"
 
 tmp <- dp1[time_label == "Endline",
   list(n_pid = length(unique(pid))),
@@ -328,7 +328,7 @@ p <- ggplot(tmp, aes(x = submission_date, y = cn_pid)) +
   ) +
   labs(x = "Endline assessment completed", y = "total number participants")
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "accrueing_number_participants.png")),
+  file = file.path(dir_out, paste0(file_prefix, "accrueing_number_participants.png")),
   plot = p,
   h = 7,
   w = 7
@@ -344,16 +344,20 @@ di <- data.table(
 di[, interim_id := seq_len(nrow(di))]
 ```
 
-# Fit unstructured generalised partial credit model at each interim
+# Fit credit model at each interim
 
 The Stan model is defined in `src/stan/credit_model_2cats_v251120.stan`.
 
 ```{r upgcm1all_stan_code, include=TRUE, eval=TRUE, echo=TRUE, tidy=FALSE, cache=TRUE}
 # Get path to Stan model file
 stan_file <- here::here("src", "stan", "credit_model_2cats_v251120.stan")
+stan_include_dir <- here::here("src", "stan")
 
-# Compile Stan model
-ugpcm_m1_compiled <- cmdstanr::cmdstan_model(stan_file)
+# Compile Stan model with include path
+ugpcm_m1_compiled <- cmdstanr::cmdstan_model(
+  stan_file,
+  include_paths = stan_include_dir
+)
 ```
 
 ```{r upgcm1all2_prepare data, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
@@ -383,7 +387,7 @@ setkey(dcat6, pid, time, item_label)
 ```
 
 ```{r upgcm1all2_run_model, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
-file.prefix <- "cg_chi_all2_upgcm1_interim"
+file_prefix <- "cg_chi_all2_upgcm1_interim"
 for (i in seq_len(nrow(di))) {
   cat("\n\nProcess interim analysis", i, "\n\n")
   dcati <- subset(dcat6, submission_date <= di[i, interim_date])
@@ -448,14 +452,14 @@ for (i in seq_len(nrow(di))) {
 
     # save output to RDS
     upgcm_m1_all2_fit$save_object(
-      file = file.path(dir.out, paste0(file.prefix, "_", i, "_stan.rds"))
+      file = file.path(dir_out, paste0(file_prefix, "_", i, "_stan.rds"))
     )
   }
   if (1) {
     upgcm_m1_all2_fit <- NULL
     gc()
     upgcm_m1_all2_fit <- readRDS(
-      file = file.path(dir.out, paste0(file.prefix, "_", i, "_stan.rds"))
+      file = file.path(dir_out, paste0(file_prefix, "_", i, "_stan.rds"))
     )
   }
 
@@ -477,8 +481,8 @@ for (i in seq_len(nrow(di))) {
   tmp <- tmp[order(ess_bulk), ]
   write.csv(
     tmp,
-    file = file.path(dir.out, paste0(
-      file.prefix, "_", i,
+    file = file.path(dir_out, paste0(
+      file_prefix, "_", i,
       "_convergence_mixing.csv"
     ))
   )
@@ -501,7 +505,7 @@ for (i in seq_len(nrow(di))) {
   )
   p <- p + theme_bw()
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_worsttrace.png")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_worsttrace.png")),
     plot = p,
     h = 10,
     w = 20
@@ -526,7 +530,7 @@ for (i in seq_len(nrow(di))) {
     prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
   ) + theme_bw()
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_intervals.png")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_intervals.png")),
     plot = p,
     h = 50,
     w = 8,
@@ -538,7 +542,7 @@ for (i in seq_len(nrow(di))) {
     prob = 0.5, prob_outer = 0.95, point_est = "median"
   ) + theme_bw()
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_areas.png")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_areas.png")),
     plot = p,
     h = 150,
     w = 8,
@@ -608,7 +612,7 @@ for (i in seq_len(nrow(di))) {
     theme_bw() +
     theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_ppcheck.png")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_ppcheck.png")),
     p,
     w = 20,
     h = 20
@@ -672,7 +676,7 @@ for (i in seq_len(nrow(di))) {
   )
   set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
   pos[, y_stan := NULL]
-  pos.cat <- copy(pos)
+  pos_cat <- copy(pos)
 
   po <- upgcm_m1_all2_fit$draws(
     variables = c("cat2_ordered_prob_by_obs"),
@@ -732,9 +736,9 @@ for (i in seq_len(nrow(di))) {
   )
   set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
   pos[, y_stan := NULL]
-  pos.cat2 <- copy(pos)
+  pos_cat2 <- copy(pos)
 
-  pos <- rbind(pos.cat, pos.cat2)
+  pos <- rbind(pos_cat, pos_cat2)
   pos <- merge(pos, dit, by = c("item_label"))
   pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
 
@@ -772,13 +776,13 @@ for (i in seq_len(nrow(di))) {
     labs(x = "", y = "proportion of outcomes", fill = "survey items") +
     guides(fill = guide_legend(ncol = 3))
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_probs_barplot_v2.png")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_probs_barplot_v2.png")),
     plot = p,
     h = 40,
     w = 12
   )
   ggsave(
-    file = file.path(dir.out, paste0(file.prefix, "_", i, "_probs_barplot_v2.pdf")),
+    file = file.path(dir_out, paste0(file_prefix, "_", i, "_probs_barplot_v2.pdf")),
     plot = p,
     h = 40,
     w = 12
@@ -789,12 +793,12 @@ for (i in seq_len(nrow(di))) {
 # Compare interim runs
 
 ```{r upgcm1all2_compare_runs, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
-dir.home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
-dir.data <- file.path(dir.home, "data")
-dir.out <- file.path(dir.home, "colombia-251007")
-file.prefix <- "cg_chi_all2_upgcm1_interim"
-upgcm_m1_all2_fit_11g <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_", 11, "_stan.rds")))
-upgcm_m1_all2_fit_11b <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_", 11, "_stan-bad-run.rds")))
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_data <- file.path(dir_home, "data")
+dir_out <- file.path(dir_home, "colombia-251007")
+file_prefix <- "cg_chi_all2_upgcm1_interim"
+upgcm_m1_all2_fit_11g <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_", 11, "_stan.rds")))
+upgcm_m1_all2_fit_11b <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_", 11, "_stan-bad-run.rds")))
 
 tmp <- upgcm_m1_all2_fit_11g$summary(
   variables = c(
@@ -843,7 +847,7 @@ p <- ggplot(dcmp, aes(x = variable, y = median, fill = factor(interim_id), ymin 
     legend.position = "bottom"
   )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_11-11_compare_intervals.pdf")),
+  file = file.path(dir_out, paste0(file_prefix, "_11-11_compare_intervals.pdf")),
   plot = p,
   h = 8,
   w = 100,
@@ -920,7 +924,7 @@ for (i in seq_len(nrow(di))) {
 
   upgcm_m1_all2_fit <- NULL
   gc()
-  upgcm_m1_all2_fit <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_", i, "_stan.rds")))
+  upgcm_m1_all2_fit <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_", i, "_stan.rds")))
 
   po <- upgcm_m1_all2_fit$draws(
     variables = c("cat1_ordered_prob_by_obs"),
@@ -971,7 +975,7 @@ for (i in seq_len(nrow(di))) {
     value.var = "summary_value"
   )
   pos <- merge(pos, dit, by = c("item_type", "item_label"))
-  pos.cat1 <- copy(pos)
+  pos_cat1 <- copy(pos)
   po <- NULL
   gc()
 
@@ -1032,11 +1036,11 @@ for (i in seq_len(nrow(di))) {
     item_type + item_label + item_high_label + variable ~ summary_name,
     value.var = "summary_value"
   )
-  pos.cat2 <- copy(pos)
+  pos_cat2 <- copy(pos)
   po <- NULL
   gc()
 
-  pos <- rbind(pos.cat1, pos.cat2)
+  pos <- rbind(pos_cat1, pos_cat2)
   pos[, interim_id := i]
 
   ipos[[i]] <- copy(pos)
@@ -1045,14 +1049,14 @@ for (i in seq_len(nrow(di))) {
 ipos <- rbindlist(ipos)
 ipos <- merge(di, ipos, by = "interim_id")
 
-cat("\nwrite ipos to file=", file.path(dir.out, paste0(file.prefix, "_primary_endpoints_b.rds")))
+cat("\nwrite ipos to file=", file.path(dir_out, paste0(file_prefix, "_primary_endpoints_b.rds")))
 saveRDS(ipos,
-  file = file.path(dir.out, paste0(file.prefix, "_primary_endpoints_b.rds"))
+  file = file.path(dir_out, paste0(file_prefix, "_primary_endpoints_b.rds"))
 )
 ```
 
 ```{r upgcm1all2_effectiveness_estimates_plot, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
-ipos <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_primary_endpoints_b.rds")))
+ipos <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_primary_endpoints_b.rds")))
 ipos[, interim_month_year := format(interim_date, "%Y-%b")]
 ipos <- merge(ipos, dit, by = c("item_label", "item_type"))
 ipos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
@@ -1088,13 +1092,13 @@ p <- ggplot(
     colour = "survey items"
   )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_percentchanges_over_time.png")),
+  file = file.path(dir_out, paste0(file_prefix, "_percentchanges_over_time.png")),
   plot = p,
   h = 16,
   w = 14
 )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_percentchanges_over_time.pdf")),
+  file = file.path(dir_out, paste0(file_prefix, "_percentchanges_over_time.pdf")),
   plot = p,
   h = 16,
   w = 14
@@ -1128,13 +1132,13 @@ p <- ggplot(
     colour = "survey items"
   )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_differences_over_time.png")),
+  file = file.path(dir_out, paste0(file_prefix, "_differences_over_time.png")),
   plot = p,
   h = 16,
   w = 14
 )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_differences_over_time.pdf")),
+  file = file.path(dir_out, paste0(file_prefix, "_differences_over_time.pdf")),
   plot = p,
   h = 16,
   w = 14
@@ -1169,7 +1173,7 @@ for (i in seq_len(nrow(di))) {
 
   upgcm_m1_all2_fit <- NULL
   gc()
-  upgcm_m1_all2_fit <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_", i, "_stan.rds")))
+  upgcm_m1_all2_fit <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_", i, "_stan.rds")))
 
   po <- upgcm_m1_all2_fit$draws(
     variables = c("cat1_ordered_prob_by_obs"),
@@ -1221,7 +1225,7 @@ for (i in seq_len(nrow(di))) {
     value.var = "summary_value"
   )
   pos <- merge(pos, dit, by = c("item_type", "item_label"))
-  pos.cat1 <- copy(pos)
+  pos_cat1 <- copy(pos)
   po <- NULL
   gc()
   po <- upgcm_m1_all2_fit$draws(
@@ -1278,11 +1282,11 @@ for (i in seq_len(nrow(di))) {
     value.var = "summary_value"
   )
   pos <- merge(pos, dit, by = c("item_type", "item_label", "item_high_label"))
-  pos.cat2 <- copy(pos)
+  pos_cat2 <- copy(pos)
   po <- NULL
   gc()
 
-  pos <- rbind(pos.cat1, pos.cat2)
+  pos <- rbind(pos_cat1, pos_cat2)
   pos[, interim_id := i]
 
   ipos[[i]] <- copy(pos)
@@ -1291,11 +1295,11 @@ for (i in seq_len(nrow(di))) {
 ipos <- rbindlist(ipos)
 ipos <- merge(di, ipos, by = "interim_id")
 
-cat("\nwrite ipos to file=", file.path(dir.out, paste0(file.prefix, "_primary_endpoints_c.rds")))
-saveRDS(ipos, file = file.path(dir.out, paste0(file.prefix, "_primary_endpoints_c.rds")))
+cat("\nwrite ipos to file=", file.path(dir_out, paste0(file_prefix, "_primary_endpoints_c.rds")))
+saveRDS(ipos, file = file.path(dir_out, paste0(file_prefix, "_primary_endpoints_c.rds")))
 ```
 ```{r upgcm1all2_relative_effectiveness_estimates_plot, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
-ipos <- readRDS(file = file.path(dir.out, paste0(file.prefix, "_primary_endpoints_c.rds")))
+ipos <- readRDS(file = file.path(dir_out, paste0(file_prefix, "_primary_endpoints_c.rds")))
 ipos[, interim_month_year := format(interim_date, "%Y-%b")]
 ipos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
 
@@ -1329,13 +1333,13 @@ p <- ggplot(
     colour = "survey items"
   )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_relativeimprovement_over_time.png")),
+  file = file.path(dir_out, paste0(file_prefix, "_relativeimprovement_over_time.png")),
   plot = p,
   h = 12,
   w = 14
 )
 ggsave(
-  file = file.path(dir.out, paste0(file.prefix, "_relativeimprovement_over_time.pdf")),
+  file = file.path(dir_out, paste0(file_prefix, "_relativeimprovement_over_time.pdf")),
   plot = p,
   h = 12,
   w = 14
