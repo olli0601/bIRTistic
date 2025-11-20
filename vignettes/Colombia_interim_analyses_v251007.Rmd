@@ -384,8 +384,7 @@ setkey(dcat6, pid, time, item_label)
 
 ```{r upgcm1all2_run_model, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
 file.prefix <- "cg_chi_all2_upgcm1_interim"
-for (i in seq_len(nrow(di)))
-{
+for (i in seq_len(nrow(di))) {
   cat("\n\nProcess interim analysis", i, "\n\n")
   dcati <- subset(dcat6, submission_date <= di[i, interim_date])
   tmp <- dcati[, list(n = length(unique(time))), by = c("pid", "item_label")]
@@ -901,8 +900,7 @@ dcati <- merge(dcati, tmp2, by = "pid")
 #
 ipos <- vector(mode = "list", length = nrow(di))
 
-for (i in seq_len(nrow(di)))
-{
+for (i in seq_len(nrow(di))) {
   cat("\n\nProcess interim analysis", i, "\n\n")
   dcati <- subset(dcat6, submission_date <= di[i, interim_date])
   tmp <- dcati[, list(n = length(unique(time))), by = c("pid", "item_label")]
@@ -1151,8 +1149,7 @@ ggsave(
 #
 ipos <- vector(mode = "list", length = nrow(di))
 
-for (i in seq_len(nrow(di)))
-{
+for (i in seq_len(nrow(di))) {
   cat("\n\nProcess interim analysis", i, "\n\n")
   dcati <- subset(dcat6, submission_date <= di[i, interim_date])
   tmp <- dcati[, list(n = length(unique(time))), by = c("pid", "item_label")]
