@@ -44,11 +44,16 @@ install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOpt
 
 # Verify CmdStan installation
 cmdstanr::check_cmdstan_toolchain(fix = TRUE)
-cmdstanr::install_cmdstan()
 
-# Install any other missing packages
-packages <- c("data.table", "ggplot2", "ggsci", "bayesplot", 
-              "argparse", "here", "knitr", "posterior")
+# Install all required R packages
+packages <- c(
+  "data.table", "here", "purrr",
+  "ggplot2", "ggsci", "hexbin", "bayesplot", "scales",
+  "knitr", "kableExtra", "rmarkdown", "bookdown",
+  "loo", "posterior",
+  "polycor", "GGally",
+  "argparse"
+)
 install.packages(packages[!packages %in% installed.packages()[,"Package"]])
 ```
 

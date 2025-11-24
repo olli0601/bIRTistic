@@ -3,48 +3,12 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  # R and core dependencies
-  - r-base>=4.3.0
-  - r-essentials
+  # R 4.5.2
+  - r-base=4.5.2
   
-  # Stan and CmdStan
-  - cmdstan>=2.33.0
+  # CmdStan 2.37
+  - cmdstan=2.37
   
-  # R packages for data manipulation
-  - r-data.table
-  - r-here
-  - r-purrr
-  
-  # R packages for visualization
-  - r-ggplot2
-  - r-ggsci
-  - r-hexbin
-  - r-bayesplot
-  - r-scales
-  
-  # R packages for reporting
-  - r-knitr
-  - r-kableextra
-  - r-rmarkdown
-  - r-bookdown
-  
-  # R packages for Bayesian analysis
-  - r-loo
-  - r-posterior
-  
-  # R packages for correlation/plotting
-  - r-polycor
-  - r-ggally
-  
-  # Command line argument parsing
-  - r-argparse
-  
-  # Build tools
+  # Build tools (required for CmdStan and package compilation)
   - make
   - cxx-compiler
-  
-  # Additional dependencies via pip (for cmdstanr and other R packages not in conda)
-  - pip
-  - pip:
-    - jupyter
-    - notebook
