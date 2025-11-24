@@ -1,0 +1,101 @@
+---
+title: "Colombia validate credit model"
+date: "2025-11-24"
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Install packages
+
+```{r load-packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Install and load packages
+packages <- c(
+    "data.table",
+    "here",
+    "purrr",
+    "ggplot2",
+    "ggsci",
+    "hexbin",
+    "bayesplot",
+    "knitr",
+    "kableExtra",
+    "cmdstanr",
+    "loo",
+    "polycor",
+    "GGally"
+)
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+source(here::here("R", "read_data_colombia.R"))
+```
+
+# Data loading and pre-processing
+
+```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_data <- file.path(dir_home, "data")
+dir_out <- file.path(dir_home, "colombia-251007")
+file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
+file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
+set.seed(42L)
+```
+
+```{r load-and-preprocess-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data
+tmp <- read_data_colombia(file_data)
+dp <- copy(tmp$dp)
+dit <- copy(tmp$dit)
+dmeta <- copy(tmp$dmeta)
+```
+
+```{r load-and-preprocess-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data
+tmp <- read_data_colombia(file_data)
+dp <- copy(tmp$dp)
+dit <- copy(tmp$dit)
+dmeta <- copy(tmp$dmeta)
+
+dp1 <- subset(dp, !grepl("agg", item_label))
+```
+
+```{r split-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+set.seed(42L)
+test_individuals_p <- 0.5
+test_items_p <- 0.5
+
+dp1[, oid := .I]
+dtest <- data.table(pid = unique(dp1$pid))
+dtest[, is_test_individual := rbinom(.N, 1, test_individuals_p)]
+dtest <- merge(dtest, unique(subset(dp1, select = c("pid", "item_label"))), by = "pid")
+dtest <- subset(dtest, is_test_individual == 1L)
+dtest <- dtest[,
+    list(item_label, is_test_item = as.integer(runif(length(item_label)) <= test_items_p)),
+    by = "pid"
+]
+dtest <- subset(dtest, is_test_item == 1L, select = c("pid", "item_label"))
+dp1[is_test_individual == 1L, list(item_label = unique(item_label)), by = "pid"]
+```

@@ -22,39 +22,25 @@ cd bIRTistic
 
 ### Step 2: Create conda environment
 
-Using conda:
+Using Imperial HPC:
 ```bash
-conda env create -f bIRTistic.yml
-conda activate birtistic
-```
-
-Or using mamba (faster):
-```bash
-mamba env create -f bIRTistic.yml
+module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
+eval "$(mamba shell hook --shell bash)"
+mamba env create -f bIRTistic.yml -y
 mamba activate birtistic
 ```
 
 ### Step 3: Install R packages not available in conda
 
-After activating the environment, open R and install the remaining packages:
+After activating the environment, install the remaining R packages:
 
-```r
-# Install cmdstanr from Stan's R-universe
-install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))
-
-# Verify CmdStan installation
-cmdstanr::check_cmdstan_toolchain(fix = TRUE)
-
-# Install all required R packages
-packages <- c(
-  "data.table", "here", "purrr",
-  "ggplot2", "ggsci", "hexbin", "bayesplot", "scales",
-  "knitr", "kableExtra", "rmarkdown", "bookdown",
-  "loo", "posterior",
-  "polycor", "GGally",
-  "argparse"
-)
-install.packages(packages[!packages %in% installed.packages()[,"Package"]])
+```bash
+# installing data.table requires zlib
+Rscript -e "packages <- c('data.table'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')"
+# installing cmdstanr
+Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'), ask = false)"
+# installing everything else; xml2 requires libxml2/2.11.5-GCCcore-13.2.0
+Rscript -e "packages <- c('here', 'purrr', 'ggplot2', 'ggsci', 'hexbin', 'bayesplot', 'scales', 'knitr', 'kableExtra', 'rmarkdown', 'bookdown', 'loo', 'posterior', 'polycor', 'GGally', 'argparse'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
 ```
 
 ### Step 4: Verify installation
@@ -62,7 +48,11 @@ install.packages(packages[!packages %in% installed.packages()[,"Package"]])
 Test that everything is working:
 
 ```bash
+# check using the latest version of cmdstan
 Rscript -e "library(cmdstanr); cmdstanr::cmdstan_version()"
+
+# check Hello World Bernoulli model compiles and runs
+Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500);"
 ```
 
 ## Project Structure
