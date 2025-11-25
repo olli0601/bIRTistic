@@ -8,5 +8,5 @@ dependencies:
   - make
   - tbb
 variables:
-  CMDSTAN: ${HOME}/.cache/cmdstan/2.37.0
+  CMDSTAN: ${HOME}/miniforge3/envs/cmdstan-build
   
