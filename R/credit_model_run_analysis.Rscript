@@ -1,0 +1,130 @@
+#!/usr/bin/env Rscript
+
+# Self-contained script to run analysis on arbitrary datasets
+# Designed for execution on HPC/cloud systems
+#
+# Usage:
+#   Rscript run_interim_analysis.R \
+#     --stan_file <path_to_stan_model> \
+#     --stan_include_dir <path_to_stan_includes> \
+#     --dit_file <path_to_dit_rds> \
+#     --dcati_file <path_to_dcati_rds> \
+#     --job_id <integer> \
+#     --output_dir <path_to_output> \
+#     --output_prefix <prefix_string> \
+#     --chains <integer> \
+#     --parallel_chains <integer> \
+#     --iter_warmup <integer> \
+#     --iter_sampling <integer>
+
+# Load required packages
+suppressPackageStartupMessages({
+    library(data.table)
+    library(ggplot2)
+    library(ggsci)
+    library(bayesplot)
+    library(cmdstanr)
+    library(argparse)
+})
+
+# Parse command line arguments using argparse
+parser <- ArgumentParser(description = "Run analysis on arbitrary datasets")
+
+# Required arguments
+parser$add_argument("--stan_file",
+    required = TRUE,
+    help = "Path to Stan model file"
+)
+parser$add_argument("--stan_include_dir",
+    required = TRUE,
+    help = "Directory containing Stan include files"
+)
+parser$add_argument("--dit_file",
+    required = TRUE,
+    help = "Path to dit RDS file"
+)
+parser$add_argument("--dcati_file",
+    required = TRUE,
+    help = "Path to dcati RDS file (pre-processed data)"
+)
+parser$add_argument("--job_id",
+    type = "integer", required = TRUE,
+    help = "Integer ID for this analysis job"
+)
+parser$add_argument("--output_dir",
+    required = TRUE,
+    help = "Directory for output files"
+)
+parser$add_argument("--output_prefix",
+    required = TRUE,
+    help = "Prefix for output filenames"
+)
+
+# Optional arguments with defaults
+parser$add_argument("--chains",
+    type = "integer", default = 2L,
+    help = "Number of MCMC chains (default: 2)"
+)
+parser$add_argument("--parallel_chains",
+    type = "integer", default = 2L,
+    help = "Number of parallel chains (default: 2)"
+)
+parser$add_argument("--iter_warmup",
+    type = "integer", default = 500L,
+    help = "Warmup iterations (default: 500)"
+)
+parser$add_argument("--iter_sampling",
+    type = "integer", default = 1500L,
+    help = "Sampling iterations (default: 1500)"
+)
+parser$add_argument("--seed",
+    type = "integer", default = 123L,
+    help = "Random seed for MCMC (default: 123)"
+)
+parser$add_argument("--with_additional_analyses",
+    action = "store_true",
+    default = FALSE,
+    help = "Include additional diagnostic plots (trace, intervals, areas, ppcheck)"
+)
+
+args <- parser$parse_args()
+
+# Extract arguments
+stan_file <- args$stan_file
+stan_include_dir <- args$stan_include_dir
+dit_file <- args$dit_file
+dcati_file <- args$dcati_file
+job_id <- args$job_id
+output_dir <- args$output_dir
+output_prefix <- args$output_prefix
+chains <- args$chains
+parallel_chains <- args$parallel_chains
+iter_warmup <- args$iter_warmup
+iter_sampling <- args$iter_sampling
+seed <- args$seed
+with_additional_analyses <- args$with_additional_analyses
+
+# Source the analysis function
+source(file.path(dirname(stan_file), "..", "R", "credit_model_run_analysis.R"))
+
+# Load data
+cat("Loading data...\n")
+dit <- readRDS(dit_file)
+dcati <- readRDS(dcati_file)
+cat("Loaded dcati with", nrow(dcati), "observations\n")
+
+credit_model_run_analysis(
+    stan_file = stan_file,
+    dit = dit,
+    dcati = dcati,
+    job_id = job_id,
+    output_dir = output_dir,
+    output_prefix = output_prefix,
+    chains = chains,
+    parallel_chains = parallel_chains,
+    iter_warmup = iter_warmup,
+    iter_sampling = iter_sampling,
+    seed = seed,
+    with_additional_analyses = with_additional_analyses
+)
+cat("========================================\n")

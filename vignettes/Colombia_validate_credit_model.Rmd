@@ -51,6 +51,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
+source(here::here("R", "split_train_test_data.R"))
 ```
 
 # Data loading and pre-processing
@@ -80,6 +81,8 @@ dit <- copy(tmp$dit)
 dmeta <- copy(tmp$dmeta)
 
 dp1 <- subset(dp, !grepl("agg", item_label))
+dp1[, oid := .I]
+setkey(dp1, oid)
 ```
 
 ```{r split-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -87,15 +90,7 @@ set.seed(42L)
 test_individuals_p <- 0.5
 test_items_p <- 0.5
 
-dp1[, oid := .I]
-dtest <- data.table(pid = unique(dp1$pid))
-dtest[, is_test_individual := rbinom(.N, 1, test_individuals_p)]
-dtest <- merge(dtest, unique(subset(dp1, select = c("pid", "item_label"))), by = "pid")
-dtest <- subset(dtest, is_test_individual == 1L)
-dtest <- dtest[,
-    list(item_label, is_test_item = as.integer(runif(length(item_label)) <= test_items_p)),
-    by = "pid"
-]
-dtest <- subset(dtest, is_test_item == 1L, select = c("pid", "item_label"))
-dp1[is_test_individual == 1L, list(item_label = unique(item_label)), by = "pid"]
+tmp <- split_train_test_data(dp1, test_individuals_p, test_items_p)
+dtest <- copy(tmp$test)
+dtrain <- copy(tmp$train)
 ```

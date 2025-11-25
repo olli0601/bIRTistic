@@ -1,8 +1,12 @@
 name: birtistic
 channels:
   - conda-forge
-  - defaults
 dependencies:
   - r-base=4.5.2
   - cmdstan=2.37.0
+  - compilers
+  - make
+  - tbb
+variables:
+  CMDSTAN: ${HOME}/.cache/cmdstan/2.37.0
   
