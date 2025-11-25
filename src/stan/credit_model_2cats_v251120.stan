@@ -61,7 +61,7 @@ transformed parameters {
   }
 }
 model {
-  // likelihood under unsummed generalised partial credits model
+  // likelihood under credit model
   for (n in 1 : Ncat1) {
     target += categorical_logit_lupmf(cat1_y[n] | cat1_eta[n]');
   }

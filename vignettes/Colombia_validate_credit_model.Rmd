@@ -117,6 +117,13 @@ tmp <- split_train_test_data(dp1, test_individuals_p, test_items_p)
 dtest <- copy(tmp$test)
 dtrain <- copy(tmp$train)
 
+cat("\nNumber of observations", nrow(dp1))
+cat("\nNumber of training observations", nrow(dtrain))
+cat("\nNumber of test observations", nrow(dtest), " ", 100 * round(nrow(dtest) / nrow(dp1), d = 4), "%")
+cat("\nSave test and training data split to file:", paste0(output_file_prefix, "_train_test_split.RData"), "\n")
+save(dtrain, dtest, file = paste0(output_file_prefix, "_train_test_split.RData"))
+
+# Remap PIDs on training data
 tmp <- unique(subset(dtrain, select = c("pid")))
 tmp[, pid_new := .I]
 dtrain <- merge(dtrain, tmp, by = "pid")
@@ -128,13 +135,26 @@ setnames(
 dtrain[, oid := seq_len(nrow(dtrain))]
 tmp <- dtrain[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dtrain <- merge(dtrain, tmp, by = c("item_type", "oid"))
-cat("\nNumber of observations", nrow(dtrain))
 
+# Remap PIDs on test data
+tmp <- unique(subset(dtrain, select = c("pid", "pid_orig")))
+setnames(tmp, c("pid", "pid_orig"), c("pid_new", "pid"))
+dtest <- merge(dtest, tmp, by = "pid")
+setnames(
+    dtest,
+    c("pid", "oid", "oidt", "pid_new"),
+    c("pid_orig", "oid_orig", "oidt_orig", "pid")
+)
+dtest[, oid := .I]
+tmp <- dtest[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dtest <- merge(dtest, tmp, by = c("item_type", "oid"))
+```
 
+```{r fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 cm_fit <- credit_model_run_analysis(
     dit,
     dtrain,
-    output_file_prefix = output_file_prefix,
+    output_file_prefix = paste0(output_file_prefix, "_trainingfit"),
     stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
     chains = 2L,
     parallel_chains = 2L,
@@ -144,7 +164,69 @@ cm_fit <- credit_model_run_analysis(
     with_core_analyses = FALSE,
     with_additional_analyses = FALSE
 )
+```
 
-# TODO
-# predict unseen response for test individual.
+```{r evaluate-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Create stan_test_data following the same structure as training data
+stan_test_data <- list()
+stan_test_data$P <- 1L
+stan_test_data$U <- max(dtrain$pid) # Use training data U, not test data
+stan_test_data$Ncat1 <- nrow(dtest[item_type == "categorical", ])
+stan_test_data$Qcat1 <- max(dtest[item_type == "categorical", item_time_id])
+stan_test_data$Kcat1 <- length(unique(dtest[item_type == "categorical", y_stan]))
+stan_test_data$cat1_y <- dtest[item_type == "categorical", y_stan]
+stan_test_data$cat1_question_of_obs <- dtest[
+    item_type == "categorical", item_time_id
+]
+stan_test_data$cat1_unit_of_obs <- dtest[item_type == "categorical", pid]
+stan_test_data$cat1_X <- as.matrix(
+    dtest[item_type == "categorical", time - 1L],
+    ncol = 1
+)
+stan_test_data$Ncat2 <- nrow(dtest[item_type == "out-of-7", ])
+stan_test_data$Qcat2 <- max(dtest[item_type == "out-of-7", item_time_id])
+stan_test_data$Kcat2 <- length(unique(dtest[item_type == "out-of-7", y_stan]))
+stan_test_data$cat2_y <- dtest[item_type == "out-of-7", y_stan]
+stan_test_data$cat2_question_of_obs <- dtest[
+    item_type == "out-of-7", item_time_id
+]
+stan_test_data$cat2_unit_of_obs <- dtest[item_type == "out-of-7", pid]
+stan_test_data$cat2_X <- as.matrix(
+    dtest[item_type == "out-of-7", time - 1L],
+    ncol = 1
+)
+
+# Generate quantities for test data
+cat("Running generate_quantities on test data...\n")
+stan_file <- here::here("src", "stan", "credit_model_2cats_v251120.stan")
+cm_compiled <- cmdstanr::cmdstan_model(
+    stan_file,
+    include_paths = dirname(stan_file)
+)
+
+# Extract draws and ensure latent_factor_unit sums to zero (fix numerical precision)
+fitted_draws <- cm_fit$draws(format = "draws_matrix")
+lfu_cols <- grep("^latent_factor_unit\\[", colnames(fitted_draws))
+lfu_matrix <- fitted_draws[, lfu_cols]
+row_means <- rowMeans(lfu_matrix)
+fitted_draws[, lfu_cols] <- lfu_matrix - row_means
+fitted_draws_array <- posterior::as_draws_array(fitted_draws)
+
+cm_test_gq <- cm_compiled$generate_quantities(
+    data = stan_test_data,
+    fitted_params = fitted_draws_array,
+    seed = 42L
+)
+
+saveRDS(
+    cm_test_gq,
+    file = paste0(output_file_prefix, "_test_generated_quantities.rds")
+)
+
+# Compute expected log predictive density (ELPD) per one test data point
+log_lik_test <- cm_test_gq$draws("log_lik", format = "draws_matrix")
+elpd_test <- mean(log(colMeans(exp(log_lik_test))))
+cat("ELPD on test data:", elpd_test, "\n")
+
+# Make posterior predictive check plot on test data
 ```
