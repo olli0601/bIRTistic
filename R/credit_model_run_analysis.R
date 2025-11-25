@@ -5,13 +5,10 @@
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior
 #' predictive checks.
 #'
+#' @param dit data.table. Item metadata table with item types and labels
+#' @param dcati data.table. Pre-processed data with observations for analysis
+#' @param output_file_prefix Character. Full path prefix for output files (without extension)
 #' @param stan_file Character. Path to Stan model file (.stan)
-#' @param stan_include_dir Character. Directory containing Stan include files
-#' @param dit_file Character. Path to RDS file containing item metadata table (dit)
-#' @param dcati_file Character. Path to RDS file containing pre-processed data (dcati)
-#' @param job_id Integer. Unique identifier for this analysis job
-#' @param output_dir Character. Directory path for saving output files
-#' @param output_prefix Character. Prefix string for output filenames
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
 #' @param iter_warmup Integer. Number of warmup iterations per chain (default: 500)
@@ -40,50 +37,48 @@
 #'
 #' @examples
 #' \dontrun{
+#' # Load data
+#' dit <- readRDS("data/dit.rds")
+#' dcati <- readRDS("data/dcati_processed.rds")
+#'
 #' # Run analysis with default settings
 #' credit_model_run_analysis(
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
-#'     stan_include_dir = "src/stan",
-#'     dit_file = "data/dit.rds",
-#'     dcati_file = "data/dcati_processed.rds",
-#'     job_id = 1,
-#'     output_dir = "output",
-#'     output_prefix = "analysis"
+#'     dit = dit,
+#'     dcati = dcati,
+#'     output_file_prefix = "output/analysis_job1",
+#'     stan_file = "src/stan/credit_model_2cats_v251120.stan"
 #' )
 #'
 #' # Run with additional diagnostics
 #' credit_model_run_analysis(
+#'     dit = dit,
+#'     dcati = dcati,
+#'     output_file_prefix = "output/analysis_job1",
 #'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
-#'     stan_include_dir = "src/stan",
-#'     dit_file = "data/dit.rds",
-#'     dcati_file = "data/dcati_processed.rds",
-#'     job_id = 1,
-#'     output_dir = "output",
-#'     output_prefix = "analysis",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
 credit_model_run_analysis <- function(
-  stan_file,
   dit,
   dcati,
-  job_id,
-  output_dir,
-  output_prefix,
+  output_file_prefix,
+  stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
   chains = 2L,
   parallel_chains = 2L,
   iter_warmup = 500L,
   iter_sampling = 1500L,
   seed = 123L,
+  with_core_analyses = TRUE,
   with_additional_analyses = FALSE
 ) {
     # Suppress data.table NSE warnings
     item_type <- y_stan <- item_time_id <- pid <- time <- oidt <- variable <-
         ypred <- oid <- IN_PPI <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
-        item_label_long <- NULL
+        item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
+        iqr_upper <- prob <- NULL
 
     require(data.table)
     require(ggplot2)
@@ -96,28 +91,26 @@ credit_model_run_analysis <- function(
     cat("Credit Model Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
-    cat("Stan include dir:", stan_include_dir, "\n")
-    cat("Item metadata file:", dit_file, "\n")
-    cat("Data file:", dcati_file, "\n")
-    cat("Job ID:", job_id, "\n")
-    cat("Output directory:", output_dir, "\n")
-    cat("Output prefix:", output_prefix, "\n")
+    cat("Stan include dir:", dirname(stan_file), "\n")
+    cat("Data: dit with", nrow(dit), "items, dcati with", nrow(dcati), "observations\n")
+    cat("Output prefix:", output_file_prefix, "\n")
     cat("Chains:", chains, "\n")
     cat("Parallel chains:", parallel_chains, "\n")
     cat("Warmup iterations:", iter_warmup, "\n")
     cat("Sampling iterations:", iter_sampling, "\n")
     cat("Seed:", seed, "\n")
+    cat("Core analyses:", with_core_analyses, "\n")
     cat("Additional analyses:", with_additional_analyses, "\n")
     cat("========================================\n\n")
 
     # Create output directory if it doesn't exist
-    dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+    dir.create(dirname(output_file_prefix), showWarnings = FALSE, recursive = TRUE)
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    ugpcm_m1_compiled <- cmdstanr::cmdstan_model(
+    cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
-        include_paths = basename(stan_file)
+        include_paths = dirname(stan_file)
     )
 
     # Define data in format needed for model specification
@@ -152,7 +145,7 @@ credit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
-    upgcm_m1_all2_fit <- ugpcm_m1_compiled$sample(
+    cm_fit <- cm_compiled$sample(
         data = stan_data,
         seed = seed,
         chains = chains,
@@ -164,16 +157,14 @@ credit_model_run_analysis <- function(
     )
 
     # Save output to RDS
-    output_file <- file.path(
-        output_dir,
-        paste0(output_prefix, "_", job_id, "_stan.rds")
-    )
+
+    output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
-    upgcm_m1_all2_fit$save_object(file = output_file)
+    cm_fit$save_object(file = output_file)
 
     # Check convergence and mixing
     cat("Generating convergence diagnostics...\n")
-    tmp <- upgcm_m1_all2_fit$summary(
+    tmp <- cm_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
             "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
@@ -189,10 +180,7 @@ credit_model_run_analysis <- function(
     tmp <- tmp[order(ess_bulk), ]
     write.csv(
         tmp,
-        file = file.path(
-            output_dir,
-            paste0(output_prefix, "_", job_id, "_convergence_mixing.csv")
-        ),
+        file = paste0(output_file_prefix, "_convergence_mixing.csv"),
         row.names = FALSE
     )
 
@@ -205,7 +193,7 @@ credit_model_run_analysis <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")
-        po <- upgcm_m1_all2_fit$draws(
+        po <- cm_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
@@ -217,10 +205,7 @@ credit_model_run_analysis <- function(
         )
         p <- p + theme_bw()
         ggsave(
-            file = file.path(
-                output_dir,
-                paste0(output_prefix, "_", job_id, "_worsttrace.png")
-            ),
+            file = paste0(output_file_prefix, "_worsttrace.png"),
             plot = p,
             h = 10,
             w = 20
@@ -228,7 +213,7 @@ credit_model_run_analysis <- function(
 
         # Make intervals/areas plot
         cat("Generating parameter plots...\n")
-        po <- upgcm_m1_all2_fit$draws(
+        po <- cm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
                 "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
@@ -246,10 +231,7 @@ credit_model_run_analysis <- function(
             prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
         ) + theme_bw()
         ggsave(
-            file = file.path(
-                output_dir,
-                paste0(output_prefix, "_", job_id, "_intervals.png")
-            ),
+            file = paste0(output_file_prefix, "_intervals.png"),
             plot = p,
             h = 50,
             w = 8,
@@ -261,10 +243,7 @@ credit_model_run_analysis <- function(
             prob = 0.5, prob_outer = 0.95, point_est = "median"
         ) + theme_bw()
         ggsave(
-            file = file.path(
-                output_dir,
-                paste0(output_prefix, "_", job_id, "_areas.png")
-            ),
+            file = paste0(output_file_prefix, "_areas.png"),
             plot = p,
             h = 150,
             w = 8,
@@ -273,7 +252,7 @@ credit_model_run_analysis <- function(
 
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- upgcm_m1_all2_fit$draws(
+        po <- cm_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -334,10 +313,7 @@ credit_model_run_analysis <- function(
             theme_bw() +
             theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
         ggsave(
-            file = file.path(
-                output_dir,
-                paste0(output_prefix, "_", job_id, "_ppcheck.png")
-            ),
+            file = paste0(output_file_prefix, "_ppcheck.png"),
             p,
             w = 20,
             h = 20
@@ -347,209 +323,213 @@ credit_model_run_analysis <- function(
     }
 
     # Generate probability plots for cat1
-    cat("Generating probability plots for categorical outcomes...\n")
-    po <- upgcm_m1_all2_fit$draws(
-        variables = c("cat1_ordered_prob_by_obs"),
-        inc_warmup = FALSE,
-        format = "draws_df"
-    )
-    po <- as.data.table(po)
-    po <- data.table::melt(po,
-        id.vars = c(".draw", ".chain", ".iteration"),
-        value.name = "prob"
-    )
-    po[, y_stan := as.integer(gsub(
-        "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3",
-        variable
-    ))]
-    po[, oidt := as.integer(gsub(
-        "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2",
-        variable
-    ))]
-    set(po, NULL, "variable", NULL)
-    tmp <- unique(subset(dcati[item_type == "categorical", ],
-        select = c(oidt, pid, item_time_id, time)
-    ))
-    po <- merge(po, tmp, by = c("oidt"))
-    po <- po[,
-        list(prob = mean(prob)),
-        by = c(".draw", "time", "item_time_id", "y_stan")
-    ]
-    pos <- po[,
-        list(
-            summary_value = quantile(
-                prob,
-                prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+    if (with_core_analyses) {
+        cat("Generating probability plots for categorical outcomes...\n")
+        po <- cm_fit$draws(
+            variables = c("cat1_ordered_prob_by_obs"),
+            inc_warmup = FALSE,
+            format = "draws_df"
+        )
+        po <- as.data.table(po)
+        po <- data.table::melt(po,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "prob"
+        )
+        po[, y_stan := as.integer(gsub(
+            "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3",
+            variable
+        ))]
+        po[, oidt := as.integer(gsub(
+            "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2",
+            variable
+        ))]
+        set(po, NULL, "variable", NULL)
+        tmp <- unique(subset(dcati[item_type == "categorical", ],
+            select = c(oidt, pid, item_time_id, time)
+        ))
+        po <- merge(po, tmp, by = c("oidt"))
+        po <- po[,
+            list(prob = mean(prob)),
+            by = c(".draw", "time", "item_time_id", "y_stan")
+        ]
+        pos <- po[,
+            list(
+                summary_value = quantile(
+                    prob,
+                    prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                ),
+                summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
             ),
-            summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
-        ),
-        by = c("time", "item_time_id", "y_stan")
-    ]
-    pos <- data.table::dcast(pos,
-        time + item_time_id + y_stan ~ summary_name,
-        value.var = "summary_value"
-    )
-    tmp <- unique(subset(dcati[item_type == "categorical", ],
-        select = c(time, time_label)
-    ))
-    pos <- merge(pos, tmp, by = c("time"))
-    tmp <- unique(subset(dcati[item_type == "categorical", ],
-        select = c(item_time_id, item_label)
-    ))
-    pos <- merge(pos, tmp, by = c("item_time_id"))
-    tmp <- unique(subset(dcati[item_type == "categorical", ],
-        select = c(y, y_stan, y_label)
-    ))
-    pos <- merge(pos, tmp, by = c("y_stan"))
-    tmp <- dcati[item_type == "categorical",
-        list(n = length(pid)),
-        by = c("time_label", "item_label", "y_label")
-    ]
-    tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
-    tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
-    tmp[, p_emp := n / total]
-    pos <- merge(pos,
-        subset(tmp, select = -c(n, total)),
-        by = c("time_label", "item_label", "y_label"),
-        all.x = TRUE
-    )
-    set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
-    pos[, y_stan := NULL]
-    pos_cat <- copy(pos)
+            by = c("time", "item_time_id", "y_stan")
+        ]
+        pos <- data.table::dcast(pos,
+            time + item_time_id + y_stan ~ summary_name,
+            value.var = "summary_value"
+        )
+        tmp <- unique(subset(dcati[item_type == "categorical", ],
+            select = c(time, time_label)
+        ))
+        pos <- merge(pos, tmp, by = c("time"))
+        tmp <- unique(subset(dcati[item_type == "categorical", ],
+            select = c(item_time_id, item_label)
+        ))
+        pos <- merge(pos, tmp, by = c("item_time_id"))
+        tmp <- unique(subset(dcati[item_type == "categorical", ],
+            select = c(y, y_stan, y_label)
+        ))
+        pos <- merge(pos, tmp, by = c("y_stan"))
+        tmp <- dcati[item_type == "categorical",
+            list(n = length(pid)),
+            by = c("time_label", "item_label", "y_label")
+        ]
+        tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
+        tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
+        tmp[, p_emp := n / total]
+        pos <- merge(pos,
+            subset(tmp, select = -c(n, total)),
+            by = c("time_label", "item_label", "y_label"),
+            all.x = TRUE
+        )
+        set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
+        pos[, y_stan := NULL]
+        pos_cat <- copy(pos)
 
-    # Generate probability plots for cat2
-    cat("Generating probability plots for out-of-7 outcomes...\n")
-    po <- upgcm_m1_all2_fit$draws(
-        variables = c("cat2_ordered_prob_by_obs"),
-        inc_warmup = FALSE,
-        format = "draws_df"
-    )
-    po <- as.data.table(po)
-    po <- data.table::melt(po,
-        id.vars = c(".draw", ".chain", ".iteration"),
-        value.name = "prob"
-    )
-    po[, y_stan := as.integer(gsub(
-        "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3",
-        variable
-    ))]
-    po[, oidt := as.integer(gsub(
-        "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2",
-        variable
-    ))]
-    set(po, NULL, "variable", NULL)
-    tmp <- unique(subset(dcati[item_type == "out-of-7", ],
-        select = c(oidt, pid, item_time_id, time)
-    ))
-    po <- merge(po, tmp, by = c("oidt"))
-    po <- po[,
-        list(prob = mean(prob)),
-        by = c(".draw", "time", "item_time_id", "y_stan")
-    ]
-    pos <- po[,
-        list(
-            summary_value = quantile(
-                prob,
-                prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+        # Generate probability plots for cat2
+        cat("Generating probability plots for out-of-7 outcomes...\n")
+        po <- cm_fit$draws(
+            variables = c("cat2_ordered_prob_by_obs"),
+            inc_warmup = FALSE,
+            format = "draws_df"
+        )
+        po <- as.data.table(po)
+        po <- data.table::melt(po,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "prob"
+        )
+        po[, y_stan := as.integer(gsub(
+            "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3",
+            variable
+        ))]
+        po[, oidt := as.integer(gsub(
+            "([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2",
+            variable
+        ))]
+        set(po, NULL, "variable", NULL)
+        tmp <- unique(subset(dcati[item_type == "out-of-7", ],
+            select = c(oidt, pid, item_time_id, time)
+        ))
+        po <- merge(po, tmp, by = c("oidt"))
+        po <- po[,
+            list(prob = mean(prob)),
+            by = c(".draw", "time", "item_time_id", "y_stan")
+        ]
+        pos <- po[,
+            list(
+                summary_value = quantile(
+                    prob,
+                    prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                ),
+                summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
             ),
-            summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
-        ),
-        by = c("time", "item_time_id", "y_stan")
-    ]
-    pos <- data.table::dcast(pos,
-        time + item_time_id + y_stan ~ summary_name,
-        value.var = "summary_value"
-    )
-    tmp <- unique(subset(dcati[item_type == "out-of-7", ],
-        select = c(time, time_label)
-    ))
-    pos <- merge(pos, tmp, by = c("time"))
-    tmp <- unique(subset(dcati[item_type == "out-of-7", ],
-        select = c(item_time_id, item_label)
-    ))
-    pos <- merge(pos, tmp, by = c("item_time_id"))
-    tmp <- unique(subset(dcati[item_type == "out-of-7", ],
-        select = c(y, y_stan, y_label)
-    ))
-    pos <- merge(pos, tmp, by = c("y_stan"))
-    tmp <- dcati[item_type == "out-of-7",
-        list(n = length(pid)),
-        by = c("time_label", "item_label", "y_label")
-    ]
-    tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
-    tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
-    tmp[, p_emp := n / total]
-    pos <- merge(pos,
-        subset(tmp, select = -c(n, total)),
-        by = c("time_label", "item_label", "y_label"),
-        all.x = TRUE
-    )
-    set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
-    pos[, y_stan := NULL]
-    pos_cat2 <- copy(pos)
+            by = c("time", "item_time_id", "y_stan")
+        ]
+        pos <- data.table::dcast(pos,
+            time + item_time_id + y_stan ~ summary_name,
+            value.var = "summary_value"
+        )
+        tmp <- unique(subset(dcati[item_type == "out-of-7", ],
+            select = c(time, time_label)
+        ))
+        pos <- merge(pos, tmp, by = c("time"))
+        tmp <- unique(subset(dcati[item_type == "out-of-7", ],
+            select = c(item_time_id, item_label)
+        ))
+        pos <- merge(pos, tmp, by = c("item_time_id"))
+        tmp <- unique(subset(dcati[item_type == "out-of-7", ],
+            select = c(y, y_stan, y_label)
+        ))
+        pos <- merge(pos, tmp, by = c("y_stan"))
+        tmp <- dcati[item_type == "out-of-7",
+            list(n = length(pid)),
+            by = c("time_label", "item_label", "y_label")
+        ]
+        tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
+        tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
+        tmp[, p_emp := n / total]
+        pos <- merge(pos,
+            subset(tmp, select = -c(n, total)),
+            by = c("time_label", "item_label", "y_label"),
+            all.x = TRUE
+        )
+        set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
+        pos[, y_stan := NULL]
+        pos_cat2 <- copy(pos)
 
-    # Combine and plot
-    pos <- rbind(pos_cat, pos_cat2)
-    pos <- merge(pos, dit, by = c("item_label"))
-    pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+        # Combine cat1 and cat2 probability data
+        pos <- rbind(pos_cat, pos_cat2)
+        pos <- merge(pos, dit, by = c("item_label"))
+        pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
 
-    pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(
-        pos[, length(unique(item_label))]
-    )
+        cat(
+            "\nSaving posterior probabilities to RDS with name",
+            paste0(output_file_prefix, "__posterior_probabilities.rds"),
+            "...\n"
+        )
+        saveRDS(
+            pos,
+            file = paste0(output_file_prefix, "__posterior_probabilities.rds")
+        )
 
-    p <- ggplot(
-        pos,
-        aes(x = y_label, group = interaction(item_label_long, y_label))
-    ) +
-        geom_col(aes(fill = item_label_long, y = p_emp),
-            position = position_dodge(width = 0.9, preserve = "single"),
-            alpha = 0.8,
-            width = 0.8
+        # Make plots
+        pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(
+            pos[, length(unique(item_label))]
+        )
+
+        p <- ggplot(
+            pos,
+            aes(x = y_label, group = interaction(item_label_long, y_label))
         ) +
-        geom_boxplot(
-            aes(
-                ymin = q_lower, lower = iqr_lower,
-                middle = median, upper = iqr_upper,
-                ymax = q_upper
-            ),
-            position = position_dodge(0.9, preserve = "single"),
-            stat = "identity",
-            alpha = 0,
-            width = 0.3
-        ) +
-        scale_y_continuous(labels = scales::percent) +
-        scale_fill_manual(values = pal) +
-        facet_wrap(group_label_long ~ time_label, scales = "free_x", ncol = 2) +
-        theme_bw() +
-        theme(
-            axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-            legend.position = "bottom"
-        ) +
-        labs(x = "", y = "proportion of outcomes", fill = "survey items") +
-        guides(fill = guide_legend(ncol = 3))
-    ggsave(
-        file = file.path(
-            output_dir,
-            paste0(output_prefix, "_", job_id, "_probs_barplot_v2.png")
-        ),
-        plot = p,
-        h = 40,
-        w = 12
-    )
-    ggsave(
-        file = file.path(
-            output_dir,
-            paste0(output_prefix, "_", job_id, "_probs_barplot_v2.pdf")
-        ),
-        plot = p,
-        h = 40,
-        w = 12
-    )
+            geom_col(aes(fill = item_label_long, y = p_emp),
+                position = position_dodge(width = 0.9, preserve = "single"),
+                alpha = 0.8,
+                width = 0.8
+            ) +
+            geom_boxplot(
+                aes(
+                    ymin = q_lower, lower = iqr_lower,
+                    middle = median, upper = iqr_upper,
+                    ymax = q_upper
+                ),
+                position = position_dodge(0.9, preserve = "single"),
+                stat = "identity",
+                alpha = 0,
+                width = 0.3
+            ) +
+            scale_y_continuous(labels = scales::percent) +
+            scale_fill_manual(values = pal) +
+            facet_wrap(group_label_long ~ time_label, scales = "free_x", ncol = 2) +
+            theme_bw() +
+            theme(
+                axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+                legend.position = "bottom"
+            ) +
+            labs(x = "", y = "proportion of outcomes", fill = "survey items") +
+            guides(fill = guide_legend(ncol = 3))
+        ggsave(
+            file = paste0(output_file_prefix, "_probs_barplot_v2.png"),
+            plot = p,
+            h = 40,
+            w = 12
+        )
+        ggsave(
+            file = paste0(output_file_prefix, "_probs_barplot_v2.pdf"),
+            plot = p,
+            h = 40,
+            w = 12
+        )
+    } else {
+        cat("\nSkipping core analyses (set with_core_analyses=TRUE to enable)\n")
+    }
 
-    cat("\n========================================\n")
-    cat("Analysis complete for job", job_id, "!\n")
-    cat("Results saved to:", output_dir, "\n")
-    cat("========================================\n")
-
-    invisible(upgcm_m1_all2_fit)
+    invisible(cm_fit)
 }

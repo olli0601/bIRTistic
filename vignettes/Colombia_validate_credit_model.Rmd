@@ -52,6 +52,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "split_train_test_data.R"))
+source(here::here("R", "credit_model_run_analysis.R"))
 ```
 
 # Data loading and pre-processing
@@ -59,9 +60,10 @@ source(here::here("R", "split_train_test_data.R"))
 ```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
 dir_data <- file.path(dir_home, "data")
-dir_out <- file.path(dir_home, "colombia-251007")
+dir_out <- file.path(dir_home, "colombia-validate-creditmodel-251125")
 file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
 file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
+output_file_prefix <- file.path(dir_out, "cm_1")
 set.seed(42L)
 ```
 
@@ -81,8 +83,29 @@ dit <- copy(tmp$dit)
 dmeta <- copy(tmp$dmeta)
 
 dp1 <- subset(dp, !grepl("agg", item_label))
+dp1[, time := time + 1L]
+dp1[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1$item_label)),
+    time = unique(dp1$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
+setkey(dp1, pid, time, item_label)
 dp1[, oid := .I]
 setkey(dp1, oid)
+tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
+setkey(dp1, pid, time, item_label)
 ```
 
 ```{r split-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -93,4 +116,35 @@ test_items_p <- 0.5
 tmp <- split_train_test_data(dp1, test_individuals_p, test_items_p)
 dtest <- copy(tmp$test)
 dtrain <- copy(tmp$train)
+
+tmp <- unique(subset(dtrain, select = c("pid")))
+tmp[, pid_new := .I]
+dtrain <- merge(dtrain, tmp, by = "pid")
+setnames(
+    dtrain,
+    c("pid", "oid", "oidt", "pid_new"),
+    c("pid_orig", "oid_orig", "oidt_orig", "pid")
+)
+dtrain[, oid := seq_len(nrow(dtrain))]
+tmp <- dtrain[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dtrain <- merge(dtrain, tmp, by = c("item_type", "oid"))
+cat("\nNumber of observations", nrow(dtrain))
+
+
+cm_fit <- credit_model_run_analysis(
+    dit,
+    dtrain,
+    output_file_prefix = output_file_prefix,
+    stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+    chains = 2L,
+    parallel_chains = 2L,
+    iter_warmup = 500L,
+    iter_sampling = 1500L,
+    seed = 123L,
+    with_core_analyses = FALSE,
+    with_additional_analyses = FALSE
+)
+
+# TODO
+# predict unseen response for test individual.
 ```

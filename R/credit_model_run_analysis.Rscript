@@ -113,18 +113,25 @@ dit <- readRDS(dit_file)
 dcati <- readRDS(dcati_file)
 cat("Loaded dcati with", nrow(dcati), "observations\n")
 
+output_file_prefix <- file.path(
+    output_dir,
+    paste0(output_prefix, "_", job_id)
+)
+
 credit_model_run_analysis(
     stan_file = stan_file,
     dit = dit,
     dcati = dcati,
-    job_id = job_id,
-    output_dir = output_dir,
-    output_prefix = output_prefix,
+    output_file_prefix,
     chains = chains,
     parallel_chains = parallel_chains,
     iter_warmup = iter_warmup,
     iter_sampling = iter_sampling,
     seed = seed,
+    with_core_analyses = TRUE,
     with_additional_analyses = with_additional_analyses
 )
+
+cat("\n========================================\n")
+cat("Analysis complete, results saved to:", output_file_prefix, "\n")
 cat("========================================\n")

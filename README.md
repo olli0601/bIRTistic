@@ -26,6 +26,7 @@ Using Imperial HPC:
 ```bash
 module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
 eval "$(~/miniforge3/bin/conda shell.bash hook)"
+eval "$(mamba shell hook --shell bash)"
 # install cmdstan only once and expose to other environment files
 mamba create -n cmdstan-build -c conda-forge cmdstan=2.37.0 -y
 mamba env create -f bIRTistic.yml -y
