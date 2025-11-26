@@ -4,76 +4,63 @@
 
 # Parse command line arguments
 library(argparse)
+library(jsonlite)
 
 parser <- ArgumentParser(description = "Validate item response model on participant data with some responses from participants withheld in test splits")
 parser$add_argument(
-    "--test_individuals_p",
-    type = "double",
-    default = 0.5,
-    help = "Proportion of individuals to use for test data [default: %(default)s]"
-)
-parser$add_argument(
-    "--test_items_p",
-    type = "double",
-    default = 0.5,
-    help = "Proportion of items to use for test data (within test individuals) [default: %(default)s]"
-)
-parser$add_argument(
-    "--n_splits",
-    type = "integer",
-    default = 1L,
-    help = "Number of train-test splits to perform [default: %(default)s]"
-)
-parser$add_argument(
-    "--stan_file",
+    "--json_file",
     type = "character",
-    default = "src/stan/credit_model_2cats_v251120.stan",
-    help = "Path to Stan model file [default: %(default)s]"
-)
-parser$add_argument(
-    "--dir_data",
-    type = "character",
-    default = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan/data",
-    help = "Directory containing input data files [default: %(default)s]"
-)
-parser$add_argument(
-    "--dir_out",
-    type = "character",
-    default = "/Users/or105/sandbox/colombia-validate-creditmodel-251125",
-    help = "Output directory for results [default: %(default)s]"
-)
-parser$add_argument(
-    "--chains",
-    type = "integer",
-    default = 2L,
-    help = "Number of MCMC chains [default: %(default)s]"
-)
-parser$add_argument(
-    "--parallel_chains",
-    type = "integer",
-    default = 1L,
-    help = "Number of parallel chains [default: %(default)s]"
-)
-parser$add_argument(
-    "--iter_warmup",
-    type = "integer",
-    default = 500L,
-    help = "Number of warmup iterations [default: %(default)s]"
-)
-parser$add_argument(
-    "--iter_sampling",
-    type = "integer",
-    default = 1500L,
-    help = "Number of sampling iterations [default: %(default)s]"
-)
-parser$add_argument(
-    "--seed",
-    type = "integer",
-    default = 42L,
-    help = "Random seed for reproducibility [default: %(default)s]"
+    required = TRUE,
+    help = "Path to JSON file with input arguments"
 )
 
 args <- parser$parse_args()
+
+# Read arguments from JSON file
+cat("Reading arguments from JSON file:", args$json_file, "\n")
+if (!file.exists(args$json_file)) {
+    stop("JSON file not found: ", args$json_file)
+}
+json_args <- jsonlite::fromJSON(args$json_file)
+
+# Validate that all required arguments are present
+required_args <- c(
+    "test_individuals_p",
+    "test_items_p",
+    "n_splits",
+    "stan_file",
+    "dir_data",
+    "dir_out",
+    "chains",
+    "parallel_chains",
+    "iter_warmup",
+    "iter_sampling",
+    "seed"
+)
+missing_args <- setdiff(required_args, names(json_args))
+if (length(missing_args) > 0) {
+    stop(
+        "Missing required arguments in JSON file: ",
+        paste(missing_args, collapse = ", "),
+        "\nRequired arguments are: ",
+        paste(required_args, collapse = ", ")
+    )
+}
+
+# Assign JSON arguments
+args <- list(
+    test_individuals_p = json_args$test_individuals_p,
+    test_items_p = json_args$test_items_p,
+    n_splits = as.integer(json_args$n_splits),
+    stan_file = json_args$stan_file,
+    dir_data = json_args$dir_data,
+    dir_out = json_args$dir_out,
+    chains = as.integer(json_args$chains),
+    parallel_chains = as.integer(json_args$parallel_chains),
+    iter_warmup = as.integer(json_args$iter_warmup),
+    iter_sampling = as.integer(json_args$iter_sampling),
+    seed = as.integer(json_args$seed)
+)
 
 # Load packages
 cat("Loading packages...\n")

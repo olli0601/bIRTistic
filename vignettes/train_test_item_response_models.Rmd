@@ -1,0 +1,218 @@
+---
+title: "Train and test item response models on HPC"
+date: "`r Sys.Date()`"
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Overview
+
+This vignette demonstrates how to submit item response model validation jobs to an HPC cluster using PBS scheduling. The workflow involves:
+
+1. Creating a JSON configuration file with model parameters
+2. Generating a PBS job submission script
+3. Submitting the job to the HPC scheduler
+
+# Load packages and functions
+
+```{r load-packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
+library(jsonlite)
+library(here)
+
+source(here::here("R", "hpc_submit_generic_job.R"))
+```
+
+# Define directories and job parameters
+
+```{r define-paths, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
+# Define directories
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_data <- file.path(dir_home, "data")
+dir_out <- file.path(dir_home, "colombia-validate-creditmodel-hpc")
+dir_logs <- file.path(dir_out, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out)) {
+    dir.create(dir_out, recursive = TRUE)
+}
+if (!dir.exists(dir_logs)) {
+    dir.create(dir_logs, recursive = TRUE)
+}
+
+# Define job name
+job_name <- "validate_credit_model"
+```
+
+# Create JSON configuration file
+
+```{r create-json-config, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
+# Define model parameters
+config <- list(
+    test_individuals_p = 0.5,
+    test_items_p = 0.5,
+    n_splits = 5,
+    stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+    dir_data = dir_data,
+    dir_out = dir_out,
+    chains = 4,
+    parallel_chains = 4,
+    iter_warmup = 1000,
+    iter_sampling = 2000,
+    seed = 42
+)
+
+# Save configuration to JSON file
+json_file <- file.path(dir_out, paste0(job_name, "_config.json"))
+write_json(config, json_file, pretty = TRUE, auto_unbox = TRUE)
+
+cat("Created JSON configuration file:", json_file, "\n")
+cat("\nConfiguration:\n")
+cat(readLines(json_file), sep = "\n")
+```
+
+# Create and submit PBS job
+
+```{r create-pbs-script, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
+# Define PBS job parameters
+pbs_config <- list(
+    script_path = here::here("R", "train_test_item_response_models.Rscript"),
+    json_path = json_file,
+    job_name = job_name,
+    output_dir = dir_logs,
+    walltime = "48:00:00",
+    memory = "32gb",
+    ncpus = 4,
+    email = NULL, # Set to your email address for notifications
+    email_options = "abe", # a=abort, b=begin, e=end
+    modules = c("R/4.5.2"),
+    additional_commands = NULL,
+    submit = FALSE # Set to TRUE to submit immediately
+)
+
+# Create PBS submission script
+pbs_script <- do.call(hpc_submit_generic_job, pbs_config)
+
+cat("\nPBS submission script created:", pbs_script, "\n")
+cat("\nTo submit the job, run:\n")
+cat("  qsub", pbs_script, "\n")
+```
+
+# View PBS script content
+
+```{r view-pbs-script, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
+# Display the PBS script content
+pbs_script_path <- file.path(dir_logs, paste0(job_name, ".pbs"))
+if (file.exists(pbs_script_path)) {
+    cat("\nPBS Script Content:\n")
+    cat("===================\n")
+    cat(readLines(pbs_script_path), sep = "\n")
+}
+```
+
+# Monitor job status
+
+After submitting the job, you can monitor its status using standard PBS commands:
+
+```{bash monitor-job, eval=FALSE}
+# Check job status
+qstat -u $USER
+
+# Check detailed job information
+qstat -f <JOB_ID>
+
+# View job output (while running or after completion)
+tail -f logs/validate_credit_model.out
+
+# View job errors
+tail -f logs/validate_credit_model.err
+```
+
+# Alternative: Submit job with custom parameters
+
+```{r submit-custom-job, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
+# Example: Submit a quick test job with fewer splits
+test_config <- list(
+    test_individuals_p = 0.3,
+    test_items_p = 0.3,
+    n_splits = 2,
+    stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+    dir_data = dir_data,
+    dir_out = file.path(dir_out, "test_run"),
+    chains = 2,
+    parallel_chains = 2,
+    iter_warmup = 500,
+    iter_sampling = 1000,
+    seed = 123
+)
+
+# Save test configuration
+test_json_file <- file.path(dir_out, "test_config.json")
+write_json(test_config, test_json_file, pretty = TRUE, auto_unbox = TRUE)
+
+# Submit test job
+test_pbs_script <- hpc_submit_generic_job(
+    script_path = here::here("R", "train_test_item_response_models.Rscript"),
+    json_path = test_json_file,
+    job_name = "test_validation",
+    output_dir = dir_logs,
+    walltime = "06:00:00",
+    memory = "16gb",
+    ncpus = 2,
+    submit = FALSE # Set to TRUE to submit
+)
+```
+
+# Results
+
+After the job completes, results will be available in the output directory:
+
+- **Train/test splits**: `cm_split*_train_test_split.RData`
+- **Model fits**: `cm_split*_trainingfit_*.rds`
+- **Generated quantities**: `cm_split*_test_generated_quantities.rds`
+- **Posterior predictive checks**: `cm_split*_test_ppcheck.png`
+- **Summary statistics**: `validation_summary.rds` and `validation_summary.csv`
+
+```{r view-results, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
+# Once job completes, load and view results
+results_file <- file.path(dir_out, "validation_summary.rds")
+if (file.exists(results_file)) {
+    results <- readRDS(results_file)
+    print(results)
+
+    # Summary statistics
+    cat("\nELPD Summary:\n")
+    cat("  Mean:", mean(results$elpd_test), "\n")
+    cat("  SD:", sd(results$elpd_test), "\n")
+
+    cat("\nProportion in 95% PPI:\n")
+    cat("  Mean:", mean(results$prop_in_ppi), "\n")
+    cat("  SD:", sd(results$prop_in_ppi), "\n")
+}
+```
+
+# Session information
+
+```{r session-info, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
+sessionInfo()
+```
