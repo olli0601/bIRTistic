@@ -5,7 +5,7 @@
 #' @param test_items_p Proportion of items to include in test set
 #' @import data.table
 #' @return A list with training and test data in from of two data.tables
-split_train_test_data <- function(dall, test_individuals_p = 0.5, test_items_p = 0.5) {
+train_test_split_data <- function(dall, test_individuals_p = 0.5, test_items_p = 0.5) {
     stopifnot(c("pid", "item_label", "oid") %in% colnames(dall))
     is_test_individual <- is_test_item <- oid <- NULL
     require(data.table)

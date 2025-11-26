@@ -1,0 +1,6 @@
+{
+    "r.bracketedPaste": false,
+    "stan.ignoreFilePaths": [
+        "src/stan/credit_model_functions.stan"
+    ]
+}

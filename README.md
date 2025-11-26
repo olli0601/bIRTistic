@@ -43,7 +43,7 @@ Rscript -e "packages <- c('data.table'); install.packages(packages[!packages %in
 # installing cmdstanr
 Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'), ask = false)"
 # installing everything else; xml2 requires libxml2/2.11.5-GCCcore-13.2.0
-Rscript -e "packages <- c('here', 'purrr', 'ggplot2', 'ggsci', 'hexbin', 'bayesplot', 'scales', 'knitr', 'kableExtra', 'rmarkdown', 'bookdown', 'loo', 'posterior', 'polycor', 'GGally', 'argparse'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
+Rscript -e "packages <- c('argparse','here', 'purrr', 'ggplot2', 'ggsci', 'hexbin', 'bayesplot', 'scales', 'knitr', 'kableExtra', 'rmarkdown', 'bookdown', 'loo', 'posterior', 'polycor', 'GGally', 'argparse'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
 ```
 
 ### Step 4: Verify installation

@@ -51,7 +51,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
-source(here::here("R", "split_train_test_data.R"))
+source(here::here("R", "train_test_split_data.R"))
 source(here::here("R", "credit_model_run_analysis.R"))
 ```
 
@@ -113,7 +113,7 @@ set.seed(42L)
 test_individuals_p <- 0.5
 test_items_p <- 0.5
 
-tmp <- split_train_test_data(dp1, test_individuals_p, test_items_p)
+tmp <- train_test_split_data(dp1, test_individuals_p, test_items_p)
 dtest <- copy(tmp$test)
 dtrain <- copy(tmp$train)
 
@@ -228,5 +228,70 @@ log_lik_test <- cm_test_gq$draws("log_lik", format = "draws_matrix")
 elpd_test <- mean(log(colMeans(exp(log_lik_test))))
 cat("ELPD on test data:", elpd_test, "\n")
 
-# Make posterior predictive check plot on test data
+# Generate posterior predictive check on test data
+po <- cm_test_gq$draws(
+    variables = c("cat1_ypred", "cat2_ypred"),
+    format = "draws_df"
+)
+po <- as.data.table(po)
+po <- data.table::melt(
+    po,
+    id.vars = c(".draw", ".chain", ".iteration"),
+    value.name = "ypred"
+)
+po[, item_type := gsub("([a-z0-9_]+)\\[([0-9]+)\\]", "\\1", variable)]
+po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+)\\]", "\\2", variable))]
+set(po, po[, which(grepl("cat2", item_type))], "item_type", "out-of-7")
+set(po, po[, which(grepl("cat1", item_type))], "item_type", "categorical")
+
+pos <- po[,
+    list(
+        summary_value = quantile(
+            ypred,
+            prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+        ),
+        summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+    ),
+    by = c("item_type", "oidt")
+]
+pos <- data.table::dcast(pos,
+    item_type + oidt ~ summary_name,
+    value.var = "summary_value"
+)
+
+pos <- merge(pos, dtest, by = c("item_type", "oidt"))
+pos[, IN_PPI := y_stan >= q_lower & y_stan <= q_upper]
+cat("Proportion in 95% PPI (test data):", pos[, mean(IN_PPI)], "\n")
+
+# Plot posterior predictive check for test data
+p <- ggplot(pos, aes(x = oid, group = oid)) +
+    geom_boxplot(
+        aes(
+            ymin = q_lower,
+            lower = iqr_lower,
+            middle = median,
+            upper = iqr_upper,
+            ymax = q_upper
+        ),
+        stat = "identity"
+    ) +
+    geom_point(aes(y = y_stan, colour = IN_PPI)) +
+    facet_grid(item_label ~ time_label, scales = "free") +
+    scale_x_discrete() +
+    scale_y_continuous() +
+    ggsci::scale_color_npg() +
+    labs(
+        x = "",
+        y = "outcome",
+        colour = "within\n95% posterior\nprediction\ninterval",
+        title = "Posterior Predictive Check - Test Data"
+    ) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+ggsave(
+    file = paste0(output_file_prefix, "_test_ppcheck.png"),
+    p,
+    w = 20,
+    h = 20
+)
 ```
