@@ -47,7 +47,7 @@ source(here::here("R", "hpc_submit_generic_job.R"))
 
 ```{r define-paths, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
 # Define directories
-dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups"
 dir_data <- file.path(dir_home, "data")
 dir_out <- file.path(dir_home, "colombia-validate-creditmodel-hpc")
 dir_logs <- file.path(dir_out, "logs")
@@ -105,8 +105,12 @@ pbs_config <- list(
     ncpus = 4,
     email = NULL, # Set to your email address for notifications
     email_options = "abe", # a=abort, b=begin, e=end
-    modules = c("R/4.5.2"),
-    additional_commands = NULL,
+    header = '
+    module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0\n
+    eval "$(~/miniforge3/bin/conda shell.bash hook)"\n
+    eval "$(mamba shell hook --shell bash)"\n
+    mamba activate birtistic\n
+    ',
     submit = FALSE # Set to TRUE to submit immediately
 )
 
@@ -116,71 +120,6 @@ pbs_script <- do.call(hpc_submit_generic_job, pbs_config)
 cat("\nPBS submission script created:", pbs_script, "\n")
 cat("\nTo submit the job, run:\n")
 cat("  qsub", pbs_script, "\n")
-```
-
-# View PBS script content
-
-```{r view-pbs-script, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
-# Display the PBS script content
-pbs_script_path <- file.path(dir_logs, paste0(job_name, ".pbs"))
-if (file.exists(pbs_script_path)) {
-    cat("\nPBS Script Content:\n")
-    cat("===================\n")
-    cat(readLines(pbs_script_path), sep = "\n")
-}
-```
-
-# Monitor job status
-
-After submitting the job, you can monitor its status using standard PBS commands:
-
-```{bash monitor-job, eval=FALSE}
-# Check job status
-qstat -u $USER
-
-# Check detailed job information
-qstat -f <JOB_ID>
-
-# View job output (while running or after completion)
-tail -f logs/validate_credit_model.out
-
-# View job errors
-tail -f logs/validate_credit_model.err
-```
-
-# Alternative: Submit job with custom parameters
-
-```{r submit-custom-job, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
-# Example: Submit a quick test job with fewer splits
-test_config <- list(
-    test_individuals_p = 0.3,
-    test_items_p = 0.3,
-    n_splits = 2,
-    stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
-    dir_data = dir_data,
-    dir_out = file.path(dir_out, "test_run"),
-    chains = 2,
-    parallel_chains = 2,
-    iter_warmup = 500,
-    iter_sampling = 1000,
-    seed = 123
-)
-
-# Save test configuration
-test_json_file <- file.path(dir_out, "test_config.json")
-write_json(test_config, test_json_file, pretty = TRUE, auto_unbox = TRUE)
-
-# Submit test job
-test_pbs_script <- hpc_submit_generic_job(
-    script_path = here::here("R", "train_test_item_response_models.Rscript"),
-    json_path = test_json_file,
-    job_name = "test_validation",
-    output_dir = dir_logs,
-    walltime = "06:00:00",
-    memory = "16gb",
-    ncpus = 2,
-    submit = FALSE # Set to TRUE to submit
-)
 ```
 
 # Results
@@ -193,23 +132,6 @@ After the job completes, results will be available in the output directory:
 - **Posterior predictive checks**: `cm_split*_test_ppcheck.png`
 - **Summary statistics**: `validation_summary.rds` and `validation_summary.csv`
 
-```{r view-results, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
-# Once job completes, load and view results
-results_file <- file.path(dir_out, "validation_summary.rds")
-if (file.exists(results_file)) {
-    results <- readRDS(results_file)
-    print(results)
-
-    # Summary statistics
-    cat("\nELPD Summary:\n")
-    cat("  Mean:", mean(results$elpd_test), "\n")
-    cat("  SD:", sd(results$elpd_test), "\n")
-
-    cat("\nProportion in 95% PPI:\n")
-    cat("  Mean:", mean(results$prop_in_ppi), "\n")
-    cat("  SD:", sd(results$prop_in_ppi), "\n")
-}
-```
 
 # Session information
 

@@ -76,7 +76,7 @@ source(here::here("R", "read_data_colombia.R"))
 # Data loading and pre-processing
 
 ```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan"
+dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups"
 dir_data <- file.path(dir_home, "data")
 dir_out <- file.path(dir_home, "colombia-251007")
 file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")

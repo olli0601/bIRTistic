@@ -1,6 +1,26 @@
 {
     "r.bracketedPaste": false,
+    "r.lsp.diagnostics": false,
+    "r.lsp.enabled": false,
     "stan.ignoreFilePaths": [
         "src/stan/credit_model_functions.stan"
+    ],
+    "cSpell.words": [
+        "brms",
+        "creditmodel",
+        "cutpoints",
+        "ELPD",
+        "endline",
+        "Likert",
+        "logit",
+        "parameterisation",
+        "polychoric",
+        "unidentifiability"
+    ],
+    "cSpell.ignoreRegExpList": [
+        "/\\$\\$[\\s\\S]*?\\$\\$/g",
+        "/\\$[^$]+\\$/g",
+        "/\\\\[a-zA-Z]+\\{[^}]*\\}/g",
+        "/\\\\[a-zA-Z]+/g"
     ]
 }

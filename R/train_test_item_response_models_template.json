@@ -3,7 +3,7 @@
     "test_items_p": 0.5,
     "n_splits": 1,
     "stan_file": "src/stan/credit_model_2cats_v251120.stan",
-    "dir_data": "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups_Jordan/data",
+    "dir_data": "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data",
     "dir_out": "/Users/or105/sandbox/colombia-validate-creditmodel-251125",
     "chains": 2,
     "parallel_chains": 1,

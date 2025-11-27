@@ -12,8 +12,7 @@
 #' @param ncpus Integer. Number of CPUs to request (default: 1)
 #' @param email Character or NULL. Email address for job notifications (default: NULL)
 #' @param email_options Character. PBS email options: "a" (abort), "b" (begin), "e" (end) (default: "abe")
-#' @param modules Character vector. Environment modules to load (default: c("R/4.5.2"))
-#' @param additional_commands Character vector. Additional shell commands to run before executing the script (default: NULL)
+#' @param header Character vector. Shell commands to run before executing the script (default: NULL)
 #' @param submit Logical. Whether to submit the job immediately using qsub (default: FALSE)
 #' @param pbs_script_path Character or NULL. Path where the PBS script should be saved. If NULL, uses output_dir/job_name.pbs
 #' @return Character. Path to the created PBS submission script
@@ -50,8 +49,7 @@ hpc_submit_generic_job <- function(
   ncpus = 1L,
   email = NULL,
   email_options = "abe",
-  modules = c("R/4.5.2"),
-  additional_commands = NULL,
+  header = NULL,
   submit = FALSE,
   pbs_script_path = NULL
 ) {
@@ -104,6 +102,9 @@ hpc_submit_generic_job <- function(
     pbs_content <- c(
         pbs_content,
         "",
+        "# Fail as soon as any command fails",
+        "set -euo pipefail",
+        "",
         "# Change to submission directory",
         "cd $PBS_O_WORKDIR",
         "",
@@ -115,22 +116,12 @@ hpc_submit_generic_job <- function(
         ""
     )
 
-    # Add module loading
-    if (length(modules) > 0) {
+    # Add header commands if specified
+    if (!is.null(header) && length(header) > 0) {
         pbs_content <- c(
             pbs_content,
-            "# Load required modules",
-            paste0("module load ", modules),
-            ""
-        )
-    }
-
-    # Add additional commands if specified
-    if (!is.null(additional_commands) && length(additional_commands) > 0) {
-        pbs_content <- c(
-            pbs_content,
-            "# Additional setup commands",
-            additional_commands,
+            "# Header\n",
+            header,
             ""
         )
     }
@@ -143,6 +134,7 @@ hpc_submit_generic_job <- function(
         "",
         "# Print job completion",
         "echo \"Job completed at $(date)\"",
+        "echo \"Script ran for $((SECONDS / 60)) minutes and $((SECONDS % 60)) seconds\"",
         "exit 0"
     )
 
