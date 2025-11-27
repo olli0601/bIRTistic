@@ -80,15 +80,18 @@ job_name <- paste0("validate_credit_model_", format(Sys.time(), "%Y-%m-%d-%H-%M-
 config <- list(
     test_individuals_p = 0.5,
     test_items_p = 0.5,
-    n_splits = 2,
+    n_splits = 20,
     stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
     dir_data = dir_data,
     dir_out = dir_out,
     chains = 2,
     parallel_chains = ifelse(on_hpc, 1, 2),
+    threads_per_chain = 1,
     iter_warmup = 1000,
     iter_sampling = 2000,
-    seed = 42
+    seed = 42,
+    show_messages = TRUE,
+    show_exceptions = TRUE
 )
 
 # Save configuration to JSON file
@@ -118,7 +121,7 @@ pbs_config <- list(
       eval "$(mamba shell hook --shell bash)"
       mamba activate birtistic
     '),
-    submit = FALSE # Set to TRUE to submit immediately
+    submit = TRUE # Set to TRUE to submit immediately
 )
 
 # Create PBS submission script

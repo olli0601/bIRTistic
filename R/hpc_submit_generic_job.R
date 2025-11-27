@@ -76,6 +76,9 @@ hpc_submit_generic_job <- function(
     script_path_abs <- normalizePath(script_path, mustWork = TRUE)
     json_path_abs <- normalizePath(json_path, mustWork = TRUE)
     output_dir_abs <- normalizePath(output_dir, mustWork = TRUE)
+    
+    # Get the directory containing the script (CODE_HOME) - find bIRTistic root
+    code_home <- sub("(.*bIRTistic).*", "\\1", script_path_abs)
 
     # Build PBS script content
     pbs_content <- c(
@@ -101,11 +104,11 @@ hpc_submit_generic_job <- function(
     pbs_content <- c(
         pbs_content,
         "",
-        "# Fail as soon as any command fails",
-        "set -euo pipefail",
+        "# Fail as soon as any command fails (after conda activation)",
+        "set -eo pipefail",
         "",
-        "# Change to submission directory",
-        "cd $PBS_O_WORKDIR",
+        "# Define code home directory",
+        paste0("CODE_HOME=", code_home),
         "",
         "# Print job information",
         "echo \"Job started on $(hostname) at $(date)\"",
@@ -128,7 +131,8 @@ hpc_submit_generic_job <- function(
     # Add main execution command
     pbs_content <- c(
         pbs_content,
-        "# Execute R script with JSON input",
+        "# Change to code home directory and execute R script",
+        "cd $CODE_HOME",
         paste0("Rscript ", script_path_abs, " --json_file ", json_path_abs),
         "",
         "# Print job completion",

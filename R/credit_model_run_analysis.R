@@ -11,9 +11,12 @@
 #' @param stan_file Character. Path to Stan model file (.stan)
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
+#' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
 #' @param iter_warmup Integer. Number of warmup iterations per chain (default: 500)
 #' @param iter_sampling Integer. Number of sampling iterations per chain (default: 1500)
 #' @param seed Integer. Random seed for reproducibility (default: 123)
+#' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
+#' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic
 #'   plots including trace plots, parameter intervals/areas, and posterior predictive
 #'   checks (default: FALSE)
@@ -67,9 +70,12 @@ credit_model_run_analysis <- function(
   stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
   chains = 2L,
   parallel_chains = 2L,
+  threads_per_chain = 1L,
   iter_warmup = 500L,
   iter_sampling = 1500L,
   seed = 123L,
+  show_messages = FALSE,
+  show_exceptions = FALSE,
   with_core_analyses = TRUE,
   with_additional_analyses = FALSE
 ) {
@@ -150,10 +156,13 @@ credit_model_run_analysis <- function(
         seed = seed,
         chains = chains,
         parallel_chains = parallel_chains,
+        threads_per_chain = threads_per_chain,
         iter_warmup = iter_warmup,
         iter_sampling = iter_sampling,
         refresh = 500,
-        save_warmup = TRUE
+        save_warmup = TRUE,
+        show_messages = show_messages,
+        show_exceptions = show_exceptions
     )
 
     # Save output to RDS
