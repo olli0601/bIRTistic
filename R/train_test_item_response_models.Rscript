@@ -260,55 +260,58 @@ results <- list()
 for (split_idx in seq_len(args$n_splits)) {
     # Load generated quantities
     output_file_prefix <- file.path(args$dir_out, paste0("cm_split", split_idx))
-    cm_test_gq <- readRDS(
-        file = paste0(output_file_prefix, "_test_generated_quantities.rds")
-    )
-
-    # Extract test data
-    load(paste0(output_file_prefix, "_train_test_split.RData"))
-    dtest <- copy(dtest)
-
-    # Extract log_lik for test data
-    log_lik_matrix <- cm_test_gq$draws("log_lik", format = "matrix")
-
-    # Compute ELPD per 1 test data point
-    elpd_test <- mean(
-        apply(
-            log_lik_matrix,
-            2,
-            function(ll) {
-                ll_loo <- loo::loo_utils_vectorize_log_lik(ll)
-                loo::elpd(loo::psis_weights(loo::relative_eff(exp(ll_loo))), ll_loo)
-            }
+    if(file.exists(paste0(output_file_prefix, "_test_generated_quantities.rds"))) {
+        cat("Reading file:", paste0(output_file_prefix, "_test_generated_quantities.rds"), "\n")        
+        cm_test_gq <- readRDS(
+            file = paste0(output_file_prefix, "_test_generated_quantities.rds")
         )
-    )
 
-    # Compute proportion of test observations within 95% PPI
-    y_test_obs <- dtest$y_stan
-    y_test_pred_samples <- cm_test_gq$draws("y_rep", format = "matrix")
-    prop_in_ppi <- mean(
-        mapply(
-            function(y_obs, y_preds) {
-                quantiles <- quantile(y_preds, probs = c(0.025, 0.975))
-                (y_obs >= quantiles[1]) && (y_obs <= quantiles[2])
-            },
-            y_obs = y_test_obs,
-            as.data.frame(t(y_test_pred_samples))
+        # Extract test data
+        load(paste0(output_file_prefix, "_train_test_split.RData"))
+        dtest <- copy(dtest)
+
+        # Extract log_lik for test data
+        log_lik_matrix <- cm_test_gq$draws("log_lik", format = "matrix")
+
+        # Compute ELPD per 1 test data point
+        elpd_test <- mean(
+            apply(
+                log_lik_matrix,
+                2,
+                function(ll) {
+                    ll_loo <- loo::loo_utils_vectorize_log_lik(ll)
+                    loo::elpd(loo::psis_weights(loo::relative_eff(exp(ll_loo))), ll_loo)
+                }
+            )
         )
-    )
 
-    # Store results
-    results[[split_idx]] <- data.table(
-        split_idx = split_idx,
-        elpd_test = elpd_test,
-        prop_in_ppi = prop_in_ppi
-    )
+        # Compute proportion of test observations within 95% PPI
+        y_test_obs <- dtest$y_stan
+        y_test_pred_samples <- cm_test_gq$draws("y_rep", format = "matrix")
+        prop_in_ppi <- mean(
+            mapply(
+                function(y_obs, y_preds) {
+                    quantiles <- quantile(y_preds, probs = c(0.025, 0.975))
+                    (y_obs >= quantiles[1]) && (y_obs <= quantiles[2])
+                },
+                y_obs = y_test_obs,
+                as.data.frame(t(y_test_pred_samples))
+            )
+        )
 
-    cat(
-        "Split", split_idx, "results:\n",
-        "  ELPD per 1 test data point:", elpd_test, "\n",
-        "  Proportion in 95% PPI:", prop_in_ppi, "\n\n"
-    )
+        # Store results
+        results[[split_idx]] <- data.table(
+            split_idx = split_idx,
+            elpd_test = elpd_test,
+            prop_in_ppi = prop_in_ppi
+        )
+
+        cat(
+            "Split", split_idx, "results:\n",
+            "  ELPD per 1 test data point:", elpd_test, "\n",
+            "  Proportion in 95% PPI:", prop_in_ppi, "\n\n"
+        )   
+    }
 }
 
 # Summarize results across splits

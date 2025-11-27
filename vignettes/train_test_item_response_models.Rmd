@@ -47,9 +47,18 @@ source(here::here("R", "hpc_submit_generic_job.R"))
 
 ```{r define-paths, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
 # Define directories
-dir_home <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups"
-dir_data <- file.path(dir_home, "data")
-dir_out <- file.path(dir_home, "colombia-validate-creditmodel-hpc")
+if (grepl("^/rds/general/user/or105", here::here())) {
+    # Working on HPC
+    on_hpc <- TRUE
+    dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
+    dir_out <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-validate-creditmodel-hpc"
+} else {
+    # Working locally
+    on_hpc <- FALSE
+    dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
+    dir_out <- "/Users/or105/sandbox/colombia-validate-creditmodel-251125"
+}
+
 dir_logs <- file.path(dir_out, "logs")
 
 # Create output directories if they don't exist
@@ -61,7 +70,7 @@ if (!dir.exists(dir_logs)) {
 }
 
 # Define job name
-job_name <- "validate_credit_model"
+job_name <- paste0("validate_credit_model_", format(Sys.time(), "%Y-%m-%d-%H-%M-%S"))
 ```
 
 # Create JSON configuration file
@@ -71,12 +80,12 @@ job_name <- "validate_credit_model"
 config <- list(
     test_individuals_p = 0.5,
     test_items_p = 0.5,
-    n_splits = 5,
+    n_splits = 2,
     stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
     dir_data = dir_data,
     dir_out = dir_out,
-    chains = 4,
-    parallel_chains = 4,
+    chains = 2,
+    parallel_chains = ifelse(on_hpc, 1, 2),
     iter_warmup = 1000,
     iter_sampling = 2000,
     seed = 42
@@ -87,8 +96,6 @@ json_file <- file.path(dir_out, paste0(job_name, "_config.json"))
 write_json(config, json_file, pretty = TRUE, auto_unbox = TRUE)
 
 cat("Created JSON configuration file:", json_file, "\n")
-cat("\nConfiguration:\n")
-cat(readLines(json_file), sep = "\n")
 ```
 
 # Create and submit PBS job
@@ -100,17 +107,17 @@ pbs_config <- list(
     json_path = json_file,
     job_name = job_name,
     output_dir = dir_logs,
-    walltime = "48:00:00",
-    memory = "32gb",
-    ncpus = 4,
+    walltime = "12:00:00",
+    memory = "64gb",
+    ncpus = 1,
     email = NULL, # Set to your email address for notifications
     email_options = "abe", # a=abort, b=begin, e=end
-    header = '
-    module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0\n
-    eval "$(~/miniforge3/bin/conda shell.bash hook)"\n
-    eval "$(mamba shell hook --shell bash)"\n
-    mamba activate birtistic\n
-    ',
+    header = gsub('(^|\\n)[ \\t]+', '\\1', '
+      module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
+      eval "$(~/miniforge3/bin/conda shell.bash hook)"
+      eval "$(mamba shell hook --shell bash)"
+      mamba activate birtistic
+    '),
     submit = FALSE # Set to TRUE to submit immediately
 )
 

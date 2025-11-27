@@ -86,8 +86,7 @@ hpc_submit_generic_job <- function(
         paste0("#PBS -o ", file.path(output_dir_abs, paste0(job_name, ".out"))),
         paste0("#PBS -e ", file.path(output_dir_abs, paste0(job_name, ".err"))),
         paste0("#PBS -l walltime=", walltime),
-        paste0("#PBS -l mem=", memory),
-        paste0("#PBS -l ncpus=", ncpus)
+        paste0("#PBS -l select=1:ncpus=", ncpus, ":mem=", memory)
     )
 
     # Add email notifications if specified

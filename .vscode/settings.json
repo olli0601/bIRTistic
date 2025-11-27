@@ -1,5 +1,5 @@
 {
-    "r.bracketedPaste": false,
+    "r.bracketedPaste": true,
     "r.lsp.diagnostics": false,
     "r.lsp.enabled": false,
     "stan.ignoreFilePaths": [
