@@ -133,14 +133,15 @@ cat("\nPBS submission script created:", pbs_script, "\n")
 
 # Results
 
-After the job completes, results will be available in the output directory:
-
-- **Train/test splits**: `cm_split*_train_test_split.RData`
-- **Model fits**: `cm_split*_trainingfit_*.rds`
-- **Generated quantities**: `cm_split*_test_generated_quantities.rds`
-- **Posterior predictive checks**: `cm_split*_test_ppcheck.png`
-- **Summary statistics**: `validation_summary.rds` and `validation_summary.csv`
-
+```{r evaluate-results, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE}
+tmp <- list.files(dir_out, pattern = "validation_summary", full.names = TRUE)
+results <- vector("list", length(tmp))
+for(i in seq_along(tmp)) {
+    results[[i]] <- read.csv(tmp[i])
+}
+results <- as.data.table(do.call(rbind, results))
+setkey(results, split_idx)
+```
 
 # Session information
 
