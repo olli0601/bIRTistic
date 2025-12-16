@@ -62,6 +62,21 @@ args <- list(
     seed = as.integer(json_args$seed)
 )
 
+# Check for PBS array index
+cat("Checking for PBS array index...\n")
+pbs_array_index <- Sys.getenv("PBS_ARRAYID")
+if (pbs_array_index == "") {
+    pbs_array_index <- Sys.getenv("PBS_ARRAY_INDEX")
+}
+
+if (pbs_array_index != "" && !is.na(as.integer(pbs_array_index))) {
+    split_idcs <- as.integer(pbs_array_index)
+    cat("PBS array index detected:", split_idcs, "\n")
+} else {
+    split_idcs <- seq_len(args$n_splits)
+    cat("No PBS array index detected. Running all splits:", paste(split_idcs, collapse = ", "), "\n")
+}
+
 # Load packages
 cat("Loading packages...\n")
 packages <- c(
@@ -126,7 +141,7 @@ cat("Total observations read:", nrow(dp1), "\n\n")
 
 
 # Perform train-test splits and validation
-for (split_idx in seq_len(args$n_splits)) {
+for (split_idx in split_idcs) {
     cat("======================================\n")
     cat("Split", split_idx, "of", args$n_splits, "\n")
     cat("======================================\n")
@@ -134,6 +149,23 @@ for (split_idx in seq_len(args$n_splits)) {
     set.seed(args$seed + split_idx - 1L)
     output_file_prefix <- file.path(args$dir_out, paste0("cm_split", split_idx))
 
+    # Check if output files already exist and are non-zero
+    files_to_check <- c(
+        paste0(output_file_prefix, "_train_test_split.RData"),
+        paste0(output_file_prefix, "_trainingfit_stan.rds"),
+        paste0(output_file_prefix, "_trainingfit_convergence_mixing.csv"),
+        paste0(output_file_prefix, "_test_generated_quantities.rds")
+    )
+    
+    all_files_exist <- all(sapply(files_to_check, function(f) {
+        file.exists(f) && file.info(f)$size > 0
+    }))
+    
+    if (all_files_exist) {
+        cat("All output files exist and are non-zero. Skipping split", split_idx, "\n\n")
+        next
+    }
+    
     # Split data
     cat("\nSplitting data...\n")
     tmp <- train_test_split_data(dp1, args$test_individuals_p, args$test_items_p)
@@ -257,84 +289,123 @@ for (split_idx in seq_len(args$n_splits)) {
 
 # Initialize results storage
 results <- list()
-for (split_idx in seq_len(args$n_splits)) {
-    # Load generated quantities
-    output_file_prefix <- file.path(args$dir_out, paste0("cm_split", split_idx))
-    if(file.exists(paste0(output_file_prefix, "_test_generated_quantities.rds"))) {
-        cat("Reading file:", paste0(output_file_prefix, "_test_generated_quantities.rds"), "\n")        
-        cm_test_gq <- readRDS(
-            file = paste0(output_file_prefix, "_test_generated_quantities.rds")
-        )
 
-        # Extract test data
-        load(paste0(output_file_prefix, "_train_test_split.RData"))
-        dtest <- copy(dtest)
+# Define output filenames for results
+split_range <- paste0("splits", min(split_idcs), "-", max(split_idcs))
 
-        # Extract log_lik for test data
-        log_lik_matrix <- cm_test_gq$draws("log_lik", format = "matrix")
+# Check if results files with this split_range already exist (any timestamp)
+existing_rds_files <- list.files(
+    args$dir_out,
+    pattern = paste0("^validation_summary_", split_range, "_.*\\.rds$"),
+    full.names = TRUE
+)
+existing_csv_files <- list.files(
+    args$dir_out,
+    pattern = paste0("^validation_summary_", split_range, "_.*\\.csv$"),
+    full.names = TRUE
+)
 
-        # Compute ELPD per 1 test data point
-        elpd_test <- mean(
-            apply(
-                log_lik_matrix,
-                2,
-                function(ll) {
-                    ll_loo <- loo::loo_utils_vectorize_log_lik(ll)
-                    loo::elpd(loo::psis_weights(loo::relative_eff(exp(ll_loo))), ll_loo)
-                }
-            )
-        )
+results_exist <- length(existing_rds_files) > 0 && length(existing_csv_files) > 0 &&
+    all(sapply(existing_rds_files, function(f) file.info(f)$size > 0)) &&
+    all(sapply(existing_csv_files, function(f) file.info(f)$size > 0))
 
-        # Compute proportion of test observations within 95% PPI
-        y_test_obs <- dtest$y_stan
-        y_test_pred_samples <- cm_test_gq$draws("y_rep", format = "matrix")
-        prop_in_ppi <- mean(
-            mapply(
-                function(y_obs, y_preds) {
-                    quantiles <- quantile(y_preds, probs = c(0.025, 0.975))
-                    (y_obs >= quantiles[1]) && (y_obs <= quantiles[2])
-                },
-                y_obs = y_test_obs,
-                as.data.frame(t(y_test_pred_samples))
-            )
-        )
-
-        # Store results
-        results[[split_idx]] <- data.table(
-            split_idx = split_idx,
-            elpd_test = elpd_test,
-            prop_in_ppi = prop_in_ppi
-        )
-
-        cat(
-            "Split", split_idx, "results:\n",
-            "  ELPD per 1 test data point:", elpd_test, "\n",
-            "  Proportion in 95% PPI:", prop_in_ppi, "\n\n"
-        )   
-    }
+if (results_exist) {
+    rds_filename <- existing_rds_files[1]
+    csv_filename <- existing_csv_files[1]
+} else {
+    timestamp <- format(Sys.time(), "%d-%H-%M-%S")
+    rds_filename <- file.path(args$dir_out, paste0("validation_summary_", split_range, "_", timestamp, ".rds"))
+    csv_filename <- file.path(args$dir_out, paste0("validation_summary_", split_range, "_", timestamp, ".csv"))
 }
 
-# Summarize results across splits
-cat("======================================\n")
-cat("SUMMARY ACROSS ALL SPLITS\n")
-cat("======================================\n")
+if (!results_exist) {
+    for (split_idx in split_idcs) {
+        # Load generated quantities
+        output_file_prefix <- file.path(args$dir_out, paste0("cm_split", split_idx))
+        if(file.exists(paste0(output_file_prefix, "_test_generated_quantities.rds"))) {
+            cat("Reading file:", paste0(output_file_prefix, "_test_generated_quantities.rds"), "\n")        
+            cm_test_gq <- readRDS(
+                file = paste0(output_file_prefix, "_test_generated_quantities.rds")
+            )
 
-results_dt <- rbindlist(results)
-cat("\nELPD on test data:\n")
-cat("  Mean:", mean(results_dt$elpd_test), "\n")
-cat("  SD:", sd(results_dt$elpd_test), "\n")
-cat("  Min:", min(results_dt$elpd_test), "\n")
-cat("  Max:", max(results_dt$elpd_test), "\n")
+            # Extract test data
+            load(paste0(output_file_prefix, "_train_test_split.RData"))
+            dtest <- copy(dtest)
 
-cat("\nProportion in 95% PPI:\n")
-cat("  Mean:", mean(results_dt$prop_in_ppi), "\n")
-cat("  SD:", sd(results_dt$prop_in_ppi), "\n")
-cat("  Min:", min(results_dt$prop_in_ppi), "\n")
-cat("  Max:", max(results_dt$prop_in_ppi), "\n")
+            # Extract log_lik for test data
+            log_lik_matrix <- cm_test_gq$draws("log_lik", format = "matrix")
 
-# Save summary
-saveRDS(results_dt, file = file.path(args$dir_out, "validation_summary.rds"))
-write.csv(results_dt, file = file.path(args$dir_out, "validation_summary.csv"), row.names = FALSE)
+            # Compute ELPD per 1 test data point
+            elpd_test <- mean(
+                apply(
+                    log_lik_matrix,
+                    2,
+                    function(ll) {
+                        ll_loo <- loo::loo_utils_vectorize_log_lik(ll)
+                        loo::elpd(loo::psis_weights(loo::relative_eff(exp(ll_loo))), ll_loo)
+                    }
+                )
+            )
 
-cat("\nResults saved to:", args$dir_out, "\n")
+            # Compute proportion of test observations within 95% PPI
+            y_test_obs <- dtest$y_stan
+            y_test_pred_samples <- cm_test_gq$draws("y_rep", format = "matrix")
+            prop_in_ppi <- mean(
+                mapply(
+                    function(y_obs, y_preds) {
+                        quantiles <- quantile(y_preds, probs = c(0.025, 0.975))
+                        (y_obs >= quantiles[1]) && (y_obs <= quantiles[2])
+                    },
+                    y_obs = y_test_obs,
+                    as.data.frame(t(y_test_pred_samples))
+                )
+            )
+
+            # Store results
+            results[[split_idx]] <- data.table(
+                split_idx = split_idx,
+                elpd_test = elpd_test,
+                prop_in_ppi = prop_in_ppi
+            )
+
+            cat(
+                "Split", split_idx, "results:\n",
+                "  ELPD per 1 test data point:", elpd_test, "\n",
+                "  Proportion in 95% PPI:", prop_in_ppi, "\n\n"
+            )   
+        }
+    }
+
+    # Summarize results across splits
+    cat("======================================\n")
+    cat("SUMMARY ACROSS ALL SPLITS\n")
+    cat("======================================\n")
+
+    results_dt <- rbindlist(results)
+    cat("\nELPD on test data:\n")
+    cat("  Mean:", mean(results_dt$elpd_test), "\n")
+    cat("  SD:", sd(results_dt$elpd_test), "\n")
+    cat("  Min:", min(results_dt$elpd_test), "\n")
+    cat("  Max:", max(results_dt$elpd_test), "\n")
+
+    cat("\nProportion in 95% PPI:\n")
+    cat("  Mean:", mean(results_dt$prop_in_ppi), "\n")
+    cat("  SD:", sd(results_dt$prop_in_ppi), "\n")
+    cat("  Min:", min(results_dt$prop_in_ppi), "\n")
+    cat("  Max:", max(results_dt$prop_in_ppi), "\n")
+
+    # Save summary
+    saveRDS(results_dt, file = rds_filename)
+    write.csv(results_dt, file = csv_filename, row.names = FALSE)
+
+    cat("\nResults saved to:", args$dir_out, "\n")
+    cat("  RDS file:", basename(rds_filename), "\n")
+    cat("  CSV file:", basename(csv_filename), "\n")
+} else {
+    cat("Results files already exist:\n")
+    cat("  RDS file:", basename(rds_filename), "\n")
+    cat("  CSV file:", basename(csv_filename), "\n")
+    cat("Skipping results computation.\n")
+}
+
 cat("Validation complete!\n")

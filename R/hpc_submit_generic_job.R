@@ -10,6 +10,7 @@
 #' @param walltime Character. Wall time limit in format "HH:MM:SS" (default: "24:00:00")
 #' @param memory Character. Memory requirement (default: "8gb")
 #' @param ncpus Integer. Number of CPUs to request (default: 1)
+#' @param narray Integer or NULL. Number of array jobs to create using PBS -J directive (default: NULL for no array)
 #' @param email Character or NULL. Email address for job notifications (default: NULL)
 #' @param email_options Character. PBS email options: "a" (abort), "b" (begin), "e" (end) (default: "abe")
 #' @param header Character vector. Shell commands to run before executing the script (default: NULL)
@@ -47,6 +48,7 @@ hpc_submit_generic_job <- function(
   walltime = "24:00:00",
   memory = "8gb",
   ncpus = 1L,
+  narray = NULL,
   email = NULL,
   email_options = "abe",
   header = NULL,
@@ -92,6 +94,14 @@ hpc_submit_generic_job <- function(
         paste0("#PBS -l select=1:ncpus=", ncpus, ":mem=", memory)
     )
 
+    # Add PBS array directive if specified
+    if (!is.null(narray) && narray > 1) {
+        pbs_content <- c(
+            pbs_content,
+            paste0("#PBS -J 1-", narray)
+        )
+    }
+
     # Add email notifications if specified
     if (!is.null(email)) {
         pbs_content <- c(
@@ -124,6 +134,18 @@ hpc_submit_generic_job <- function(
             pbs_content,
             "# Header\n",
             header,
+            ""
+        )
+    }
+
+    # Add PBS array index information if this is an array job
+    if (!is.null(narray) && narray > 1) {
+        pbs_content <- c(
+            pbs_content,
+            "# PBS Array Job Information",
+            "if [ ! -z \"$PBS_ARRAY_INDEX\" ]; then",
+            "    echo \"PBS Array Index: $PBS_ARRAY_INDEX\"",
+            "fi",
             ""
         )
     }

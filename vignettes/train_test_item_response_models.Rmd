@@ -113,6 +113,7 @@ pbs_config <- list(
     walltime = "12:00:00",
     memory = "64gb",
     ncpus = 1,
+    narray = config[["n_splits"]],
     email = NULL, # Set to your email address for notifications
     email_options = "abe", # a=abort, b=begin, e=end
     header = gsub('(^|\\n)[ \\t]+', '\\1', '
