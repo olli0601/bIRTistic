@@ -129,8 +129,6 @@ pbs_config <- list(
 pbs_script <- do.call(hpc_submit_generic_job, pbs_config)
 
 cat("\nPBS submission script created:", pbs_script, "\n")
-cat("\nTo submit the job, run:\n")
-cat("  qsub", pbs_script, "\n")
 ```
 
 # Results

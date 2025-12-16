@@ -215,20 +215,24 @@ for (split_idx in split_idcs) {
     save(dtrain, dtest, dit, args, output_file_prefix, seed, file = paste0(output_file_prefix, "_train_test_split.RData"))
 
     # Fit model on training data
-    cat("\nFitting model on training data...\n")
-    cm_fit <- credit_model_run_analysis(
-        dit,
-        dtrain,
-        output_file_prefix = paste0(output_file_prefix, "_trainingfit"),
-        stan_file = args$stan_file,
-        chains = args$chains,
-        parallel_chains = args$parallel_chains,
-        iter_warmup = args$iter_warmup,
-        iter_sampling = args$iter_sampling,
-        seed = seed,
-        with_core_analyses = FALSE,
-        with_additional_analyses = FALSE
-    )
+    if(file.exists(paste0(paste0(output_file_prefix, "_trainingfit_draws.rds")))) {
+        cat("Training fit draws file already exists. Skipping model fitting.\n")
+    } else {
+        cat("\nFitting model on training data...\n")
+        credit_model_run_analysis(
+                dit,
+                dtrain,
+                output_file_prefix = paste0(output_file_prefix, "_trainingfit"),
+                stan_file = args$stan_file,
+                chains = args$chains,
+                parallel_chains = args$parallel_chains,
+                iter_warmup = args$iter_warmup,
+                iter_sampling = args$iter_sampling,
+                seed = seed,
+                with_core_analyses = FALSE,
+                with_additional_analyses = FALSE
+            )
+    }
 
     # Prepare test data for Stan
     cat("\nPreparing test data...\n")
@@ -282,96 +286,137 @@ for (split_idx in split_idcs) {
     cm_test_gq <- cm_compiled$generate_quantities(
         data = stan_test_data,
         fitted_params = fitted_draws_array,
+        parallel_chains = args$parallel_chains,
+        threads_per_chain = 1L,
         seed = args$seed + 200L * split_idx
     )
 
-    saveRDS(
-        cm_test_gq,
-        file = paste0(output_file_prefix, "_test_generated_quantities.rds")
+    # Extract draws immediately to avoid temp file deletion issues
+    test_gq_log_lik <- cm_test_gq$draws("log_lik", format = "matrix")
+    test_gq_cat1_y_rep <- cm_test_gq$draws("cat1_ypred", format = "matrix")
+    test_gq_cat2_y_rep <- cm_test_gq$draws("cat2_ypred", format = "matrix")
+
+    save(
+        test_gq_log_lik,
+        test_gq_cat1_y_rep,
+        test_gq_cat2_y_rep,
+        file = paste0(output_file_prefix, "_test_generated_quantities.RData")
     )
 }
-
-# Initialize results storage
-results <- list()
 
 # Define output filenames for results
 split_range <- paste0("splits", min(split_idcs), "-", max(split_idcs))
 
 # Check if results files with this split_range already exist (any timestamp)
-existing_rds_files <- list.files(
-    args$dir_out,
-    pattern = paste0("^validation_summary_", split_range, "_.*\\.rds$"),
-    full.names = TRUE
-)
 existing_csv_files <- list.files(
-    args$dir_out,
-    pattern = paste0("^validation_summary_", split_range, "_.*\\.csv$"),
+    dirname(output_file_prefix),
+    pattern = paste0(basename(output_file_prefix), "_validation_summary_", split_range, "_.*\\.csv$"),
     full.names = TRUE
 )
 
-results_exist <- length(existing_rds_files) > 0 && length(existing_csv_files) > 0 &&
-    all(sapply(existing_rds_files, function(f) file.info(f)$size > 0)) &&
+results_exist <- length(existing_csv_files) > 0 &&
     all(sapply(existing_csv_files, function(f) file.info(f)$size > 0))
 
 if (results_exist) {
-    rds_filename <- existing_rds_files[1]
     csv_filename <- existing_csv_files[1]
 } else {
     timestamp <- format(Sys.time(), "%d-%H-%M-%S")
-    rds_filename <- file.path(args$dir_out, paste0("validation_summary_", split_range, "_", timestamp, ".rds"))
-    csv_filename <- file.path(args$dir_out, paste0("validation_summary_", split_range, "_", timestamp, ".csv"))
+    csv_filename <- paste0(output_file_prefix, "_validation_summary_", split_range, "_", timestamp, ".csv")
 }
 
 if (!results_exist) {
+    # Initialize results storage
+    results <- data.table(split_idx = NULL, elpd_test = NULL, prop_in_ppi = NULL)
+
     for (split_idx in split_idcs) {
         # Load generated quantities
-        output_file_prefix <- file.path(args$dir_out, paste0("cm_split", split_idx))
-        if(file.exists(paste0(output_file_prefix, "_test_generated_quantities.rds"))) {
-            cat("Reading file:", paste0(output_file_prefix, "_test_generated_quantities.rds"), "\n")        
-            cm_test_gq <- readRDS(
-                file = paste0(output_file_prefix, "_test_generated_quantities.rds")
-            )
+        if(file.exists(paste0(output_file_prefix, "_test_generated_quantities.RData"))) {
+            cat("Reading file:", paste0(output_file_prefix, "_test_generated_quantities.RData"), "\n")        
+            load(paste0(output_file_prefix, "_test_generated_quantities.RData"))
 
             # Extract test data
             load(paste0(output_file_prefix, "_train_test_split.RData"))
-            dtest <- copy(dtest)
 
-            # Extract log_lik for test data
-            log_lik_matrix <- cm_test_gq$draws("log_lik", format = "matrix")
-
-            # Compute ELPD per 1 test data point
+            # Extract log_lik for test data            
             elpd_test <- mean(
                 apply(
-                    log_lik_matrix,
+                    test_gq_log_lik,
                     2,
                     function(ll) {
-                        ll_loo <- loo::loo_utils_vectorize_log_lik(ll)
-                        loo::elpd(loo::psis_weights(loo::relative_eff(exp(ll_loo))), ll_loo)
+                        # Compute log pointwise predictive density (lppd) for this observation
+                        matrixStats::logSumExp(ll) - log(length(ll))
                     }
                 )
             )
 
             # Compute proportion of test observations within 95% PPI
-            y_test_obs <- dtest$y_stan
-            y_test_pred_samples <- cm_test_gq$draws("y_rep", format = "matrix")
-            prop_in_ppi <- mean(
-                mapply(
-                    function(y_obs, y_preds) {
-                        quantiles <- quantile(y_preds, probs = c(0.025, 0.975))
-                        (y_obs >= quantiles[1]) && (y_obs <= quantiles[2])
-                    },
-                    y_obs = y_test_obs,
-                    as.data.frame(t(y_test_pred_samples))
-                )
+            po <- as.data.table(cbind(test_gq_cat1_y_rep, test_gq_cat2_y_rep))
+            po[, ".draw" := seq_len(.N)]            
+            po <- data.table::melt(
+                po,
+                id.vars = ".draw",
+                value.name = "ypred"
+            )
+            po[, item_type := gsub("([a-z0-9_]+)\\[([0-9]+)\\]", "\\1", variable)]
+            po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+)\\]", "\\2", variable))]
+            tmp <- po[, which(grepl("cat2", item_type))]
+            set(po, tmp, "item_type", "out-of-7")
+            set(po, po[, which(grepl("ypred", item_type))], "item_type", "categorical")
+            pos <- po[,
+                list(
+                    summary_value = quantile(
+                        ypred,
+                        prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                    ),
+                    summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+                ),
+                by = c("item_type", "oidt")
+            ]
+            pos <- data.table::dcast(pos,
+                item_type + oidt ~ summary_name,
+                value.var = "summary_value"
+            )
+            pos <- merge(pos, dtest, by = c("item_type", "oidt"))
+            pos[, in_ppi := y_stan >= q_lower & y_stan <= q_upper]            
+            prop_in_ppi <- pos[, mean(in_ppi)]
+
+            # Plot posterior predictive check
+            p <- ggplot(pos, aes(x = oid, group = oid)) +
+                geom_boxplot(
+                    aes(
+                        ymin = q_lower,
+                        lower = iqr_lower,
+                        middle = median,
+                        upper = iqr_upper,
+                        ymax = q_upper
+                    ),
+                    stat = "identity"
+                ) +
+                geom_point(aes(y = y_stan, colour = in_ppi)) +
+                facet_grid(item_label ~ time_label, scales = "free") +
+                scale_x_discrete() +
+                scale_y_continuous() +
+                ggsci::scale_color_npg() +
+                labs(
+                    x = "",
+                    y = "outcome",
+                    colour = "within\n95% posterior\nprediction\ninterval"
+                ) +
+                theme_bw() +
+                theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+            ggsave(
+                file = paste0(output_file_prefix, "_test_ppcheck.png"),
+                p,
+                w = 20,
+                h = 20
             )
 
             # Store results
-            results[[split_idx]] <- data.table(
+            results <- rbind(results, data.table(
                 split_idx = split_idx,
                 elpd_test = elpd_test,
                 prop_in_ppi = prop_in_ppi
-            )
-
+            ))
             cat(
                 "Split", split_idx, "results:\n",
                 "  ELPD per 1 test data point:", elpd_test, "\n",
@@ -380,34 +425,12 @@ if (!results_exist) {
         }
     }
 
-    # Summarize results across splits
-    cat("======================================\n")
-    cat("SUMMARY ACROSS ALL SPLITS\n")
-    cat("======================================\n")
-
-    results_dt <- rbindlist(results)
-    cat("\nELPD on test data:\n")
-    cat("  Mean:", mean(results_dt$elpd_test), "\n")
-    cat("  SD:", sd(results_dt$elpd_test), "\n")
-    cat("  Min:", min(results_dt$elpd_test), "\n")
-    cat("  Max:", max(results_dt$elpd_test), "\n")
-
-    cat("\nProportion in 95% PPI:\n")
-    cat("  Mean:", mean(results_dt$prop_in_ppi), "\n")
-    cat("  SD:", sd(results_dt$prop_in_ppi), "\n")
-    cat("  Min:", min(results_dt$prop_in_ppi), "\n")
-    cat("  Max:", max(results_dt$prop_in_ppi), "\n")
-
-    # Save summary
-    saveRDS(results_dt, file = rds_filename)
-    write.csv(results_dt, file = csv_filename, row.names = FALSE)
-
+    # Save summary    
+    write.csv(results, file = csv_filename, row.names = FALSE)
     cat("\nResults saved to:", args$dir_out, "\n")
-    cat("  RDS file:", basename(rds_filename), "\n")
     cat("  CSV file:", basename(csv_filename), "\n")
 } else {
     cat("Results files already exist:\n")
-    cat("  RDS file:", basename(rds_filename), "\n")
     cat("  CSV file:", basename(csv_filename), "\n")
     cat("Skipping results computation.\n")
 }
