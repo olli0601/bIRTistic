@@ -153,6 +153,7 @@ for (split_idx in split_idcs) {
     files_to_check <- c(
         paste0(output_file_prefix, "_train_test_split.RData"),
         paste0(output_file_prefix, "_trainingfit_stan.rds"),
+        paste0(output_file_prefix, "_trainingfit_draws.rds"),
         paste0(output_file_prefix, "_trainingfit_convergence_mixing.csv"),
         paste0(output_file_prefix, "_test_generated_quantities.rds")
     )
@@ -162,7 +163,7 @@ for (split_idx in split_idcs) {
     }))
     
     if (all_files_exist) {
-        cat("All output files exist and are non-zero. Skipping split", split_idx, "\n\n")
+        cat("All train/test files exist and are non-zero. Skipping split", split_idx, "\n\n")
         next
     }
     
@@ -266,8 +267,11 @@ for (split_idx in split_idcs) {
         include_paths = dirname(args$stan_file)
     )
 
-    # Extract draws and ensure latent_factor_unit sums to zero
-    fitted_draws <- cm_fit$draws(format = "draws_matrix")
+    # Load pre-saved draws and ensure latent_factor_unit sums to zero
+    draws_file <- paste0(output_file_prefix, "_trainingfit_draws.rds")
+    cat("Loading draws from:", draws_file, "\n")
+    fitted_draws_array <- readRDS(draws_file)
+    fitted_draws <- posterior::as_draws_matrix(fitted_draws_array)
     lfu_cols <- grep("^latent_factor_unit\\[", colnames(fitted_draws))
     lfu_matrix <- fitted_draws[, lfu_cols]
     row_means <- rowMeans(lfu_matrix)

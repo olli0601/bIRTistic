@@ -165,6 +165,13 @@ credit_model_run_analysis <- function(
         show_exceptions = show_exceptions
     )
 
+    # Extract and save draws immediately (while CSV files still exist)
+    cat("Extracting draws...\n")
+    draws_file <- paste0(output_file_prefix, "_draws.rds")
+    draws <- cm_fit$draws(format = "draws_array")
+    saveRDS(draws, file = draws_file)
+    cat("Saved draws to:", draws_file, "\n")
+
     # Save output to RDS
 
     output_file <- paste0(output_file_prefix, "_stan.rds")

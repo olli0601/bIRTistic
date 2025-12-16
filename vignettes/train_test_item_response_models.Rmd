@@ -110,7 +110,7 @@ pbs_config <- list(
     json_path = json_file,
     job_name = job_name,
     output_dir = dir_logs,
-    walltime = "12:00:00",
+    walltime = "4:00:00",
     memory = "64gb",
     ncpus = 1,
     narray = config[["n_splits"]],
