@@ -1,6 +1,6 @@
-#' Run credit model analysis on pre-processed data
+#' Run ordered logit model analysis on pre-processed data
 #'
-#' This function performs Bayesian IRT analysis using a credit model on pre-processed
+#' This function performs Bayesian IRT analysis using an ordered logit model on pre-processed
 #' data. It compiles the Stan model, runs MCMC sampling, generates convergence
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior
 #' predictive checks.
@@ -11,9 +11,12 @@
 #' @param stan_file Character. Path to Stan model file (.stan)
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
+#' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
 #' @param iter_warmup Integer. Number of warmup iterations per chain (default: 500)
 #' @param iter_sampling Integer. Number of sampling iterations per chain (default: 1500)
 #' @param seed Integer. Random seed for reproducibility (default: 123)
+#' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
+#' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic
 #'   plots including trace plots, parameter intervals/areas, and posterior predictive
 #'   checks (default: FALSE)
@@ -42,34 +45,37 @@
 #' dcati <- readRDS("data/dcati_processed.rds")
 #'
 #' # Run analysis with default settings
-#' credit_model_run_analysis(
+#' ordered_logit_model_run_analysis(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan"
+#'     stan_file = "src/stan/ordered_logit_2cats_v251216.stan"
 #' )
 #'
 #' # Run with additional diagnostics
-#' credit_model_run_analysis(
+#' ordered_logit_model_run_analysis(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
+#'     stan_file = "src/stan/ordered_logit_2cats_v251216.stan",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
-credit_model_run_analysis <- function(
+ordered_logit_model_run_analysis <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+  stan_file = here::here("src", "stan", "ordered_logit_2cats_v251216.stan"),
   chains = 2L,
   parallel_chains = 2L,
+  threads_per_chain = 1L,
   iter_warmup = 500L,
   iter_sampling = 1500L,
   seed = 123L,
+  show_messages = FALSE,
+  show_exceptions = FALSE,
   with_core_analyses = TRUE,
   with_additional_analyses = FALSE
 ) {
@@ -88,7 +94,7 @@ credit_model_run_analysis <- function(
 
     # Print configuration
     cat("\n========================================\n")
-    cat("Credit Model Analysis Configuration\n")
+    cat("Ordered Logit Model Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
@@ -108,9 +114,10 @@ credit_model_run_analysis <- function(
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    cm_compiled <- cmdstanr::cmdstan_model(
+    ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
-        include_paths = dirname(stan_file)
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE)
     )
 
     # Define data in format needed for model specification
@@ -145,32 +152,43 @@ credit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
-    cm_fit <- cm_compiled$sample(
+    browser()
+    ol_fit <- ol_compiled$sample(
         data = stan_data,
         seed = seed,
         chains = chains,
         parallel_chains = parallel_chains,
+        threads_per_chain = threads_per_chain,
         iter_warmup = iter_warmup,
         iter_sampling = iter_sampling,
         refresh = 500,
-        save_warmup = TRUE
+        save_warmup = TRUE,
+        show_messages = show_messages,
+        show_exceptions = show_exceptions
     )
 
-    # Save output to RDS
+    # Extract and save draws immediately (while CSV files still exist)
+    cat("Extracting draws...\n")
+    draws_file <- paste0(output_file_prefix, "_draws.rds")
+    draws <- ol_fit$draws(format = "draws_array")
+    saveRDS(draws, file = draws_file)
+    cat("Saved draws to:", draws_file, "\n")
 
+    # Save output to RDS
     output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
-    cm_fit$save_object(file = output_file)
+    ol_fit$save_object(file = output_file)
 
     # Check convergence and mixing
     cat("Generating convergence diagnostics...\n")
-    tmp <- cm_fit$summary(
+    tmp <- ol_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
+            "questions_baselines",
             "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-            "cat1_loadings_questions",
+            "cat1_loadings_questions_m1",
             "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-            "cat2_loadings_questions"
+            "cat2_loadings_questions_m1"
         ),
         posterior::default_summary_measures(),
         posterior::default_convergence_measures(),
@@ -193,7 +211,7 @@ credit_model_run_analysis <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")
-        po <- cm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
@@ -213,13 +231,14 @@ credit_model_run_analysis <- function(
 
         # Make intervals/areas plot
         cat("Generating parameter plots...\n")
-        po <- cm_fit$draws(
+        po <- ol_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
+                "questions_baselines",
                 "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-                "cat1_loadings_questions",
+                "cat1_loadings_questions_m1",
                 "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-                "cat2_loadings_questions"
+                "cat2_loadings_questions_m1"
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -252,7 +271,7 @@ credit_model_run_analysis <- function(
 
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- cm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -325,7 +344,7 @@ credit_model_run_analysis <- function(
     # Generate probability plots for cat1
     if (with_core_analyses) {
         cat("Generating probability plots for categorical outcomes...\n")
-        po <- cm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -396,7 +415,7 @@ credit_model_run_analysis <- function(
 
         # Generate probability plots for cat2
         cat("Generating probability plots for out-of-7 outcomes...\n")
-        po <- cm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("cat2_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -531,5 +550,5 @@ credit_model_run_analysis <- function(
         cat("\nSkipping core analyses (set with_core_analyses=TRUE to enable)\n")
     }
 
-    invisible(cm_fit)
+    invisible(ol_fit)
 }
