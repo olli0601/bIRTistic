@@ -17,6 +17,7 @@
 #' @param seed Integer. Random seed for reproducibility (default: 123)
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
+#' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic
 #'   plots including trace plots, parameter intervals/areas, and posterior predictive
 #'   checks (default: FALSE)
@@ -92,6 +93,14 @@ ordered_logit_model_run_analysis <- function(
     require(bayesplot)
     require(cmdstanr)
 
+    # Detect if using threading based on threads_per_chain
+    use_threading <- threads_per_chain > 1L
+    if (use_threading && !grepl("threading", stan_file)) {
+        warning(
+            "threads_per_chain > 1 but stan_file does not appear to be a threading version. ",
+            "Consider using a Stan model with threading support."
+        )
+    }
     # Print configuration
     cat("\n========================================\n")
     cat("Ordered Logit Model Analysis Configuration\n")
@@ -102,6 +111,10 @@ ordered_logit_model_run_analysis <- function(
     cat("Output prefix:", output_file_prefix, "\n")
     cat("Chains:", chains, "\n")
     cat("Parallel chains:", parallel_chains, "\n")
+    cat("Threads per chain:", threads_per_chain, "\n")
+    if (use_threading && grepl("threading", stan_file)) {
+        cat("Threading enabled: using threaded Stan model\n")
+    }
     cat("Warmup iterations:", iter_warmup, "\n")
     cat("Sampling iterations:", iter_sampling, "\n")
     cat("Seed:", seed, "\n")
@@ -149,10 +162,14 @@ ordered_logit_model_run_analysis <- function(
         dcati[item_type == "out-of-7", time - 1L],
         ncol = 1
     )
+    
+    # Add grainsize if using threading version
+    if (use_threading && grepl("threading", stan_file)) {
+        stan_data$grainsize <- 1
+    }
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
-    browser()
     ol_fit <- ol_compiled$sample(
         data = stan_data,
         seed = seed,
@@ -173,29 +190,27 @@ ordered_logit_model_run_analysis <- function(
     draws <- ol_fit$draws(format = "draws_array")
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
+    draws <- NULL
+    gc()
 
     # Save output to RDS
     output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
     ol_fit$save_object(file = output_file)
 
-    # Check convergence and mixing
+    # Check convergence and mixing - compute only rhat and ess for efficiency
     cat("Generating convergence diagnostics...\n")
     tmp <- ol_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
-            "questions_baselines",
             "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
             "cat1_loadings_questions_m1",
             "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
             "cat2_loadings_questions_m1"
-        ),
-        posterior::default_summary_measures(),
-        posterior::default_convergence_measures(),
-        extra_quantiles = ~ posterior::quantile2(., probs = c(.0275, .975))
+        )
     )
     tmp <- as.data.table(tmp)
-    tmp <- tmp[order(ess_bulk), ]
+    setorder(tmp, ess_bulk)
     write.csv(
         tmp,
         file = paste0(output_file_prefix, "_convergence_mixing.csv"),
@@ -216,12 +231,36 @@ ordered_logit_model_run_analysis <- function(
             inc_warmup = TRUE,
             format = "draws_array"
         )
-        p <- bayesplot:::mcmc_trace(po,
-            pars = c("lp__", worst_var),
-            n_warmup = iter_warmup,
-            facet_args = list(nrow = 2)
+        
+        # Calculate lp__ range from post-warmup samples for y-axis scaling
+        po_postwarmup <- ol_fit$draws(
+            variables = "lp__",
+            inc_warmup = FALSE,
+            format = "draws_array"
         )
-        p <- p + theme_bw()
+        lp_range <- range(po_postwarmup[,, "lp__"])
+        lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
+                     lp_range[2] + 0.05 * diff(lp_range))
+        
+        # Create lp__ trace plot with constrained y-axis
+        p_lp <- bayesplot:::mcmc_trace(po[,, "lp__", drop = FALSE],
+            pars = "lp__",
+            n_warmup = iter_warmup
+        ) + 
+            coord_cartesian(ylim = lp_ylim) +
+            theme_bw()
+        
+        # Create trace plot for other parameters with free y-axis
+        p_other <- bayesplot:::mcmc_trace(po[,, worst_var, drop = FALSE],
+            pars = worst_var,
+            n_warmup = iter_warmup,
+            facet_args = list(ncol = 2)
+        ) + 
+            theme_bw()
+        
+        # Combine plots
+        p <- patchwork::wrap_plots(p_lp, p_other, ncol = 1, heights = c(1, 4))
+        
         ggsave(
             file = paste0(output_file_prefix, "_worsttrace.png"),
             plot = p,
@@ -230,11 +269,10 @@ ordered_logit_model_run_analysis <- function(
         )
 
         # Make intervals/areas plot
-        cat("Generating parameter plots...\n")
+        cat("Generating parameter interval plots...\n")
         po <- ol_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
-                "questions_baselines",
                 "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
                 "cat1_loadings_questions_m1",
                 "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
@@ -252,20 +290,69 @@ ordered_logit_model_run_analysis <- function(
         ggsave(
             file = paste0(output_file_prefix, "_intervals.png"),
             plot = p,
-            h = 50,
+            h = 70,
             w = 8,
             limitsize = FALSE
         )
 
-        p <- bayesplot::mcmc_areas(
-            po,
-            prob = 0.5, prob_outer = 0.95, point_est = "median"
-        ) + theme_bw()
+        cat("Generating parameter density overlay plots...\n")
+        po <- ol_fit$draws(
+            variables = c(
+                "latent_factor_unit", "latent_factor_beta"                
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        color_scheme_set("mix-teal-pink")
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
         ggsave(
-            file = paste0(output_file_prefix, "_areas.png"),
+            file = paste0(output_file_prefix, "_areas_latent_factor_and_baselines.pdf"),
             plot = p,
-            h = 150,
-            w = 8,
+            h = 100,
+            w = 20,
+            limitsize = FALSE
+        )
+
+        po <- ol_fit$draws(
+            variables = c(
+                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
+                "cat1_loadings_questions_m1"
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
+        ggsave(
+            file = paste0(output_file_prefix, "_areas_cat1_parameters.pdf"),
+            plot = p,
+            h = 40,
+            w = 20,
+            limitsize = FALSE
+        )
+
+        po <- ol_fit$draws(
+            variables = c(
+                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
+                "cat2_loadings_questions_m1"
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
+        ggsave(
+            file = paste0(output_file_prefix, "_areas_cat2_parameters.pdf"),
+            plot = p,
+            h = 60,
+            w = 20,
             limitsize = FALSE
         )
 
@@ -367,6 +454,9 @@ ordered_logit_model_run_analysis <- function(
             select = c(oidt, pid, item_time_id, time)
         ))
         po <- merge(po, tmp, by = c("oidt"))
+        #
+        po <- subset(po, .chain == 1L)
+        #
         po <- po[,
             list(prob = mean(prob)),
             by = c(".draw", "time", "item_time_id", "y_stan")
@@ -438,6 +528,9 @@ ordered_logit_model_run_analysis <- function(
             select = c(oidt, pid, item_time_id, time)
         ))
         po <- merge(po, tmp, by = c("oidt"))
+        #
+        po <- subset(po, .chain == 1L)
+        #
         po <- po[,
             list(prob = mean(prob)),
             by = c(".draw", "time", "item_time_id", "y_stan")
@@ -541,7 +634,7 @@ ordered_logit_model_run_analysis <- function(
             w = 12
         )
         ggsave(
-            file = paste0(output_file_prefix, "_probs_barplot_v2.pdf"),
+            file = paste0(output_file_prefix, "_probs_barplot_v2_chain1.pdf"),
             plot = p,
             h = 40,
             w = 12

@@ -64,15 +64,18 @@ if (grepl("^/rds/general/user/or105", here::here())) {
     # Working on HPC
     on_hpc <- TRUE
     dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
-    dir_out <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-run-orderedlogistic-251216"
+    dir_out <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-run-orderedlogistic-251222"
+    dir_out_cm <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-run-creditmodel-251120"
 } else {
     # Working locally
     on_hpc <- FALSE
     dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
-    dir_out <- "/Users/or105/sandbox/colombia-run-orderedlogistic-251216"
+    dir_out <- "/Users/or105/sandbox/colombia-run-orderedlogistic-251222"
+    dir_out_cm <- "/Users/or105/sandbox/colombia-run-creditmodel-251120"
 }
 
 dir_logs <- file.path(dir_out, "logs")
+dir_logs_cm <- file.path(dir_out_cm, "logs")
 
 # Define file names
 file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
@@ -85,10 +88,16 @@ if (!dir.exists(dir_out)) {
 if (!dir.exists(dir_logs)) {
     dir.create(dir_logs, recursive = TRUE)
 }
-
+if (!dir.exists(dir_out_cm)) {
+    dir.create(dir_out_cm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_cm)) {
+    dir.create(dir_logs_cm, recursive = TRUE)
+}
 
 # Define output relateed filenames and prefixes
 output_file_prefix <- file.path(dir_out, "ordlog_1")
+output_file_prefix_cm <- file.path(dir_out_cm, "creditmodel_1")
 job_name <- paste0("run-orderedlogistic_", format(Sys.time(), "%Y-%m-%d-%H-%M-%S"))
 
 set.seed(42L)
@@ -129,33 +138,58 @@ setkey(dp1, pid, time, item_label)
 ```
 
 ```{r compile-stan-model, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "ordered_logit_2cats_v251216.stan")
-cm_compiled <- cmdstanr::cmdstan_model(
+stan_file <- here::here("src", "stan", "ordered_logit_2cats_v251222_threading.stan")
+ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE),
-        force_recompile = TRUE
+        cpp_options = list(stan_threads = TRUE)
     )
 ```
 
 ```{r fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-debug(ordered_logit_model_run_analysis)
 ol_fit <- ordered_logit_model_run_analysis(
     dit,
     dp1,
     output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-    stan_file = here::here("src", "stan", "ordered_logit_2cats_v251216.stan"),
+    stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222_threading.stan"),
     chains = 2L,
     parallel_chains = 2L,
-    threads_per_chain = 1L,
+    threads_per_chain = 4L,
     iter_warmup = 500L,
     iter_sampling = 1500L,
     seed = 123L,
     with_core_analyses = TRUE,
     with_additional_analyses = TRUE
 )
-undebug(ordered_logit_model_run_analysis)
 ```
+
+
+```{r compile-stan-model, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "credit_model_2cats_v251120_threading.stan")
+cm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE)
+    )
+```
+
+```{r cm-fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+cm_fit <- credit_model_run_analysis(
+    dit,
+    dp1,
+    output_file_prefix = paste0(output_file_prefix_cm, "_fit_alldata"),
+    stan_file = here::here("src", "stan", "credit_model_2cats_v251120_threading.stan"),
+    chains = 2L,
+    parallel_chains = 2L,
+    threads_per_chain = 4L,
+    iter_warmup = 500L,
+    iter_sampling = 1500L,
+    seed = 123L,
+    with_core_analyses = TRUE,
+    with_additional_analyses = TRUE
+)
+```
+
 
 ```{r evaluate-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Create stan_test_data following the same structure as training data

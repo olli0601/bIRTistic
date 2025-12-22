@@ -53,3 +53,15 @@ matrix cm_get_etas(matrix loadings_questions,
   }
   return etas;
 }
+
+// Partial sum function for categorical logit likelihood (for threading)
+real partial_categorical_logit_lpmf(array[] int slice_y, int start, int end,
+                                    matrix eta) {
+  real lp = 0;
+  int slice_idx = 1;
+  for (n in start : end) {
+    lp += categorical_logit_lpmf(slice_y[slice_idx] | eta[n]');
+    slice_idx += 1;
+  }
+  return lp;
+}

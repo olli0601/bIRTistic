@@ -18,6 +18,7 @@ data {
   array[Ncat2] int<lower=1, upper=U> cat2_unit_of_obs;
   array[Ncat2] int<lower=1, upper=Qcat2> cat2_question_of_obs;
   matrix[Ncat2, P] cat2_X;
+  int<lower=1> grainsize; // grainsize for reduce_sum
 }
 transformed data {
   real s2z_sd_unit;
@@ -57,17 +58,11 @@ transformed parameters {
                          + cat2_X * latent_factor_beta, cat2_question_of_obs);
 }
 model {
-  // likelihood under credit model
-  //print("\n cat1_cutpoints", cat1_cutpoints);
-  for (n in 1 : Ncat1) {
-    target += ordered_logistic_lupmf(cat1_y[n] | cat1_eta[n],
-                cat1_cutpoints[cat1_question_of_obs[n],  : ]');
-  }
-  //print("\n cat2_cutpoints", cat1_cutpoints);
-  for (n in 1 : Ncat2) {
-    target += ordered_logistic_lupmf(cat2_y[n] | cat2_eta[n],
-                cat2_cutpoints[cat2_question_of_obs[n],  : ]');
-  }
+  // likelihood under credit model using reduce_sum for parallelization
+  target += reduce_sum(partial_ordered_logistic_lpmf, cat1_y, grainsize,
+                       cat1_eta, cat1_cutpoints, cat1_question_of_obs);
+  target += reduce_sum(partial_ordered_logistic_lpmf, cat2_y, grainsize,
+                       cat2_eta, cat2_cutpoints, cat2_question_of_obs);
   // priors for latent factors
   target += normal_lupdf(latent_factor_unit | 0, s2z_sd_unit);
   target += std_normal_lupdf(latent_factor_beta);

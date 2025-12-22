@@ -14,6 +14,32 @@ matrix cm_get_cutpoints_noncentered(vector skill_thresholds_1,
   return cutpoints;
 }
 
+vector ol_get_etas(vector loadings_questions,
+                   vector latent_factor_obs,
+                   array [] int question_of_obs)
+{
+  int N = num_elements(question_of_obs);
+  vector [N] etas;
+  for(n in 1:N)
+  {
+    etas[n] = loadings_questions[question_of_obs[n]] * latent_factor_obs[n];
+  }
+  return etas;
+}
+
+vector ol_get_etas(matrix loadings_questions,
+                   matrix latent_factor_obs,
+                   array [] int question_of_obs)
+{
+  int N = num_elements(question_of_obs);
+  vector[N] etas;
+  for(n in 1:N)
+  {
+    etas[n] = loadings_questions[question_of_obs[n], :] * latent_factor_obs[:, n];
+  }
+  return etas;
+}
+
 vector ol_get_etas(vector question_baselines,
                    vector loadings_questions,
                    vector latent_factor_obs,
@@ -61,3 +87,16 @@ matrix ol_get_ordered_prob_by_obs(vector eta,
   }
   return ordered_prob_by_obs;
 }
+
+real partial_ordered_logistic_lpmf(array[] int slice_y, int start, int end,
+                                     vector eta, matrix cutpoints,
+                                     array[] int question_of_obs) {
+    real lp = 0;
+    int slice_idx = 1;
+    for (n in start : end) {
+      lp += ordered_logistic_lpmf(slice_y[slice_idx] | eta[n],
+              cutpoints[question_of_obs[n],  : ]');
+      slice_idx += 1;
+    }
+    return lp;
+  }

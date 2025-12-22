@@ -92,6 +92,14 @@ credit_model_run_analysis <- function(
     require(bayesplot)
     require(cmdstanr)
 
+    # Detect if using threading based on threads_per_chain
+    use_threading <- threads_per_chain > 1L
+    if (use_threading && !grepl("threading", stan_file)) {
+        warning(
+            "threads_per_chain > 1 but stan_file does not appear to be a threading version. ",
+            "Consider using a Stan model with threading support."
+        )
+    }
     # Print configuration
     cat("\n========================================\n")
     cat("Credit Model Analysis Configuration\n")
@@ -102,6 +110,10 @@ credit_model_run_analysis <- function(
     cat("Output prefix:", output_file_prefix, "\n")
     cat("Chains:", chains, "\n")
     cat("Parallel chains:", parallel_chains, "\n")
+    cat("Threads per chain:", threads_per_chain, "\n")
+    if (use_threading && grepl("threading", stan_file)) {
+        cat("Threading enabled: using threaded Stan model\n")
+    }
     cat("Warmup iterations:", iter_warmup, "\n")
     cat("Sampling iterations:", iter_sampling, "\n")
     cat("Seed:", seed, "\n")
@@ -116,7 +128,8 @@ credit_model_run_analysis <- function(
     cat("Compiling Stan model...\n")
     cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
-        include_paths = dirname(stan_file)
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE)
     )
 
     # Define data in format needed for model specification
@@ -148,6 +161,11 @@ credit_model_run_analysis <- function(
         dcati[item_type == "out-of-7", time - 1L],
         ncol = 1
     )
+    
+    # Add grainsize if using threading version
+    if (use_threading && grepl("threading", stan_file)) {
+        stan_data$grainsize <- 1
+    }
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
