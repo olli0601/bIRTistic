@@ -170,6 +170,7 @@ ordered_logit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
+    flush.console()  
     ol_fit <- ol_compiled$sample(
         data = stan_data,
         seed = seed,
@@ -183,6 +184,21 @@ ordered_logit_model_run_analysis <- function(
         show_messages = show_messages,
         show_exceptions = show_exceptions
     )
+
+    # Extract chain timing information
+    cat("Extracting timing information...\n")
+    chain_times <- ol_fit$time()
+    timing_data <- data.table(
+        chain = 1:chains,
+        warmup_minutes = chain_times$chains$warmup / 60,
+        sampling_minutes = chain_times$chains$sampling / 60,
+        total_chain_minutes = chain_times$chains$total / 60
+    )
+    
+    # Save timing information
+    timing_file <- paste0(output_file_prefix, "_timing.csv")
+    write.csv(timing_data, file = timing_file, row.names = FALSE)
+    cat("Saved timing information to:", timing_file, "\n")
 
     # Extract and save draws immediately (while CSV files still exist)
     cat("Extracting draws...\n")
@@ -356,6 +372,49 @@ ordered_logit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
+        # Make pairs plots with 2D density contours colored by chain
+        cat("Generating pairs plots...\n")    
+        require(GGally)
+        po <- ol_fit$draws(
+            variables = c(
+                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
+                "cat1_skill_thresholds_1[3]",
+                "cat1_skill_thresholds_incs[3,1]", "cat1_skill_thresholds_incs[3,2]"
+            ),
+            format = "draws_df"
+            )
+        
+        # Convert to data.table and prepare for ggplot
+        po <- as.data.table(po)
+        po[, chain := factor(.chain)]
+        
+        # Select only parameter columns and chain
+        param_names <- setdiff(names(po), c(".draw", ".chain", ".iteration", "chain"))
+        po <- po[, c(param_names, "chain"), with = FALSE]
+        
+        # Create pairs plot with GGally
+        p <- GGally::ggpairs(
+            po,
+            mapping = aes(color = chain, fill = chain),
+            columns = param_names,
+            lower = list(continuous = GGally::wrap("density", alpha = 0.5, contour = TRUE)),
+            diag = list(continuous = GGally::wrap("densityDiag", alpha = 0.3)),
+            upper = list(continuous = "blank")
+        ) +
+        scale_color_manual(values = c("1" = "#3B9AB2", "2" = "#F21A00")) +
+        scale_fill_manual(values = c("1" = "#3B9AB2", "2" = "#F21A00")) +
+        theme_bw()
+        
+        ggsave(file = paste0(output_file_prefix, "_pairs_plot_sampled.pdf"),
+               plot = p,
+               h = 20,
+               w = 20,
+               limitsize = FALSE
+            )
+        
+
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
         po <- ol_fit$draws(
@@ -454,9 +513,6 @@ ordered_logit_model_run_analysis <- function(
             select = c(oidt, pid, item_time_id, time)
         ))
         po <- merge(po, tmp, by = c("oidt"))
-        #
-        po <- subset(po, .chain == 1L)
-        #
         po <- po[,
             list(prob = mean(prob)),
             by = c(".draw", "time", "item_time_id", "y_stan")
@@ -528,9 +584,6 @@ ordered_logit_model_run_analysis <- function(
             select = c(oidt, pid, item_time_id, time)
         ))
         po <- merge(po, tmp, by = c("oidt"))
-        #
-        po <- subset(po, .chain == 1L)
-        #
         po <- po[,
             list(prob = mean(prob)),
             by = c(".draw", "time", "item_time_id", "y_stan")
@@ -634,7 +687,7 @@ ordered_logit_model_run_analysis <- function(
             w = 12
         )
         ggsave(
-            file = paste0(output_file_prefix, "_probs_barplot_v2_chain1.pdf"),
+            file = paste0(output_file_prefix, "_probs_barplot_v2.pdf"),
             plot = p,
             h = 40,
             w = 12

@@ -18,26 +18,14 @@ vector ol_get_etas(vector loadings_questions,
                    vector latent_factor_obs,
                    array [] int question_of_obs)
 {
-  int N = num_elements(question_of_obs);
-  vector [N] etas;
-  for(n in 1:N)
-  {
-    etas[n] = loadings_questions[question_of_obs[n]] * latent_factor_obs[n];
-  }
-  return etas;
+  return loadings_questions[question_of_obs] .* latent_factor_obs;
 }
 
 vector ol_get_etas(matrix loadings_questions,
                    matrix latent_factor_obs,
                    array [] int question_of_obs)
 {
-  int N = num_elements(question_of_obs);
-  vector[N] etas;
-  for(n in 1:N)
-  {
-    etas[n] = loadings_questions[question_of_obs[n], :] * latent_factor_obs[:, n];
-  }
-  return etas;
+  return rows_dot_product(loadings_questions[question_of_obs, :], latent_factor_obs');
 }
 
 vector ol_get_etas(vector question_baselines,
@@ -45,14 +33,8 @@ vector ol_get_etas(vector question_baselines,
                    vector latent_factor_obs,
                    array [] int question_of_obs)
 {
-  int N = num_elements(question_of_obs);
-  vector [N] etas;
-  for(n in 1:N)
-  {
-    etas[n] = question_baselines[question_of_obs[n]] + 
-                loadings_questions[question_of_obs[n]] * latent_factor_obs[n];
-  }
-  return etas;
+  return question_baselines[question_of_obs] + 
+         loadings_questions[question_of_obs] .* latent_factor_obs;
 }
 
 vector ol_get_etas(vector question_baselines,
@@ -60,14 +42,8 @@ vector ol_get_etas(vector question_baselines,
                    matrix latent_factor_obs,
                    array [] int question_of_obs)
 {
-  int N = num_elements(question_of_obs);
-  vector[N] etas;
-  for(n in 1:N)
-  {
-    etas[n] = question_baselines[question_of_obs[n]] + 
-                  loadings_questions[question_of_obs[n], :] * latent_factor_obs[:, n];
-  }
-  return etas;
+  return question_baselines[question_of_obs] + 
+         rows_dot_product(loadings_questions[question_of_obs, :], latent_factor_obs');
 }
 
 matrix ol_get_ordered_prob_by_obs(vector eta,

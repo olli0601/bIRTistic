@@ -24,12 +24,9 @@ matrix cm_get_etas(vector loadings_questions,
 
   matrix[N, K] etas;
   etas[:,1] = rep_vector(0., N);
-  for(n in 1:N)
-  {
-    etas[n,2:K] = loadings_questions[question_of_obs[n]] *
-                  (latent_factor_obs[n] -
-                   skill_thresholds[question_of_obs[n],:]);
-  }
+  etas[:,2:K] = rep_matrix(loadings_questions[question_of_obs], K-1) .*
+                  (rep_matrix(latent_factor_obs, K-1) -
+                   skill_thresholds[question_of_obs,:]);
   return etas;
 }
 
@@ -45,12 +42,9 @@ matrix cm_get_etas(matrix loadings_questions,
 
   matrix[N, K] etas;
   etas[:,1] = rep_vector(0., N);
-  for(n in 1:N)
-  {
-    etas[n,2:K] = loadings_questions[question_of_obs[n], :] .*
-                  (latent_factor_obs[n] -
-                   skill_thresholds[question_of_obs[n],:]);
-  }
+  etas[:,2:K] = loadings_questions[question_of_obs, :] .*
+                  (rep_matrix(latent_factor_obs, K-1) -
+                   skill_thresholds[question_of_obs,:]);
   return etas;
 }
 

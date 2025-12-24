@@ -1,0 +1,498 @@
+---
+title: "Colombia compare Likert outcome models"
+date: "2025-12-26"
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+Understanding caregiver wellbeing and parenting practices is critical for designing effective interventions to support vulnerable families. In this analysis, we compare three different Item Response Theory (IRT) models fitted to survey data from the Hope Groups intervention in Colombia. All three models estimate an underlying latent construct (e.g., mental health status) from observed ordinal survey responses, with similar or even identical prior distributions on all parameters but different likelihood constructions.
+
+The data consist of Likert-scale survey items collected at baseline and endline, measuring constructs such as caregiver mental health, positive parenting behaviors, and child monitoring. We have two types of items: (1) categorical items with 5 ordered response categories (mental health questions), and (2) ordinal count items with 8 categories representing days per week (0-7 days). 
+
+Our goal is to determine which statistical model best captures the structure of these ordinal responses.
+
+## Why Compare Different IRT Models?
+
+Traditional IRT models make strong assumptions about how responses are generated. The **ordered logistic model**, also called the graded response model, implies that responses follow a proportional odds structure - essentially, it models cumulative probabilities using a single latent trait. This is computationally efficient and commonly used, but may be restrictive when response patterns don't follow the proportional odds assumption.
+
+To understand what "proportional odds" means, consider the cumulative probability model. The ordered logistic model assumes there exists a continuous latent response $Y^*$ that determines the observed category:
+
+\begin{align}
+Y^* &= \eta + \varepsilon (\#eq:latent-response)\\
+\eta &= \lambda_j (\theta_i + \mathbf{X}^\top \boldsymbol{\beta}) (\#eq:linear-predictor)\\
+\varepsilon &\sim \text{Logistic}(0, 1) (\#eq:logistic-error)
+\end{align}
+
+The observed response $Y = k$ if $\tau_{k-1} < Y^* \leq \tau_k$, where $\tau_k$ are threshold parameters. This gives us:
+
+\begin{align}
+\Pr(Y \leq k \mid \eta)
+&= \Pr(Y^* \leq \tau_k \mid \eta) (\#eq:cumprob-1)\\
+&= \Pr(\eta + \varepsilon \leq \tau_k) (\#eq:cumprob-2)\\
+&= \Pr(\varepsilon \leq \tau_k - \eta) (\#eq:cumprob-3)\\
+&= \text{logit}^{-1}(\tau_k - \eta) (\#eq:cumprob-4)
+\end{align}
+
+Taking the logit transformation, the cumulative log-odds become:
+
+\begin{align}
+\log \frac{\Pr(Y \leq k \mid \eta)}{\Pr(Y > k \mid \eta)}
+= \tau_k - \eta (\#eq:cumlogodds)
+\end{align}
+
+The proportional odds property emerges when we compare two different values of the linear predictor, $\eta_1$ and $\eta_0$ (e.g., baseline vs. endline, or two different participants):
+
+\begin{align}
+\log\frac{\Pr(Y \leq k \mid \eta_1)}{\Pr(Y > k \mid \eta_1)}
+-
+\log\frac{\Pr(Y \leq k \mid \eta_0)}{\Pr(Y > k \mid \eta_0)}
+&= (\tau_k - \eta_1) - (\tau_k - \eta_0) (\#eq:propodd-1)\\
+&= \eta_0 - \eta_1 (\#eq:propodd-2)
+\end{align}
+
+**This difference is constant across all categories $k$** - the thresholds $\tau_k$ cancel out. This is the proportional odds assumption: the log-odds ratio comparing any two conditions is the same regardless of which category threshold we're considering. In other words, the effect of covariates (or differences in latent traits) on the odds of being in a higher category is proportional across all cutpoints.
+
+This assumption is restrictive because it requires that the relationship between the latent trait and response probabilities has the same functional form for all category boundaries. If, for example, moving from "never" to "sometimes" requires a different trait change than moving from "sometimes" to "often," the proportional odds assumption may be violated.
+
+### The Credit Model Alternative
+
+The **credit model** offers a more flexible alternative by directly modeling the probability of each response category without imposing the proportional odds constraint. This allows the model to capture more complex response patterns, including situations where intermediate categories might be particularly attractive or where the relationship between the latent trait and response probabilities is non-monotonic.
+
+We examine three model specifications:
+
+1. **Ordered Logistic Model (v251222)** - The traditional proportional odds IRT model
+2. **Credit Model (v251120)** - An early implementation with a more complex parameterization
+3. **Credit Model (v251224)** - A simplified reparameterization designed to improve sampling efficiency
+
+## Mathematical Model Definitions
+
+Let $i$ index participants ($i = 1, \ldots, n$), $j$ index items/questions ($j = 1, \ldots, J$), and $k$ index response categories ($k = 1, \ldots, K$). The subscript $ij$ denotes the response of participant $i$ to item $j$.
+
+### Model 1: Ordered Logistic Model (v251222)
+
+The ordered logistic model uses cumulative probabilities:
+
+\begin{align}
+P(Y_{ij} = k) &= P(Y_{ij} \leq k) - P(Y_{ij} \leq k-1) (\#eq:ordlog-response)\\
+P(Y_{ij} \leq k) &= \text{logit}^{-1}(\eta_{ij} - c_{j,k}) (\#eq:ordlog-cumprob)\\
+\eta_{ij} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{ij}^T \boldsymbol{\beta}\right) (\#eq:ordlog-eta)
+\end{align}
+
+where:
+
+- $\theta_i \sim \text{S2Z-Normal}(0, \sigma_{\theta})$ is the latent factor for participant $i$ ($i = 1, \ldots, n$)
+- $\boldsymbol{\beta} \sim \text{Normal}(0, 1)$ are covariate effects (e.g., time effects)
+- $\lambda_{1} = 1$ (reference item), $\lambda_{j} \sim t_3^+(0, 1)$ for $j > 1$ are item loadings ($j = 1, \ldots, J$)
+- $c_{j,k}$ are ordered cutpoints for item $j$ and category $k$, with $c_{j,1} \sim \text{Normal}(0, 3.5)$ and $c_{j,k} = c_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell}$ where $\delta_{j,\ell} \sim \text{Normal}^+(0, 2.5)$
+
+The S2Z-Normal (sum-to-zero) constraint ensures identifiability by forcing $\sum_{i=1}^n \theta_i = 0$ and adjusting the scale accordingly.
+
+### Model 2: Credit Model with Split Parameterization (v251120)
+
+The credit model directly models category probabilities using the softmax function:
+
+\begin{align}
+P(Y_{ij} = k) &= \frac{\exp(\phi_{ij,k})}{\sum_{k'=1}^K \exp(\phi_{ij,k'})} (\#eq:credit-response)\\
+\phi_{ij,k} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{ij}^T \boldsymbol{\beta} - \tau_{j,k}\right) (\#eq:credit-phi)
+\end{align}
+
+where $\tau_{j,k}$ are skill thresholds for item $j$ and category $k$. In the v251120 implementation, these are parameterized as:
+
+\begin{align}
+\tau_{j,1} &\sim \text{Normal}(0, 3.5) (\#eq:credit-tau1)\\
+\tau_{j,k} &= \tau_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell}, \quad k = 2, \ldots, K-1 (\#eq:credit-tauk)\\
+\delta_{j,\ell} &\sim \text{Normal}^+(0, 3.5) (\#eq:credit-delta)
+\end{align}
+
+This split parameterization separates the first threshold from increments but requires a transformation function.
+
+### Model 3: Credit Model with Direct Parameterization (v251224)
+
+The v251224 model uses the same likelihood structure as v251120 but simplifies the parameterization:
+
+\begin{align}
+\tau_{j,k} &\sim \text{Normal}(0, 3.5) \quad \text{for all } j, k (\#eq:credit-simple)
+\end{align}
+
+Rather than splitting thresholds into initial values and increments, all skill thresholds are directly estimated as independent parameters. This removes the ordering constraint and allows Stan's sampler to explore the parameter space more efficiently, potentially avoiding the ridge geometries that can cause divergences.
+
+## Key Differences and Implications
+
+**Ordered Logistic vs. Credit Models:** The fundamental difference is that ordered logistic models enforce a proportional odds structure (equations \@ref(eq:ordlog-cumprob)), while credit models allow each category to have its own relationship with the latent trait (equations \@ref(eq:credit-phi)). This makes credit models more flexible but also requires estimating more parameters.
+
+**v251120 vs. v251224 Parameterizations:** Both credit model versions have identical likelihoods but differ in how parameters are represented. The v251120 split parameterization (equations \@ref(eq:credit-tau1)-\@ref(eq:credit-delta)) enforces ordered thresholds through positive increments, which can create difficult geometry for MCMC sampling. The v251224 direct parameterization (equation \@ref(eq:credit-simple)) removes this constraint, potentially improving sampling efficiency at the cost of not directly enforcing threshold ordering (though ordering typically emerges naturally from the data).
+
+In the following sections, we fit all three models to the Colombia data and compare their performance in terms of:
+
+- **Computational efficiency** - Do any models show divergences or poor mixing?
+- **Model fit** - Which model best describes the observed response patterns?
+- **Parameter interpretability** - Are the estimated latent factors and item parameters substantively meaningful?
+
+# Install packages
+
+```{r load-packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Install and load packages
+packages <- c(
+    "data.table",
+    "here",
+    "purrr",
+    "ggplot2",
+    "ggsci",
+    "hexbin",
+    "bayesplot",
+    "knitr",
+    "kableExtra",
+    "cmdstanr",
+    "loo",
+    "polycor",
+    "GGally"
+)
+invisible(lapply(packages, library, character.only = TRUE))
+```
+
+```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+source(here::here("R", "read_data_colombia.R"))
+source(here::here("R", "train_test_split_data.R"))
+source(here::here("R", "credit_model_run_analysis.R"))
+source(here::here("R", "ordered_logit_model_run_analysis.R"))
+```
+
+# Data loading and pre-processing
+
+```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define directories
+if (grepl("^/rds/general/user/or105", here::here())) {
+    # Working on HPC
+    on_hpc <- TRUE
+    dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
+    dir_out_base <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups"
+} else {
+    # Working locally
+    on_hpc <- FALSE
+    dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
+    dir_out_base <- "/Users/or105/sandbox"
+}
+
+# Define file names
+file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
+file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
+
+set.seed(42L)
+```
+
+```{r load-and-preprocess-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data
+tmp <- read_data_colombia(file_data)
+dp <- copy(tmp$dp)
+dit <- copy(tmp$dit)
+dmeta <- copy(tmp$dmeta)
+
+# Preprocess data
+dp1 <- subset(dp, !grepl("agg", item_label))
+dp1[, time := time + 1L]
+dp1[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1$item_label)),
+    time = unique(dp1$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
+setkey(dp1, pid, time, item_label)
+dp1[, oid := .I]
+setkey(dp1, oid)
+tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
+setkey(dp1, pid, time, item_label)
+```
+
+# Run ordered logistic model with 2 categories
+
+```{r setup-ordlog-directories, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define ordered logistic output directories
+dir_out <- file.path(dir_out_base, "colombia-run-orderedlogistic-251222b")
+dir_logs <- file.path(dir_out, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out)) {
+    dir.create(dir_out, recursive = TRUE)
+}
+if (!dir.exists(dir_logs)) {
+    dir.create(dir_logs, recursive = TRUE)
+}
+
+output_file_prefix <- file.path(dir_out, "ordlog_1")
+```
+
+```{r compile-stan-model, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "ordered_logit_2cats_v251222.stan")
+ol_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE)
+    )
+```
+
+```{r fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    ol_fit <- ordered_logit_model_run_analysis(
+        dit,
+        dp1,
+        output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
+        stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222.stan"),
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 500L,
+        seed = 123L,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
+}
+```
+
+# Run credit model with 2 categories version credit_model_2cats_v251123
+
+```{r setup-creditmodel-directories-v251123, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define credit model output directories
+dir_out_cm <- file.path(dir_out_base, "colombia-run-creditmodel-251123")
+dir_logs_cm <- file.path(dir_out_cm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_cm)) {
+    dir.create(dir_out_cm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_cm)) {
+    dir.create(dir_logs_cm, recursive = TRUE)
+}
+
+output_file_prefix_cm <- file.path(dir_out_cm, "cm_2")
+```
+
+```{r compile-stan-model-v251123, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "credit_model_2cats_v251123.stan")
+cm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE)
+    )
+```
+
+```{r cm-fit-on-training-data-v251123, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix_cm, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    cm_fit <- credit_model_run_analysis(
+        dit,
+        dp1,
+        output_file_prefix = paste0(output_file_prefix_cm, "_fit_alldata"),
+        stan_file = here::here("src", "stan", "credit_model_2cats_v251223.stan"),
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 500L,
+        seed = 123L,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
+}
+```
+
+# Run credit model with 2 categories version credit_model_2cats_v251224
+
+```{r setup-creditmodel-directories-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define credit model output directories
+dir_out_cm <- file.path(dir_out_base, "colombia-run-creditmodel-251224")
+dir_logs_cm <- file.path(dir_out_cm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_cm)) {
+    dir.create(dir_out_cm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_cm)) {
+    dir.create(dir_logs_cm, recursive = TRUE)
+}
+
+output_file_prefix_cm <- file.path(dir_out_cm, "cm_3")
+```
+
+```{r compile-stan-model-3, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "credit_model_2cats_v251224.stan")
+cm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
+    )
+```
+
+```{r cm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix_cm, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    cm_fit <- credit_model_run_analysis(
+        dit,
+        dp1,
+        output_file_prefix = paste0(output_file_prefix_cm, "_fit_alldata"),
+        stan_file = here::here("src", "stan", "credit_model_2cats_v251224.stan"),
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 500L,
+        seed = 123L,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
+}
+```
+
+# Model Comparison
+
+We now compare the three models using Leave-One-Out Cross-Validation (LOO) via the Expected Log Predictive Density (ELPD). The LOO-ELPD provides an estimate of out-of-sample predictive performance, with higher (less negative) values indicating better predictive accuracy.
+
+```{r model-comparison-loo, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Load all three fitted models
+ol_rds <- file.path(dir_out, "ordlog_1_fit_alldata_stan.rds")
+cm_v251123_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251123", "cm_2_fit_alldata_stan.rds")
+cm_v251224_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251224", "cm_3_fit_alldata_stan.rds")
+
+# Load models
+ol_fit_loo <- readRDS(ol_rds)
+cm_fit_v251123 <- readRDS(cm_v251123_rds)
+cm_fit_v251224 <- readRDS(cm_v251224_rds)
+
+cat("\n=== Evaluate ELPD-LOO ===\n")
+
+# Extract log-likelihood and compute LOO for each model
+log_lik_ol <- ol_fit_loo$draws("log_lik", format = "matrix")
+loo_ol <- loo::loo(log_lik_ol)
+
+log_lik_cm_v251123 <- cm_fit_v251123$draws("log_lik", format = "matrix")
+loo_cm_v251123 <- loo::loo(log_lik_cm_v251123)
+
+log_lik_cm_v251224 <- cm_fit_v251224$draws("log_lik", format = "matrix")
+loo_cm_v251224 <- loo::loo(log_lik_cm_v251224)
+
+# Add additional comparison metrics
+cat("\n=== Evaluate WAIC ===\n")
+
+# Compute WAIC for each model
+waic_ol <- loo::waic(log_lik_ol)
+waic_cm_v251123 <- loo::waic(log_lik_cm_v251123)
+waic_cm_v251224 <- loo::waic(log_lik_cm_v251224)
+
+# Load convergence diagnostics
+cat("\n=== Evaluate convergence diagnostics ===\n")
+conv_ol <- fread(file.path(dir_out, "ordlog_1_fit_alldata_convergence_mixing.csv"))
+conv_cm_v251123 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251123", 
+                                     "creditmodel_1_fit_alldata_convergence_mixing.csv"))
+conv_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", 
+                                     "cm_3_fit_alldata_convergence_mixing.csv"))
+
+# Load timing data
+cat("\n=== Evaluate timing ===\n")
+timing_ol <- fread(file.path(dir_out, "ordlog_1_fit_alldata_timing.csv"))
+timing_cm_v251123 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251123", 
+                                       "creditmodel_1_fit_alldata_timing.csv"))
+timing_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", 
+                                       "cm_3_fit_alldata_timing.csv"))
+
+# Create extended comparison table
+comparison_dt <- data.table(
+    Model = c("Ordered Logistic (v251222)", 
+              "Credit Model (v251123)", "Credit Model (v251224)"),
+    ELPD_loo = c(loo_ol$estimates["elpd_loo", "Estimate"],
+                 loo_cm_v251123$estimates["elpd_loo", "Estimate"],
+                 loo_cm_v251224$estimates["elpd_loo", "Estimate"]),
+    ELPD_loo_SE = c(loo_ol$estimates["elpd_loo", "SE"],
+                    loo_cm_v251123$estimates["elpd_loo", "SE"],
+                    loo_cm_v251224$estimates["elpd_loo", "SE"]),
+    WAIC = c(waic_ol$estimates["elpd_waic", "Estimate"],
+             waic_cm_v251123$estimates["elpd_waic", "Estimate"],
+             waic_cm_v251224$estimates["elpd_waic", "Estimate"]),
+    min_ess_bulk = c(min(conv_ol$ess_bulk, na.rm = TRUE),
+                     min(conv_cm_v251123$ess_bulk, na.rm = TRUE),
+                     min(conv_cm_v251224$ess_bulk, na.rm = TRUE)),
+    min_ess_tail = c(min(conv_ol$ess_tail, na.rm = TRUE),
+                     min(conv_cm_v251123$ess_tail, na.rm = TRUE),
+                     min(conv_cm_v251224$ess_tail, na.rm = TRUE)),
+    max_rhat = c(max(conv_ol$rhat, na.rm = TRUE),
+                 max(conv_cm_v251123$rhat, na.rm = TRUE),
+                 max(conv_cm_v251224$rhat, na.rm = TRUE)),
+    max_total_chain_minutes = c(max(timing_ol$total_minutes, na.rm = TRUE),
+                                 max(timing_cm_v251123$total_minutes, na.rm = TRUE),
+                                 max(timing_cm_v251224$total_minutes, na.rm = TRUE))
+)
+
+# Round for display
+comparison_dt[, ELPD_loo := round(ELPD_loo, 1)]
+comparison_dt[, ELPD_loo_SE := round(ELPD_loo_SE, 1)]
+comparison_dt[, WAIC := round(WAIC, 1)]
+comparison_dt[, min_ess_bulk := round(min_ess_bulk, 0)]
+comparison_dt[, min_ess_tail := round(min_ess_tail, 0)]
+comparison_dt[, max_rhat := round(max_rhat, 3)]
+comparison_dt[, max_total_chain_minutes := round(max_total_chain_minutes, 2)]
+
+print(comparison_dt)
+
+# Create a nice table for display
+knitr::kable(comparison_dt, 
+             caption = "Extended Model Comparison Metrics",
+             col.names = c("Model", "ELPD (LOO)", "SE", "WAIC", 
+                          "Min ESS (bulk)", "Min ESS (tail)", 
+                          "Max Rhat", "Max Chain Time (min)")) %>%
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+cat("\n\nInterpretation:\n")
+cat("- ELPD (LOO) & WAIC: Higher (less negative) is better\n")
+cat("- Min ESS: Should be > 400 for reliable inference (we ran 2000 samples across 4 chains)\n")
+cat("- Max Rhat: Should be < 1.01 for convergence\n")
+cat("- Max Chain Time: Computational efficiency\n")
+```
+
+The `loo_compare` output shows models ranked by ELPD (best model first). The `elpd_diff` column shows the difference in ELPD from the best model, and `se_diff` provides the standard error of this difference. A difference greater than 2 standard errors suggests meaningful improvement in predictive performance.
+
+# Session info
+```{r session-info, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+sessionInfo()
+```

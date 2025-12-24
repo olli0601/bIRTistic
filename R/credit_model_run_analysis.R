@@ -129,7 +129,8 @@ credit_model_run_analysis <- function(
     cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE)
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
     )
 
     # Define data in format needed for model specification
@@ -169,6 +170,7 @@ credit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
+    flush.console()  # Force output to display immediately
     cm_fit <- cm_compiled$sample(
         data = stan_data,
         seed = seed,
@@ -182,6 +184,21 @@ credit_model_run_analysis <- function(
         show_messages = show_messages,
         show_exceptions = show_exceptions
     )
+    
+    # Extract chain timing information
+    cat("Extracting timing information...\n")
+    chain_times <- cm_fit$time()
+    timing_data <- data.table(
+        chain = 1:chains,
+        warmup_minutes = chain_times$chains$warmup / 60,
+        sampling_minutes = chain_times$chains$sampling / 60,
+        total_chain_minutes = chain_times$chains$total / 60
+    )
+    
+    # Save timing information
+    timing_file <- paste0(output_file_prefix, "_timing.csv")
+    write.csv(timing_data, file = timing_file, row.names = FALSE)
+    cat("Saved timing information to:", timing_file, "\n")
 
     # Extract and save draws immediately (while CSV files still exist)
     cat("Extracting draws...\n")
@@ -196,19 +213,34 @@ credit_model_run_analysis <- function(
     cat("Saving model fit to:", output_file, "\n")
     cm_fit$save_object(file = output_file)
 
+    # Detect parameter structure
+    all_vars <- cm_fit$metadata()$model_params
+    use_v251224 <- any(grepl("cat1_skill_thresholds\\[[0-9]+,[0-9]+\\]", all_vars))
+    
+    if (use_v251224) {
+        cat("Detected v251224 parameter structure (unified thresholds)\n")
+        cat1_threshold_vars <- "cat1_skill_thresholds"
+        cat2_threshold_vars <- "cat2_skill_thresholds"
+        cat1_loading_vars <- "cat1_loadings_questions_m1"
+        cat2_loading_vars <- "cat2_loadings_questions_m1"
+    } else {
+        cat("Detected v251120 parameter structure (split thresholds)\n")
+        cat1_threshold_vars <- c("cat1_skill_thresholds_1", "cat1_skill_thresholds_incs")
+        cat2_threshold_vars <- c("cat2_skill_thresholds_1", "cat2_skill_thresholds_incs")
+        cat1_loading_vars <- "cat1_loadings_questions"
+        cat2_loading_vars <- "cat2_loadings_questions"
+    }
+
     # Check convergence and mixing
     cat("Generating convergence diagnostics...\n")
     tmp <- cm_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
-            "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-            "cat1_loadings_questions",
-            "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-            "cat2_loadings_questions"
-        ),
-        posterior::default_summary_measures(),
-        posterior::default_convergence_measures(),
-        extra_quantiles = ~ posterior::quantile2(., probs = c(.0275, .975))
+            cat1_threshold_vars,
+            cat1_loading_vars,
+            cat2_threshold_vars,
+            cat2_loading_vars
+        )
     )
     tmp <- as.data.table(tmp)
     tmp <- tmp[order(ess_bulk), ]
@@ -232,12 +264,36 @@ credit_model_run_analysis <- function(
             inc_warmup = TRUE,
             format = "draws_array"
         )
-        p <- bayesplot:::mcmc_trace(po,
-            pars = c("lp__", worst_var),
-            n_warmup = iter_warmup,
-            facet_args = list(nrow = 2)
+        
+        # Calculate lp__ range from post-warmup samples for y-axis scaling
+        po_postwarmup <- cm_fit$draws(
+            variables = "lp__",
+            inc_warmup = FALSE,
+            format = "draws_array"
         )
-        p <- p + theme_bw()
+        lp_range <- range(po_postwarmup[,, "lp__"])
+        lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
+                     lp_range[2] + 0.05 * diff(lp_range))
+        
+        # Create lp__ trace plot with constrained y-axis
+        p_lp <- bayesplot:::mcmc_trace(po[,, "lp__", drop = FALSE],
+            pars = "lp__",
+            n_warmup = iter_warmup
+        ) + 
+        coord_cartesian(ylim = lp_ylim) +
+        theme_bw()
+        
+        # Create trace plot for other parameters with free y-axis
+        p_other <- bayesplot:::mcmc_trace(po[,, worst_var, drop = FALSE],
+            pars = worst_var,
+            n_warmup = iter_warmup,
+            facet_args = list(ncol = 2)
+        ) + 
+        theme_bw()
+        
+        # Combine plots
+        p <- patchwork::wrap_plots(p_lp, p_other, ncol = 1, heights = c(1, 4))
+        
         ggsave(
             file = paste0(output_file_prefix, "_worsttrace.png"),
             plot = p,
@@ -250,10 +306,10 @@ credit_model_run_analysis <- function(
         po <- cm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
-                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-                "cat1_loadings_questions",
-                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-                "cat2_loadings_questions"
+                cat1_threshold_vars,
+                cat1_loading_vars,
+                cat2_threshold_vars,
+                cat2_loading_vars
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -265,25 +321,130 @@ credit_model_run_analysis <- function(
             prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
         ) + theme_bw()
         ggsave(
-            file = paste0(output_file_prefix, "_intervals.png"),
+            file = paste0(output_file_prefix, "_intervals.pdf"),
             plot = p,
             h = 50,
             w = 8,
             limitsize = FALSE
         )
 
-        p <- bayesplot::mcmc_areas(
-            po,
-            prob = 0.5, prob_outer = 0.95, point_est = "median"
-        ) + theme_bw()
+        cat("Generating parameter density overlay plots...\n")
+        po <- cm_fit$draws(
+            variables = c(
+                "latent_factor_unit", "latent_factor_beta"                
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        color_scheme_set("mix-teal-pink")
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
         ggsave(
-            file = paste0(output_file_prefix, "_areas.png"),
+            file = paste0(output_file_prefix, "_areas_latent_factor_and_baselines.pdf"),
             plot = p,
-            h = 150,
-            w = 8,
+            h = 100,
+            w = 20,
             limitsize = FALSE
         )
 
+        po <- cm_fit$draws(
+            variables = c(
+                cat1_threshold_vars,
+                cat1_loading_vars
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
+        ggsave(
+            file = paste0(output_file_prefix, "_areas_cat1_parameters.pdf"),
+            plot = p,
+            h = 40,
+            w = 20,
+            limitsize = FALSE
+        )
+
+        po <- cm_fit$draws(
+            variables = c(
+                cat2_threshold_vars,
+                cat2_loading_vars
+            ),
+            inc_warmup = FALSE,
+            format = "draws_array"
+        )
+        p <- bayesplot::mcmc_dens_overlay(po,
+                                          facet_args = list(ncol = 5)) + 
+            theme_bw() +
+            labs(color = "Chain")
+        ggsave(
+            file = paste0(output_file_prefix, "_areas_cat2_parameters.pdf"),
+            plot = p,
+            h = 60,
+            w = 20,
+            limitsize = FALSE
+        )
+
+
+        # Make pairs plots with 2D density contours colored by chain
+        cat("Generating pairs plots...\n")    
+        require(GGally)
+        
+        # Define variables to plot based on model version
+        if (use_v251224) {
+            pairs_vars <- c(
+                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
+                "cat1_skill_thresholds[3,1]", "cat1_skill_thresholds[3,2]", "cat1_skill_thresholds[3,3]"
+            )
+        } else {
+            pairs_vars <- c(
+                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+                "cat1_loadings_questions[3]", "cat1_loadings_questions[4]", 
+                "cat1_skill_thresholds_1[3]",
+                "cat1_skill_thresholds_incs[3,1]", "cat1_skill_thresholds_incs[3,2]"
+            )
+        }
+        
+        po <- cm_fit$draws(
+            variables = pairs_vars,
+            format = "draws_df"
+            )
+        
+        # Convert to data.table and prepare for ggplot
+        po <- as.data.table(po)
+        po[, chain := factor(.chain)]
+        
+        # Select only parameter columns and chain
+        param_names <- setdiff(names(po), c(".draw", ".chain", ".iteration", "chain"))
+        po <- po[, c(param_names, "chain"), with = FALSE]
+        
+        # Create pairs plot with GGally
+        p <- GGally::ggpairs(
+            po,
+            mapping = aes(color = chain, fill = chain),
+            columns = param_names,
+            lower = list(continuous = GGally::wrap("density", alpha = 0.5, contour = TRUE)),
+            diag = list(continuous = GGally::wrap("densityDiag", alpha = 0.3)),
+            upper = list(continuous = "blank")
+        ) +
+        scale_color_manual(values = c("1" = "#3B9AB2", "2" = "#F21A00")) +
+        scale_fill_manual(values = c("1" = "#3B9AB2", "2" = "#F21A00")) +
+        theme_bw()
+        
+        ggsave(file = paste0(output_file_prefix, "_pairs_plot_sampled.pdf"),
+               plot = p,
+               h = 20,
+               w = 20,
+               limitsize = FALSE
+            )
+        
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
         po <- cm_fit$draws(
