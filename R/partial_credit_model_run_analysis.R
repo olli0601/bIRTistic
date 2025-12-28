@@ -1,6 +1,6 @@
-#' Run credit model analysis on pre-processed data
+#' Run partial credit model analysis on pre-processed data
 #'
-#' This function performs Bayesian IRT analysis using a credit model on pre-processed
+#' This function performs Bayesian IRT analysis using a partial credit model on pre-processed
 #' data. It compiles the Stan model, runs MCMC sampling, generates convergence
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior
 #' predictive checks.
@@ -45,29 +45,29 @@
 #' dcati <- readRDS("data/dcati_processed.rds")
 #'
 #' # Run analysis with default settings
-#' credit_model_run_analysis(
+#' partial_credit_model_run_analysis(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan"
+#'     stan_file = "src/stan/partial_credit_model_2cats_v251224.stan"
 #' )
 #'
 #' # Run with additional diagnostics
-#' credit_model_run_analysis(
+#' partial_credit_model_run_analysis(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
+#'     stan_file = "src/stan/partial_credit_model_2cats_v251224.stan",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
-credit_model_run_analysis <- function(
+partial_credit_model_run_analysis <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+  stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -102,7 +102,7 @@ credit_model_run_analysis <- function(
     }
     # Print configuration
     cat("\n========================================\n")
-    cat("Credit Model Analysis Configuration\n")
+    cat("Partial Credit Model Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
@@ -126,7 +126,7 @@ credit_model_run_analysis <- function(
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    cm_compiled <- cmdstanr::cmdstan_model(
+    pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
         cpp_options = list(stan_threads = TRUE),
@@ -171,7 +171,7 @@ credit_model_run_analysis <- function(
     # Sample from the model
     cat("Running MCMC sampling...\n")
     flush.console()  # Force output to display immediately
-    cm_fit <- cm_compiled$sample(
+    pcm_fit <- pcm_compiled$sample(
         data = stan_data,
         seed = seed,
         chains = chains,
@@ -187,7 +187,7 @@ credit_model_run_analysis <- function(
     
     # Extract chain timing information
     cat("Extracting timing information...\n")
-    chain_times <- cm_fit$time()
+    chain_times <- pcm_fit$time()
     timing_data <- data.table(
         chain = 1:chains,
         warmup_minutes = chain_times$chains$warmup / 60,
@@ -203,37 +203,25 @@ credit_model_run_analysis <- function(
     # Extract and save draws immediately (while CSV files still exist)
     cat("Extracting draws...\n")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
-    draws <- cm_fit$draws(format = "draws_array")
+    draws <- pcm_fit$draws(format = "draws_array")
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
 
     # Save output to RDS
-
     output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
-    cm_fit$save_object(file = output_file)
+    pcm_fit$save_object(file = output_file)
 
-    # Detect parameter structure
-    all_vars <- cm_fit$metadata()$model_params
-    use_v251224 <- any(grepl("cat1_skill_thresholds\\[[0-9]+,[0-9]+\\]", all_vars))
-    
-    if (use_v251224) {
-        cat("Detected v251224 parameter structure (unified thresholds)\n")
-        cat1_threshold_vars <- "cat1_skill_thresholds"
-        cat2_threshold_vars <- "cat2_skill_thresholds"
-        cat1_loading_vars <- "cat1_loadings_questions_m1"
-        cat2_loading_vars <- "cat2_loadings_questions_m1"
-    } else {
-        cat("Detected v251123 parameter structure (split thresholds)\n")
-        cat1_threshold_vars <- c("cat1_skill_thresholds_1", "cat1_skill_thresholds_incs")
-        cat2_threshold_vars <- c("cat2_skill_thresholds_1", "cat2_skill_thresholds_incs")
-        cat1_loading_vars <- "cat1_loadings_questions_m1"
-        cat2_loading_vars <- "cat2_loadings_questions_m1"
-    }
+    # Partial credit model uses v251224 parameter structure
+    cat("Using v251224 parameter structure (unified thresholds)\n")
+    cat1_threshold_vars <- "cat1_skill_thresholds"
+    cat2_threshold_vars <- "cat2_skill_thresholds"
+    cat1_loading_vars <- "cat1_loadings_questions_m1"
+    cat2_loading_vars <- "cat2_loadings_questions_m1"
 
     # Check convergence and mixing
     cat("Generating convergence diagnostics...\n")
-    tmp <- cm_fit$summary(
+    tmp <- pcm_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
             cat1_threshold_vars,
@@ -259,14 +247,14 @@ credit_model_run_analysis <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
         )
         
         # Calculate lp__ range from post-warmup samples for y-axis scaling
-        po_postwarmup <- cm_fit$draws(
+        po_postwarmup <- pcm_fit$draws(
             variables = "lp__",
             inc_warmup = FALSE,
             format = "draws_array"
@@ -303,7 +291,7 @@ credit_model_run_analysis <- function(
 
         # Make intervals/areas plot
         cat("Generating parameter plots...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
                 cat1_threshold_vars,
@@ -329,7 +317,7 @@ credit_model_run_analysis <- function(
         )
 
         cat("Generating parameter density overlay plots...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta"                
             ),
@@ -349,7 +337,7 @@ credit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c(
                 cat1_threshold_vars,
                 cat1_loading_vars
@@ -369,7 +357,7 @@ credit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c(
                 cat2_threshold_vars,
                 cat2_loading_vars
@@ -389,30 +377,19 @@ credit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-
         # Make pairs plots with 2D density contours colored by chain
         cat("Generating pairs plots...\n")    
         require(GGally)
         
-        # Define variables to plot based on model version
-        if (use_v251224) {
-            pairs_vars <- c(
-                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
-                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
-                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
-                "cat1_skill_thresholds[3,1]", "cat1_skill_thresholds[3,2]", "cat1_skill_thresholds[3,3]"
-            )
-        } else {
-            pairs_vars <- c(
-                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
-                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
-                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
-                "cat1_skill_thresholds_1[3]",
-                "cat1_skill_thresholds_incs[3,1]", "cat1_skill_thresholds_incs[3,2]"
-            )
-        }
+        # Define variables to plot for PCM (v251224 structure)
+        pairs_vars <- c(
+            "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+            "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+            "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
+            "cat1_skill_thresholds[3,1]", "cat1_skill_thresholds[3,2]", "cat1_skill_thresholds[3,3]"
+        )
         
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = pairs_vars,
             format = "draws_df"
             )
@@ -447,7 +424,7 @@ credit_model_run_analysis <- function(
         
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -516,9 +493,9 @@ credit_model_run_analysis <- function(
 
         # Compute and save ordinal Brier scores by question
         cat("Computing ordinal Brier scores by question...\n")
-
+        
         # Extract Brier scores for cat1
-        brier_cat1 <- cm_fit$draws(
+        brier_cat1 <- pcm_fit$draws(
             variables = c("cat1_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -536,7 +513,7 @@ credit_model_run_analysis <- function(
         set(brier_cat1, NULL, "variable", NULL)
         
         # Extract Brier scores for cat2
-        brier_cat2 <- cm_fit$draws(
+        brier_cat2 <- pcm_fit$draws(
             variables = c("cat2_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -578,7 +555,7 @@ credit_model_run_analysis <- function(
     # Generate probability plots for cat1
     if (with_core_analyses) {
         cat("Generating probability plots for categorical outcomes...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -649,7 +626,7 @@ credit_model_run_analysis <- function(
 
         # Generate probability plots for cat2
         cat("Generating probability plots for out-of-7 outcomes...\n")
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c("cat2_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -784,5 +761,5 @@ credit_model_run_analysis <- function(
         cat("\nSkipping core analyses (set with_core_analyses=TRUE to enable)\n")
     }
 
-    invisible(cm_fit)
+    invisible(pcm_fit)
 }

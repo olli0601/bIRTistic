@@ -23,96 +23,7 @@ data {
 }
 transformed data {
   real s2z_sd_unit;
-  matrix[Kcat1, Kcat1 - 1] cumsum_matrix_cat1;
-  matrix[Kcat2, Kcat2 - 1] cumsum_matrix_cat2;
-  matrix[Ncat1, Kcat1 - 1] cum_obs_cat1;
-  matrix[Ncat2, Kcat2 - 1] cum_obs_cat2;
-  array[Qcat1] int cat1_question_start;
-  array[Qcat1] int cat1_question_end;
-  array[Ncat1] int cat1_sorted_indices;
-  array[Qcat2] int cat2_question_start;
-  array[Qcat2] int cat2_question_end;
-  array[Ncat2] int cat2_sorted_indices;
-  
   s2z_sd_unit = inv(sqrt(1. - inv(U)));
-  
-  // Create cumsum matrices for Brier score (K x K-1 format)
-  for (i in 1 : Kcat1) {
-    for (j in 1 : (Kcat1 - 1)) {
-      cumsum_matrix_cat1[i, j] = (i <= j) ? 1.0 : 0.0;
-    }
-  }
-  
-  for (i in 1 : Kcat2) {
-    for (j in 1 : (Kcat2 - 1)) {
-      cumsum_matrix_cat2[i, j] = (i <= j) ? 1.0 : 0.0;
-    }
-  }
-  
-  // Precompute cumulative observation indicators
-  for (n in 1 : Ncat1) {
-    for (k in 1 : (Kcat1 - 1)) {
-      cum_obs_cat1[n, k] = (cat1_y[n] <= k) ? 1.0 : 0.0;
-    }
-  }
-  
-  for (n in 1 : Ncat2) {
-    for (k in 1 : (Kcat2 - 1)) {
-      cum_obs_cat2[n, k] = (cat2_y[n] <= k) ? 1.0 : 0.0;
-    }
-  }
-  
-  // Build sorted indices and start/end positions for cat1
-  {
-    array[Qcat1] int count = rep_array(0, Qcat1);
-    // Count observations per question
-    for (n in 1 : Ncat1) {
-      count[cat1_question_of_obs[n]] += 1;
-    }
-    // Compute start positions
-    cat1_question_start[1] = 1;
-    for (q in 2 : Qcat1) {
-      cat1_question_start[q] = cat1_question_start[q - 1] + count[q - 1];
-    }
-    // Compute end positions
-    for (q in 1 : Qcat1) {
-      cat1_question_end[q] = cat1_question_start[q] + count[q] - 1;
-    }
-    // Fill sorted indices
-    count = rep_array(0, Qcat1); // Reset to use as write position
-    for (n in 1 : Ncat1) {
-      int q = cat1_question_of_obs[n];
-      int pos = cat1_question_start[q] + count[q];
-      cat1_sorted_indices[pos] = n;
-      count[q] += 1;
-    }
-  }
-  
-  // Build sorted indices and start/end positions for cat2
-  {
-    array[Qcat2] int count = rep_array(0, Qcat2);
-    // Count observations per question
-    for (n in 1 : Ncat2) {
-      count[cat2_question_of_obs[n]] += 1;
-    }
-    // Compute start positions
-    cat2_question_start[1] = 1;
-    for (q in 2 : Qcat2) {
-      cat2_question_start[q] = cat2_question_start[q - 1] + count[q - 1];
-    }
-    // Compute end positions
-    for (q in 1 : Qcat2) {
-      cat2_question_end[q] = cat2_question_start[q] + count[q] - 1;
-    }
-    // Fill sorted indices
-    count = rep_array(0, Qcat2); // Reset to use as write position
-    for (n in 1 : Ncat2) {
-      int q = cat2_question_of_obs[n];
-      int pos = cat2_question_start[q] + count[q];
-      cat2_sorted_indices[pos] = n;
-      count[q] += 1;
-    }
-  }
 }
 parameters {
   sum_to_zero_vector[U] latent_factor_unit;
@@ -134,9 +45,9 @@ transformed parameters {
     matrix[Qcat1, Kcat1 - 1] cat1_skill_thresholds;
     matrix[Qcat2, Kcat2 - 1] cat2_skill_thresholds;
     
-    cat1_skill_thresholds = cm_get_skill_thresholds(cat1_skill_thresholds_1,
+    cat1_skill_thresholds = cm_get_skill_thresholds2(cat1_skill_thresholds_1,
                               cat1_skill_thresholds_incs);
-    cat2_skill_thresholds = cm_get_skill_thresholds(cat2_skill_thresholds_1,
+    cat2_skill_thresholds = cm_get_skill_thresholds2(cat2_skill_thresholds_1,
                               cat2_skill_thresholds_incs);
     
     cat1_eta = cm_get_etas(append_row(1.0, cat1_loadings_questions_m1),
@@ -180,8 +91,6 @@ generated quantities {
   array[Ncat1] int<lower=0> cat1_ypred;
   array[Ncat2] int<lower=0> cat2_ypred;
   array[Ncat1 + Ncat2] real log_lik;
-  vector[Qcat1] cat1_ordinal_brier_score;
-  vector[Qcat2] cat2_ordinal_brier_score;
   
   for (n in 1 : Ncat1) {
     cat1_ordered_prob_by_obs[n,  : ] = softmax(cat1_eta[n]')';
@@ -191,19 +100,6 @@ generated quantities {
     cat2_ordered_prob_by_obs[n,  : ] = softmax(cat2_eta[n]')';
     cat2_ypred[n] = categorical_logit_rng(cat2_eta[n]');
   }
-  
-  // Compute ordinal Brier scores by question
-  cat1_ordinal_brier_score = cm_get_ordered_brier_score(
-                               cat1_ordered_prob_by_obs,
-                               cat1_question_of_obs, cumsum_matrix_cat1,
-                               cum_obs_cat1, cat1_question_start,
-                               cat1_question_end, cat1_sorted_indices);
-  cat2_ordinal_brier_score = cm_get_ordered_brier_score(
-                               cat2_ordered_prob_by_obs,
-                               cat2_question_of_obs, cumsum_matrix_cat2,
-                               cum_obs_cat2, cat2_question_start,
-                               cat2_question_end, cat2_sorted_indices);
-  
   for (n in 1 : Ncat1) {
     log_lik[n] = categorical_logit_lpmf(cat1_y[n] | cat1_eta[n]');
   }

@@ -483,13 +483,71 @@ ordered_logit_model_run_analysis <- function(
             w = 20,
             h = 20
         )
+
+        # Compute and save ordinal Brier scores by question
+        cat("Computing ordinal Brier scores by question...\n")
+        
+        # Extract Brier scores for cat1
+        brier_cat1 <- ol_fit$draws(
+            variables = c("cat1_ordinal_brier_score"),
+            inc_warmup = FALSE,
+            format = "draws_df"
+        )
+        brier_cat1 <- as.data.table(brier_cat1)
+        brier_cat1 <- data.table::melt(brier_cat1,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "brier_score"
+        )
+        brier_cat1[, question_id := as.integer(gsub(
+            "cat1_ordinal_brier_score\\[([0-9]+)\\]", "\\1",
+            variable
+        ))]
+        brier_cat1[, item_type := "categorical"]
+        set(brier_cat1, NULL, "variable", NULL)
+        
+        # Extract Brier scores for cat2
+        brier_cat2 <- ol_fit$draws(
+            variables = c("cat2_ordinal_brier_score"),
+            inc_warmup = FALSE,
+            format = "draws_df"
+        )
+        brier_cat2 <- as.data.table(brier_cat2)
+        brier_cat2 <- data.table::melt(brier_cat2,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "brier_score"
+        )
+        brier_cat2[, question_id := as.integer(gsub(
+            "cat2_ordinal_brier_score\\[([0-9]+)\\]", "\\1",
+            variable
+        ))]
+        brier_cat2[, item_type := "out-of-7"]
+        set(brier_cat2, NULL, "variable", NULL)
+        
+        # Combine and compute median
+        brier_all <- rbind(brier_cat1, brier_cat2)
+        brier_summary <- brier_all[,
+            list(
+                median_brier_score = median(brier_score),
+                mean_brier_score = mean(brier_score),
+                q025_brier_score = quantile(brier_score, 0.025),
+                q975_brier_score = quantile(brier_score, 0.975)
+            ),
+            by = c("item_type", "question_id")
+        ]
+        
+        # Save to CSV
+        data.table::fwrite(
+            brier_summary,
+            file = paste0(output_file_prefix, "_ordered_brierscore.csv")
+        )
+        cat("Ordinal Brier scores saved to", paste0(output_file_prefix, "_ordered_brierscore.csv"), "\n")
     } else {
         cat("\nSkipping additional diagnostic analyses (set with_additional_analyses=TRUE to enable)\n")
     }
 
     # Generate probability plots for cat1
     if (with_core_analyses) {
-        cat("Generating probability plots for categorical outcomes...\n")
+                cat("Generating probability plots for categorical outcomes...\n")
         po <- ol_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,

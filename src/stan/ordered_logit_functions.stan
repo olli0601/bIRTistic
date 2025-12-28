@@ -76,3 +76,40 @@ real partial_ordered_logistic_lpmf(array[] int slice_y, int start, int end,
     }
     return lp;
   }
+
+// Compute ordinal Brier score (cumulative Brier score) by question
+// Returns a vector of length Q with the average ordinal Brier score for each question
+// cumsum_matrix should be a K x (K-1) matrix where entry [i,j] = 1 if i <= j, else 0
+// cum_obs_matrix should be a N x (K-1) matrix precomputed in transformed data
+// question_start/end and sorted_indices enable efficient aggregation by question
+vector ol_get_ordered_brier_score(matrix ordered_prob_by_obs,
+                                   array [] int question_of_obs,
+                                   matrix cumsum_matrix,
+                                   matrix cum_obs_matrix,
+                                   array [] int question_start,
+                                   array [] int question_end,
+                                   array [] int sorted_indices)
+{
+  int start_idx;
+  int end_idx;
+  int N = rows(ordered_prob_by_obs);
+  int Km1 = cols(cumsum_matrix);
+  int Q = max(question_of_obs);
+  vector[Q] score_by_question = rep_vector(0.0, Q);
+  
+  // Compute cumulative probabilities via matrix multiplication: N x Km1
+  matrix[N, Km1] cum_pred = ordered_prob_by_obs * cumsum_matrix;
+  
+  // Compute squared differences and sum over categories for each observation
+  matrix[N, Km1] squared_diffs = square(cum_pred - cum_obs_matrix);
+  vector[N] score_by_obs = to_vector(squared_diffs * rep_vector(1.0, Km1)) / Km1;
+  
+  // Aggregate by question using precomputed indices
+  for (q in 1:Q) {
+    start_idx = question_start[q];
+    end_idx = question_end[q];
+    score_by_question[q] = sum(score_by_obs[sorted_indices[start_idx:end_idx]]) / (end_idx - start_idx + 1);
+  }
+  
+  return score_by_question;
+}

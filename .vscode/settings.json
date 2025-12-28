@@ -22,5 +22,8 @@
         "/\\$[^$]+\\$/g",
         "/\\\\[a-zA-Z]+\\{[^}]*\\}/g",
         "/\\\\[a-zA-Z]+/g"
-    ]
+    ],
+    "workbench.editorAssociations": {
+        "*.html": "livePreview.previewEditor"
+    }
 }

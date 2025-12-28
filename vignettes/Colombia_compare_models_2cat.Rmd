@@ -29,128 +29,118 @@ knitr::opts_chunk$set(echo = TRUE)
 
 # Introduction
 
-Understanding caregiver wellbeing and parenting practices is critical for designing effective interventions to support vulnerable families. In this analysis, we compare three different Item Response Theory (IRT) models fitted to survey data from the Hope Groups intervention in Colombia. All three models estimate an underlying latent construct (e.g., mental health status) from observed ordinal survey responses, with similar or even identical prior distributions on all parameters but different likelihood constructions.
+In this analysis, we compare three different Item Response Theory (IRT) models fitted to survey data from the Hope Groups intervention in Colombia. All three models estimate an underlying latent construct (e.g., mental health status) from observed ordinal survey responses, with similar or even identical prior distributions on all parameters, but different likelihood constructions.
 
-The data consist of Likert-scale survey items collected at baseline and endline, measuring constructs such as caregiver mental health, positive parenting behaviors, and child monitoring. We have two types of items: (1) categorical items with 5 ordered response categories (mental health questions), and (2) ordinal count items with 8 categories representing days per week (0-7 days). 
+The data consist of Likert-scale survey items collected at baseline and endline, measuring parental responses to e.g. caregiver mental health, positive parenting behaviors, and child monitoring. We have two types of items: (1) categorical items with 5 ordered response categories (none of the time to all of the time), and (2) ordinal count items with 8 categories representing days per week (0-7 days). 
 
 Our goal is to determine which statistical model best captures the structure of these ordinal responses.
 
-## Why Compare Different IRT Models?
+# Different IRT Models
 
-Traditional IRT models make strong assumptions about how responses are generated. The **ordered logistic model**, also called the graded response model, implies that responses follow a proportional odds structure - essentially, it models cumulative probabilities using a single latent trait. This is computationally efficient and commonly used, but may be restrictive when response patterns don't follow the proportional odds assumption.
+Throughout, let $i$ index participants ($i = 1, \ldots, n$), $j$ index items/questions ($j = 1, \ldots, J$), and $k$ index response categories ($k = 1, \ldots, K$). The subscript $ij$ denotes the response of participant $i$ to item $j$.
 
-To understand what "proportional odds" means, consider the cumulative probability model. The ordered logistic model assumes there exists a continuous latent response $Y^*$ that determines the observed category:
+## Ordered Logistic Model
+The first model that we considered is the widely used ordered logistic model, also called the graded response model. 
 
-\begin{align}
-Y^* &= \eta + \varepsilon (\#eq:latent-response)\\
-\eta &= \lambda_j (\theta_i + \mathbf{X}^\top \boldsymbol{\beta}) (\#eq:linear-predictor)\\
-\varepsilon &\sim \text{Logistic}(0, 1) (\#eq:logistic-error)
-\end{align}
-
-The observed response $Y = k$ if $\tau_{k-1} < Y^* \leq \tau_k$, where $\tau_k$ are threshold parameters. This gives us:
+The ordered logistic model is specified in terms of cumulative probabilities:
 
 \begin{align}
-\Pr(Y \leq k \mid \eta)
-&= \Pr(Y^* \leq \tau_k \mid \eta) (\#eq:cumprob-1)\\
-&= \Pr(\eta + \varepsilon \leq \tau_k) (\#eq:cumprob-2)\\
-&= \Pr(\varepsilon \leq \tau_k - \eta) (\#eq:cumprob-3)\\
-&= \text{logit}^{-1}(\tau_k - \eta) (\#eq:cumprob-4)
+P(Y_{i,j} = k) &= P(Y_{i,j} \leq k) - P(Y_{i,j} \leq k-1) (\#eq:ordlog-response)\\
+P(Y_{i,j} \leq k) &= \text{logit}^{-1}(\eta_{i,j} - c_{j,k}) (\#eq:ordlog-cumprob)\\
+\eta_{i,j} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta}\right), (\#eq:ordlog-eta)
 \end{align}
 
-Taking the logit transformation, the cumulative log-odds become:
+with the conventions that for $k=1$, $P(Y_{i,j} < 1) = 0$ and for $k=K$ $P(Y_{i,j} \leq K) = 1$. Here:
+
+- $\theta_i$ is the skill (or latent factor) for participant $i$ ($i = 1, \ldots, n$)
+- $\boldsymbol{\beta}$ are covariate effects (e.g., time effects) that modify the skill of each participant
+- $\lambda_{j}$ are item loadings ($j = 1, \ldots, J$), that determine how the latent participant skills map to particular behaviours/items. The conceptual idea is that each item/response has its own "difficulty" or "discrimination" in relation to the latent trait. 
+- $c_{j,k}$ must be ordered cutpoints for item $j$ and category $k$, with $c_{j,k} \geq c_{j,k-1}$. The idea is that when the item-specific skill $\eta_{i,j}$ exceeds the $k$th cutpoint, then the odds for responding in category $k$ or higher increases.
+
+By construction, under the ordered logistic model, the cumulative log-odds are:
 
 \begin{align}
-\log \frac{\Pr(Y \leq k \mid \eta)}{\Pr(Y > k \mid \eta)}
-= \tau_k - \eta (\#eq:cumlogodds)
+\log \frac{\Pr(Y_{i,j} \leq k)}{1-\Pr(Y_{i,j} \leq k)}
+= \eta_{i,j} - c_{j,k} (\#eq:cumlogodds)
 \end{align}
 
-The proportional odds property emerges when we compare two different values of the linear predictor, $\eta_1$ and $\eta_0$ (e.g., baseline vs. endline, or two different participants):
+Thus, the $\eta_{i,j}$ have a particular interpretation: when the item-specific skill of the $i$th participant $\eta_{i,j}$ equals $c_{j,k}$, then the odds that the $i$th participant responds at level $k$ or higher is $50-50$. When the the item-specific skill of the $i$th participant increases, the log-odds of responding in category $k$ or higher increases linearly.
+
+The second important property of the ordered logistic model is that the model follows a proportional odds structure. When we compare two different values of the linear predictor, $\eta_1$ and $\eta_0$ (e.g., baseline vs. endline of the same participant on the same item, or two different participants on the same item), the difference in log-odds of being in category $k$ is:
 
 \begin{align}
 \log\frac{\Pr(Y \leq k \mid \eta_1)}{\Pr(Y > k \mid \eta_1)}
 -
 \log\frac{\Pr(Y \leq k \mid \eta_0)}{\Pr(Y > k \mid \eta_0)}
-&= (\tau_k - \eta_1) - (\tau_k - \eta_0) (\#eq:propodd-1)\\
-&= \eta_0 - \eta_1 (\#eq:propodd-2)
+&= (\eta_1 - c_{j,k}) - (\eta_0 - c_{j,k}) (\#eq:propodd-1)\\
+&= \eta_1 - \eta_0 (\#eq:propodd-2)
 \end{align}
 
-**This difference is constant across all categories $k$** - the thresholds $\tau_k$ cancel out. This is the proportional odds assumption: the log-odds ratio comparing any two conditions is the same regardless of which category threshold we're considering. In other words, the effect of covariates (or differences in latent traits) on the odds of being in a higher category is proportional across all cutpoints.
-
-This assumption is restrictive because it requires that the relationship between the latent trait and response probabilities has the same functional form for all category boundaries. If, for example, moving from "never" to "sometimes" requires a different trait change than moving from "sometimes" to "often," the proportional odds assumption may be violated.
-
-### The Credit Model Alternative
-
-The **credit model** offers a more flexible alternative by directly modeling the probability of each response category without imposing the proportional odds constraint. This allows the model to capture more complex response patterns, including situations where intermediate categories might be particularly attractive or where the relationship between the latent trait and response probabilities is non-monotonic.
-
-We examine three model specifications:
-
-1. **Ordered Logistic Model (v251222)** - The traditional proportional odds IRT model
-2. **Credit Model (v251120)** - An early implementation with a more complex parameterization
-3. **Credit Model (v251224)** - A simplified reparameterization designed to improve sampling efficiency
-
-## Mathematical Model Definitions
-
-Let $i$ index participants ($i = 1, \ldots, n$), $j$ index items/questions ($j = 1, \ldots, J$), and $k$ index response categories ($k = 1, \ldots, K$). The subscript $ij$ denotes the response of participant $i$ to item $j$.
-
-### Model 1: Ordered Logistic Model (v251222)
-
-The ordered logistic model uses cumulative probabilities:
+Thus, because the difference is constant across all categories $k$, the cumulative log-odds ratio that compares any two conditions is the same regardless of which category threshold we are considering. For example, when $\beta$ represents an intervention effect (e.g., $X_{i,j,t} = 1$ at time $t=1$ and $X_{i,j,t} = 0$ at time $t=0$), then 
 
 \begin{align}
-P(Y_{ij} = k) &= P(Y_{ij} \leq k) - P(Y_{ij} \leq k-1) (\#eq:ordlog-response)\\
-P(Y_{ij} \leq k) &= \text{logit}^{-1}(\eta_{ij} - c_{j,k}) (\#eq:ordlog-cumprob)\\
-\eta_{ij} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{ij}^T \boldsymbol{\beta}\right) (\#eq:ordlog-eta)
+&\frac{\Pr(Y_{i,j,t=1} \leq k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} > k \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} \leq k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} > k \mid \eta_{i,j,t=0})}\\
+&\quad = 
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
+= 
+\exp( \lambda_j \beta ), (\#eq:propodd-3)
 \end{align}
 
-where:
+so when measured in cumulative odds, the effect of the intervention is proportional to $\exp\beta$, and the same regardless of the category $k$.
 
-- $\theta_i \sim \text{S2Z-Normal}(0, \sigma_{\theta})$ is the latent factor for participant $i$ ($i = 1, \ldots, n$)
-- $\boldsymbol{\beta} \sim \text{Normal}(0, 1)$ are covariate effects (e.g., time effects)
-- $\lambda_{1} = 1$ (reference item), $\lambda_{j} \sim t_3^+(0, 1)$ for $j > 1$ are item loadings ($j = 1, \ldots, J$)
-- $c_{j,k}$ are ordered cutpoints for item $j$ and category $k$, with $c_{j,1} \sim \text{Normal}(0, 3.5)$ and $c_{j,k} = c_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell}$ where $\delta_{j,\ell} \sim \text{Normal}^+(0, 2.5)$
-
-The S2Z-Normal (sum-to-zero) constraint ensures identifiability by forcing $\sum_{i=1}^n \theta_i = 0$ and adjusting the scale accordingly.
-
-### Model 2: Credit Model with Split Parameterization (v251120)
-
-The credit model directly models category probabilities using the softmax function:
+There are a few noteworthy details when implementing the ordered logistic model in a Bayesian framework. First, the likelihood is in Stan available in a slightly different form that uses the upper tail probabilities. Second, it is helpful to consider a non-centered parameterization for the latent traits, so that when the loadings are small, all corresponding cutpoints are automatically shrunk, and the sampler can more easily explore the posterior geometry. This leads to:
 
 \begin{align}
-P(Y_{ij} = k) &= \frac{\exp(\phi_{ij,k})}{\sum_{k'=1}^K \exp(\phi_{ij,k'})} (\#eq:credit-response)\\
-\phi_{ij,k} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{ij}^T \boldsymbol{\beta} - \tau_{j,k}\right) (\#eq:credit-phi)
+P(Y_{i,j} = k) &= P(Y_{i,j} > k-1) - P(Y_{i,j} > k) (\#eq:ordlog-response-stan)\\
+P(Y_{i,j} > k) &= \text{logit}^{-1}\Big(\phi_{i,j,k}\Big) (\#eq:ordlog-cumprob-stan)\\
+\phi_{i,j,k} &= \lambda_{j} \cdot (\eta_{i,j} - c_{j,k}) (\#eq:ordlog-phi-stan)\\
+\eta_{i,j} &= \theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta}. (\#eq:ordlog-eta-stan)
 \end{align}
 
-where $\tau_{j,k}$ are skill thresholds for item $j$ and category $k$. In the v251120 implementation, these are parameterized as:
+Finally, we use the following prior distributions for all parameters:
 
 \begin{align}
-\tau_{j,1} &\sim \text{Normal}(0, 3.5) (\#eq:credit-tau1)\\
-\tau_{j,k} &= \tau_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell}, \quad k = 2, \ldots, K-1 (\#eq:credit-tauk)\\
-\delta_{j,\ell} &\sim \text{Normal}^+(0, 3.5) (\#eq:credit-delta)
+\theta_i &\sim \text{S2Z-Normal}(0, \sigma_{\theta}) (\#eq:ordlog-prior-theta)\\
+\boldsymbol{\beta} &\sim \text{Normal}(0, 1) (\#eq:ordlog-prior-beta)\\
+\lambda_{j} &\sim t_3^+(0, 1) \text{ for } j > 1 (\#eq:ordlog-prior-lambda)\\
+c_{j,1} &\sim \text{Normal}(0, 3.5) (\#eq:ordlog-prior-c1)\\
+c_{j,k} &= c_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell} \text{ for } k > 1 (\#eq:ordlog-ck)\\
+\delta_{j,\ell} &\sim \text{Normal}^+(0, 2.5) (\#eq:ordlog-prior-delta)
 \end{align}
 
-This split parameterization separates the first threshold from increments but requires a transformation function.
+The S2Z-Normal (sum-to-zero) constraint ensures identifiability by forcing $\sum_{i=1}^n \theta_i = 0$ and adjusting the scale accordingly. The first loading $\lambda_1$ is fixed to 1 to set the scale of the latent trait and ensure multiplicative identifiability, as is standard in IRT models. All other loadsings are given half-t priors to allow for flexibility while preventing extreme values, again as is standard for Bayesian IRT models. The cutpoints $c_{j,k}$ are parameterized in an incremental approach, to ensure the required ordering.
 
-### Model 3: Credit Model with Direct Parameterization (v251224)
+## The Credit Model
 
-The v251224 model uses the same likelihood structure as v251120 but simplifies the parameterization:
+The credit model, which is related to the widely used partial credit model in the educational literature, does not follow the cumulative approach of the ordered logistic model. Instead, it models the category probabilities more directly using a softmax function, and therefore tends to be a little faster to evaluate computationally. The model specification is: 
 
 \begin{align}
-\tau_{j,k} &\sim \text{Normal}(0, 3.5) \quad \text{for all } j, k (\#eq:credit-simple)
+P(Y_{ij} = k) &= \text{softmax}(\phi_{i,j,k}) = \frac{\exp(\phi_{i,j,k})}{\sum_{k'=1}^K \exp(\phi_{i,j,k'})} (\#eq:credit-response)\\
+\phi_{i,j,1} &= 0\\
+\phi_{i,j,k} &= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right), \quad k=2,\dotsc,K(\#eq:credit-phi)
 \end{align}
 
-Rather than splitting thresholds into initial values and increments, all skill thresholds are directly estimated as independent parameters. This removes the ordering constraint and allows Stan's sampler to explore the parameter space more efficiently, potentially avoiding the ridge geometries that can cause divergences.
+where the latent structure is exactly as for the Bayesian ordered logistic model. In our v251120 implementation, the priors are also as before, though in principle the cutpoints no longer have to be ordered.
 
-## Key Differences and Implications
+The first observation is that for two categories ($K=2$), the above softmax construction equals
 
-**Ordered Logistic vs. Credit Models:** The fundamental difference is that ordered logistic models enforce a proportional odds structure (equations \@ref(eq:ordlog-cumprob)), while credit models allow each category to have its own relationship with the latent trait (equations \@ref(eq:credit-phi)). This makes credit models more flexible but also requires estimating more parameters.
+\begin{align}
+P(Y_{ij} = 2) &= \frac{\exp\phi_{i,j,2}}{1 + \exp\phi_{i,j,2}} = \text{logit}^{-1}(\phi_{i,j,2}), (\#eq:credit-phi)
+\end{align}
 
-**v251120 vs. v251224 Parameterizations:** Both credit model versions have identical likelihoods but differ in how parameters are represented. The v251120 split parameterization (equations \@ref(eq:credit-tau1)-\@ref(eq:credit-delta)) enforces ordered thresholds through positive increments, which can create difficult geometry for MCMC sampling. The v251224 direct parameterization (equation \@ref(eq:credit-simple)) removes this constraint, potentially improving sampling efficiency at the cost of not directly enforcing threshold ordering (though ordering typically emerges naturally from the data).
+and so the credit model and the ordered logistic model are equivalent for binary data.
 
-In the following sections, we fit all three models to the Colombia data and compare their performance in terms of:
 
-- **Computational efficiency** - Do any models show divergences or poor mixing?
-- **Model fit** - Which model best describes the observed response patterns?
-- **Parameter interpretability** - Are the estimated latent factors and item parameters substantively meaningful?
+\begin{align}
+\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}
+= 
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
+= 
+\exp( \lambda_j \beta ), (\#eq:propodd-3)
+\end{align}
+
+# Model comparison on the Colombia data
 
 # Install packages
 
@@ -179,6 +169,7 @@ source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "train_test_split_data.R"))
 source(here::here("R", "credit_model_run_analysis.R"))
 source(here::here("R", "ordered_logit_model_run_analysis.R"))
+source(here::here("R", "partial_credit_model_run_analysis.R"))
 ```
 
 # Data loading and pre-processing
@@ -202,6 +193,9 @@ file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927
 file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
 
 set.seed(42L)
+
+# Define seeds for multiple runs
+seeds <- c(123L, 456L, 789L, 1011L, 1213L, 1415L, 1617L, 1819L, 2021L, 2223L)
 ```
 
 ```{r load-and-preprocess-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -266,32 +260,40 @@ ol_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
-if (!file.exists(rds_file)) {
-    ol_fit <- ordered_logit_model_run_analysis(
-        dit,
-        dp1,
-        output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-        stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222.stan"),
-        chains = 4L,
-        parallel_chains = 4L,
-        threads_per_chain = 1L,
-        iter_warmup = 500L,
-        iter_sampling = 500L,
-        seed = 123L,
-        with_core_analyses = TRUE,
-        with_additional_analyses = TRUE,
-        show_messages = TRUE,
-        show_exceptions = TRUE
-    )
+# Run with 10 different seeds
+for (seed in seeds) {
+    seed_dir <- file.path(dir_out, paste0('seed-', seed))
+    dir.create(seed_dir, recursive = TRUE, showWarnings = FALSE)
+    output_file_prefix_seed <- file.path(seed_dir, "ordlog_1")
+    rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
+    if (!file.exists(rds_file)) {
+        cat("\n=== Running ordered logit model with seed", seed, "===\n")
+        ordered_logit_model_run_analysis(
+            dit,
+            dp1,
+            output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 500L,
+            seed = seed,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+    }
+    gc()
 }
 ```
 
-# Run credit model with 2 categories version credit_model_2cats_v251123
+# Run credit model with 2 categories version credit_model_2cats_v251223
 
-```{r setup-creditmodel-directories-v251123, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r setup-creditmodel-directories-v251223, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define credit model output directories
-dir_out_cm <- file.path(dir_out_base, "colombia-run-creditmodel-251123")
+dir_out_cm <- file.path(dir_out_base, "colombia-run-creditmodel-251223")
 dir_logs_cm <- file.path(dir_out_cm, "logs")
 
 # Create output directories if they don't exist
@@ -305,8 +307,8 @@ if (!dir.exists(dir_logs_cm)) {
 output_file_prefix_cm <- file.path(dir_out_cm, "cm_2")
 ```
 
-```{r compile-stan-model-v251123, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "credit_model_2cats_v251123.stan")
+```{r compile-stan-model-v251223, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "credit_model_2cats_v251223.stan")
 cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -314,25 +316,33 @@ cm_compiled <- cmdstanr::cmdstan_model(
     )
 ```
 
-```{r cm-fit-on-training-data-v251123, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix_cm, "_fit_alldata_stan.rds")
-if (!file.exists(rds_file)) {
-    cm_fit <- credit_model_run_analysis(
-        dit,
-        dp1,
-        output_file_prefix = paste0(output_file_prefix_cm, "_fit_alldata"),
-        stan_file = here::here("src", "stan", "credit_model_2cats_v251223.stan"),
-        chains = 4L,
-        parallel_chains = 4L,
-        threads_per_chain = 1L,
-        iter_warmup = 500L,
-        iter_sampling = 500L,
-        seed = 123L,
-        with_core_analyses = TRUE,
-        with_additional_analyses = TRUE,
-        show_messages = TRUE,
-        show_exceptions = TRUE
-    )
+```{r cm-fit-on-training-data-v251223, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Run with 10 different seeds
+for (seed in seeds) {
+    seed_dir <- file.path(dir_out_cm, paste0('seed-', seed))
+    dir.create(seed_dir, recursive = TRUE, showWarnings = FALSE)
+    output_file_prefix_seed <- file.path(seed_dir, "cm_2")
+    rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
+    if (!file.exists(rds_file)) {
+        cat("\n=== Running credit model v251223 with seed", seed, "===\n")
+        credit_model_run_analysis(
+            dit,
+            dp1,
+            output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "credit_model_2cats_v251223.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 500L,
+            seed = seed,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+    }
+    gc()
 }
 ```
 
@@ -365,24 +375,90 @@ cm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r cm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix_cm, "_fit_alldata_stan.rds")
-if (!file.exists(rds_file)) {
-    cm_fit <- credit_model_run_analysis(
-        dit,
-        dp1,
-        output_file_prefix = paste0(output_file_prefix_cm, "_fit_alldata"),
-        stan_file = here::here("src", "stan", "credit_model_2cats_v251224.stan"),
-        chains = 4L,
-        parallel_chains = 4L,
-        threads_per_chain = 1L,
-        iter_warmup = 500L,
-        iter_sampling = 500L,
-        seed = 123L,
-        with_core_analyses = TRUE,
-        with_additional_analyses = TRUE,
-        show_messages = TRUE,
-        show_exceptions = TRUE
+# Run with 10 different seeds
+for (seed in seeds) {
+    seed_dir <- file.path(dir_out_cm, paste0('seed-', seed))
+    dir.create(seed_dir, recursive = TRUE, showWarnings = FALSE)
+    output_file_prefix_seed <- file.path(seed_dir, "cm_3")
+    rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
+    if (!file.exists(rds_file)) {
+        cat("\n=== Running credit model v251224 with seed", seed, "===\n")
+        credit_model_run_analysis(
+            dit,
+            dp1,
+            output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "credit_model_2cats_v251224.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 500L,
+            seed = seed,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+    }
+    gc()
+}
+```
+
+# Run partial credit model with 2 categories version partial_credit_model_2cats_v251224
+
+```{r setup-pcm-directories-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define partial credit model output directories
+dir_out_pcm <- file.path(dir_out_base, "colombia-run-partialcreditmodel-251224")
+dir_logs_pcm <- file.path(dir_out_pcm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_pcm)) {
+    dir.create(dir_out_pcm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_pcm)) {
+    dir.create(dir_logs_pcm, recursive = TRUE)
+}
+
+output_file_prefix_pcm <- file.path(dir_out_pcm, "pcm_1")
+```
+
+```{r compile-stan-model-pcm-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v251224.stan")
+pcm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
     )
+```
+
+```{r pcm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Run with 10 different seeds
+for (seed in seeds) {
+    seed_dir <- file.path(dir_out_pcm, paste0('seed-', seed))
+    dir.create(seed_dir, recursive = TRUE, showWarnings = FALSE)
+    output_file_prefix_seed <- file.path(seed_dir, "pcm_1")
+    rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
+    if (!file.exists(rds_file)) {
+        cat("\n=== Running partial credit model v251224 with seed", seed, "===\n")
+        partial_credit_model_run_analysis(
+            dit,
+            dp1,
+            output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 500L,
+            seed = seed,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+    }
+    gc()
 }
 ```
 
@@ -390,99 +466,227 @@ if (!file.exists(rds_file)) {
 
 We now compare the three models using Leave-One-Out Cross-Validation (LOO) via the Expected Log Predictive Density (ELPD). The LOO-ELPD provides an estimate of out-of-sample predictive performance, with higher (less negative) values indicating better predictive accuracy.
 
-```{r model-comparison-loo, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# Load all three fitted models
-ol_rds <- file.path(dir_out, "ordlog_1_fit_alldata_stan.rds")
-cm_v251123_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251123", "cm_2_fit_alldata_stan.rds")
-cm_v251224_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251224", "cm_3_fit_alldata_stan.rds")
-
-# Load models
-ol_fit_loo <- readRDS(ol_rds)
-cm_fit_v251123 <- readRDS(cm_v251123_rds)
-cm_fit_v251224 <- readRDS(cm_v251224_rds)
-
-cat("\n=== Evaluate ELPD-LOO ===\n")
-
-# Extract log-likelihood and compute LOO for each model
-log_lik_ol <- ol_fit_loo$draws("log_lik", format = "matrix")
-loo_ol <- loo::loo(log_lik_ol)
-
-log_lik_cm_v251123 <- cm_fit_v251123$draws("log_lik", format = "matrix")
-loo_cm_v251123 <- loo::loo(log_lik_cm_v251123)
-
-log_lik_cm_v251224 <- cm_fit_v251224$draws("log_lik", format = "matrix")
-loo_cm_v251224 <- loo::loo(log_lik_cm_v251224)
-
-# Add additional comparison metrics
-cat("\n=== Evaluate WAIC ===\n")
-
-# Compute WAIC for each model
-waic_ol <- loo::waic(log_lik_ol)
-waic_cm_v251123 <- loo::waic(log_lik_cm_v251123)
-waic_cm_v251224 <- loo::waic(log_lik_cm_v251224)
-
-# Load convergence diagnostics
-cat("\n=== Evaluate convergence diagnostics ===\n")
-conv_ol <- fread(file.path(dir_out, "ordlog_1_fit_alldata_convergence_mixing.csv"))
-conv_cm_v251123 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251123", 
-                                     "creditmodel_1_fit_alldata_convergence_mixing.csv"))
-conv_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", 
-                                     "cm_3_fit_alldata_convergence_mixing.csv"))
-
-# Load timing data
-cat("\n=== Evaluate timing ===\n")
-timing_ol <- fread(file.path(dir_out, "ordlog_1_fit_alldata_timing.csv"))
-timing_cm_v251123 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251123", 
-                                       "creditmodel_1_fit_alldata_timing.csv"))
-timing_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", 
-                                       "cm_3_fit_alldata_timing.csv"))
-
-# Create extended comparison table
-comparison_dt <- data.table(
-    Model = c("Ordered Logistic (v251222)", 
-              "Credit Model (v251123)", "Credit Model (v251224)"),
-    ELPD_loo = c(loo_ol$estimates["elpd_loo", "Estimate"],
-                 loo_cm_v251123$estimates["elpd_loo", "Estimate"],
-                 loo_cm_v251224$estimates["elpd_loo", "Estimate"]),
-    ELPD_loo_SE = c(loo_ol$estimates["elpd_loo", "SE"],
-                    loo_cm_v251123$estimates["elpd_loo", "SE"],
-                    loo_cm_v251224$estimates["elpd_loo", "SE"]),
-    WAIC = c(waic_ol$estimates["elpd_waic", "Estimate"],
-             waic_cm_v251123$estimates["elpd_waic", "Estimate"],
-             waic_cm_v251224$estimates["elpd_waic", "Estimate"]),
-    min_ess_bulk = c(min(conv_ol$ess_bulk, na.rm = TRUE),
-                     min(conv_cm_v251123$ess_bulk, na.rm = TRUE),
-                     min(conv_cm_v251224$ess_bulk, na.rm = TRUE)),
-    min_ess_tail = c(min(conv_ol$ess_tail, na.rm = TRUE),
-                     min(conv_cm_v251123$ess_tail, na.rm = TRUE),
-                     min(conv_cm_v251224$ess_tail, na.rm = TRUE)),
-    max_rhat = c(max(conv_ol$rhat, na.rm = TRUE),
-                 max(conv_cm_v251123$rhat, na.rm = TRUE),
-                 max(conv_cm_v251224$rhat, na.rm = TRUE)),
-    max_total_chain_minutes = c(max(timing_ol$total_minutes, na.rm = TRUE),
-                                 max(timing_cm_v251123$total_minutes, na.rm = TRUE),
-                                 max(timing_cm_v251224$total_minutes, na.rm = TRUE))
-)
-
-# Round for display
-comparison_dt[, ELPD_loo := round(ELPD_loo, 1)]
-comparison_dt[, ELPD_loo_SE := round(ELPD_loo_SE, 1)]
-comparison_dt[, WAIC := round(WAIC, 1)]
-comparison_dt[, min_ess_bulk := round(min_ess_bulk, 0)]
-comparison_dt[, min_ess_tail := round(min_ess_tail, 0)]
-comparison_dt[, max_rhat := round(max_rhat, 3)]
-comparison_dt[, max_total_chain_minutes := round(max_total_chain_minutes, 2)]
-
-print(comparison_dt)
-
-# Create a nice table for display
-knitr::kable(comparison_dt, 
-             caption = "Extended Model Comparison Metrics",
-             col.names = c("Model", "ELPD (LOO)", "SE", "WAIC", 
-                          "Min ESS (bulk)", "Min ESS (tail)", 
-                          "Max Rhat", "Max Chain Time (min)")) %>%
-    kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
-
+```{r model-comparison-loo, include=FALSE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+if(!file.exists(file.path(dir_out_base, "colombia-run-creditmodel-251224", "colombia_model_comparison_2cat.csv"))) {
+  # Process models for each seed sequentially
+  for (seed in seeds) {
+    cat("\n=== Processing seed", seed, "===\n")
+    
+    # Define file paths for this seed
+    ol_rds <- file.path(dir_out_base, "colombia-run-orderedlogistic-251222b", 
+                        paste0("seed-", seed), "ordlog_1_fit_alldata_stan.rds")
+    cm_v251223_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251223",
+                                paste0("seed-", seed), "cm_2_fit_alldata_stan.rds")
+    cm_v251224_rds <- file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                                paste0("seed-", seed), "cm_3_fit_alldata_stan.rds")
+    pcm_v251224_rds <- file.path(dir_out_base, "colombia-run-partialcreditmodel-251224",
+                                 paste0("seed-", seed), "pcm_1_fit_alldata_stan.rds")
+    
+    # Process ordered logit model
+    cat("  --- Evaluating ordered logit model ---\n")
+    ol_fit <- readRDS(ol_rds)
+    log_lik_ol <- ol_fit$draws("log_lik", format = "matrix")
+    loo_ol <- loo::loo(log_lik_ol)
+    waic_ol <- loo::waic(log_lik_ol)
+    ol_fit <- NULL
+    log_lik_ol <- NULL
+    gc()
+    
+    # Process credit model v251223
+    cat("  --- Evaluating credit model v251223 ---\n")
+    cm_fit_v251223 <- readRDS(cm_v251223_rds)
+    log_lik_cm_v251223 <- cm_fit_v251223$draws("log_lik", format = "matrix")
+    loo_cm_v251223 <- loo::loo(log_lik_cm_v251223)
+    waic_cm_v251223 <- loo::waic(log_lik_cm_v251223)
+    cm_fit_v251223 <- NULL
+    log_lik_cm_v251223 <- NULL
+    gc()
+    
+    # Process credit model v251224
+    cat("  --- Evaluating credit model v251224 ---\n")
+    cm_fit_v251224 <- readRDS(cm_v251224_rds)
+    log_lik_cm_v251224 <- cm_fit_v251224$draws("log_lik", format = "matrix")
+    loo_cm_v251224 <- loo::loo(log_lik_cm_v251224)
+    waic_cm_v251224 <- loo::waic(log_lik_cm_v251224)
+    cm_fit_v251224 <- NULL
+    log_lik_cm_v251224 <- NULL
+    gc()
+    
+    # Process partial credit model v251224
+    cat("  --- Evaluating partial credit model v251224 ---\n")
+    pcm_fit_v251224 <- readRDS(pcm_v251224_rds)
+    log_lik_pcm_v251224 <- pcm_fit_v251224$draws("log_lik", format = "matrix")
+    loo_pcm_v251224 <- loo::loo(log_lik_pcm_v251224)
+    waic_pcm_v251224 <- loo::waic(log_lik_pcm_v251224)
+    pcm_fit_v251224 <- NULL
+    log_lik_pcm_v251224 <- NULL
+    gc()
+    
+    # Load convergence diagnostics
+    cat("  --- Loading convergence diagnostics ---\n")
+    conv_ol <- fread(file.path(dir_out_base, "colombia-run-orderedlogistic-251222b",
+                                paste0("seed-", seed), "ordlog_1_fit_alldata_convergence_mixing.csv"))
+    conv_cm_v251223 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251223",
+                                        paste0("seed-", seed), "cm_2_fit_alldata_convergence_mixing.csv"))
+    conv_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                                        paste0("seed-", seed), "cm_3_fit_alldata_convergence_mixing.csv"))
+    conv_pcm_v251224 <- fread(file.path(dir_out_base, "colombia-run-partialcreditmodel-251224",
+                                         paste0("seed-", seed), "pcm_1_fit_alldata_convergence_mixing.csv"))
+    
+    # Load timing data
+    cat("  --- Loading timing data ---\n")
+    timing_ol <- fread(file.path(dir_out_base, "colombia-run-orderedlogistic-251222b",
+                                  paste0("seed-", seed), "ordlog_1_fit_alldata_timing.csv"))
+    timing_cm_v251223 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251223",
+                                          paste0("seed-", seed), "cm_2_fit_alldata_timing.csv"))
+    timing_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                                          paste0("seed-", seed), "cm_3_fit_alldata_timing.csv"))
+    timing_pcm_v251224 <- fread(file.path(dir_out_base, "colombia-run-partialcreditmodel-251224",
+                                           paste0("seed-", seed), "pcm_1_fit_alldata_timing.csv"))
+    
+    # Load Brier scores
+    cat("  --- Loading Brier scores ---\n")
+    brier_ol <- fread(file.path(dir_out_base, "colombia-run-orderedlogistic-251222b",
+                                 paste0("seed-", seed), "ordlog_1_fit_alldata_ordered_brierscore.csv"))
+    brier_cm_v251223 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251223",
+                                         paste0("seed-", seed), "cm_2_fit_alldata_ordered_brierscore.csv"))
+    brier_cm_v251224 <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                                         paste0("seed-", seed), "cm_3_fit_alldata_ordered_brierscore.csv"))
+    brier_pcm_v251224 <- fread(file.path(dir_out_base, "colombia-run-partialcreditmodel-251224",
+                                          paste0("seed-", seed), "pcm_1_fit_alldata_ordered_brierscore.csv"))
+    
+    # Add model identifier to each Brier score dataset
+    brier_ol[, Model := "Ordered Logistic (v251222)"]
+    brier_cm_v251223[, Model := "Credit Model (v251223)"]
+    brier_cm_v251224[, Model := "Credit Model (v251224)"]
+    brier_pcm_v251224[, Model := "Partial Credit Model (v251224)"]
+    
+    # Combine all Brier scores for this seed
+    brier_seed <- rbindlist(list(brier_ol, brier_cm_v251223, brier_cm_v251224, brier_pcm_v251224))
+    brier_seed[, seed := seed]
+    
+    # Save question-level Brier scores
+    fwrite(brier_seed,
+           file = file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                           paste0("colombia_brier_scores_by_question_seed", seed, ".csv")))
+    
+    # Compute mean Brier score across questions for comparison table
+    brier_summary <- brier_seed[, list(
+      mean_brier_cat = mean(median[item_type == "categorical"]),
+      mean_brier_out7 = mean(median[item_type == "out-of-7"]),
+      mean_brier_all = mean(median)
+    ), by = Model]
+    
+    # Create comparison table for this seed
+    comparison_seed <- data.table(
+      seed = seed,
+      Model = c("Ordered Logistic (v251222)", 
+                "Credit Model (v251223)", "Credit Model (v251224)", 
+                "Partial Credit Model (v251224)"),
+      ELPD_loo = c(loo_ol$estimates["elpd_loo", "Estimate"],
+                   loo_cm_v251223$estimates["elpd_loo", "Estimate"],
+                   loo_cm_v251224$estimates["elpd_loo", "Estimate"],
+                   loo_pcm_v251224$estimates["elpd_loo", "Estimate"]),
+      ELPD_loo_SE = c(loo_ol$estimates["elpd_loo", "SE"],
+                      loo_cm_v251223$estimates["elpd_loo", "SE"],
+                      loo_cm_v251224$estimates["elpd_loo", "SE"],
+                      loo_pcm_v251224$estimates["elpd_loo", "SE"]),
+      WAIC = c(waic_ol$estimates["elpd_waic", "Estimate"],
+               waic_cm_v251223$estimates["elpd_waic", "Estimate"],
+               waic_cm_v251224$estimates["elpd_waic", "Estimate"],
+               waic_pcm_v251224$estimates["elpd_waic", "Estimate"]),
+      WAIC_SE = c(waic_ol$estimates["elpd_waic", "SE"],
+                  waic_cm_v251223$estimates["elpd_waic", "SE"],
+                  waic_cm_v251224$estimates["elpd_waic", "SE"],
+                  waic_pcm_v251224$estimates["elpd_waic", "SE"]),
+      min_ess_bulk = c(min(conv_ol$ess_bulk, na.rm = TRUE),
+                       min(conv_cm_v251223$ess_bulk, na.rm = TRUE),
+                       min(conv_cm_v251224$ess_bulk, na.rm = TRUE),
+                       min(conv_pcm_v251224$ess_bulk, na.rm = TRUE)),
+      min_ess_tail = c(min(conv_ol$ess_tail, na.rm = TRUE),
+                       min(conv_cm_v251223$ess_tail, na.rm = TRUE),
+                       min(conv_cm_v251224$ess_tail, na.rm = TRUE),
+                       min(conv_pcm_v251224$ess_tail, na.rm = TRUE)),
+      max_rhat = c(max(conv_ol$rhat, na.rm = TRUE),
+                   max(conv_cm_v251223$rhat, na.rm = TRUE),
+                   max(conv_cm_v251224$rhat, na.rm = TRUE),
+                   max(conv_pcm_v251224$rhat, na.rm = TRUE)),
+      max_total_chain_minutes = c(max(timing_ol$total_chain_minutes, na.rm = TRUE),
+                                  max(timing_cm_v251223$total_chain_minutes, na.rm = TRUE),
+                                  max(timing_cm_v251224$total_chain_minutes, na.rm = TRUE),
+                                  max(timing_pcm_v251224$total_chain_minutes, na.rm = TRUE))
+    )
+    
+    # Merge Brier scores into comparison table
+    comparison_seed <- merge(comparison_seed, brier_summary, by = "Model")
+    
+    # Append to file
+    fwrite(comparison_seed,
+           file = file.path(dir_out_base, "colombia-run-creditmodel-251224", 
+                           paste0("colombia_model_comparison_2cat_seed", seed, ".csv")))
+    
+    # Clear variables and run gc
+    loo_ol <- waic_ol <- conv_ol <- timing_ol <- brier_ol <- NULL
+    loo_cm_v251223 <- waic_cm_v251223 <- conv_cm_v251223 <- timing_cm_v251223 <- brier_cm_v251223 <- NULL
+    loo_cm_v251224 <- waic_cm_v251224 <- conv_cm_v251224 <- timing_cm_v251224 <- brier_cm_v251224 <- NULL
+    loo_pcm_v251224 <- waic_pcm_v251224 <- conv_pcm_v251224 <- timing_pcm_v251224 <- brier_pcm_v251224 <- NULL
+    brier_seed <- brier_summary <- comparison_seed <- NULL
+    gc()
+  }
+  
+  # Aggregate results across seeds
+  cat("\n=== Aggregating results across seeds ===\n")
+  comparison_all <- rbindlist(lapply(seeds, function(seed) {
+    fread(file.path(dir_out_base, "colombia-run-creditmodel-251224",
+                   paste0("colombia_model_comparison_2cat_seed", seed, ".csv")))
+  }))
+  
+  # Compute summary statistics across seeds
+  comparison_dt <- comparison_all[,
+    list(
+      ELPD_loo = mean(ELPD_loo),
+      ELPD_loo_SE = mean(ELPD_loo_SE),
+      WAIC = mean(WAIC),
+      WAIC_SE = mean(WAIC_SE),
+      min_ess_bulk = mean(min_ess_bulk),
+      min_ess_tail = mean(min_ess_tail),
+      max_rhat = mean(max_rhat),
+      max_total_chain_minutes = mean(max_total_chain_minutes),
+      mean_brier_cat = mean(mean_brier_cat),
+      mean_brier_out7 = mean(mean_brier_out7),
+      mean_brier_all = mean(mean_brier_all)
+    ),
+    by = Model
+  ]
+  
+  # Round for display
+  comparison_dt[, ELPD_loo := round(ELPD_loo, 1)]
+  comparison_dt[, ELPD_loo_SE := round(ELPD_loo_SE, 1)]
+  comparison_dt[, WAIC := round(WAIC, 1)]
+  comparison_dt[, WAIC_SE := round(WAIC_SE, 1)]
+  comparison_dt[, min_ess_bulk := round(min_ess_bulk, 0)]
+  comparison_dt[, min_ess_tail := round(min_ess_tail, 0)]
+  comparison_dt[, max_rhat := round(max_rhat, 3)]
+  comparison_dt[, max_total_chain_minutes := round(max_total_chain_minutes, 2)]
+  comparison_dt[, mean_brier_cat := round(mean_brier_cat, 4)]
+  comparison_dt[, mean_brier_out7 := round(mean_brier_out7, 4)]
+  comparison_dt[, mean_brier_all := round(mean_brier_all, 4)]
+  
+  fwrite(comparison_dt, 
+         file = file.path(dir_out_base, "colombia-run-creditmodel-251224", "colombia_model_comparison_2cat.csv"))
+} else {
+  comparison_dt <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", "colombia_model_comparison_2cat.csv"))
+}
+,
+                           "Brier (Cat)", "Brier (Out7)", "Brier (All)")) %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+cat("\n\nInterpretation:\n")
+cat("- ELPD (LOO) & WAIC: Higher (less negative) is better\n")
+cat("- Min ESS: Should be > 400 for reliable inference (we ran 2000 samples across 4 chains)\n")
+cat("- Max Rhat: Should be < 1.01 for convergence\n")
+cat("- Max Chain Time: Computational efficiency\n")
+cat("- Brier Scores: Lower is better (0 = perfect predictions, 1 = worst). Shown separately for categorical items, out-of-7 items, and overall.in Time (min)")) %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 cat("\n\nInterpretation:\n")
 cat("- ELPD (LOO) & WAIC: Higher (less negative) is better\n")
 cat("- Min ESS: Should be > 400 for reliable inference (we ran 2000 samples across 4 chains)\n")
