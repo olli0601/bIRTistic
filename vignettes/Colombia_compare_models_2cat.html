@@ -1789,8 +1789,8 @@ font-size: 12pt;
 <p>Throughout, let <span class="math inline">\(i\)</span> index participants (<span class="math inline">\(i = 1, \ldots, n\)</span>), <span class="math inline">\(j\)</span> index items/questions (<span class="math inline">\(j = 1, \ldots, J\)</span>), and <span class="math inline">\(k\)</span> index response categories (<span class="math inline">\(k = 1, \ldots, K\)</span>). The subscript <span class="math inline">\(ij\)</span> denotes the response of participant <span class="math inline">\(i\)</span> to item <span class="math inline">\(j\)</span>.</p>
 <div id="ordered-logistic-model" class="section level2" number="2.1">
 <h2><span class="header-section-number">2.1</span> Ordered Logistic Model</h2>
-<p>The first model that we considered is the widely used ordered logistic model, also called the graded response model.</p>
-<p>The ordered logistic model is specified in terms of cumulative probabilities:</p>
+<p>The first model that we considered is the widely used ordered logistic model (OLM), also called the graded response model.</p>
+<p>The OLM is specified in terms of cumulative probabilities:</p>
 <p><span class="math display" id="eq:ordlog-eta" id="eq:ordlog-cumprob" id="eq:ordlog-response">\[\begin{align}
 P(Y_{i,j} = k) &amp;= P(Y_{i,j} \leq k) - P(Y_{i,j} \leq k-1) \tag{2.1}\\
 P(Y_{i,j} \leq k) &amp;= \text{logit}^{-1}(\eta_{i,j} - c_{j,k}) \tag{2.2}\\
@@ -1803,13 +1803,13 @@ P(Y_{i,j} \leq k) &amp;= \text{logit}^{-1}(\eta_{i,j} - c_{j,k}) \tag{2.2}\\
 <li><span class="math inline">\(\lambda_{j}\)</span> are item loadings (<span class="math inline">\(j = 1, \ldots, J\)</span>), that determine how the latent participant skills map to particular behaviours/items. The conceptual idea is that each item/response has its own “difficulty” or “discrimination” in relation to the latent trait.</li>
 <li><span class="math inline">\(c_{j,k}\)</span> must be ordered cutpoints for item <span class="math inline">\(j\)</span> and category <span class="math inline">\(k\)</span>, with <span class="math inline">\(c_{j,k} \geq c_{j,k-1}\)</span>. The idea is that when the item-specific skill <span class="math inline">\(\eta_{i,j}\)</span> exceeds the <span class="math inline">\(k\)</span>th cutpoint, then the odds for responding in category <span class="math inline">\(k\)</span> or higher increases.</li>
 </ul>
-<p>By construction, under the ordered logistic model, the cumulative log-odds are:</p>
+<p>By construction, under the OLM, the cumulative log-odds are:</p>
 <p><span class="math display" id="eq:cumlogodds">\[\begin{align}
 \log \frac{\Pr(Y_{i,j} \leq k)}{1-\Pr(Y_{i,j} \leq k)}
 = \eta_{i,j} - c_{j,k} \tag{2.4}
 \end{align}\]</span></p>
 <p>Thus, the <span class="math inline">\(\eta_{i,j}\)</span> have a particular interpretation: when the item-specific skill of the <span class="math inline">\(i\)</span>th participant <span class="math inline">\(\eta_{i,j}\)</span> equals <span class="math inline">\(c_{j,k}\)</span>, then the odds that the <span class="math inline">\(i\)</span>th participant responds at level <span class="math inline">\(k\)</span> or higher is <span class="math inline">\(50-50\)</span>. When the the item-specific skill of the <span class="math inline">\(i\)</span>th participant increases, the log-odds of responding in category <span class="math inline">\(k\)</span> or higher increases linearly.</p>
-<p>The second important property of the ordered logistic model is that the model follows a proportional odds structure. When we compare two different values of the linear predictor, <span class="math inline">\(\eta_1\)</span> and <span class="math inline">\(\eta_0\)</span> (e.g., baseline vs. endline of the same participant on the same item, or two different participants on the same item), the difference in log-odds of being in category <span class="math inline">\(k\)</span> is:</p>
+<p>The second important property of the OLM is that the model follows a proportional odds structure. When we compare two different values of the linear predictor, <span class="math inline">\(\eta_1\)</span> and <span class="math inline">\(\eta_0\)</span> (e.g., baseline vs. endline of the same participant on the same item, or two different participants on the same item), the difference in log-odds of being in category <span class="math inline">\(k\)</span> is:</p>
 <p><span class="math display" id="eq:propodd-2" id="eq:propodd-1">\[\begin{align}
 \log\frac{\Pr(Y \leq k \mid \eta_1)}{\Pr(Y &gt; k \mid \eta_1)}
 -
@@ -1827,7 +1827,7 @@ P(Y_{i,j} \leq k) &amp;= \text{logit}^{-1}(\eta_{i,j} - c_{j,k}) \tag{2.2}\\
 \exp( \lambda_j \beta ), \tag{2.7}
 \end{align}\]</span></p>
 <p>so when measured in cumulative odds, the effect of the intervention is proportional to <span class="math inline">\(\exp\beta\)</span>, and the same regardless of the category <span class="math inline">\(k\)</span>.</p>
-<p>There are a few noteworthy details when implementing the ordered logistic model in a Bayesian framework. First, the likelihood is in Stan available in a slightly different form that uses the upper tail probabilities. Second, it is helpful to consider a non-centered parameterization for the latent traits, so that when the loadings are small, all corresponding cutpoints are automatically shrunk, and the sampler can more easily explore the posterior geometry. This leads to:</p>
+<p>There are a few noteworthy details when implementing the OLM in a Bayesian framework. First, the likelihood is in Stan available in a slightly different form that uses the upper tail probabilities. Second, it is helpful to consider a non-centered parameterization for the latent traits, so that when the loadings are small, all corresponding cutpoints are automatically shrunk, and the sampler can more easily explore the posterior geometry. This leads to:</p>
 <p><span class="math display" id="eq:ordlog-eta-stan" id="eq:ordlog-phi-stan" id="eq:ordlog-cumprob-stan" id="eq:ordlog-response-stan">\[\begin{align}
 P(Y_{i,j} = k) &amp;= P(Y_{i,j} &gt; k-1) - P(Y_{i,j} &gt; k) \tag{2.8}\\
 P(Y_{i,j} &gt; k) &amp;= \text{logit}^{-1}\Big(\phi_{i,j,k}\Big) \tag{2.9}\\
@@ -1845,58 +1845,83 @@ c_{j,k} &amp;= c_{j,1} + \sum_{\ell=1}^{k-1} \delta_{j,\ell} \text{ for } k &gt;
 \end{align}\]</span></p>
 <p>The S2Z-Normal (sum-to-zero) constraint ensures identifiability by forcing <span class="math inline">\(\sum_{i=1}^n \theta_i = 0\)</span> and adjusting the scale accordingly. The first loading <span class="math inline">\(\lambda_1\)</span> is fixed to 1 to set the scale of the latent trait and ensure multiplicative identifiability, as is standard in IRT models. All other loadsings are given half-t priors to allow for flexibility while preventing extreme values, again as is standard for Bayesian IRT models. The cutpoints <span class="math inline">\(c_{j,k}\)</span> are parameterized in an incremental approach, to ensure the required ordering.</p>
 </div>
-<div id="the-credit-model" class="section level2" number="2.2">
-<h2><span class="header-section-number">2.2</span> The Credit Model</h2>
-<p>The credit model, which is related to the widely used partial credit model in the educational literature, does not follow the cumulative approach of the ordered logistic model. Instead, it models the category probabilities more directly using a softmax function, and therefore tends to be a little faster to evaluate computationally. The model specification is:</p>
-<p><span class="math display" id="eq:credit-phi" id="eq:credit-response">\[\begin{align}
+<div id="the-partial-credit-model" class="section level2" number="2.2">
+<h2><span class="header-section-number">2.2</span> The Partial Credit Model</h2>
+<p>The partial credit model is a different widely-used IRT model for ordinal data. It also models the category probabilities using cumulative logits, but with a different formulation:</p>
+<p><span class="math display" id="eq:pcm-phi" id="eq:pcm-response">\[\begin{align}
 P(Y_{ij} = k) &amp;= \text{softmax}(\phi_{i,j,k}) = \frac{\exp(\phi_{i,j,k})}{\sum_{k&#39;=1}^K \exp(\phi_{i,j,k&#39;})} \tag{2.18}\\
 \phi_{i,j,1} &amp;= 0\\
-\phi_{i,j,k} &amp;= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right), \quad k=2,\dotsc,K\tag{2.19}
+\phi_{i,j,k} &amp;= \sum_{s=1}^k \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,s}\right), \quad k=2,\dotsc,K\tag{2.19}
 \end{align}\]</span></p>
-<p>where the latent structure is exactly as for the Bayesian ordered logistic model. In our v251120 implementation, the priors are also as before, though in principle the cutpoints no longer have to be ordered.</p>
-<p>The first observation is that for two categories (<span class="math inline">\(K=2\)</span>), the above softmax construction equals</p>
-<p><span class="math display" id="eq:credit-phi">\[\begin{align}
-P(Y_{ij} = 2) &amp;= \frac{\exp\phi_{i,j,2}}{1 + \exp\phi_{i,j,2}} = \text{logit}^{-1}(\phi_{i,j,2}), \tag{2.19}
+<p>By construction, the PCM admits an incremental log-risk structure:</p>
+<p><span class="math display" id="eq:pcm-cumlogodds">\[\begin{align}
+\log \frac{\Pr(Y_{i,j} = k)}{\Pr(Y_{i,j} = k-1)}
+=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right) \tag{2.20}
 \end{align}\]</span></p>
-<p>and so the credit model and the ordered logistic model are equivalent for binary data.</p>
-<p><span class="math display" id="eq:propodd-3">\[\begin{align}
-\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}
-=
+<p>Thus, the parameters have a different interpretation: the skill-threshold comparison is incremental to adjacent categories, rather than in terms of cumulative odds as in the ordered logistic model.</p>
+<p>The model thus does not follow the proportional cumulative odds assumptions, but it has a proportional incremental risk assumption: when <span class="math inline">\(\beta\)</span> represents an intervention effect (e.g., <span class="math inline">\(X_{i,j,t} = 1\)</span> at time <span class="math inline">\(t=1\)</span> and <span class="math inline">\(X_{i,j,t} = 0\)</span> at time <span class="math inline">\(t=0\)</span>), then</p>
+<p><span class="math display" id="eq:pcm-propodd-3">\[\begin{align}
+&amp;\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} = k-1 \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = k-1 \mid \eta_{i,j,t=0})}\\
+&amp;\quad =
 \exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
 =
-\exp( \lambda_j \beta ), \tag{2.7}
+\exp( \lambda_j \beta ), \tag{2.21}
 \end{align}\]</span></p>
+<p>so when measured in incremental risks, the effect of the intervention is proportional to <span class="math inline">\(\exp\beta\)</span>, and the same regardless of the category <span class="math inline">\(k\)</span>.</p>
+<p>Computationally, the PCM involves direct evaluations of category specific events (<span class="math inline">\(Pr(Y=k)\)</span> not <span class="math inline">\(Pr(Y\leq k)\)</span>) and therefore tends to be much faster to evaluate, and less prone to numerical issues. Our Bayesian implementation uses exactly the same priors as for the ordered logistic model.</p>
+</div>
+<div id="the-credit-model" class="section level2" number="2.3">
+<h2><span class="header-section-number">2.3</span> The Credit Model</h2>
+<p>The credit model (CM) does not follow the cumulative approach of the OLM or PCM. The model specification is:</p>
+<p><span class="math display" id="eq:cm-phi-other" id="eq:cm-phi-one" id="eq:cm-response">\[\begin{align}
+P(Y_{ij} = k) &amp;= \text{softmax}(\phi_{i,j,k}) = \frac{\exp(\phi_{i,j,k})}{\sum_{k&#39;=1}^K \exp(\phi_{i,j,k&#39;})} \tag{2.22}\\
+\phi_{i,j,1} &amp;= 0 \tag{2.23}\\
+\phi_{i,j,k} &amp;= \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right). \quad k=2,\dotsc,K\tag{2.24}
+\end{align}\]</span></p>
+<p>By construction, the CM thus follows a reference-level log-risk structure similar to many multinomial logistic regression models:</p>
+<p><span class="math display" id="eq:cm-cumlogodds">\[\begin{align}
+\log \frac{\Pr(Y_{i,j} = k)}{\Pr(Y_{i,j} = 1)}
+=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right) \tag{2.25}
+\end{align}\]</span></p>
+<p>The parameters thus have an absolute interpretation: the skill-threshold comparison is always relative to the reference category, rather than in terms of cumulative odds or incremental risks.</p>
+<p>This model has a proportional risk assumption: when <span class="math inline">\(\beta\)</span> represents an intervention effect (e.g., <span class="math inline">\(X_{i,j,t} = 1\)</span> at time <span class="math inline">\(t=1\)</span> and <span class="math inline">\(X_{i,j,t} = 0\)</span> at time <span class="math inline">\(t=0\)</span>), then</p>
+<p><span class="math display" id="eq:cm-phi-one" id="eq:cm-propodd-3">\[\begin{align}
+&amp;\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} = 1 \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = 1 \mid \eta_{i,j,t=0})}\\
+&amp;\quad =
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
+=
+\exp( \lambda_j \beta ), \tag{2.26}
+\end{align}\]</span></p>
+<p>so when measured in risks relative to the reference category, the effect of the intervention is proportional to <span class="math inline">\(\exp\beta\)</span>, and the same regardless of the category <span class="math inline">\(k\)</span>.</p>
+<p>Note that setting <span class="math inline">\(\phi_{i,j,1} = 0\)</span> in equation \tag{2.23} is an essential model component, as otherwise the latent skill and fixed effects parts of the model that do not depend on <span class="math inline">\(k\)</span> would self-normalise away and be unidentifiable.</p>
+</div>
+<div id="model-equivalence-for-binary-data" class="section level2" number="2.4">
+<h2><span class="header-section-number">2.4</span> Model equivalence for binary data</h2>
+<p>With these insights, it is clear that when there are two categories, the PCM, CM and OLM must be equivalent. Indeed, when <span class="math inline">\(K=2\)</span> the above softmax construction equals</p>
+<p><span class="math display" id="eq:credit-phi">\[\begin{align}
+P(Y_{ij} = 2) &amp;= \frac{\exp\phi_{i,j,2}}{1 + \exp\phi_{i,j,2}} = \text{logit}^{-1}(\phi_{i,j,2}), \tag{2.27}
+\end{align}\]</span></p>
+<p>and so the PCM, CM and OLM are equivalent for binary data.</p>
 </div>
 </div>
 <div id="model-comparison-on-the-colombia-data" class="section level1" number="3">
 <h1><span class="header-section-number">3</span> Model comparison on the Colombia data</h1>
-</div>
-<div id="install-packages" class="section level1" number="4">
-<h1><span class="header-section-number">4</span> Install packages</h1>
+<div id="install-packages" class="section level2" number="3.1">
+<h2><span class="header-section-number">3.1</span> Install packages</h2>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># Install and load packages</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>packages <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
-<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>    <span class="st">&quot;data.table&quot;</span>,</span>
-<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a>    <span class="st">&quot;here&quot;</span>,</span>
-<span id="cb1-5"><a href="#cb1-5" tabindex="-1"></a>    <span class="st">&quot;purrr&quot;</span>,</span>
-<span id="cb1-6"><a href="#cb1-6" tabindex="-1"></a>    <span class="st">&quot;ggplot2&quot;</span>,</span>
-<span id="cb1-7"><a href="#cb1-7" tabindex="-1"></a>    <span class="st">&quot;ggsci&quot;</span>,</span>
-<span id="cb1-8"><a href="#cb1-8" tabindex="-1"></a>    <span class="st">&quot;hexbin&quot;</span>,</span>
-<span id="cb1-9"><a href="#cb1-9" tabindex="-1"></a>    <span class="st">&quot;bayesplot&quot;</span>,</span>
-<span id="cb1-10"><a href="#cb1-10" tabindex="-1"></a>    <span class="st">&quot;knitr&quot;</span>,</span>
-<span id="cb1-11"><a href="#cb1-11" tabindex="-1"></a>    <span class="st">&quot;kableExtra&quot;</span>,</span>
-<span id="cb1-12"><a href="#cb1-12" tabindex="-1"></a>    <span class="st">&quot;cmdstanr&quot;</span>,</span>
-<span id="cb1-13"><a href="#cb1-13" tabindex="-1"></a>    <span class="st">&quot;loo&quot;</span>,</span>
-<span id="cb1-14"><a href="#cb1-14" tabindex="-1"></a>    <span class="st">&quot;polycor&quot;</span>,</span>
-<span id="cb1-15"><a href="#cb1-15" tabindex="-1"></a>    <span class="st">&quot;GGally&quot;</span></span>
-<span id="cb1-16"><a href="#cb1-16" tabindex="-1"></a>)</span>
-<span id="cb1-17"><a href="#cb1-17" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">lapply</span>(packages, library, <span class="at">character.only =</span> <span class="cn">TRUE</span>))</span></code></pre></div>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>packages <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="st">&quot;data.table&quot;</span>, <span class="st">&quot;here&quot;</span>, <span class="st">&quot;purrr&quot;</span>, <span class="st">&quot;formatR&quot;</span>, <span class="st">&quot;ggplot2&quot;</span>, <span class="st">&quot;ggsci&quot;</span>, <span class="st">&quot;hexbin&quot;</span>,</span>
+<span id="cb1-3"><a href="#cb1-3" tabindex="-1"></a>    <span class="st">&quot;bayesplot&quot;</span>, <span class="st">&quot;knitr&quot;</span>, <span class="st">&quot;kableExtra&quot;</span>, <span class="st">&quot;cmdstanr&quot;</span>, <span class="st">&quot;loo&quot;</span>, <span class="st">&quot;polycor&quot;</span>, <span class="st">&quot;GGally&quot;</span>)</span>
+<span id="cb1-4"><a href="#cb1-4" tabindex="-1"></a><span class="fu">invisible</span>(<span class="fu">lapply</span>(packages, library, <span class="at">character.only =</span> <span class="cn">TRUE</span>))</span></code></pre></div>
 <div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;read_data_colombia.R&quot;</span>))</span>
 <span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;train_test_split_data.R&quot;</span>))</span>
 <span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;credit_model_run_analysis.R&quot;</span>))</span>
-<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;ordered_logit_model_run_analysis.R&quot;</span>))</span></code></pre></div>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;ordered_logit_model_run_analysis.R&quot;</span>))</span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a><span class="fu">source</span>(here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;R&quot;</span>, <span class="st">&quot;partial_credit_model_run_analysis.R&quot;</span>))</span></code></pre></div>
 </div>
-<div id="data-loading-and-pre-processing" class="section level1" number="5">
-<h1><span class="header-section-number">5</span> Data loading and pre-processing</h1>
+<div id="data-loading-and-pre-processing" class="section level2" number="3.2">
+<h2><span class="header-section-number">3.2</span> Data loading and pre-processing</h2>
 <div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># Define directories</span></span>
 <span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">grepl</span>(<span class="st">&quot;^/rds/general/user/or105&quot;</span>, here<span class="sc">::</span><span class="fu">here</span>())) {</span>
 <span id="cb3-3"><a href="#cb3-3" tabindex="-1"></a>    <span class="co"># Working on HPC</span></span>
@@ -1914,7 +1939,10 @@ P(Y_{ij} = 2) &amp;= \frac{\exp\phi_{i,j,2}}{1 + \exp\phi_{i,j,2}} = \text{logit
 <span id="cb3-15"><a href="#cb3-15" tabindex="-1"></a>file_data <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_data, <span class="st">&quot;Colombia_data_baseline_endline_itemised_250927.csv&quot;</span>)</span>
 <span id="cb3-16"><a href="#cb3-16" tabindex="-1"></a>file_data_quasi <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_data, <span class="st">&quot;Colombia_data_quasi_assignments_250927.csv&quot;</span>)</span>
 <span id="cb3-17"><a href="#cb3-17" tabindex="-1"></a></span>
-<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span><span class="dt">L</span>)</span></code></pre></div>
+<span id="cb3-18"><a href="#cb3-18" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">42</span><span class="dt">L</span>)</span>
+<span id="cb3-19"><a href="#cb3-19" tabindex="-1"></a></span>
+<span id="cb3-20"><a href="#cb3-20" tabindex="-1"></a><span class="co"># Define seeds for multiple runs</span></span>
+<span id="cb3-21"><a href="#cb3-21" tabindex="-1"></a>seeds <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">123</span><span class="dt">L</span>, <span class="dv">456</span><span class="dt">L</span>, <span class="dv">789</span><span class="dt">L</span>, <span class="dv">1011</span><span class="dt">L</span>, <span class="dv">1213</span><span class="dt">L</span>, <span class="dv">1415</span><span class="dt">L</span>, <span class="dv">1617</span><span class="dt">L</span>, <span class="dv">1819</span><span class="dt">L</span>, <span class="dv">2021</span><span class="dt">L</span>, <span class="dv">2223</span><span class="dt">L</span>)</span></code></pre></div>
 <div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="co"># Read in data</span></span>
 <span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> <span class="fu">read_data_colombia</span>(file_data)</span>
 <span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a>dp <span class="ot">&lt;-</span> <span class="fu">copy</span>(tmp<span class="sc">$</span>dp)</span>
@@ -1925,304 +1953,43 @@ P(Y_{ij} = 2) &amp;= \frac{\exp\phi_{i,j,2}}{1 + \exp\phi_{i,j,2}} = \text{logit
 <span id="cb4-8"><a href="#cb4-8" tabindex="-1"></a>dp1 <span class="ot">&lt;-</span> <span class="fu">subset</span>(dp, <span class="sc">!</span><span class="fu">grepl</span>(<span class="st">&quot;agg&quot;</span>, item_label))</span>
 <span id="cb4-9"><a href="#cb4-9" tabindex="-1"></a>dp1[, time <span class="sc">:=</span> time <span class="sc">+</span> <span class="dv">1</span><span class="dt">L</span>]</span>
 <span id="cb4-10"><a href="#cb4-10" tabindex="-1"></a>dp1[, y_stan <span class="sc">:=</span> y <span class="sc">+</span> <span class="dv">1</span><span class="dt">L</span>]</span>
-<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> <span class="fu">CJ</span>(</span>
-<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a>    <span class="at">item_label =</span> <span class="fu">sort</span>(<span class="fu">unique</span>(dp1<span class="sc">$</span>item_label)),</span>
-<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a>    <span class="at">time =</span> <span class="fu">unique</span>(dp1<span class="sc">$</span>time)</span>
-<span id="cb4-14"><a href="#cb4-14" tabindex="-1"></a>)</span>
-<span id="cb4-15"><a href="#cb4-15" tabindex="-1"></a>tmp[, item_type <span class="sc">:=</span> <span class="fu">ifelse</span>(</span>
-<span id="cb4-16"><a href="#cb4-16" tabindex="-1"></a>    <span class="fu">grepl</span>(<span class="st">&quot;CG-MH&quot;</span>, item_label), <span class="st">&quot;categorical&quot;</span>, <span class="st">&quot;out-of-7&quot;</span></span>
-<span id="cb4-17"><a href="#cb4-17" tabindex="-1"></a>)]</span>
-<span id="cb4-18"><a href="#cb4-18" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> tmp[</span>
-<span id="cb4-19"><a href="#cb4-19" tabindex="-1"></a>    , <span class="fu">list</span>(</span>
-<span id="cb4-20"><a href="#cb4-20" tabindex="-1"></a>        <span class="at">item_label =</span> item_label, <span class="at">time =</span> time,</span>
-<span id="cb4-21"><a href="#cb4-21" tabindex="-1"></a>        <span class="at">item_time_id =</span> <span class="fu">seq_along</span>(item_label)</span>
-<span id="cb4-22"><a href="#cb4-22" tabindex="-1"></a>    ),</span>
-<span id="cb4-23"><a href="#cb4-23" tabindex="-1"></a>    by <span class="ot">=</span> <span class="st">&quot;item_type&quot;</span></span>
-<span id="cb4-24"><a href="#cb4-24" tabindex="-1"></a>]</span>
-<span id="cb4-25"><a href="#cb4-25" tabindex="-1"></a>dp1 <span class="ot">&lt;-</span> <span class="fu">merge</span>(dp1, tmp, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;item_label&quot;</span>, <span class="st">&quot;time&quot;</span>))</span>
-<span id="cb4-26"><a href="#cb4-26" tabindex="-1"></a><span class="fu">setkey</span>(dp1, pid, time, item_label)</span>
-<span id="cb4-27"><a href="#cb4-27" tabindex="-1"></a>dp1[, oid <span class="sc">:=</span> .I]</span>
-<span id="cb4-28"><a href="#cb4-28" tabindex="-1"></a><span class="fu">setkey</span>(dp1, oid)</span>
-<span id="cb4-29"><a href="#cb4-29" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> dp1[, <span class="fu">list</span>(<span class="at">oid =</span> oid, <span class="at">oidt =</span> <span class="fu">seq_along</span>(y_stan)), by <span class="ot">=</span> <span class="st">&quot;item_type&quot;</span>]</span>
-<span id="cb4-30"><a href="#cb4-30" tabindex="-1"></a>dp1 <span class="ot">&lt;-</span> <span class="fu">merge</span>(dp1, tmp, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;item_type&quot;</span>, <span class="st">&quot;oid&quot;</span>))</span>
-<span id="cb4-31"><a href="#cb4-31" tabindex="-1"></a><span class="fu">setkey</span>(dp1, pid, time, item_label)</span></code></pre></div>
+<span id="cb4-11"><a href="#cb4-11" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> <span class="fu">CJ</span>(<span class="at">item_label =</span> <span class="fu">sort</span>(<span class="fu">unique</span>(dp1<span class="sc">$</span>item_label)), <span class="at">time =</span> <span class="fu">unique</span>(dp1<span class="sc">$</span>time))</span>
+<span id="cb4-12"><a href="#cb4-12" tabindex="-1"></a>tmp[, item_type <span class="sc">:=</span> <span class="fu">ifelse</span>(<span class="fu">grepl</span>(<span class="st">&quot;CG-MH&quot;</span>, item_label), <span class="st">&quot;categorical&quot;</span>, <span class="st">&quot;out-of-7&quot;</span>)]</span>
+<span id="cb4-13"><a href="#cb4-13" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> tmp[, <span class="fu">list</span>(<span class="at">item_label =</span> item_label, <span class="at">time =</span> time, <span class="at">item_time_id =</span> <span class="fu">seq_along</span>(item_label)),</span>
+<span id="cb4-14"><a href="#cb4-14" tabindex="-1"></a>    by <span class="ot">=</span> <span class="st">&quot;item_type&quot;</span>]</span>
+<span id="cb4-15"><a href="#cb4-15" tabindex="-1"></a>dp1 <span class="ot">&lt;-</span> <span class="fu">merge</span>(dp1, tmp, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;item_label&quot;</span>, <span class="st">&quot;time&quot;</span>))</span>
+<span id="cb4-16"><a href="#cb4-16" tabindex="-1"></a><span class="fu">setkey</span>(dp1, pid, time, item_label)</span>
+<span id="cb4-17"><a href="#cb4-17" tabindex="-1"></a>dp1[, oid <span class="sc">:=</span> .I]</span>
+<span id="cb4-18"><a href="#cb4-18" tabindex="-1"></a><span class="fu">setkey</span>(dp1, oid)</span>
+<span id="cb4-19"><a href="#cb4-19" tabindex="-1"></a>tmp <span class="ot">&lt;-</span> dp1[, <span class="fu">list</span>(<span class="at">oid =</span> oid, <span class="at">oidt =</span> <span class="fu">seq_along</span>(y_stan)), by <span class="ot">=</span> <span class="st">&quot;item_type&quot;</span>]</span>
+<span id="cb4-20"><a href="#cb4-20" tabindex="-1"></a>dp1 <span class="ot">&lt;-</span> <span class="fu">merge</span>(dp1, tmp, <span class="at">by =</span> <span class="fu">c</span>(<span class="st">&quot;item_type&quot;</span>, <span class="st">&quot;oid&quot;</span>))</span>
+<span id="cb4-21"><a href="#cb4-21" tabindex="-1"></a><span class="fu">setkey</span>(dp1, pid, time, item_label)</span></code></pre></div>
 </div>
-<div id="run-ordered-logistic-model-with-2-categories" class="section level1" number="6">
-<h1><span class="header-section-number">6</span> Run ordered logistic model with 2 categories</h1>
-<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="co"># Define ordered logistic output directories</span></span>
-<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>dir_out <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-orderedlogistic-251222b&quot;</span>)</span>
-<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a>dir_logs <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out, <span class="st">&quot;logs&quot;</span>)</span>
-<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a></span>
-<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co"># Create output directories if they don&#39;t exist</span></span>
-<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_out)) {</span>
-<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_out, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-8"><a href="#cb5-8" tabindex="-1"></a>}</span>
-<span id="cb5-9"><a href="#cb5-9" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_logs)) {</span>
-<span id="cb5-10"><a href="#cb5-10" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_logs, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb5-11"><a href="#cb5-11" tabindex="-1"></a>}</span>
-<span id="cb5-12"><a href="#cb5-12" tabindex="-1"></a></span>
-<span id="cb5-13"><a href="#cb5-13" tabindex="-1"></a>output_file_prefix <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out, <span class="st">&quot;ordlog_1&quot;</span>)</span></code></pre></div>
-<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a>rds_file <span class="ot">&lt;-</span> <span class="fu">paste0</span>(output_file_prefix, <span class="st">&quot;_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(rds_file)) {</span>
-<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a>    ol_fit <span class="ot">&lt;-</span> <span class="fu">ordered_logit_model_run_analysis</span>(</span>
-<span id="cb6-4"><a href="#cb6-4" tabindex="-1"></a>        dit,</span>
-<span id="cb6-5"><a href="#cb6-5" tabindex="-1"></a>        dp1,</span>
-<span id="cb6-6"><a href="#cb6-6" tabindex="-1"></a>        <span class="at">output_file_prefix =</span> <span class="fu">paste0</span>(output_file_prefix, <span class="st">&quot;_fit_alldata&quot;</span>),</span>
-<span id="cb6-7"><a href="#cb6-7" tabindex="-1"></a>        <span class="at">stan_file =</span> here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;src&quot;</span>, <span class="st">&quot;stan&quot;</span>, <span class="st">&quot;ordered_logit_2cats_v251222.stan&quot;</span>),</span>
-<span id="cb6-8"><a href="#cb6-8" tabindex="-1"></a>        <span class="at">chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb6-9"><a href="#cb6-9" tabindex="-1"></a>        <span class="at">parallel_chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb6-10"><a href="#cb6-10" tabindex="-1"></a>        <span class="at">threads_per_chain =</span> <span class="dv">1</span><span class="dt">L</span>,</span>
-<span id="cb6-11"><a href="#cb6-11" tabindex="-1"></a>        <span class="at">iter_warmup =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb6-12"><a href="#cb6-12" tabindex="-1"></a>        <span class="at">iter_sampling =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb6-13"><a href="#cb6-13" tabindex="-1"></a>        <span class="at">seed =</span> <span class="dv">123</span><span class="dt">L</span>,</span>
-<span id="cb6-14"><a href="#cb6-14" tabindex="-1"></a>        <span class="at">with_core_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb6-15"><a href="#cb6-15" tabindex="-1"></a>        <span class="at">with_additional_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb6-16"><a href="#cb6-16" tabindex="-1"></a>        <span class="at">show_messages =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb6-17"><a href="#cb6-17" tabindex="-1"></a>        <span class="at">show_exceptions =</span> <span class="cn">TRUE</span></span>
-<span id="cb6-18"><a href="#cb6-18" tabindex="-1"></a>    )</span>
-<span id="cb6-19"><a href="#cb6-19" tabindex="-1"></a>}</span></code></pre></div>
+<div id="run-ordered-logistic-model-with-2-categories" class="section level2" number="3.3">
+<h2><span class="header-section-number">3.3</span> Run ordered logistic model with 2 categories</h2>
 </div>
-<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251223" class="section level1" number="7">
-<h1><span class="header-section-number">7</span> Run credit model with 2 categories version credit_model_2cats_v251223</h1>
-<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="co"># Define credit model output directories</span></span>
-<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>dir_out_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251223&quot;</span>)</span>
-<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a>dir_logs_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;logs&quot;</span>)</span>
-<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a></span>
-<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co"># Create output directories if they don&#39;t exist</span></span>
-<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_out_cm)) {</span>
-<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_out_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a>}</span>
-<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_logs_cm)) {</span>
-<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_logs_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a>}</span>
-<span id="cb7-12"><a href="#cb7-12" tabindex="-1"></a></span>
-<span id="cb7-13"><a href="#cb7-13" tabindex="-1"></a>output_file_prefix_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;cm_2&quot;</span>)</span></code></pre></div>
-<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a>rds_file <span class="ot">&lt;-</span> <span class="fu">paste0</span>(output_file_prefix_cm, <span class="st">&quot;_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(rds_file)) {</span>
-<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a>    cm_fit <span class="ot">&lt;-</span> <span class="fu">credit_model_run_analysis</span>(</span>
-<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a>        dit,</span>
-<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>        dp1,</span>
-<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a>        <span class="at">output_file_prefix =</span> <span class="fu">paste0</span>(output_file_prefix_cm, <span class="st">&quot;_fit_alldata&quot;</span>),</span>
-<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a>        <span class="at">stan_file =</span> here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;src&quot;</span>, <span class="st">&quot;stan&quot;</span>, <span class="st">&quot;credit_model_2cats_v251223.stan&quot;</span>),</span>
-<span id="cb8-8"><a href="#cb8-8" tabindex="-1"></a>        <span class="at">chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb8-9"><a href="#cb8-9" tabindex="-1"></a>        <span class="at">parallel_chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb8-10"><a href="#cb8-10" tabindex="-1"></a>        <span class="at">threads_per_chain =</span> <span class="dv">1</span><span class="dt">L</span>,</span>
-<span id="cb8-11"><a href="#cb8-11" tabindex="-1"></a>        <span class="at">iter_warmup =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb8-12"><a href="#cb8-12" tabindex="-1"></a>        <span class="at">iter_sampling =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb8-13"><a href="#cb8-13" tabindex="-1"></a>        <span class="at">seed =</span> <span class="dv">123</span><span class="dt">L</span>,</span>
-<span id="cb8-14"><a href="#cb8-14" tabindex="-1"></a>        <span class="at">with_core_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb8-15"><a href="#cb8-15" tabindex="-1"></a>        <span class="at">with_additional_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a>        <span class="at">show_messages =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a>        <span class="at">show_exceptions =</span> <span class="cn">TRUE</span></span>
-<span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a>    )</span>
-<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a>}</span></code></pre></div>
+<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251223" class="section level2" number="3.4">
+<h2><span class="header-section-number">3.4</span> Run credit model with 2 categories version credit_model_2cats_v251223</h2>
 </div>
-<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251224" class="section level1" number="8">
-<h1><span class="header-section-number">8</span> Run credit model with 2 categories version credit_model_2cats_v251224</h1>
-<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="co"># Define credit model output directories</span></span>
-<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a>dir_out_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>)</span>
-<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a>dir_logs_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;logs&quot;</span>)</span>
-<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a></span>
-<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a><span class="co"># Create output directories if they don&#39;t exist</span></span>
-<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_out_cm)) {</span>
-<span id="cb9-7"><a href="#cb9-7" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_out_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb9-8"><a href="#cb9-8" tabindex="-1"></a>}</span>
-<span id="cb9-9"><a href="#cb9-9" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_logs_cm)) {</span>
-<span id="cb9-10"><a href="#cb9-10" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_logs_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb9-11"><a href="#cb9-11" tabindex="-1"></a>}</span>
-<span id="cb9-12"><a href="#cb9-12" tabindex="-1"></a></span>
-<span id="cb9-13"><a href="#cb9-13" tabindex="-1"></a>output_file_prefix_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;cm_3&quot;</span>)</span></code></pre></div>
-<div class="sourceCode" id="cb10"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" tabindex="-1"></a>rds_file <span class="ot">&lt;-</span> <span class="fu">paste0</span>(output_file_prefix_cm, <span class="st">&quot;_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb10-2"><a href="#cb10-2" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">file.exists</span>(rds_file)) {</span>
-<span id="cb10-3"><a href="#cb10-3" tabindex="-1"></a>    cm_fit <span class="ot">&lt;-</span> <span class="fu">credit_model_run_analysis</span>(</span>
-<span id="cb10-4"><a href="#cb10-4" tabindex="-1"></a>        dit,</span>
-<span id="cb10-5"><a href="#cb10-5" tabindex="-1"></a>        dp1,</span>
-<span id="cb10-6"><a href="#cb10-6" tabindex="-1"></a>        <span class="at">output_file_prefix =</span> <span class="fu">paste0</span>(output_file_prefix_cm, <span class="st">&quot;_fit_alldata&quot;</span>),</span>
-<span id="cb10-7"><a href="#cb10-7" tabindex="-1"></a>        <span class="at">stan_file =</span> here<span class="sc">::</span><span class="fu">here</span>(<span class="st">&quot;src&quot;</span>, <span class="st">&quot;stan&quot;</span>, <span class="st">&quot;credit_model_2cats_v251224.stan&quot;</span>),</span>
-<span id="cb10-8"><a href="#cb10-8" tabindex="-1"></a>        <span class="at">chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb10-9"><a href="#cb10-9" tabindex="-1"></a>        <span class="at">parallel_chains =</span> <span class="dv">4</span><span class="dt">L</span>,</span>
-<span id="cb10-10"><a href="#cb10-10" tabindex="-1"></a>        <span class="at">threads_per_chain =</span> <span class="dv">1</span><span class="dt">L</span>,</span>
-<span id="cb10-11"><a href="#cb10-11" tabindex="-1"></a>        <span class="at">iter_warmup =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb10-12"><a href="#cb10-12" tabindex="-1"></a>        <span class="at">iter_sampling =</span> <span class="dv">500</span><span class="dt">L</span>,</span>
-<span id="cb10-13"><a href="#cb10-13" tabindex="-1"></a>        <span class="at">seed =</span> <span class="dv">123</span><span class="dt">L</span>,</span>
-<span id="cb10-14"><a href="#cb10-14" tabindex="-1"></a>        <span class="at">with_core_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb10-15"><a href="#cb10-15" tabindex="-1"></a>        <span class="at">with_additional_analyses =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb10-16"><a href="#cb10-16" tabindex="-1"></a>        <span class="at">show_messages =</span> <span class="cn">TRUE</span>,</span>
-<span id="cb10-17"><a href="#cb10-17" tabindex="-1"></a>        <span class="at">show_exceptions =</span> <span class="cn">TRUE</span></span>
-<span id="cb10-18"><a href="#cb10-18" tabindex="-1"></a>    )</span>
-<span id="cb10-19"><a href="#cb10-19" tabindex="-1"></a>}</span></code></pre></div>
+<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251224" class="section level2" number="3.5">
+<h2><span class="header-section-number">3.5</span> Run credit model with 2 categories version credit_model_2cats_v251224</h2>
 </div>
-<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251225" class="section level1" number="9">
-<h1><span class="header-section-number">9</span> Run credit model with 2 categories version credit_model_2cats_v251225</h1>
-<div class="sourceCode" id="cb11"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" tabindex="-1"></a><span class="co"># Define credit model output directories</span></span>
-<span id="cb11-2"><a href="#cb11-2" tabindex="-1"></a>dir_out_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251225&quot;</span>)</span>
-<span id="cb11-3"><a href="#cb11-3" tabindex="-1"></a>dir_logs_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;logs&quot;</span>)</span>
-<span id="cb11-4"><a href="#cb11-4" tabindex="-1"></a></span>
-<span id="cb11-5"><a href="#cb11-5" tabindex="-1"></a><span class="co"># Create output directories if they don&#39;t exist</span></span>
-<span id="cb11-6"><a href="#cb11-6" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_out_cm)) {</span>
-<span id="cb11-7"><a href="#cb11-7" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_out_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb11-8"><a href="#cb11-8" tabindex="-1"></a>}</span>
-<span id="cb11-9"><a href="#cb11-9" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_logs_cm)) {</span>
-<span id="cb11-10"><a href="#cb11-10" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_logs_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb11-11"><a href="#cb11-11" tabindex="-1"></a>}</span>
-<span id="cb11-12"><a href="#cb11-12" tabindex="-1"></a></span>
-<span id="cb11-13"><a href="#cb11-13" tabindex="-1"></a>output_file_prefix_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;cm_4&quot;</span>)</span></code></pre></div>
+<div id="run-partial-credit-model-with-2-categories-version-partial_credit_model_2cats_v251224" class="section level2" number="3.6">
+<h2><span class="header-section-number">3.6</span> Run partial credit model with 2 categories version partial_credit_model_2cats_v251224</h2>
 </div>
-<div id="run-credit-model-with-2-categories-version-credit_model_2cats_v251226" class="section level1" number="10">
-<h1><span class="header-section-number">10</span> Run credit model with 2 categories version credit_model_2cats_v251226</h1>
-<div class="sourceCode" id="cb12"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" tabindex="-1"></a><span class="co"># Define credit model output directories</span></span>
-<span id="cb12-2"><a href="#cb12-2" tabindex="-1"></a>dir_out_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251226&quot;</span>)</span>
-<span id="cb12-3"><a href="#cb12-3" tabindex="-1"></a>dir_logs_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;logs&quot;</span>)</span>
-<span id="cb12-4"><a href="#cb12-4" tabindex="-1"></a></span>
-<span id="cb12-5"><a href="#cb12-5" tabindex="-1"></a><span class="co"># Create output directories if they don&#39;t exist</span></span>
-<span id="cb12-6"><a href="#cb12-6" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_out_cm)) {</span>
-<span id="cb12-7"><a href="#cb12-7" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_out_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb12-8"><a href="#cb12-8" tabindex="-1"></a>}</span>
-<span id="cb12-9"><a href="#cb12-9" tabindex="-1"></a><span class="cf">if</span> (<span class="sc">!</span><span class="fu">dir.exists</span>(dir_logs_cm)) {</span>
-<span id="cb12-10"><a href="#cb12-10" tabindex="-1"></a>    <span class="fu">dir.create</span>(dir_logs_cm, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
-<span id="cb12-11"><a href="#cb12-11" tabindex="-1"></a>}</span>
-<span id="cb12-12"><a href="#cb12-12" tabindex="-1"></a></span>
-<span id="cb12-13"><a href="#cb12-13" tabindex="-1"></a>output_file_prefix_cm <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_cm, <span class="st">&quot;cm_5&quot;</span>)</span></code></pre></div>
 </div>
-<div id="model-comparison" class="section level1" number="11">
-<h1><span class="header-section-number">11</span> Model Comparison</h1>
-<p>We now compare the three models using Leave-One-Out Cross-Validation (LOO) via the Expected Log Predictive Density (ELPD). The LOO-ELPD provides an estimate of out-of-sample predictive performance, with higher (less negative) values indicating better predictive accuracy.</p>
-<div class="sourceCode" id="cb13"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" tabindex="-1"></a><span class="cf">if</span>(<span class="sc">!</span><span class="fu">file.exists</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, <span class="st">&quot;colombia_model_comparison_2cat.csv&quot;</span>))) {</span>
-<span id="cb13-2"><a href="#cb13-2" tabindex="-1"></a>  <span class="co"># Load all three fitted models</span></span>
-<span id="cb13-3"><a href="#cb13-3" tabindex="-1"></a>  ol_rds <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-orderedlogistic-251222b&quot;</span>, <span class="st">&quot;ordlog_1_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb13-4"><a href="#cb13-4" tabindex="-1"></a>  cm_v251123_rds <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251223&quot;</span>, <span class="st">&quot;cm_2_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb13-5"><a href="#cb13-5" tabindex="-1"></a>  cm_v251224_rds <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, <span class="st">&quot;cm_3_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb13-6"><a href="#cb13-6" tabindex="-1"></a>  cm_v251226_rds <span class="ot">&lt;-</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251226&quot;</span>, <span class="st">&quot;cm_5_fit_alldata_stan.rds&quot;</span>)</span>
-<span id="cb13-7"><a href="#cb13-7" tabindex="-1"></a>  </span>
-<span id="cb13-8"><a href="#cb13-8" tabindex="-1"></a>  <span class="co"># Load models</span></span>
-<span id="cb13-9"><a href="#cb13-9" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate ol_fit ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-10"><a href="#cb13-10" tabindex="-1"></a>  ol_fit <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(ol_rds)</span>
-<span id="cb13-11"><a href="#cb13-11" tabindex="-1"></a>  log_lik_ol <span class="ot">&lt;-</span> ol_fit<span class="sc">$</span><span class="fu">draws</span>(<span class="st">&quot;log_lik&quot;</span>, <span class="at">format =</span> <span class="st">&quot;matrix&quot;</span>)</span>
-<span id="cb13-12"><a href="#cb13-12" tabindex="-1"></a>  loo_ol <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">loo</span>(log_lik_ol)</span>
-<span id="cb13-13"><a href="#cb13-13" tabindex="-1"></a>  ol_fit <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb13-14"><a href="#cb13-14" tabindex="-1"></a>  <span class="fu">gc</span>()</span>
-<span id="cb13-15"><a href="#cb13-15" tabindex="-1"></a>  </span>
-<span id="cb13-16"><a href="#cb13-16" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate cm_fit_v251123 ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-17"><a href="#cb13-17" tabindex="-1"></a>  cm_fit_v251123 <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cm_v251123_rds)</span>
-<span id="cb13-18"><a href="#cb13-18" tabindex="-1"></a>  log_lik_cm_v251123 <span class="ot">&lt;-</span> cm_fit_v251123<span class="sc">$</span><span class="fu">draws</span>(<span class="st">&quot;log_lik&quot;</span>, <span class="at">format =</span> <span class="st">&quot;matrix&quot;</span>)</span>
-<span id="cb13-19"><a href="#cb13-19" tabindex="-1"></a>  loo_cm_v251123 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">loo</span>(log_lik_cm_v251123)</span>
-<span id="cb13-20"><a href="#cb13-20" tabindex="-1"></a>  cm_fit_v251123 <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb13-21"><a href="#cb13-21" tabindex="-1"></a>  <span class="fu">gc</span>()</span>
-<span id="cb13-22"><a href="#cb13-22" tabindex="-1"></a>  </span>
-<span id="cb13-23"><a href="#cb13-23" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate cm_fit_v251224 ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-24"><a href="#cb13-24" tabindex="-1"></a>  cm_fit_v251224 <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cm_v251224_rds)</span>
-<span id="cb13-25"><a href="#cb13-25" tabindex="-1"></a>  log_lik_cm_v251224 <span class="ot">&lt;-</span> cm_fit_v251224<span class="sc">$</span><span class="fu">draws</span>(<span class="st">&quot;log_lik&quot;</span>, <span class="at">format =</span> <span class="st">&quot;matrix&quot;</span>)</span>
-<span id="cb13-26"><a href="#cb13-26" tabindex="-1"></a>  loo_cm_v251224 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">loo</span>(log_lik_cm_v251224)</span>
-<span id="cb13-27"><a href="#cb13-27" tabindex="-1"></a>  cm_fit_v251224 <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb13-28"><a href="#cb13-28" tabindex="-1"></a>  <span class="fu">gc</span>()</span>
-<span id="cb13-29"><a href="#cb13-29" tabindex="-1"></a>  </span>
-<span id="cb13-30"><a href="#cb13-30" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate cm_fit_v251226 ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-31"><a href="#cb13-31" tabindex="-1"></a>  cm_fit_v251226 <span class="ot">&lt;-</span> <span class="fu">readRDS</span>(cm_v251226_rds)</span>
-<span id="cb13-32"><a href="#cb13-32" tabindex="-1"></a>  log_lik_cm_v251226 <span class="ot">&lt;-</span> cm_fit_v251226<span class="sc">$</span><span class="fu">draws</span>(<span class="st">&quot;log_lik&quot;</span>, <span class="at">format =</span> <span class="st">&quot;matrix&quot;</span>)</span>
-<span id="cb13-33"><a href="#cb13-33" tabindex="-1"></a>  loo_cm_v251226 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">loo</span>(log_lik_cm_v251226)</span>
-<span id="cb13-34"><a href="#cb13-34" tabindex="-1"></a>  cm_fit_v251226 <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
-<span id="cb13-35"><a href="#cb13-35" tabindex="-1"></a>  <span class="fu">gc</span>()</span>
-<span id="cb13-36"><a href="#cb13-36" tabindex="-1"></a>  </span>
-<span id="cb13-37"><a href="#cb13-37" tabindex="-1"></a>  <span class="co"># Add additional comparison metrics</span></span>
-<span id="cb13-38"><a href="#cb13-38" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate WAIC ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-39"><a href="#cb13-39" tabindex="-1"></a>  </span>
-<span id="cb13-40"><a href="#cb13-40" tabindex="-1"></a>  <span class="co"># Compute WAIC for each model</span></span>
-<span id="cb13-41"><a href="#cb13-41" tabindex="-1"></a>  waic_ol <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">waic</span>(log_lik_ol)</span>
-<span id="cb13-42"><a href="#cb13-42" tabindex="-1"></a>  waic_cm_v251123 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">waic</span>(log_lik_cm_v251123)</span>
-<span id="cb13-43"><a href="#cb13-43" tabindex="-1"></a>  waic_cm_v251224 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">waic</span>(log_lik_cm_v251224)</span>
-<span id="cb13-44"><a href="#cb13-44" tabindex="-1"></a>  waic_cm_v251226 <span class="ot">&lt;-</span> loo<span class="sc">::</span><span class="fu">waic</span>(log_lik_cm_v251226)</span>
-<span id="cb13-45"><a href="#cb13-45" tabindex="-1"></a>  </span>
-<span id="cb13-46"><a href="#cb13-46" tabindex="-1"></a>  <span class="co"># Load convergence diagnostics</span></span>
-<span id="cb13-47"><a href="#cb13-47" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate convergence diagnostics ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-48"><a href="#cb13-48" tabindex="-1"></a>  conv_ol <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-orderedlogistic-251222b&quot;</span>, </span>
-<span id="cb13-49"><a href="#cb13-49" tabindex="-1"></a>                              <span class="st">&quot;ordlog_1_fit_alldata_convergence_mixing.csv&quot;</span>))</span>
-<span id="cb13-50"><a href="#cb13-50" tabindex="-1"></a>  conv_cm_v251123 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251223&quot;</span>, </span>
-<span id="cb13-51"><a href="#cb13-51" tabindex="-1"></a>                                      <span class="st">&quot;cm_2_fit_alldata_convergence_mixing.csv&quot;</span>))</span>
-<span id="cb13-52"><a href="#cb13-52" tabindex="-1"></a>  conv_cm_v251224 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, </span>
-<span id="cb13-53"><a href="#cb13-53" tabindex="-1"></a>                                      <span class="st">&quot;cm_3_fit_alldata_convergence_mixing.csv&quot;</span>))</span>
-<span id="cb13-54"><a href="#cb13-54" tabindex="-1"></a>  conv_cm_v251226 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251226&quot;</span>, </span>
-<span id="cb13-55"><a href="#cb13-55" tabindex="-1"></a>                                      <span class="st">&quot;cm_5_fit_alldata_convergence_mixing.csv&quot;</span>))</span>
-<span id="cb13-56"><a href="#cb13-56" tabindex="-1"></a>  </span>
-<span id="cb13-57"><a href="#cb13-57" tabindex="-1"></a>  <span class="co"># Load timing data</span></span>
-<span id="cb13-58"><a href="#cb13-58" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n</span><span class="st">=== Evaluate timing ===</span><span class="sc">\n</span><span class="st">&quot;</span>)</span>
-<span id="cb13-59"><a href="#cb13-59" tabindex="-1"></a>  timing_ol <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-orderedlogistic-251222b&quot;</span>, </span>
-<span id="cb13-60"><a href="#cb13-60" tabindex="-1"></a>                                <span class="st">&quot;ordlog_1_fit_alldata_timing.csv&quot;</span>))</span>
-<span id="cb13-61"><a href="#cb13-61" tabindex="-1"></a>  timing_cm_v251123 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251223&quot;</span>, </span>
-<span id="cb13-62"><a href="#cb13-62" tabindex="-1"></a>                                        <span class="st">&quot;cm_2_fit_alldata_timing.csv&quot;</span>))</span>
-<span id="cb13-63"><a href="#cb13-63" tabindex="-1"></a>  timing_cm_v251224 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, </span>
-<span id="cb13-64"><a href="#cb13-64" tabindex="-1"></a>                                        <span class="st">&quot;cm_3_fit_alldata_timing.csv&quot;</span>))</span>
-<span id="cb13-65"><a href="#cb13-65" tabindex="-1"></a>  timing_cm_v251226 <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251226&quot;</span>, </span>
-<span id="cb13-66"><a href="#cb13-66" tabindex="-1"></a>                                        <span class="st">&quot;cm_5_fit_alldata_timing.csv&quot;</span>))</span>
-<span id="cb13-67"><a href="#cb13-67" tabindex="-1"></a>  </span>
-<span id="cb13-68"><a href="#cb13-68" tabindex="-1"></a>  <span class="co"># Create extended comparison table</span></span>
-<span id="cb13-69"><a href="#cb13-69" tabindex="-1"></a>  comparison_dt <span class="ot">&lt;-</span> <span class="fu">data.table</span>(</span>
-<span id="cb13-70"><a href="#cb13-70" tabindex="-1"></a>    <span class="at">Model =</span> <span class="fu">c</span>(<span class="st">&quot;Ordered Logistic (v251222)&quot;</span>, </span>
-<span id="cb13-71"><a href="#cb13-71" tabindex="-1"></a>              <span class="st">&quot;Credit Model (v251123)&quot;</span>, <span class="st">&quot;Credit Model (v251224)&quot;</span>, <span class="st">&quot;Credit Model (v251226)&quot;</span>),</span>
-<span id="cb13-72"><a href="#cb13-72" tabindex="-1"></a>    <span class="at">ELPD_loo =</span> <span class="fu">c</span>(loo_ol<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-73"><a href="#cb13-73" tabindex="-1"></a>                 loo_cm_v251123<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-74"><a href="#cb13-74" tabindex="-1"></a>                 loo_cm_v251224<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-75"><a href="#cb13-75" tabindex="-1"></a>                 loo_cm_v251226<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;Estimate&quot;</span>]),</span>
-<span id="cb13-76"><a href="#cb13-76" tabindex="-1"></a>    <span class="at">ELPD_loo_SE =</span> <span class="fu">c</span>(loo_ol<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-77"><a href="#cb13-77" tabindex="-1"></a>                    loo_cm_v251123<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-78"><a href="#cb13-78" tabindex="-1"></a>                    loo_cm_v251224<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-79"><a href="#cb13-79" tabindex="-1"></a>                    loo_cm_v251226<span class="sc">$</span>estimates[<span class="st">&quot;elpd_loo&quot;</span>, <span class="st">&quot;SE&quot;</span>]),</span>
-<span id="cb13-80"><a href="#cb13-80" tabindex="-1"></a>    <span class="at">WAIC =</span> <span class="fu">c</span>(waic_ol<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-81"><a href="#cb13-81" tabindex="-1"></a>             waic_cm_v251123<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-82"><a href="#cb13-82" tabindex="-1"></a>             waic_cm_v251224<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;Estimate&quot;</span>],</span>
-<span id="cb13-83"><a href="#cb13-83" tabindex="-1"></a>             waic_cm_v251226<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;Estimate&quot;</span>]),</span>
-<span id="cb13-84"><a href="#cb13-84" tabindex="-1"></a>    <span class="at">WAIC_SE =</span> <span class="fu">c</span>(waic_ol<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-85"><a href="#cb13-85" tabindex="-1"></a>                waic_cm_v251123<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-86"><a href="#cb13-86" tabindex="-1"></a>                waic_cm_v251224<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;SE&quot;</span>],</span>
-<span id="cb13-87"><a href="#cb13-87" tabindex="-1"></a>                waic_cm_v251226<span class="sc">$</span>estimates[<span class="st">&quot;elpd_waic&quot;</span>, <span class="st">&quot;SE&quot;</span>]),</span>
-<span id="cb13-88"><a href="#cb13-88" tabindex="-1"></a>    <span class="at">min_ess_bulk =</span> <span class="fu">c</span>(<span class="fu">min</span>(conv_ol<span class="sc">$</span>ess_bulk, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-89"><a href="#cb13-89" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251123<span class="sc">$</span>ess_bulk, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-90"><a href="#cb13-90" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251224<span class="sc">$</span>ess_bulk, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-91"><a href="#cb13-91" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251226<span class="sc">$</span>ess_bulk, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb13-92"><a href="#cb13-92" tabindex="-1"></a>    <span class="at">min_ess_tail =</span> <span class="fu">c</span>(<span class="fu">min</span>(conv_ol<span class="sc">$</span>ess_tail, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-93"><a href="#cb13-93" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251123<span class="sc">$</span>ess_tail, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-94"><a href="#cb13-94" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251224<span class="sc">$</span>ess_tail, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-95"><a href="#cb13-95" tabindex="-1"></a>                     <span class="fu">min</span>(conv_cm_v251226<span class="sc">$</span>ess_tail, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb13-96"><a href="#cb13-96" tabindex="-1"></a>    <span class="at">max_rhat =</span> <span class="fu">c</span>(<span class="fu">max</span>(conv_ol<span class="sc">$</span>rhat, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-97"><a href="#cb13-97" tabindex="-1"></a>                 <span class="fu">max</span>(conv_cm_v251123<span class="sc">$</span>rhat, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-98"><a href="#cb13-98" tabindex="-1"></a>                 <span class="fu">max</span>(conv_cm_v251224<span class="sc">$</span>rhat, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-99"><a href="#cb13-99" tabindex="-1"></a>                 <span class="fu">max</span>(conv_cm_v251226<span class="sc">$</span>rhat, <span class="at">na.rm =</span> <span class="cn">TRUE</span>)),</span>
-<span id="cb13-100"><a href="#cb13-100" tabindex="-1"></a>    <span class="at">max_total_chain_minutes =</span> <span class="fu">c</span>(<span class="fu">max</span>(timing_ol<span class="sc">$</span>total_chain_minutes, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-101"><a href="#cb13-101" tabindex="-1"></a>                                <span class="fu">max</span>(timing_cm_v251123<span class="sc">$</span>total_chain_minutes, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-102"><a href="#cb13-102" tabindex="-1"></a>                                <span class="fu">max</span>(timing_cm_v251224<span class="sc">$</span>total_chain_minutes, <span class="at">na.rm =</span> <span class="cn">TRUE</span>),</span>
-<span id="cb13-103"><a href="#cb13-103" tabindex="-1"></a>                                <span class="fu">max</span>(timing_cm_v251226<span class="sc">$</span>total_chain_minutes, <span class="at">na.rm =</span> <span class="cn">TRUE</span>))</span>
-<span id="cb13-104"><a href="#cb13-104" tabindex="-1"></a>  )</span>
-<span id="cb13-105"><a href="#cb13-105" tabindex="-1"></a>  </span>
-<span id="cb13-106"><a href="#cb13-106" tabindex="-1"></a>  <span class="co"># Round for display</span></span>
-<span id="cb13-107"><a href="#cb13-107" tabindex="-1"></a>  comparison_dt[, ELPD_loo <span class="sc">:=</span> <span class="fu">round</span>(ELPD_loo, <span class="dv">1</span>)]</span>
-<span id="cb13-108"><a href="#cb13-108" tabindex="-1"></a>  comparison_dt[, ELPD_loo_SE <span class="sc">:=</span> <span class="fu">round</span>(ELPD_loo_SE, <span class="dv">1</span>)]</span>
-<span id="cb13-109"><a href="#cb13-109" tabindex="-1"></a>  comparison_dt[, WAIC <span class="sc">:=</span> <span class="fu">round</span>(WAIC, <span class="dv">1</span>)]</span>
-<span id="cb13-110"><a href="#cb13-110" tabindex="-1"></a>  comparison_dt[, WAIC_SE <span class="sc">:=</span> <span class="fu">round</span>(WAIC_SE, <span class="dv">1</span>)]</span>
-<span id="cb13-111"><a href="#cb13-111" tabindex="-1"></a>  comparison_dt[, min_ess_bulk <span class="sc">:=</span> <span class="fu">round</span>(min_ess_bulk, <span class="dv">0</span>)]</span>
-<span id="cb13-112"><a href="#cb13-112" tabindex="-1"></a>  comparison_dt[, min_ess_tail <span class="sc">:=</span> <span class="fu">round</span>(min_ess_tail, <span class="dv">0</span>)]</span>
-<span id="cb13-113"><a href="#cb13-113" tabindex="-1"></a>  comparison_dt[, max_rhat <span class="sc">:=</span> <span class="fu">round</span>(max_rhat, <span class="dv">3</span>)]</span>
-<span id="cb13-114"><a href="#cb13-114" tabindex="-1"></a>  comparison_dt[, max_total_chain_minutes <span class="sc">:=</span> <span class="fu">round</span>(max_total_chain_minutes, <span class="dv">2</span>)]</span>
-<span id="cb13-115"><a href="#cb13-115" tabindex="-1"></a>  </span>
-<span id="cb13-116"><a href="#cb13-116" tabindex="-1"></a>  <span class="fu">write.csv</span>(comparison_dt, </span>
-<span id="cb13-117"><a href="#cb13-117" tabindex="-1"></a>            <span class="at">file =</span> <span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, <span class="st">&quot;colombia_model_comparison_2cat.csv&quot;</span>))</span>
-<span id="cb13-118"><a href="#cb13-118" tabindex="-1"></a>} <span class="cf">else</span> {</span>
-<span id="cb13-119"><a href="#cb13-119" tabindex="-1"></a>  comparison_dt <span class="ot">&lt;-</span> <span class="fu">fread</span>(<span class="fu">file.path</span>(dir_out_base, <span class="st">&quot;colombia-run-creditmodel-251224&quot;</span>, <span class="st">&quot;colombia_model_comparison_2cat.csv&quot;</span>), <span class="at">drop =</span> <span class="dv">1</span>)</span>
-<span id="cb13-120"><a href="#cb13-120" tabindex="-1"></a>}</span>
-<span id="cb13-121"><a href="#cb13-121" tabindex="-1"></a></span>
-<span id="cb13-122"><a href="#cb13-122" tabindex="-1"></a><span class="co"># Create a nice table for display</span></span>
-<span id="cb13-123"><a href="#cb13-123" tabindex="-1"></a>knitr<span class="sc">::</span><span class="fu">kable</span>(comparison_dt, </span>
-<span id="cb13-124"><a href="#cb13-124" tabindex="-1"></a>             <span class="at">caption =</span> <span class="st">&quot;Extended Model Comparison Metrics&quot;</span>,</span>
-<span id="cb13-125"><a href="#cb13-125" tabindex="-1"></a>             <span class="at">col.names =</span> <span class="fu">c</span>(<span class="st">&quot;Model&quot;</span>, <span class="st">&quot;ELPD (LOO)&quot;</span>, <span class="st">&quot;SE&quot;</span>, <span class="st">&quot;WAIC&quot;</span>, <span class="st">&quot;SE&quot;</span>,</span>
-<span id="cb13-126"><a href="#cb13-126" tabindex="-1"></a>                           <span class="st">&quot;Min ESS (bulk)&quot;</span>, <span class="st">&quot;Min ESS (tail)&quot;</span>, </span>
-<span id="cb13-127"><a href="#cb13-127" tabindex="-1"></a>                           <span class="st">&quot;Max Rhat&quot;</span>, <span class="st">&quot;Max Chain Time (min)&quot;</span>)) <span class="sc">%&gt;%</span></span>
-<span id="cb13-128"><a href="#cb13-128" tabindex="-1"></a>  kableExtra<span class="sc">::</span><span class="fu">kable_styling</span>(<span class="at">bootstrap_options =</span> <span class="fu">c</span>(<span class="st">&quot;striped&quot;</span>, <span class="st">&quot;hover&quot;</span>, <span class="st">&quot;condensed&quot;</span>))</span></code></pre></div>
+<div id="model-comparison" class="section level1" number="4">
+<h1><span class="header-section-number">4</span> Model Comparison</h1>
+<p>We will compare the three models using Leave-One-Out Cross-Validation (LOO) via the Expected Log Predictive Density (ELPD), WAIC, the smallest effective sample size (min ESS) , the maximum <span class="math inline">\(R-hat\)</span> statistic, the longest time taken to run one of the HMC chains, and the mean and maximum ordered Brier scores across all questions. The mean, min and maximum are computed over the 10 different model fits with different random seeds.</p>
+<p><strong>Table: Extended Model Comparison Metrics</strong></p>
 <table class="table table-striped table-hover table-condensed" style="margin-left: auto; margin-right: auto;">
-<caption>
-<span id="tab:model-comparison-loo">Table 11.1: </span><span id="tab:model-comparison-loo">Table 11.2: </span>Extended Model Comparison Metrics
-</caption>
 <thead>
 <tr>
 <th style="text-align:left;">
 Model
+</th>
+<th style="text-align:left;">
+Metric over seeds
 </th>
 <th style="text-align:right;">
 ELPD (LOO)
@@ -2248,44 +2015,62 @@ Max Rhat
 <th style="text-align:right;">
 Max Chain Time (min)
 </th>
+<th style="text-align:right;">
+Brier (Median)
+</th>
+<th style="text-align:right;">
+Brier (Max)
+</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td style="text-align:left;">
-Ordered Logistic (v251222)
+Credit Model (v251223)
+</td>
+<td style="text-align:left;">
+max
 </td>
 <td style="text-align:right;">
--12700.2
+-12714.1
 </td>
 <td style="text-align:right;">
-81.9
+80.8
 </td>
 <td style="text-align:right;">
--12696.9
+-12707.6
 </td>
 <td style="text-align:right;">
-81.9
+80.8
 </td>
 <td style="text-align:right;">
-416
+316
 </td>
 <td style="text-align:right;">
-440
+432
 </td>
 <td style="text-align:right;">
-1.013
+1.040
 </td>
 <td style="text-align:right;">
-7.07
+5.49
+</td>
+<td style="text-align:right;">
+0.1457
+</td>
+<td style="text-align:right;">
+0.2074
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-Credit Model (v251123)
+Credit Model (v251223)
+</td>
+<td style="text-align:left;">
+mean
 </td>
 <td style="text-align:right;">
--12716.2
+-12716.1
 </td>
 <td style="text-align:right;">
 80.8
@@ -2297,21 +2082,68 @@ Credit Model (v251123)
 80.7
 </td>
 <td style="text-align:right;">
+209
+</td>
+<td style="text-align:right;">
+301
+</td>
+<td style="text-align:right;">
+1.021
+</td>
+<td style="text-align:right;">
+5.00
+</td>
+<td style="text-align:right;">
+0.1280
+</td>
+<td style="text-align:right;">
+0.1791
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Credit Model (v251223)
+</td>
+<td style="text-align:left;">
+min
+</td>
+<td style="text-align:right;">
+-12717.6
+</td>
+<td style="text-align:right;">
+80.8
+</td>
+<td style="text-align:right;">
+-12711.0
+</td>
+<td style="text-align:right;">
+80.7
+</td>
+<td style="text-align:right;">
 146
 </td>
 <td style="text-align:right;">
-207
+171
 </td>
 <td style="text-align:right;">
-1.040
+1.012
 </td>
 <td style="text-align:right;">
-5.59
+4.20
+</td>
+<td style="text-align:right;">
+0.1102
+</td>
+<td style="text-align:right;">
+0.1506
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
 Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+max
 </td>
 <td style="text-align:right;">
 -12752.0
@@ -2326,66 +2158,342 @@ Credit Model (v251224)
 80.9
 </td>
 <td style="text-align:right;">
-93
+170
 </td>
 <td style="text-align:right;">
-190
+340
 </td>
 <td style="text-align:right;">
-1.043
+1.122
 </td>
 <td style="text-align:right;">
-3.96
+5.13
+</td>
+<td style="text-align:right;">
+0.1453
+</td>
+<td style="text-align:right;">
+0.2072
 </td>
 </tr>
 <tr>
 <td style="text-align:left;">
-Credit Model (v251226)
+Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+mean
 </td>
 <td style="text-align:right;">
--13022.6
+-12753.6
 </td>
 <td style="text-align:right;">
-78.7
+81.0
 </td>
 <td style="text-align:right;">
--13020.5
+-12746.5
 </td>
 <td style="text-align:right;">
-78.6
+80.8
 </td>
 <td style="text-align:right;">
-352
+94
 </td>
 <td style="text-align:right;">
-449
+177
 </td>
 <td style="text-align:right;">
-1.013
+1.049
 </td>
 <td style="text-align:right;">
-3.50
+4.44
+</td>
+<td style="text-align:right;">
+0.1276
+</td>
+<td style="text-align:right;">
+0.1789
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+min
+</td>
+<td style="text-align:right;">
+-12755.1
+</td>
+<td style="text-align:right;">
+80.9
+</td>
+<td style="text-align:right;">
+-12748.1
+</td>
+<td style="text-align:right;">
+80.8
+</td>
+<td style="text-align:right;">
+26
+</td>
+<td style="text-align:right;">
+72
+</td>
+<td style="text-align:right;">
+1.020
+</td>
+<td style="text-align:right;">
+3.82
+</td>
+<td style="text-align:right;">
+0.1099
+</td>
+<td style="text-align:right;">
+0.1504
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Ordered Logistic (v251222)
+</td>
+<td style="text-align:left;">
+max
+</td>
+<td style="text-align:right;">
+-12699.6
+</td>
+<td style="text-align:right;">
+82.3
+</td>
+<td style="text-align:right;">
+-12696.4
+</td>
+<td style="text-align:right;">
+82.2
+</td>
+<td style="text-align:right;">
+416
+</td>
+<td style="text-align:right;">
+474
+</td>
+<td style="text-align:right;">
+1.696
+</td>
+<td style="text-align:right;">
+26.90
+</td>
+<td style="text-align:right;">
+0.1446
+</td>
+<td style="text-align:right;">
+0.2084
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Ordered Logistic (v251222)
+</td>
+<td style="text-align:left;">
+mean
+</td>
+<td style="text-align:right;">
+-12733.1
+</td>
+<td style="text-align:right;">
+81.9
+</td>
+<td style="text-align:right;">
+-12729.6
+</td>
+<td style="text-align:right;">
+81.8
+</td>
+<td style="text-align:right;">
+187
+</td>
+<td style="text-align:right;">
+231
+</td>
+<td style="text-align:right;">
+1.296
+</td>
+<td style="text-align:right;">
+13.27
+</td>
+<td style="text-align:right;">
+0.1228
+</td>
+<td style="text-align:right;">
+0.1703
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Ordered Logistic (v251222)
+</td>
+<td style="text-align:left;">
+min
+</td>
+<td style="text-align:right;">
+-12779.5
+</td>
+<td style="text-align:right;">
+81.7
+</td>
+<td style="text-align:right;">
+-12779.3
+</td>
+<td style="text-align:right;">
+81.6
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+27
+</td>
+<td style="text-align:right;">
+1.011
+</td>
+<td style="text-align:right;">
+6.77
+</td>
+<td style="text-align:right;">
+0.1033
+</td>
+<td style="text-align:right;">
+0.1298
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Partial Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+max
+</td>
+<td style="text-align:right;">
+-12641.1
+</td>
+<td style="text-align:right;">
+80.3
+</td>
+<td style="text-align:right;">
+-12637.0
+</td>
+<td style="text-align:right;">
+80.3
+</td>
+<td style="text-align:right;">
+426
+</td>
+<td style="text-align:right;">
+506
+</td>
+<td style="text-align:right;">
+1.025
+</td>
+<td style="text-align:right;">
+4.15
+</td>
+<td style="text-align:right;">
+0.1385
+</td>
+<td style="text-align:right;">
+0.2093
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Partial Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+mean
+</td>
+<td style="text-align:right;">
+-12642.4
+</td>
+<td style="text-align:right;">
+80.3
+</td>
+<td style="text-align:right;">
+-12638.4
+</td>
+<td style="text-align:right;">
+80.2
+</td>
+<td style="text-align:right;">
+382
+</td>
+<td style="text-align:right;">
+351
+</td>
+<td style="text-align:right;">
+1.014
+</td>
+<td style="text-align:right;">
+3.17
+</td>
+<td style="text-align:right;">
+0.1204
+</td>
+<td style="text-align:right;">
+0.1705
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Partial Credit Model (v251224)
+</td>
+<td style="text-align:left;">
+min
+</td>
+<td style="text-align:right;">
+-12643.7
+</td>
+<td style="text-align:right;">
+80.3
+</td>
+<td style="text-align:right;">
+-12639.8
+</td>
+<td style="text-align:right;">
+80.2
+</td>
+<td style="text-align:right;">
+319
+</td>
+<td style="text-align:right;">
+142
+</td>
+<td style="text-align:right;">
+1.010
+</td>
+<td style="text-align:right;">
+2.93
+</td>
+<td style="text-align:right;">
+0.1022
+</td>
+<td style="text-align:right;">
+0.1318
 </td>
 </tr>
 </tbody>
 </table>
-<div class="sourceCode" id="cb14"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;</span><span class="sc">\n\n</span><span class="st">Interpretation:</span><span class="sc">\n</span><span class="st">&quot;</span>)</span></code></pre></div>
-<pre><code>## 
-## 
-## Interpretation:</code></pre>
-<div class="sourceCode" id="cb16"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;- ELPD (LOO) &amp; WAIC: Higher (less negative) is better</span><span class="sc">\n</span><span class="st">&quot;</span>)</span></code></pre></div>
-<pre><code>## - ELPD (LOO) &amp; WAIC: Higher (less negative) is better</code></pre>
-<div class="sourceCode" id="cb18"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;- Min ESS: Should be &gt; 400 for reliable inference (we ran 2000 samples across 4 chains)</span><span class="sc">\n</span><span class="st">&quot;</span>)</span></code></pre></div>
-<pre><code>## - Min ESS: Should be &gt; 400 for reliable inference (we ran 2000 samples across 4 chains)</code></pre>
-<div class="sourceCode" id="cb20"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;- Max Rhat: Should be &lt; 1.01 for convergence</span><span class="sc">\n</span><span class="st">&quot;</span>)</span></code></pre></div>
-<pre><code>## - Max Rhat: Should be &lt; 1.01 for convergence</code></pre>
-<div class="sourceCode" id="cb22"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">&quot;- Max Chain Time: Computational efficiency</span><span class="sc">\n</span><span class="st">&quot;</span>)</span></code></pre></div>
-<pre><code>## - Max Chain Time: Computational efficiency</code></pre>
-<p>The <code>loo_compare</code> output shows models ranked by ELPD (best model first). The <code>elpd_diff</code> column shows the difference in ELPD from the best model, and <code>se_diff</code> provides the standard error of this difference. A difference greater than 2 standard errors suggests meaningful improvement in predictive performance.</p>
+<p>Interpretation:</p>
+<ul>
+<li>ELPD (LOO) &amp; WAIC: Higher (less negative) is better</li>
+<li>Min ESS: Should be &gt; 400 for reliable inference (we ran 2000 samples across 4 chains)</li>
+<li>Max Rhat: Should be &lt; 1.01 for convergence</li>
+<li>Max Chain Time: Computational efficiency</li>
+<li>Brier Scores: Lower is better (0 = perfect predictions, 1 = worst). Shown separately for median and maximum scores.</li>
+</ul>
+<p>We see that all models perform similarly in terms of ELPD, WAIC, and ordered Brier scores. The OLM has by far the greatest convergence issues, with max Rhat values regularly above 1.05 that reflect divergent chains. The PCM has the least convergence issues, with max Rhat values consistently around 1.01. This behaviour is also reflected in the effective sample sizes. Runtimes are the shortest for the PCM, while the OLM is by far the slowest.</p>
 </div>
-<div id="session-info" class="section level1" number="12">
-<h1><span class="header-section-number">12</span> Session info</h1>
-<div class="sourceCode" id="cb24"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" tabindex="-1"></a><span class="fu">sessionInfo</span>()</span></code></pre></div>
+<div id="session-info" class="section level1" number="5">
+<h1><span class="header-section-number">5</span> Session info</h1>
 <pre><code>## R version 4.5.2 (2025-10-31)
 ## Platform: aarch64-apple-darwin20
 ## Running under: macOS Sequoia 15.7.3
@@ -2406,8 +2514,8 @@ Credit Model (v251226)
 ## other attached packages:
 ##  [1] GGally_2.4.0      polycor_0.8-1     loo_2.8.0         cmdstanr_0.9.0   
 ##  [5] kableExtra_1.4.0  knitr_1.50        bayesplot_1.14.0  hexbin_1.28.5    
-##  [9] ggsci_4.1.0       ggplot2_4.0.1     purrr_1.2.0       here_1.0.2       
-## [13] data.table_1.17.8
+##  [9] ggsci_4.1.0       ggplot2_4.0.1     formatR_1.14      purrr_1.2.0      
+## [13] here_1.0.2        data.table_1.17.8
 ## 
 ## loaded via a namespace (and not attached):
 ##  [1] tensorA_0.36.2.1     tidyr_1.3.1          sass_0.4.10         

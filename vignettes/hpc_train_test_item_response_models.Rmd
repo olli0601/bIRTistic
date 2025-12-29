@@ -1,5 +1,5 @@
 ---
-title: "Train and test item response models on HPC"
+title: "Train and test partial credit model on HPC"
 date: "`r Sys.Date()`"
 output: 
   bookdown::html_document2:
@@ -51,12 +51,12 @@ if (grepl("^/rds/general/user/or105", here::here())) {
     # Working on HPC
     on_hpc <- TRUE
     dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
-    dir_out <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-validate-creditmodel-hpc"
+    dir_out <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/colombia-validate-pcm-251224"
 } else {
     # Working locally
     on_hpc <- FALSE
     dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
-    dir_out <- "/Users/or105/sandbox/colombia-validate-creditmodel-251125"
+    dir_out <- "/Users/or105/sandbox/colombia-validate-pcm-251224"
 }
 
 dir_logs <- file.path(dir_out, "logs")
@@ -70,7 +70,7 @@ if (!dir.exists(dir_logs)) {
 }
 
 # Define job name
-job_name <- paste0("validate_credit_model_", format(Sys.time(), "%Y-%m-%d-%H-%M-%S"))
+job_name <- paste0("validate_pcm_", format(Sys.time(), "%Y-%m-%d-%H-%M-%S"))
 ```
 
 # Create JSON configuration file
@@ -81,7 +81,7 @@ config <- list(
     test_individuals_p = 0.5,
     test_items_p = 0.5,
     n_splits = 20,
-    stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
+    stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
     dir_data = dir_data,
     dir_out = dir_out,
     chains = 2,
