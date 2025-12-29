@@ -677,7 +677,13 @@ if(!file.exists(file.path(dir_out_base, "colombia-run-creditmodel-251224", "colo
 } else {
   comparison_dt <- fread(file.path(dir_out_base, "colombia-run-creditmodel-251224", "colombia_model_comparison_2cat.csv"))
 }
-,
+
+# Create a nice table for display
+knitr::kable(comparison_dt, 
+             caption = "Extended Model Comparison Metrics",
+             col.names = c("Model", "ELPD (LOO)", "SE", "WAIC", "SE",
+                           "Min ESS (bulk)", "Min ESS (tail)", 
+                           "Max Rhat", "Max Chain Time (min)",
                            "Brier (Cat)", "Brier (Out7)", "Brier (All)")) %>%
   kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
 cat("\n\nInterpretation:\n")
@@ -685,13 +691,7 @@ cat("- ELPD (LOO) & WAIC: Higher (less negative) is better\n")
 cat("- Min ESS: Should be > 400 for reliable inference (we ran 2000 samples across 4 chains)\n")
 cat("- Max Rhat: Should be < 1.01 for convergence\n")
 cat("- Max Chain Time: Computational efficiency\n")
-cat("- Brier Scores: Lower is better (0 = perfect predictions, 1 = worst). Shown separately for categorical items, out-of-7 items, and overall.in Time (min)")) %>%
-  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
-cat("\n\nInterpretation:\n")
-cat("- ELPD (LOO) & WAIC: Higher (less negative) is better\n")
-cat("- Min ESS: Should be > 400 for reliable inference (we ran 2000 samples across 4 chains)\n")
-cat("- Max Rhat: Should be < 1.01 for convergence\n")
-cat("- Max Chain Time: Computational efficiency\n")
+cat("- Brier Scores: Lower is better (0 = perfect predictions, 1 = worst). Shown separately for categorical items, out-of-7 items, and overall.\n")
 ```
 
 The `loo_compare` output shows models ranked by ELPD (best model first). The `elpd_diff` column shows the difference in ELPD from the best model, and `se_diff` provides the standard error of this difference. A difference greater than 2 standard errors suggests meaningful improvement in predictive performance.

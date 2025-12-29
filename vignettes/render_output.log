@@ -1,0 +1,31 @@
+
+
+processing file: Colombia_compare_models_2cat.Rmd
+1/38                                        
+2/38 [setup]                                
+3/38                                        
+4/38 [load-packages]                        
+5/38                                        
+6/38 [source-functions]                     
+7/38                                        
+8/38 [define-data-locations]                
+9/38                                        
+10/38 [load-and-preprocess-data]             
+11/38                                        
+12/38 [setup-ordlog-directories]             
+13/38                                        
+14/38 [compile-stan-model]                   
+15/38                                        
+16/38 [fit-on-training-data]                 
+17/38                                        
+18/38 [setup-creditmodel-directories-v251223]
+19/38                                        
+20/38 [compile-stan-model-v251223]           
+21/38                                        
+22/38 [cm-fit-on-training-data-v251223]      
+23/38                                        
+24/38 [setup-creditmodel-directories-v251224]
+25/38                                        
+26/38 [compile-stan-model-3]                 
+27/38                                        
+28/38 [cm-fit-on-training-data-v251224]      
