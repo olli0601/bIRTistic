@@ -52,7 +52,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "credit_model_run_analysis.R"))
+source(here::here("R", "fit_credit_model.R"))
 ```
 
 # Data loading and pre-processing
@@ -151,7 +151,7 @@ dtest <- merge(dtest, tmp, by = c("item_type", "oid"))
 ```
 
 ```{r fit-on-training-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-cm_fit <- credit_model_run_analysis(
+cm_fit <- fit_credit_model(
     dit,
     dtrain,
     output_file_prefix = paste0(output_file_prefix, "_trainingfit"),

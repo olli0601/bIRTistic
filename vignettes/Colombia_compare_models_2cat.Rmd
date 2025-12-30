@@ -217,9 +217,9 @@ invisible(lapply(packages, library, character.only = TRUE))
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "credit_model_run_analysis.R"))
-source(here::here("R", "ordered_logit_model_run_analysis.R"))
-source(here::here("R", "partial_credit_model_run_analysis.R"))
+source(here::here("R", "fit_credit_model.R"))
+source(here::here("R", "fit_ordered_logit_model.R"))
+source(here::here("R", "fit_partial_credit_model.R"))
 ```
 
 ## Data loading and pre-processing
@@ -318,7 +318,7 @@ for (seed in seeds) {
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
         cat("\n=== Running ordered logit model with seed", seed, "===\n")
-        ordered_logit_model_run_analysis(
+        fit_ordered_logit_model(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
@@ -375,7 +375,7 @@ for (seed in seeds) {
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
         cat("\n=== Running credit model v251223 with seed", seed, "===\n")
-        credit_model_run_analysis(
+        fit_credit_model(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
@@ -433,7 +433,7 @@ for (seed in seeds) {
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
         cat("\n=== Running credit model v251224 with seed", seed, "===\n")
-        credit_model_run_analysis(
+        fit_credit_model(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
@@ -491,7 +491,7 @@ for (seed in seeds) {
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
         cat("\n=== Running partial credit model v251224 with seed", seed, "===\n")
-        partial_credit_model_run_analysis(
+        fit_partial_credit_model(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),

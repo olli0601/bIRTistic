@@ -1,6 +1,6 @@
-#' Run partial credit model analysis on pre-processed data
+#' Run ordered logit model analysis on pre-processed data
 #'
-#' This function performs Bayesian IRT analysis using a partial credit model on pre-processed
+#' This function performs Bayesian IRT analysis using an ordered logit model on pre-processed
 #' data. It compiles the Stan model, runs MCMC sampling, generates convergence
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior
 #' predictive checks.
@@ -17,6 +17,7 @@
 #' @param seed Integer. Random seed for reproducibility (default: 123)
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
+#' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic
 #'   plots including trace plots, parameter intervals/areas, and posterior predictive
 #'   checks (default: FALSE)
@@ -45,29 +46,29 @@
 #' dcati <- readRDS("data/dcati_processed.rds")
 #'
 #' # Run analysis with default settings
-#' partial_credit_model_run_analysis(
+#' fit_ordered_logit_model(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/partial_credit_model_2cats_v251224.stan"
+#'     stan_file = "src/stan/ordered_logit_2cats_v251120.stan"
 #' )
 #'
 #' # Run with additional diagnostics
-#' partial_credit_model_run_analysis(
+#' fit_ordered_logit_model(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/partial_credit_model_2cats_v251224.stan",
+#'     stan_file = "src/stan/ordered_logit_2cats_v251120.stan",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
-partial_credit_model_run_analysis <- function(
+fit_ordered_logit_model <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+  stan_file = here::here("src", "stan", "ordered_logit_2cats_v251216.stan"),
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -102,7 +103,7 @@ partial_credit_model_run_analysis <- function(
     }
     # Print configuration
     cat("\n========================================\n")
-    cat("Partial Credit Model Analysis Configuration\n")
+    cat("Ordered Logit Model Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
@@ -126,11 +127,10 @@ partial_credit_model_run_analysis <- function(
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    pcm_compiled <- cmdstanr::cmdstan_model(
+    ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE),
-        force_recompile = TRUE
+        cpp_options = list(stan_threads = TRUE)
     )
 
     # Define data in format needed for model specification
@@ -170,8 +170,8 @@ partial_credit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
-    flush.console()  # Force output to display immediately
-    pcm_fit <- pcm_compiled$sample(
+    flush.console()  
+    ol_fit <- ol_compiled$sample(
         data = stan_data,
         seed = seed,
         chains = chains,
@@ -184,10 +184,10 @@ partial_credit_model_run_analysis <- function(
         show_messages = show_messages,
         show_exceptions = show_exceptions
     )
-    
+
     # Extract chain timing information
     cat("Extracting timing information...\n")
-    chain_times <- pcm_fit$time()
+    chain_times <- ol_fit$time()
     timing_data <- data.table(
         chain = 1:chains,
         warmup_minutes = chain_times$chains$warmup / 60,
@@ -203,35 +203,30 @@ partial_credit_model_run_analysis <- function(
     # Extract and save draws immediately (while CSV files still exist)
     cat("Extracting draws...\n")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
-    draws <- pcm_fit$draws(format = "draws_array")
+    draws <- ol_fit$draws(format = "draws_array")
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
+    draws <- NULL
+    gc()
 
     # Save output to RDS
     output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
-    pcm_fit$save_object(file = output_file)
+    ol_fit$save_object(file = output_file)
 
-    # Partial credit model uses v251224 parameter structure
-    cat("Using v251224 parameter structure (unified thresholds)\n")
-    cat1_threshold_vars <- "cat1_skill_thresholds"
-    cat2_threshold_vars <- "cat2_skill_thresholds"
-    cat1_loading_vars <- "cat1_loadings_questions_m1"
-    cat2_loading_vars <- "cat2_loadings_questions_m1"
-
-    # Check convergence and mixing
+    # Check convergence and mixing - compute only rhat and ess for efficiency
     cat("Generating convergence diagnostics...\n")
-    tmp <- pcm_fit$summary(
+    tmp <- ol_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
-            cat1_threshold_vars,
-            cat1_loading_vars,
-            cat2_threshold_vars,
-            cat2_loading_vars
+            "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
+            "cat1_loadings_questions_m1",
+            "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
+            "cat2_loadings_questions_m1"
         )
     )
     tmp <- as.data.table(tmp)
-    tmp <- tmp[order(ess_bulk), ]
+    setorder(tmp, ess_bulk)
     write.csv(
         tmp,
         file = paste0(output_file_prefix, "_convergence_mixing.csv"),
@@ -247,14 +242,14 @@ partial_credit_model_run_analysis <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
         )
         
         # Calculate lp__ range from post-warmup samples for y-axis scaling
-        po_postwarmup <- pcm_fit$draws(
+        po_postwarmup <- ol_fit$draws(
             variables = "lp__",
             inc_warmup = FALSE,
             format = "draws_array"
@@ -268,8 +263,8 @@ partial_credit_model_run_analysis <- function(
             pars = "lp__",
             n_warmup = iter_warmup
         ) + 
-        coord_cartesian(ylim = lp_ylim) +
-        theme_bw()
+            coord_cartesian(ylim = lp_ylim) +
+            theme_bw()
         
         # Create trace plot for other parameters with free y-axis
         p_other <- bayesplot:::mcmc_trace(po[,, worst_var, drop = FALSE],
@@ -277,7 +272,7 @@ partial_credit_model_run_analysis <- function(
             n_warmup = iter_warmup,
             facet_args = list(ncol = 2)
         ) + 
-        theme_bw()
+            theme_bw()
         
         # Combine plots
         p <- patchwork::wrap_plots(p_lp, p_other, ncol = 1, heights = c(1, 4))
@@ -290,14 +285,14 @@ partial_credit_model_run_analysis <- function(
         )
 
         # Make intervals/areas plot
-        cat("Generating parameter plots...\n")
-        po <- pcm_fit$draws(
+        cat("Generating parameter interval plots...\n")
+        po <- ol_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
-                cat1_threshold_vars,
-                cat1_loading_vars,
-                cat2_threshold_vars,
-                cat2_loading_vars
+                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
+                "cat1_loadings_questions_m1",
+                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
+                "cat2_loadings_questions_m1"
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -309,15 +304,15 @@ partial_credit_model_run_analysis <- function(
             prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
         ) + theme_bw()
         ggsave(
-            file = paste0(output_file_prefix, "_intervals.pdf"),
+            file = paste0(output_file_prefix, "_intervals.png"),
             plot = p,
-            h = 50,
+            h = 70,
             w = 8,
             limitsize = FALSE
         )
 
         cat("Generating parameter density overlay plots...\n")
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta"                
             ),
@@ -337,10 +332,10 @@ partial_credit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c(
-                cat1_threshold_vars,
-                cat1_loading_vars
+                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
+                "cat1_loadings_questions_m1"
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -357,10 +352,10 @@ partial_credit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c(
-                cat2_threshold_vars,
-                cat2_loading_vars
+                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
+                "cat2_loadings_questions_m1"
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -380,17 +375,14 @@ partial_credit_model_run_analysis <- function(
         # Make pairs plots with 2D density contours colored by chain
         cat("Generating pairs plots...\n")    
         require(GGally)
-        
-        # Define variables to plot for PCM (v251224 structure)
-        pairs_vars <- c(
-            "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
-            "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
-            "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
-            "cat1_skill_thresholds[3,1]", "cat1_skill_thresholds[3,2]", "cat1_skill_thresholds[3,3]"
-        )
-        
-        po <- pcm_fit$draws(
-            variables = pairs_vars,
+        po <- ol_fit$draws(
+            variables = c(
+                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
+                "cat1_skill_thresholds_1[3]",
+                "cat1_skill_thresholds_incs[3,1]", "cat1_skill_thresholds_incs[3,2]"
+            ),
             format = "draws_df"
             )
         
@@ -422,9 +414,10 @@ partial_credit_model_run_analysis <- function(
                limitsize = FALSE
             )
         
+
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -495,7 +488,7 @@ partial_credit_model_run_analysis <- function(
         cat("Computing ordinal Brier scores by question...\n")
         
         # Extract Brier scores for cat1
-        brier_cat1 <- pcm_fit$draws(
+        brier_cat1 <- ol_fit$draws(
             variables = c("cat1_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -513,7 +506,7 @@ partial_credit_model_run_analysis <- function(
         set(brier_cat1, NULL, "variable", NULL)
         
         # Extract Brier scores for cat2
-        brier_cat2 <- pcm_fit$draws(
+        brier_cat2 <- ol_fit$draws(
             variables = c("cat2_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -554,8 +547,8 @@ partial_credit_model_run_analysis <- function(
 
     # Generate probability plots for cat1
     if (with_core_analyses) {
-        cat("Generating probability plots for categorical outcomes...\n")
-        po <- pcm_fit$draws(
+                cat("Generating probability plots for categorical outcomes...\n")
+        po <- ol_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -626,7 +619,7 @@ partial_credit_model_run_analysis <- function(
 
         # Generate probability plots for cat2
         cat("Generating probability plots for out-of-7 outcomes...\n")
-        po <- pcm_fit$draws(
+        po <- ol_fit$draws(
             variables = c("cat2_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -761,5 +754,5 @@ partial_credit_model_run_analysis <- function(
         cat("\nSkipping core analyses (set with_core_analyses=TRUE to enable)\n")
     }
 
-    invisible(pcm_fit)
+    invisible(ol_fit)
 }

@@ -63,7 +63,7 @@ Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'be
 ```
 bIRTistic/
 ├── R/                           # R scripts
-│   └── credit_model_run_analysis.Rscript  # Main analysis script
+│   └── fit_credit_model.Rscript  # Main analysis script
 ├── src/
 │   ├── stan/                    # Stan model files
 │   │   ├── credit_model_2cats_v251120.stan
@@ -84,7 +84,7 @@ module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
 eval "$(~/miniforge3/bin/conda shell.bash hook)"
 eval "$(mamba shell hook --shell bash)"
 mamba activate birtistic
-Rscript R/credit_model_run_analysis.Rscript \
+Rscript R/fit_credit_model.Rscript \
   --stan_file src/stan/credit_model_2cats_v251120.stan \
   --stan_include_dir src/stan \
   --dit_file data/dit.rds \

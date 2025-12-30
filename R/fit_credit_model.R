@@ -1,6 +1,6 @@
-#' Run ordered logit model analysis on pre-processed data
+#' Run credit model analysis on pre-processed data
 #'
-#' This function performs Bayesian IRT analysis using an ordered logit model on pre-processed
+#' This function performs Bayesian IRT analysis using a credit model on pre-processed
 #' data. It compiles the Stan model, runs MCMC sampling, generates convergence
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior
 #' predictive checks.
@@ -17,7 +17,6 @@
 #' @param seed Integer. Random seed for reproducibility (default: 123)
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
-#' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic
 #'   plots including trace plots, parameter intervals/areas, and posterior predictive
 #'   checks (default: FALSE)
@@ -46,29 +45,29 @@
 #' dcati <- readRDS("data/dcati_processed.rds")
 #'
 #' # Run analysis with default settings
-#' ordered_logit_model_run_analysis(
+#' fit_credit_model(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/ordered_logit_2cats_v251216.stan"
+#'     stan_file = "src/stan/credit_model_2cats_v251120.stan"
 #' )
 #'
 #' # Run with additional diagnostics
-#' ordered_logit_model_run_analysis(
+#' fit_credit_model(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/ordered_logit_2cats_v251216.stan",
+#'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
-ordered_logit_model_run_analysis <- function(
+fit_credit_model <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "ordered_logit_2cats_v251216.stan"),
+  stan_file = here::here("src", "stan", "credit_model_2cats_v251120.stan"),
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -103,7 +102,7 @@ ordered_logit_model_run_analysis <- function(
     }
     # Print configuration
     cat("\n========================================\n")
-    cat("Ordered Logit Model Analysis Configuration\n")
+    cat("Credit Model Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
@@ -127,10 +126,11 @@ ordered_logit_model_run_analysis <- function(
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    ol_compiled <- cmdstanr::cmdstan_model(
+    cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE)
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
     )
 
     # Define data in format needed for model specification
@@ -170,8 +170,8 @@ ordered_logit_model_run_analysis <- function(
 
     # Sample from the model
     cat("Running MCMC sampling...\n")
-    flush.console()  
-    ol_fit <- ol_compiled$sample(
+    flush.console()  # Force output to display immediately
+    cm_fit <- cm_compiled$sample(
         data = stan_data,
         seed = seed,
         chains = chains,
@@ -184,10 +184,10 @@ ordered_logit_model_run_analysis <- function(
         show_messages = show_messages,
         show_exceptions = show_exceptions
     )
-
+    
     # Extract chain timing information
     cat("Extracting timing information...\n")
-    chain_times <- ol_fit$time()
+    chain_times <- cm_fit$time()
     timing_data <- data.table(
         chain = 1:chains,
         warmup_minutes = chain_times$chains$warmup / 60,
@@ -203,30 +203,47 @@ ordered_logit_model_run_analysis <- function(
     # Extract and save draws immediately (while CSV files still exist)
     cat("Extracting draws...\n")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
-    draws <- ol_fit$draws(format = "draws_array")
+    draws <- cm_fit$draws(format = "draws_array")
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
-    draws <- NULL
-    gc()
 
     # Save output to RDS
+
     output_file <- paste0(output_file_prefix, "_stan.rds")
     cat("Saving model fit to:", output_file, "\n")
-    ol_fit$save_object(file = output_file)
+    cm_fit$save_object(file = output_file)
 
-    # Check convergence and mixing - compute only rhat and ess for efficiency
+    # Detect parameter structure
+    all_vars <- cm_fit$metadata()$model_params
+    use_v251224 <- any(grepl("cat1_skill_thresholds\\[[0-9]+,[0-9]+\\]", all_vars))
+    
+    if (use_v251224) {
+        cat("Detected v251224 parameter structure (unified thresholds)\n")
+        cat1_threshold_vars <- "cat1_skill_thresholds"
+        cat2_threshold_vars <- "cat2_skill_thresholds"
+        cat1_loading_vars <- "cat1_loadings_questions_m1"
+        cat2_loading_vars <- "cat2_loadings_questions_m1"
+    } else {
+        cat("Detected v251123 parameter structure (split thresholds)\n")
+        cat1_threshold_vars <- c("cat1_skill_thresholds_1", "cat1_skill_thresholds_incs")
+        cat2_threshold_vars <- c("cat2_skill_thresholds_1", "cat2_skill_thresholds_incs")
+        cat1_loading_vars <- "cat1_loadings_questions_m1"
+        cat2_loading_vars <- "cat2_loadings_questions_m1"
+    }
+
+    # Check convergence and mixing
     cat("Generating convergence diagnostics...\n")
-    tmp <- ol_fit$summary(
+    tmp <- cm_fit$summary(
         variables = c(
             "latent_factor_unit", "latent_factor_beta",
-            "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-            "cat1_loadings_questions_m1",
-            "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-            "cat2_loadings_questions_m1"
+            cat1_threshold_vars,
+            cat1_loading_vars,
+            cat2_threshold_vars,
+            cat2_loading_vars
         )
     )
     tmp <- as.data.table(tmp)
-    setorder(tmp, ess_bulk)
+    tmp <- tmp[order(ess_bulk), ]
     write.csv(
         tmp,
         file = paste0(output_file_prefix, "_convergence_mixing.csv"),
@@ -242,14 +259,14 @@ ordered_logit_model_run_analysis <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
         )
         
         # Calculate lp__ range from post-warmup samples for y-axis scaling
-        po_postwarmup <- ol_fit$draws(
+        po_postwarmup <- cm_fit$draws(
             variables = "lp__",
             inc_warmup = FALSE,
             format = "draws_array"
@@ -263,8 +280,8 @@ ordered_logit_model_run_analysis <- function(
             pars = "lp__",
             n_warmup = iter_warmup
         ) + 
-            coord_cartesian(ylim = lp_ylim) +
-            theme_bw()
+        coord_cartesian(ylim = lp_ylim) +
+        theme_bw()
         
         # Create trace plot for other parameters with free y-axis
         p_other <- bayesplot:::mcmc_trace(po[,, worst_var, drop = FALSE],
@@ -272,7 +289,7 @@ ordered_logit_model_run_analysis <- function(
             n_warmup = iter_warmup,
             facet_args = list(ncol = 2)
         ) + 
-            theme_bw()
+        theme_bw()
         
         # Combine plots
         p <- patchwork::wrap_plots(p_lp, p_other, ncol = 1, heights = c(1, 4))
@@ -285,14 +302,14 @@ ordered_logit_model_run_analysis <- function(
         )
 
         # Make intervals/areas plot
-        cat("Generating parameter interval plots...\n")
-        po <- ol_fit$draws(
+        cat("Generating parameter plots...\n")
+        po <- cm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
-                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-                "cat1_loadings_questions_m1",
-                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-                "cat2_loadings_questions_m1"
+                cat1_threshold_vars,
+                cat1_loading_vars,
+                cat2_threshold_vars,
+                cat2_loading_vars
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -304,15 +321,15 @@ ordered_logit_model_run_analysis <- function(
             prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
         ) + theme_bw()
         ggsave(
-            file = paste0(output_file_prefix, "_intervals.png"),
+            file = paste0(output_file_prefix, "_intervals.pdf"),
             plot = p,
-            h = 70,
+            h = 50,
             w = 8,
             limitsize = FALSE
         )
 
         cat("Generating parameter density overlay plots...\n")
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta"                
             ),
@@ -332,10 +349,10 @@ ordered_logit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c(
-                "cat1_skill_thresholds_1", "cat1_skill_thresholds_incs",
-                "cat1_loadings_questions_m1"
+                cat1_threshold_vars,
+                cat1_loading_vars
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -352,10 +369,10 @@ ordered_logit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c(
-                "cat2_skill_thresholds_1", "cat2_skill_thresholds_incs",
-                "cat2_loadings_questions_m1"
+                cat2_threshold_vars,
+                cat2_loading_vars
             ),
             inc_warmup = FALSE,
             format = "draws_array"
@@ -372,17 +389,31 @@ ordered_logit_model_run_analysis <- function(
             limitsize = FALSE
         )
 
+
         # Make pairs plots with 2D density contours colored by chain
         cat("Generating pairs plots...\n")    
         require(GGally)
-        po <- ol_fit$draws(
-            variables = c(
+        
+        # Define variables to plot based on model version
+        if (use_v251224) {
+            pairs_vars <- c(
+                "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
+                "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
+                "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
+                "cat1_skill_thresholds[3,1]", "cat1_skill_thresholds[3,2]", "cat1_skill_thresholds[3,3]"
+            )
+        } else {
+            pairs_vars <- c(
                 "latent_factor_unit[10]", "latent_factor_unit[20]", "latent_factor_unit[30]", 
                 "latent_factor_unit[40]", "latent_factor_unit[50]", "latent_factor_unit[60]", 
                 "cat1_loadings_questions_m1[3]", "cat1_loadings_questions_m1[4]", 
                 "cat1_skill_thresholds_1[3]",
                 "cat1_skill_thresholds_incs[3,1]", "cat1_skill_thresholds_incs[3,2]"
-            ),
+            )
+        }
+        
+        po <- cm_fit$draws(
+            variables = pairs_vars,
             format = "draws_df"
             )
         
@@ -414,10 +445,9 @@ ordered_logit_model_run_analysis <- function(
                limitsize = FALSE
             )
         
-
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -486,9 +516,9 @@ ordered_logit_model_run_analysis <- function(
 
         # Compute and save ordinal Brier scores by question
         cat("Computing ordinal Brier scores by question...\n")
-        
+
         # Extract Brier scores for cat1
-        brier_cat1 <- ol_fit$draws(
+        brier_cat1 <- cm_fit$draws(
             variables = c("cat1_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -506,7 +536,7 @@ ordered_logit_model_run_analysis <- function(
         set(brier_cat1, NULL, "variable", NULL)
         
         # Extract Brier scores for cat2
-        brier_cat2 <- ol_fit$draws(
+        brier_cat2 <- cm_fit$draws(
             variables = c("cat2_ordinal_brier_score"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -547,8 +577,8 @@ ordered_logit_model_run_analysis <- function(
 
     # Generate probability plots for cat1
     if (with_core_analyses) {
-                cat("Generating probability plots for categorical outcomes...\n")
-        po <- ol_fit$draws(
+        cat("Generating probability plots for categorical outcomes...\n")
+        po <- cm_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -619,7 +649,7 @@ ordered_logit_model_run_analysis <- function(
 
         # Generate probability plots for cat2
         cat("Generating probability plots for out-of-7 outcomes...\n")
-        po <- ol_fit$draws(
+        po <- cm_fit$draws(
             variables = c("cat2_ordered_prob_by_obs"),
             inc_warmup = FALSE,
             format = "draws_df"
@@ -754,5 +784,5 @@ ordered_logit_model_run_analysis <- function(
         cat("\nSkipping core analyses (set with_core_analyses=TRUE to enable)\n")
     }
 
-    invisible(ol_fit)
+    invisible(cm_fit)
 }

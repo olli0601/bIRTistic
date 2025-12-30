@@ -26,7 +26,7 @@ PROJECT_DIR=/path/to/bIRTistic
 DATA_DIR=${PROJECT_DIR}/data_for_hpc
 STAN_DIR=${PROJECT_DIR}/src/stan
 OUTPUT_DIR=${PROJECT_DIR}/output/hpc_results
-SCRIPT=${PROJECT_DIR}/R/credit_model_run_analysis.Rscript
+SCRIPT=${PROJECT_DIR}/R/fit_credit_model.Rscript
 CONFIG_CSV=${PROJECT_DIR}/job_config.csv
 
 # Create output and log directories

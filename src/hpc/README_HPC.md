@@ -4,7 +4,7 @@ This directory contains scripts for running analyses on arbitrary datasets on HP
 
 ## Files
 
-1. **`credit_model_run_analysis.Rscript`** (in `R/` directory) - Self-contained R script that runs a single analysis on any dataset
+1. **`fit_credit_model.Rscript`** (in `R/` directory) - Self-contained R script that runs a single analysis on any dataset
 2. **`prepare_data_for_hpc.R`** - Helper script to export data and create job configuration (to be created in `R/` directory)
 3. **`submit_hpc_job.sh`** - PBS batch submission script (in `src/hpc/` directory)
 
@@ -59,7 +59,7 @@ qsub src/hpc/submit_hpc_job.sh
 Or run a single analysis manually:
 
 ```bash
-Rscript R/credit_model_run_analysis.Rscript \
+Rscript R/fit_credit_model.Rscript \
   --stan_file src/stan/credit_model_2cats_v251120.stan \
   --stan_include_dir src/stan \
   --dit_file data_for_hpc/dit.rds \
