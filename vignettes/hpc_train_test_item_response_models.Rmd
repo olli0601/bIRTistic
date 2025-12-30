@@ -39,7 +39,7 @@ This vignette demonstrates how to submit item response model validation jobs to 
 ```{r load-packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE}
 library(jsonlite)
 library(here)
-
+library(data.table)
 source(here::here("R", "hpc_submit_generic_job.R"))
 ```
 
