@@ -60,13 +60,14 @@ invisible(lapply(packages, library, character.only = TRUE))
 
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
+source(here::here("R", "read_data_ukraine.R"))
 source(here::here("R", "train_test_split_data.R"))
 source(here::here("R", "fit_credit_model.R"))
 source(here::here("R", "fit_ordered_logit_model.R"))
 source(here::here("R", "fit_partial_credit_model.R"))
 ```
 
-## Data loading and pre-processing
+## Data loading and pre-processing of Colombia data
 
 ```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define directories
@@ -85,212 +86,12 @@ if (grepl("^/rds/general/user/or105", here::here())) {
 # Define file names
 file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
 file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
-file_data_Ukraine <- file.path(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
-
 
 set.seed(42L)
 seed <- c(123L)
 ```
 
-```{r load-and-preprocess-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-
-# Read in data from Ukraine
-dp <- as.data.table(read.csv(file_data_Ukraine))
-tmp <- subset(dp, select = c('UniqueID', colnames(dp)[grepl('.x$',colnames(dp))] ))
-tmp2 <- subset(dp, select = c('UniqueID', colnames(dp)[grepl('.y$',colnames(dp))] ))
-setnames(tmp, old = colnames(tmp)[grepl('.x$',colnames(tmp))],
-         new = gsub('.x$','',colnames(tmp)[grepl('.x$',colnames(tmp))]))
-setnames(tmp2, old = colnames(tmp2)[grepl('.y$',colnames(tmp2))],
-         new = gsub('.y$','',colnames(tmp2)[grepl('.y$',colnames(tmp2))]))
-tmp <- subset(tmp, select = !grepl('^Scale_',colnames(tmp)) )
-stopifnot(setdiff(colnames(tmp), colnames(tmp2)) == character(0))
-stopifnot(setdiff(colnames(tmp2), colnames(tmp)) == character(0))
-dp <- rbind(tmp, tmp2) 
-setnames(
-    dp,
-    c("UniqueID", "Timepoint", "f_name"),
-    c("pid", "time_label", "f_label")
-)
-
-# Separate out meta data/ covariates
-col_meta <- c("marital_status", "living_partner", "served_partnered", 
-    "demo_sex_labelled", "age_range_labelled", "edu_level_grped.labelled", "income_labelled", "country",        
-    "displacement_status", "shelter_now", "children", "health_disability2", "under_12months",        
-    "btwn_1_3_yrs", "btwn_4_7_yrs", "btwn_8_12yrs", "assistance.mhpss",  
-    "partner_sharing", "partner_conflict", "unhappy_internal", "facilitator_relationship", 
-    "spillover_frequency", "spillover_book", "past_programs", "spiritual_strength", "resources_afterHG", "life_worse_me", "life_worse_family", "shelter_now_clean", "training", "training_type")       
-dmeta <- subset(dp, select = c("pid", "time_label", col_meta))
-
-# Remove non primary outcome data
-set(dp, NULL, col_meta, NULL)
-set(dp, NULL, c('PHQ4_total_weight',"Physical_Emotional_Violence7",
-"Positive_Parenting7", "Parental_Involvement7", "Parental_Monitoring7", 
-"Resilience7", "Child_Wellbeing7", "IPV_Prevention7", "Key"), NULL)
-
-# Clean up outcome labels
-setnames(
-    dp,
-    c("Physical_Emotional_Violence", "physic_punish", "ICAST_EA_scream"),   #TODO "physic_punish"
-    c("CG-VIO_agg", "CG-VIO_ph-punish", "CG-VIO_scream")
-)
-
-setnames(
-    dp,
-    c(
-        "CAREGIVER_MENTAL_HEALTH", "nervous", "hopeless", "restless",   # TODO all of these
-        "sad", "effort", "worthless"
-    ),
-    c(
-        "CG-MH_agg", "CG-MH_nervous", "CG-MH_hopeless", "CG-MH_restless",
-        "CG-MH_sad", "CG-MH_effort", "CG-MH_worthless"
-    )
-)
-
-setnames(
-    dp,
-    c("POSITIVE_PARENTING", "praise", "play"),                      # TODO all of these
-    c("CG-POS_agg", "CG-POS_praise", "CG-POS_play")
-)
-    
-setnames(                                                               # TODO safe_time, child_safe
-    dp,
-    c("Parental_Monitoring", "safe_time", "child_safe"),
-    c("CG-MONITOR-CHI_agg", "CG-MONITOR-CHI_safe-time","CG-MONITOR-CHI_child-safe")
-)
-
-setnames(                                                               # TODO help_learn, child_problems                     
-    dp,
-    c("Parental_Involvement", "help_learn", "child_problems"),
-    c("CG-INVOLVE_agg", "CG-INVOLVE_help-learn", "CG-INVOLVE_child-problems")
-)
-
-setnames(                                                               # TODO all of these
-    dp,
-    c("CHILD_BEHAVIOURAL_ISSUES", "angry", "unhappy", "no_interest"),
-    c("CHI-BEHAVIOUR_agg", "CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy","CHI-BEHAVIOUR_no-interest")
-)
-
-setnames(
-        dp,
-        c("CESD_depressed", "selfcare", "Resilience", "NONVIOLENT_DISCIPLINE"), #TODO NONVIOLENT_DISCIPLINE
-        c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
-    )
-
-
-# END TODO
-    
-    
-    
-    
-    
-    # Clean up date
-    set(
-        dp, NULL, "submission_date",
-        dp[, as.Date(submission_date, format = "%m/%d/%y")]
-    )
-
-    # Set time id
-    dp[, time := as.integer(time_label == "Endline")]
-
-    # Remove participant with double endline - remove last record
-    dp <- subset(
-        dp,
-        !(pid %in% c("otmar20231963") & submission_date == "2024-12-12")
-    )
-
-    # Remove participants with only baseline records
-    # as we are interested in pre-post comparison
-    tmp <- dp[, list(n = length(submission_date)), by = "pid"]
-    tmp <- subset(tmp, n == 2, select = pid)
-    dp <- merge(tmp, dp, by = "pid")
-
-    # Set participant id
-    tmp <- data.table(pid = dp[, sort(unique(pid))])
-    tmp[, pid_new := seq_len(nrow(tmp))]
-    dp <- merge(dp, tmp, by = "pid")
-    setnames(dp, c("pid", "pid_new"), c("pid_label", "pid"))
-
-    # Set facilitator id
-    tmp <- data.table(f_label = dp[, sort(unique(f_label))])
-    tmp[, fid := seq_len(nrow(tmp))]
-    dp <- merge(dp, tmp, by = "f_label")
-
-    # Bring table into long format
-    dp <- data.table::melt(
-        dp,
-        id.vars = c(
-            "time", "time_label", "pid", "pid_label", "fid",
-            "f_label", "submission_date", "d_year"
-        ),
-        variable.name = "item_label",
-        value.name = "y"
-    )
-
-    # Remove NA's
-    dp <- subset(dp, !is.na(y))
-
-    # Define character values for y
-    dp[, y_label := NA_character_]
-    tmp <- dp[, which(grepl("^CG-MH_.*", item_label) & !grepl("agg", item_label))]
-    set(
-        dp,
-        tmp,
-        "y_label",
-        c(
-            "a - none of the time", "b - a little of the time",
-            "c - some of the time", "d - most of the time",
-            "e - all of the time"
-        )[dp[tmp, y] + 1L]
-    )
-    tmp <- dp[, which(is.na(y_label) & !grepl("agg", item_label))]
-    set(dp, tmp, "y_label", dp[tmp, paste0(as.character(y), " of 7 days")])
-
-    # Show value mins and maxs
-    dp[, list(ymin = min(y), ymax = max(y)), by = "item_label"]
-
-    dit <- unique(subset(dp, select = "item_label"))
-    dit[, item_type := ifelse(
-        grepl("CG-MH", item_label), "categorical", "out-of-7"
-    )]
-    dit[, item_high_label := ifelse(
-        grepl("CG-MH|CG-DEPRESSION|CG-VIO|CHI-BEHAVIOUR", item_label),
-        "lower_is_better",
-        "higher_is_better"
-    )]
-    dit[, group_label := factor(gsub("([^_]+)_([^_]+)", "\\1", item_label))]
-    dit[, item_label_short := gsub("([^_]+)_([^_]+)", "\\2", item_label)]
-    set(dit, dit[, which(grepl("^CG", item_label_short))], "item_label_short", "")
-    dit[, group_label_long := group_label]
-    tmp <- dit[, levels(group_label_long)]
-    tmp <- sapply(tmp, function(x) {
-        switch(x,
-            "CG-MH" = "Caregiver mental health",
-            "CG-VIO" = "Caregiver exercising physical or emotional violence",
-            "CG-MONITOR-CHI_agg" = "Child monitoring",
-            "CG-INVOLVE" = "Caregiver involvement",
-            "CHI-BEHAVIOUR" = "Child behavioural issues",
-            "CG-DEPRESSION" = "Caregiver depression",
-            "CG-SELFCARE" = "Caregiver self-care",
-            "CG-RESILIENCE" = "Caregiver resilience",
-            "CG-POS" = "Caregiver positive parenting",
-            "CG-MONITOR-CHI" = "Caregiver monitoring child",
-            "CG-NONVIOLENT-DISCIPLINE" = "Caregiver exercising nonviolent discipline",
-            x
-        )
-    })
-    levels(dit$group_label_long) <- tmp
-    dit[, endpoint_measure := sapply(item_type, function(x) {
-        switch(x,
-            "categorical" = "events occurring most or all of the time",
-            "out-of-7" = "mean days in week",
-            x
-        )
-    })]
-
-    list(dp = dp, dit = dit, dmeta = dmeta)
-
-
-
+```{r load-and-preprocess-data-colombia, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Read in data from Colombia
 tmp <- read_data_colombia(file_data)
 dp <- copy(tmp$dp)
@@ -376,6 +177,46 @@ if (!file.exists(rds_file)) {
 }
 gc()
 ```
+
+## Data loading and pre-processing of Ukraine data
+
+```{r load-and-preprocess-data-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+file_data_Ukraine <- file.path(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
+
+# Read in data from Ukraine
+tmp <- read_data_ukraine(file_data_Ukraine)
+dp_ukr <- copy(tmp$dp)
+dit_ukr <- copy(tmp$dit)
+dmeta_ukr <- copy(tmp$dmeta)
+
+# Preprocess data
+dp1_ukr <- subset(dp_ukr, !grepl("agg", item_label))
+dp1_ukr[, time := time + 1L]
+dp1_ukr[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1_ukr$item_label)),
+    time = unique(dp1_ukr$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_label", "time"))
+setkey(dp1_ukr, pid, time, item_label)
+dp1_ukr[, oid := .I]
+setkey(dp1_ukr, oid)
+tmp <- dp1_ukr[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_type", "oid"))
+setkey(dp1_ukr, pid, time, item_label)
+```
+
+## Run partial credit model v251224 on Ukraine data
 
 # Plots and Tables
 
