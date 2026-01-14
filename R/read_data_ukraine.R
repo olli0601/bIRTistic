@@ -93,16 +93,11 @@ read_data_ukraine <- function(file_data_Ukraine) {
         c("CG-VIO_agg", "CG-VIO_ph-punish", "CG-VIO_scream")
     )
 
-    # TODO: Mental health outcomes won't map -- different scales in Ukraine and Colombia
-    # olli: this creates an issue because all stan models require two different types of 
-    # input, 0 out of 7 and categorical data
-    # Could we please use the Mental Health outcomes too for fitting the model? 
-    # I am happy if you prefer to exclude them from the comparison to the Colombia study.
+    
     # setnames(
     #     dp,
     #     c(
-    #         "CAREGIVER_MENTAL_HEALTH", "nervous", "hopeless", "restless",
-    #         "sad", "effort", "worthless"
+    #         "PHQ4_total_weight", "PHQ4_worry", "PHQ4_anxious", "PHQ4_depress", "PHQ4_down"
     #     ),
     #     c(
     #         "CG-MH_agg", "CG-MH_nervous", "CG-MH_hopeless", "CG-MH_restless",
@@ -131,26 +126,26 @@ read_data_ukraine <- function(file_data_Ukraine) {
         c("CG-INVOLVE_agg", "CG-INVOLVE_child-problems")
     )
 
-    # TODO: PSSS_learn not found in Ukraine data
-    # setnames(
-    #     dp,
-    #     c("Parental_Involvement", "PSSS_learn", "share_problems"),
-    #     c("CG-INVOLVE_agg", "CG-INVOLVE_help-learn", "CG-INVOLVE_child-problems")
-    # )
+    # TODO: Olli - PSSS_learn not found in Ukraine data;
+    # Syd - I double checked, and PSSS_learn is in the dataset I sent you from Ukraine?
+    setnames(
+         dp,
+         c("Parental_Involvement", "PSSS_learn", "share_problems"),
+         c("CG-INVOLVE_agg", "CG-INVOLVE_help-learn", "CG-INVOLVE_child-problems")
+    )
 
     # Clean up outcome labels - Child Behaviour
     setnames(
         dp,
-        c("CABI_E_angry", "CESD_depressed", "CABI_I_interest"),
+        c("CABI_E_angry", "unhappy_internal", "CABI_I_interest"),
         c("CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy", "CHI-BEHAVIOUR_no-interest")
     )
 
-    # TODO: CHILD_BEHAVIOURAL_ISSUES aggregate not found in Ukraine data
-    # setnames(
-    #     dp,
-    #     c("CHILD_BEHAVIOURAL_ISSUES", "CABI_E_angry", "CESD_depressed", "CABI_I_interest"),
-    #     c("CHI-BEHAVIOUR_agg", "CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy", "CHI-BEHAVIOUR_no-interest")
-    # )
+    setnames(
+         dp,
+         c("Child_Wellbeing", "CABI_E_angry", "CESD_depressed", "CABI_I_interest"),
+         c("CHI-BEHAVIOUR_agg", "CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy", "CHI-BEHAVIOUR_no-interest")
+     )
 
     # Clean up outcome labels - Self-care and Discipline
     setnames(
@@ -167,12 +162,16 @@ read_data_ukraine <- function(file_data_Ukraine) {
     #        c("CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
     # )
 
-    # TODO: "CESD_depressed" already mapped under CHILD_BEHAVIOURAL_ISSUES to CHI-BEHAVIOUR_unhappy
-    # setnames(
-    #        dp,
-    #        c("CESD_depressed", "selfcare", "Resilience", "PARYC_SL_calmly"),
-    #        c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
-    # )
+    # Syd reply: That was an error. I have fixed it! CESD = this adult depression question,
+    # "how many days in the past week did you feel depressed,etc,etc?"
+    # NOT a child question
+    # Note that this question could be compared between Ukraine and Colombia,
+    # But it's really not a full MH scale.
+    setnames(
+            dp,
+            c("CESD_depressed", "selfcare", "grieve", "PARYC_SL_calmly"),
+            c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
+    )
 
     # Clean up date - handles ISO 8601 format automatically
     set(
