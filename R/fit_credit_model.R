@@ -185,14 +185,28 @@ fit_credit_model <- function(
         show_exceptions = show_exceptions
     )
     
+    # Remove any trajectories that did not converge
+    cat("Checking for divergent transitions and removing non-converged chains...\n")
+    tmp <- as.data.table(cm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
+    tmp <- tmp[, .(
+        mean_lp = mean(lp__),
+        sd_lp = sd(lp__),
+        n = .N
+    ), by = .chain]
+    
+    # Test if any other chains have mean lp__ < avg - 2*SE of best chain    
+    threshold <- tmp[which.max(mean_lp), mean_lp - 2 * sd_lp]
+    cm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
+    cat("Identified good HMC chains:", paste(cm_fit_good_chains, collapse = ", "), "\n")
+    
     # Extract chain timing information
-    cat("Extracting timing information...\n")
+    cat("\nExtracting timing information...\n")
     chain_times <- cm_fit$time()
     timing_data <- data.table(
-        chain = 1:chains,
-        warmup_minutes = chain_times$chains$warmup / 60,
-        sampling_minutes = chain_times$chains$sampling / 60,
-        total_chain_minutes = chain_times$chains$total / 60
+        chain = cm_fit_good_chains,
+        warmup_minutes = chain_times$chains$warmup[cm_fit_good_chains] / 60,
+        sampling_minutes = chain_times$chains$sampling[cm_fit_good_chains] / 60,
+        total_chain_minutes = chain_times$chains$total[cm_fit_good_chains] / 60
     )
     
     # Save timing information
@@ -204,6 +218,7 @@ fit_credit_model <- function(
     cat("Extracting draws...\n")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
     draws <- cm_fit$draws(format = "draws_array")
+    draws <- draws[cm_fit_good_chains, , , drop = FALSE]
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
 
@@ -264,6 +279,7 @@ fit_credit_model <- function(
             inc_warmup = TRUE,
             format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
         
         # Calculate lp__ range from post-warmup samples for y-axis scaling
         po_postwarmup <- cm_fit$draws(
@@ -271,6 +287,7 @@ fit_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
+        po_postwarmup <- po_postwarmup[cm_fit_good_chains, , , drop = FALSE]
         lp_range <- range(po_postwarmup[,, "lp__"])
         lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
                      lp_range[2] + 0.05 * diff(lp_range))
@@ -314,6 +331,7 @@ fit_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
 
         color_scheme_set("teal")
         p <- bayesplot::mcmc_intervals(
@@ -336,6 +354,7 @@ fit_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
         color_scheme_set("mix-teal-pink")
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
@@ -357,6 +376,7 @@ fit_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
             theme_bw() +
@@ -377,6 +397,7 @@ fit_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
             theme_bw() +
@@ -414,8 +435,11 @@ fit_credit_model <- function(
         
         po <- cm_fit$draws(
             variables = pairs_vars,
-            format = "draws_df"
+            format = "draws_array"
             )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
+        # Convert to draws_df format for ggpairs
+        po <- posterior::as_draws_df(po)
         
         # Convert to data.table and prepare for ggplot
         po <- as.data.table(po)
@@ -450,8 +474,11 @@ fit_credit_model <- function(
         po <- cm_fit$draws(
             variables = c("cat1_ypred", "cat2_ypred"),
             inc_warmup = FALSE,
-            format = "draws_df"
+            format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
+        # Convert to draws_df format
+        po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
         po <- data.table::melt(
             po,
@@ -521,8 +548,10 @@ fit_credit_model <- function(
         brier_cat1 <- cm_fit$draws(
             variables = c("cat1_ordinal_brier_score"),
             inc_warmup = FALSE,
-            format = "draws_df"
+            format = "draws_array"
         )
+        brier_cat1 <- brier_cat1[cm_fit_good_chains, , , drop = FALSE]
+        brier_cat1 <- posterior::as_draws_df(brier_cat1)
         brier_cat1 <- as.data.table(brier_cat1)
         brier_cat1 <- data.table::melt(brier_cat1,
             id.vars = c(".draw", ".chain", ".iteration"),
@@ -539,8 +568,10 @@ fit_credit_model <- function(
         brier_cat2 <- cm_fit$draws(
             variables = c("cat2_ordinal_brier_score"),
             inc_warmup = FALSE,
-            format = "draws_df"
+            format = "draws_array"
         )
+        brier_cat2 <- brier_cat2[cm_fit_good_chains, , , drop = FALSE]
+        brier_cat2 <- posterior::as_draws_df(brier_cat2)
         brier_cat2 <- as.data.table(brier_cat2)
         brier_cat2 <- data.table::melt(brier_cat2,
             id.vars = c(".draw", ".chain", ".iteration"),
@@ -581,8 +612,10 @@ fit_credit_model <- function(
         po <- cm_fit$draws(
             variables = c("cat1_ordered_prob_by_obs"),
             inc_warmup = FALSE,
-            format = "draws_df"
+            format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
+        po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
         po <- data.table::melt(po,
             id.vars = c(".draw", ".chain", ".iteration"),
@@ -652,8 +685,10 @@ fit_credit_model <- function(
         po <- cm_fit$draws(
             variables = c("cat2_ordered_prob_by_obs"),
             inc_warmup = FALSE,
-            format = "draws_df"
+            format = "draws_array"
         )
+        po <- po[cm_fit_good_chains, , , drop = FALSE]
+        po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
         po <- data.table::melt(po,
             id.vars = c(".draw", ".chain", ".iteration"),

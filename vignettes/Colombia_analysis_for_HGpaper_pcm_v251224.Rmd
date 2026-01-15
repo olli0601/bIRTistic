@@ -218,6 +218,56 @@ setkey(dp1_ukr, pid, time, item_label)
 
 ## Run partial credit model v251224 on Ukraine data
 
+```{r setup-pcm-directories-v251224-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define partial credit model output directories
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-251224")
+dir_logs_pcm <- file.path(dir_out_pcm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_pcm)) {
+    dir.create(dir_out_pcm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_pcm)) {
+    dir.create(dir_logs_pcm, recursive = TRUE)
+}
+
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
+```
+
+```{r compile-stan-model-pcm-v251224-ukraine, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v251224.stan")
+pcm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
+    )
+```
+
+```{r pcm-fit-on-training-data-v251224-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    cat("\n=== Running partial credit model v251224 on Ukraine data for comparison ===\n")
+    pcm_ukr_fit <-fit_partial_credit_model(
+            dit_ukr,
+            dp1_ukr,
+            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 1000L,
+            seed = seed,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+}
+gc()
+```
+
 # Plots and Tables
 
 ## Create primary endpoints for each group of items
@@ -370,7 +420,7 @@ saveRDS(pos,
 
 Aggregate most + all of the time and compute mean for out-of-7
 
-```{r colombia-endpoints, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+```{r colombia-endpoints-detailed, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
 
 # Aggregate categorical probabilities for most + all of the time
 po <- pcm_fit$draws(

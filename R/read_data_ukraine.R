@@ -67,111 +67,84 @@ read_data_ukraine <- function(file_data_Ukraine) {
         "demo_sex_labelled", "age_range_labelled", "edu_level_grped.labelled", "income_labelled", "country",
         "displacement_status", "shelter_now", "children", "health_disability2", "under_12months",
         "btwn_1_3_yrs", "btwn_4_7_yrs", "btwn_8_12yrs", "assistance.mhpss",
-        "partner_sharing", "partner_conflict", "unhappy_internal", "facilitator_relationship",
+        "partner_sharing", "partner_conflict", "facilitator_relationship",
         "spillover_frequency", "spillover_book", "past_programs", "spiritual_strength", "resources_afterHG", 
         "life_worse_me", "life_worse_family", "shelter_now_clean", "training", "training_type")
     dmeta <- subset(dp, select = c("pid", "time_label", col_meta))
 
     # Remove non primary outcome data
     set(dp, NULL, col_meta, NULL)
-    set(dp, NULL, c('PHQ4_total_weight', "Physical_Emotional_Violence7",
+    set(dp, NULL, c("Physical_Emotional_Violence7",
         "Positive_Parenting7", "Parental_Involvement7", "Parental_Monitoring7",
         "Resilience7", "Child_Wellbeing7", "IPV_Prevention7", "Key"), NULL)
-    set(dp, NULL, c("APQ_PP_compliment", "CESD_hopeful", "Child_Wellbeing", "Format_Final", 
-        "grieve", "IPV_Prevention", "overall_session_completion", "partner_conflict_num", 
-        "PHQ4_add_ins1", "PHQ4_anxious", "PHQ4_depress", "PHQ4_down", "PHQ4_down_numeric", 
-        "PHQ4_down_numeric_weight", "PHQ4_interest", "PHQ4_interest_numeric", 
-        "PHQ4_interest_numeric_weight", "PHQ4_nervous", "PHQ4_nervous_numeric", 
-        "PHQ4_nervous_numeric_weight", "PHQ4_total", "PHQ4_worry", "PHQ4_worry_numeric", 
+    set(dp, NULL, c("CESD_hopeful", "Format_Final", 
+        "IPV_Prevention", "overall_session_completion", "partner_conflict_num", 
+        "PHQ4_add_ins1", "PHQ4_down_numeric", 
+        "PHQ4_down_numeric_weight", "PHQ4_interest_numeric", 
+        "PHQ4_interest_numeric_weight", "PHQ4_nervous_numeric", 
+        "PHQ4_nervous_numeric_weight", "PHQ4_total", "PHQ4_worry_numeric", 
         "PHQ4_worry_numeric_weight", "report_attend_all_sessions", "sexual_viol_prevention", 
         "sexual_viol_prevention_num"), NULL)
 
-    # Clean up outcome labels - Violence
+    # Rename outcome labels - Violence
     setnames(
         dp,
         c("Physical_Emotional_Violence", "ICAST_PA_object", "ICAST_EA_scream"),
         c("CG-VIO_agg", "CG-VIO_ph-punish", "CG-VIO_scream")
     )
 
-    
-    # setnames(
-    #     dp,
-    #     c(
-    #         "PHQ4_total_weight", "PHQ4_worry", "PHQ4_anxious", "PHQ4_depress", "PHQ4_down"
-    #     ),
-    #     c(
-    #         "CG-MH_agg", "CG-MH_nervous", "CG-MH_hopeless", "CG-MH_restless",
-    #         "CG-MH_sad", "CG-MH_effort", "CG-MH_worthless"
-    #     )
-    # )
+    # Rename up outcome labels - Mental Health
+    # TODO: only the following last 4 items map to categorical 0 - 3
+    # TODO: I don t know how they map to the Colombbia labels
+    setnames(
+         dp,
+         c(
+             "PHQ4_total_weight", "PHQ4_nervous", "PHQ4_interest", "PHQ4_worry", "PHQ4_down"
+         ),
+         c(
+             "CG-MH_agg", "CG-MH_nervous", "CG-MH_effort", "CG-MH_hopeless", "CG-MH_sad"
+         )
+    )
+    set(dp, NULL, c("PHQ4_anxious", "PHQ4_depress"), NULL)
 
     # Clean up outcome labels - Positive Parenting
+    # TODO please check, I replaced here "PSSS_learn" with "APQ_PP_compliment", is this as it should be?
     setnames(
         dp,
-        c("Positive_Parenting", "PSSS_learn", "APQ_I_play"),
+        c("Positive_Parenting", "APQ_PP_compliment", "APQ_I_play"),
         c("CG-POS_agg", "CG-POS_praise", "CG-POS_play")
     )
 
-    # Clean up outcome labels - Parental Monitoring
+    # Rename outcome labels - Parental Monitoring
     setnames(
         dp,
         c("Parental_Monitoring", "PPPS_accompained", "risk_rider"),
         c("CG-MONITOR-CHI_agg", "CG-MONITOR-CHI_safe-time", "CG-MONITOR-CHI_child-safe")
     )
 
-    # Clean up outcome labels - Parental Involvement
-    setnames(
-        dp,
-        c("Parental_Involvement", "share_problems"),
-        c("CG-INVOLVE_agg", "CG-INVOLVE_child-problems")
-    )
-
-    # TODO: Olli - PSSS_learn not found in Ukraine data;
-    # Syd - I double checked, and PSSS_learn is in the dataset I sent you from Ukraine?
+    # Rename outcome labels - Parental Involvement
     setnames(
          dp,
          c("Parental_Involvement", "PSSS_learn", "share_problems"),
          c("CG-INVOLVE_agg", "CG-INVOLVE_help-learn", "CG-INVOLVE_child-problems")
     )
 
-    # Clean up outcome labels - Child Behaviour
-    setnames(
-        dp,
-        c("CABI_E_angry", "unhappy_internal", "CABI_I_interest"),
-        c("CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy", "CHI-BEHAVIOUR_no-interest")
-    )
-
+    # Clean up outcome labels - Child Behaviour    
     setnames(
          dp,
-         c("Child_Wellbeing", "CABI_E_angry", "CESD_depressed", "CABI_I_interest"),
+         c("Child_Wellbeing", "CABI_E_angry", "unhappy_internal", "CABI_I_interest"),
          c("CHI-BEHAVIOUR_agg", "CHI-BEHAVIOUR_angry", "CHI-BEHAVIOUR_unhappy", "CHI-BEHAVIOUR_no-interest")
-     )
+    )
 
     # Clean up outcome labels - Self-care and Discipline
     setnames(
         dp,
-        c("selfcare", "PARYC_SL_calmly"),
-        c("CG-SELFCARE", "CG-NONVIOLENT-DISCIPLINE")
+        c("CESD_depressed", "selfcare", "grieve", "PARYC_SL_calmly"),
+        c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
     )
-    set(dp, NULL, "Resilience", NULL)
 
     # TODO: "Resilience" does not map to 0-7 days as in Colombia
-    # setnames(
-    #        dp,
-    #        c("selfcare", "Resilience", "PARYC_SL_calmly"),
-    #        c("CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
-    # )
-
-    # Syd reply: That was an error. I have fixed it! CESD = this adult depression question,
-    # "how many days in the past week did you feel depressed,etc,etc?"
-    # NOT a child question
-    # Note that this question could be compared between Ukraine and Colombia,
-    # But it's really not a full MH scale.
-    setnames(
-            dp,
-            c("CESD_depressed", "selfcare", "grieve", "PARYC_SL_calmly"),
-            c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
-    )
+    set(dp, NULL, "Resilience", NULL)
 
     # Clean up date - handles ISO 8601 format automatically
     set(
@@ -199,6 +172,14 @@ read_data_ukraine <- function(file_data_Ukraine) {
     tmp[, fid := seq_len(nrow(tmp))]
     dp <- merge(dp, tmp, by = "f_label")
 
+    # Recode mental health outcomes to 0-3 scale 
+    for(x in c("CG-MH_nervous", "CG-MH_effort", "CG-MH_hopeless", "CG-MH_sad"))
+    {
+        set(dp, NULL, x, as.integer(gsub('([a-z]+)_([a-z]+)_([0-9])','\\3',(dp[[x]]))))
+    }
+    
+    set(dp, NULL, 'CG-MH_agg', dp[, as.integer(`CG-MH_agg`)])
+
     # Bring table into long format
     dp <- data.table::melt(
         dp,
@@ -216,15 +197,14 @@ read_data_ukraine <- function(file_data_Ukraine) {
     # Define character values for y
     dp[, y_label := NA_character_]
     tmp <- dp[, which(grepl("^CG-MH_.*", item_label) & !grepl("agg", item_label))]
-    stopifnot(length(tmp) == 0L)
+    stopifnot(length(tmp) > 0L)
     set(
         dp,
         tmp,
         "y_label",
         c(
-            "a - none of the time", "b - a little of the time",
-            "c - some of the time", "d - most of the time",
-            "e - all of the time"
+            "a - not at all", "b - several days",
+            "c - more than half of the time", "d - nearly every day"
         )[dp[tmp, y] + 1L]
     )
     tmp <- dp[, which(is.na(y_label) & !grepl("agg", item_label))]
