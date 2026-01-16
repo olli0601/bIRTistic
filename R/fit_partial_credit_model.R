@@ -217,9 +217,11 @@ fit_partial_credit_model <- function(
     cat("Extracting draws...\n")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
     draws <- pcm_fit$draws(format = "draws_array")
-    draws <- draws[pcm_fit_good_chains, , , drop = FALSE]
+    draws <- draws[, pcm_fit_good_chains, , drop = FALSE]
     saveRDS(draws, file = draws_file)
     cat("Saved draws to:", draws_file, "\n")
+    draws <- NULL
+    gc()
 
     # Save output to RDS
     output_file <- paste0(output_file_prefix, "_stan.rds")
@@ -266,16 +268,10 @@ fit_partial_credit_model <- function(
             inc_warmup = TRUE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         
         # Calculate lp__ range from post-warmup samples for y-axis scaling
-        po_postwarmup <- pcm_fit$draws(
-            variables = "lp__",
-            inc_warmup = FALSE,
-            format = "draws_array"
-        )
-        po_postwarmup <- po_postwarmup[pcm_fit_good_chains, , , drop = FALSE]
-        lp_range <- range(po_postwarmup[,, "lp__"])
+        lp_range <- range(po[(iter_warmup + 1):(iter_warmup + iter_sampling), , "lp__"])
         lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
                      lp_range[2] + 0.05 * diff(lp_range))
         
@@ -318,7 +314,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
 
         color_scheme_set("teal")
         p <- bayesplot::mcmc_intervals(
@@ -341,7 +337,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         color_scheme_set("mix-teal-pink")
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
@@ -363,7 +359,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
             theme_bw() +
@@ -384,7 +380,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         p <- bayesplot::mcmc_dens_overlay(po,
                                           facet_args = list(ncol = 5)) + 
             theme_bw() +
@@ -413,7 +409,7 @@ fit_partial_credit_model <- function(
             variables = pairs_vars,
             format = "draws_array"
             )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         # Convert to draws_df format for ggpairs
         po <- posterior::as_draws_df(po)
         
@@ -452,7 +448,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         # Convert to draws_df format
         po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
@@ -526,7 +522,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        brier_cat1 <- brier_cat1[pcm_fit_good_chains, , , drop = FALSE]
+        brier_cat1 <- brier_cat1[, pcm_fit_good_chains, , drop = FALSE]
         brier_cat1 <- posterior::as_draws_df(brier_cat1)
         brier_cat1 <- as.data.table(brier_cat1)
         brier_cat1 <- data.table::melt(brier_cat1,
@@ -546,7 +542,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        brier_cat2 <- brier_cat2[pcm_fit_good_chains, , , drop = FALSE]
+        brier_cat2 <- brier_cat2[, pcm_fit_good_chains, , drop = FALSE]
         brier_cat2 <- posterior::as_draws_df(brier_cat2)
         brier_cat2 <- as.data.table(brier_cat2)
         brier_cat2 <- data.table::melt(brier_cat2,
@@ -590,7 +586,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         # Convert to draws_df format
         po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
@@ -664,7 +660,7 @@ fit_partial_credit_model <- function(
             inc_warmup = FALSE,
             format = "draws_array"
         )
-        po <- po[pcm_fit_good_chains, , , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         # Convert to draws_df format
         po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
