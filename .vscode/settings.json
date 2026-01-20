@@ -25,5 +25,7 @@
     ],
     "workbench.editorAssociations": {
         "*.html": "livePreview.previewEditor"
-    }
+    },
+    "terminal.integrated.gpuAcceleration": "off",
+    "window.restoreWindows": "all"
 }

@@ -161,6 +161,7 @@ cm_fit <- fit_credit_model(
     iter_warmup = 500L,
     iter_sampling = 1500L,
     seed = 123L,
+    x_formula = ~ time - 1,
     with_core_analyses = FALSE,
     with_additional_analyses = FALSE
 )

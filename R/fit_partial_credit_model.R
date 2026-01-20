@@ -9,6 +9,12 @@
 #' @param dcati data.table. Pre-processed data with observations for analysis
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
 #' @param stan_file Character. Path to Stan model file (.stan)
+#' @param x_formula Formula. Formula specifying predictors for the design matrix. The formula 
+#'   is used with \code{model.matrix()} to create predictor matrices. Typically should include 
+#'   \code{-1} to remove the intercept term, as the model includes baseline parameters separately. 
+#'   For example, \code{~ time - 1} for a single time predictor, or 
+#'   \code{~ time + factor(group) - 1} for time and group effects. When factors are included, 
+#'   one level is automatically dropped for identifiability. Default: \code{~ time - 1}
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
 #' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
@@ -68,6 +74,7 @@ fit_partial_credit_model <- function(
   dcati,
   output_file_prefix,
   stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+  x_formula = ~ time - 1,
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -135,7 +142,6 @@ fit_partial_credit_model <- function(
     # Define data in format needed for model specification
     cat("Preparing Stan data...\n")
     stan_data <- list()
-    stan_data$P <- 1L
     stan_data$U <- max(dcati$pid)
     stan_data$Ncat1 <- nrow(dcati[item_type == "categorical", ])
     stan_data$Qcat1 <- max(dcati[item_type == "categorical", item_time_id])
@@ -145,9 +151,9 @@ fit_partial_credit_model <- function(
         item_type == "categorical", item_time_id
     ]
     stan_data$cat1_unit_of_obs <- dcati[item_type == "categorical", pid]
-    stan_data$cat1_X <- as.matrix(
-        dcati[item_type == "categorical", time - 1L],
-        ncol = 1
+    stan_data$cat1_X <- model.matrix(
+        x_formula,
+        data = as.data.frame(dcati[item_type == "categorical", ])
     )
     stan_data$Ncat2 <- nrow(dcati[item_type == "out-of-7", ])
     stan_data$Qcat2 <- max(dcati[item_type == "out-of-7", item_time_id])
@@ -157,10 +163,16 @@ fit_partial_credit_model <- function(
         item_type == "out-of-7", item_time_id
     ]
     stan_data$cat2_unit_of_obs <- dcati[item_type == "out-of-7", pid]
-    stan_data$cat2_X <- as.matrix(
-        dcati[item_type == "out-of-7", time - 1L],
-        ncol = 1
+    stan_data$cat2_X <- model.matrix(
+        x_formula,
+        data = as.data.frame(dcati[item_type == "out-of-7", ])
     )
+    
+    # Set P based on actual number of columns in design matrix (after removing intercept)
+    # This accounts for factors which drop one level for identifiability
+    stan_data$P <- ncol(stan_data$cat1_X)
+    cat("Design matrix number of predictors: P =", stan_data$P, "\n")
+    cat("Design matrix column names:", paste(colnames(stan_data$cat1_X), collapse = ", "), "\n")
     
     # Add grainsize if using threading version
     if (use_threading && grepl("threading", stan_file)) {

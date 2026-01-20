@@ -53,7 +53,8 @@ packages <- c(
     "cmdstanr",
     "loo",
     "polycor",
-    "GGally"
+    "GGally",
+    "MatchIt"
 )
 invisible(lapply(packages, library, character.only = TRUE))
 ```
@@ -67,7 +68,7 @@ source(here::here("R", "fit_ordered_logit_model.R"))
 source(here::here("R", "fit_partial_credit_model.R"))
 ```
 
-## Data loading and pre-processing of Colombia data
+## Run partial credit model v251224 on Colombia data
 
 ```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define directories
@@ -94,17 +95,16 @@ seed <- c(123L)
 ```{r load-and-preprocess-data-colombia, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Read in data from Colombia
 tmp <- read_data_colombia(file_data)
-dp <- copy(tmp$dp)
-dit <- copy(tmp$dit)
-dmeta <- copy(tmp$dmeta)
+dp_col <- copy(tmp$dp)
+dit_col <- copy(tmp$dit)
+dmeta_col <- copy(tmp$dmeta)
 
 # Preprocess data
-dp1 <- subset(dp, !grepl("agg", item_label))
-dp1[, time := time + 1L]
-dp1[, y_stan := y + 1L]
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
-    item_label = sort(unique(dp1$item_label)),
-    time = unique(dp1$time)
+    item_label = sort(unique(dp1_col$item_label)),
+    time = unique(dp1_col$time)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
@@ -116,16 +116,14 @@ tmp <- tmp[
     ),
     by = "item_type"
 ]
-dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
-setkey(dp1, pid, time, item_label)
-dp1[, oid := .I]
-setkey(dp1, oid)
-tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
-dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
-setkey(dp1, pid, time, item_label)
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+setkey(dp1_col, pid, time, item_label)
+dp1_col[, oid := .I]
+setkey(dp1_col, oid)
+tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
+setkey(dp1_col, pid, time, item_label)
 ```
-
-## Run partial credit model v251224 on Colombia data
 
 ```{r setup-pcm-directories-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define partial credit model output directories
@@ -140,7 +138,6 @@ if (!dir.exists(dir_logs_pcm)) {
     dir.create(dir_logs_pcm, recursive = TRUE)
 }
 
-output_file_prefix_pcm <- file.path(dir_out_pcm, "pcm_1")
 output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
 ```
 
@@ -159,10 +156,109 @@ rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
 if (!file.exists(rds_file)) {
     cat("\n=== Running partial credit model v251224===\n")
     pcm_fit <-fit_partial_credit_model(
-            dit,
-            dp1,
+            dit_col,
+            dp1_col,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
             stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 1000L,
+            seed = seed,
+            x_formula = ~ time - 1,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+}
+gc()
+```
+
+## Run partial credit model v251224 on Colombia data with matched participants
+
+```{r load-and-preprocess-and-match-data-colombia, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data from Colombia
+tmp <- read_data_colombia(file_data)
+dp_col <- copy(tmp$dp)
+dit_col <- copy(tmp$dit)
+dmeta_col <- copy(tmp$dmeta)
+
+# Match endline surveys with baseline surveys based on nearest submission_date
+match_data <- unique(dp_col[, .(pid, time, time_label, submission_date)])
+match_data[, date_numeric := as.numeric(submission_date - min(submission_date))]
+setnames(match_data, "time", "treat")
+setkey(match_data, submission_date, treat, pid)
+m_out <- MatchIt::matchit(
+    treat ~ date_numeric,
+    data = as.data.frame(match_data),
+    method = "nearest",
+    distance = "mahalanobis",
+    ratio = 1
+)
+matched_data <- as.data.table(MatchIt::match.data(m_out))
+tmp <- matched_data[, list(n = length(date_numeric), date_diff = diff(date_numeric)), by = 'subclass']
+
+# Exclude matches with time difference > 14 days
+tmp <- subset(tmp, n == 2 & abs(date_diff) < 14)
+setkey(tmp, subclass)
+tmp[, mid := as.factor(1:nrow(tmp))] 
+matched_data <- merge(matched_data, tmp, by = c("subclass"))
+
+dp_col <- merge(dp_col, subset(matched_data, select = c("pid", "mid")), by = 'pid')
+tmp <- unique(subset(dp_col, select = c('pid_label')))
+dmeta_col <- merge(dmeta_col, tmp, by = 'pid_label')
+
+# Preprocess data
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1_col$item_label)),
+    time = unique(dp1_col$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+
+tmp <- data.table(pid = dp1_col[, sort(unique(pid))])
+tmp[, pid_new := seq_len(nrow(tmp))]
+dp1_col <- merge(dp1_col, tmp, by = "pid")
+set(dp1_col, NULL, "pid", NULL)
+setnames(dp1_col, c("pid_new"), c("pid"))
+
+tmp <- unique(subset(dmeta_col, select = c("pid_label", "time_label", "time_since_death")))
+set(tmp, NULL, 'time_since_death', tmp[, scale(time_since_death)])
+dp1_col <- merge(dp1_col, tmp, by = c("pid_label", "time_label"))
+
+setkey(dp1_col, pid, time, item_label)
+dp1_col[, oid := .I]
+setkey(dp1_col, oid)
+tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
+setkey(dp1_col, pid, time, item_label)
+```
+
+```{r pcm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
+
+rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    cat("\n=== Running partial credit model v251224===\n")
+    pcm_fit <-fit_partial_credit_model(
+            dit_col,
+            dp1_col,
+            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            x_formula = ~ time + mid + time_since_death - 1,
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -191,7 +287,6 @@ dmeta_ukr <- copy(tmp$dmeta)
 
 # Preprocess data
 dp1_ukr <- subset(dp_ukr, !grepl("agg", item_label))
-dp1_ukr[, time := time + 1L]
 dp1_ukr[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_ukr$item_label)),
@@ -259,6 +354,7 @@ if (!file.exists(rds_file)) {
             iter_warmup = 500L,
             iter_sampling = 1000L,
             seed = seed,
+            x_formula = ~ time - 1,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
@@ -275,6 +371,23 @@ gc()
 Aggregate most + all of the time and compute mean for out-of-7
 
 ```{r colombia-endpoints, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+# read fitted pcm model for Colombia data
+if(0) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_col)
+    dit <- copy(dit_col)
+    categorical_threshold <- 3
+}
+
+# read fitted pcm model for Ukraine data
+if(1) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_ukr)
+    dit <- copy(dit_ukr)
+    categorical_threshold <- 2
+}
 
 # Aggregate categorical probabilities for most + all of the time
 po <- pcm_fit$draws(
@@ -294,7 +407,7 @@ tmp <- unique(subset(dp1[item_type == "categorical", ],
     select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
 ))
 po <- merge(po, tmp, by = c("oidt"))
-po <- subset(po, y_stan > 3)
+po <- subset(po, y_stan > categorical_threshold)
 po <- po[,
     list(y_stan = 45, prob = sum(prob)),
     by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
@@ -421,6 +534,23 @@ saveRDS(pos,
 Aggregate most + all of the time and compute mean for out-of-7
 
 ```{r colombia-endpoints-detailed, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
+# read fitted pcm model for Colombia data
+if(0) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_col)
+    dit <- copy(dit_col)
+    categorical_threshold <- 3
+}
+
+# read fitted pcm model for Ukraine data
+if(1) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_ukr)
+    dit <- copy(dit_ukr)
+    categorical_threshold <- 2
+}
 
 # Aggregate categorical probabilities for most + all of the time
 po <- pcm_fit$draws(
@@ -440,7 +570,7 @@ tmp <- unique(subset(dp1[item_type == "categorical", ],
     select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
 ))
 po <- merge(po, tmp, by = c("oidt"))
-po <- subset(po, y_stan > 3)
+po <- subset(po, y_stan > categorical_threshold)
 po <- po[,
     list(y_stan = 45, prob = sum(prob)),
     by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
@@ -550,7 +680,7 @@ saveRDS(pos,
     file = paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
 ```
 
-## Supplementary Table 1
+## Supplementary Table 1 of primary endpoints in Colombia, aggregated
 
 ```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
 pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
@@ -675,6 +805,7 @@ latex_doc <- paste0(
     "\\captionsetup[table]{skip=10pt, font=bf}\n",
     "\\begin{document}\n",
     "\\thispagestyle{empty}\n",
+    "\\begin{landscape}\n",
     "\\begin{table}[H]\n",
     "\\centering\\renewcommand\\cellalign{lc}\n",
     "\\setcellgapes{3pt}\\makegapedcells\n",
@@ -713,6 +844,364 @@ cat("  LaTeX: ", latex_file, "\n")
 cat("  PDF: ", paste0(output_file_prefix, "_supp_table_1.pdf"), "\n")
 
 ```
+
+## Supplementary Table 2 of primary endpoints in Colombia, in detail
+
+```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
+pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+
+# Rename group labels for display
+pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
+pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
+pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
+pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+
+pos[, item_label_long := NA_character_]
+tmp <- pos[, which(item_label_short == '')]
+set(pos, tmp, 'item_label_long', pos[tmp, group_label_long])
+tmp <- pos[, which(item_label_short != '')]
+set(pos, tmp, 'item_label_long', pos[tmp, paste0(group_label_long, ": \\\\ ", item_label_short)])
+
+# Recode item_high_label for display
+pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
+pos[, item_high_label := factor(item_high_label, levels = c("Lower", "Higher"))]
+
+# Format numbers
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp] * 100, 1))
+}
+tmp <- pos[, which(!(variable %in% c('ratio2') | item_type == 'categorical'))]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp], 1))
+}
+pos[, value_string := NA_character_]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    " \\\\ (",
+    sprintf("%.1f", q_lower),
+    ", ",
+    sprintf("%.1f", q_upper),
+    ")}"
+)])
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    "\\% \\\\ (",
+    sprintf("%.1f", q_lower),
+    "\\%, ",
+    sprintf("%.1f", q_upper),
+    "\\%)}"
+)])
+
+# Recode item_type for display
+pos[item_type == "categorical", item_type := "$^\\dagger$"]
+pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
+
+# Reshape for table
+pos <- dcast.data.table(pos,
+    item_type + group_label_long + item_label_long + item_high_label ~ variable,
+    value.var = "value_string"
+)
+
+# Create outcome domain with superscript for footnote
+pos[, item_label_long := paste0('\\makecell{',item_label_long, item_type, "}")]
+pos[, type := ""]
+
+# Save as CSV (include original columns for reference)
+fwrite(pos, file = paste0(output_file_prefix, "_supp_table_2.csv"))
+
+
+pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+# Reorder and select columns for display 
+pos1 <- pos1[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
+pos2 <- pos2[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
+
+# Recode names for display
+setnames(pos1,
+    old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+setnames(pos2,
+    old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+# Create LaTeX table
+latex_table1 <- kable(pos1, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table1 <- strsplit(latex_table1, "\n")[[1]]
+latex_table2 <- kable(pos2, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table2 <- strsplit(latex_table2, "\n")[[1]]
+
+# Create standalone LaTeX document with threeparttable for footnotes
+latex_doc <- paste0(
+    "\\documentclass{article}\n",
+    "\\usepackage{booktabs}\n",
+    "\\usepackage{longtable}\n",
+    "\\usepackage{array}\n",
+    "\\usepackage{multirow}\n",
+    "\\usepackage{wrapfig}\n",
+    "\\usepackage{float}\n",
+    "\\usepackage{colortbl}\n",
+    "\\usepackage{pdflscape}\n",
+    "\\usepackage{tabu}\n",
+    "\\usepackage{threeparttable}\n",
+    "\\usepackage{threeparttablex}\n",
+    "\\usepackage[normalem]{ulem}\n",
+    "\\usepackage{makecell}\n",
+    "\\usepackage{xcolor}\n",
+    "\\usepackage[margin=1in]{geometry}\n",
+    "\\renewcommand{\\thetable}{S\\arabic{table}}\n",
+    "\\usepackage{caption}\n",
+    "\\captionsetup[table]{skip=10pt, font=bf}\n",
+    "\\begin{document}\n",
+    "\\setcounter{table}{1}\n",
+    "\\thispagestyle{empty}\n",
+    "\\begin{table}[H]\n",
+    "\\centering\\renewcommand\\cellalign{lc}\n",
+    "\\setcellgapes{3pt}\\makegapedcells\n",
+    "\\centering\n",
+    "\\caption{Changes in Detailed Outcomes Following Hope Group Participation, among Next-of-kin Caregivers in Colombia in 2024-2025}\n",
+    "\\begin{threeparttable}\n",
+    "\\resizebox*{!}{1.2\\textwidth}\n",
+    "{\n",
+    "\\small\n",
+    "\\centering\n",
+    paste0(latex_table1[1:5], collapse = "\n"),
+    "\\textbf{Primary} & & & & & & \\\\ \n",
+    paste0(latex_table1[6:21], collapse = "\n"),
+    "\\midrule\\textbf{Secondary} & & & & & & \\\\ \n",
+    paste0(latex_table2[6:11], collapse = "\n"), '\n',
+    "\\multicolumn{7}{l}{$^\\dagger$ Unit of outcome: frequency of the two categories 'most of the time' and 'all of the time'.} \\\\ \n",    
+    "\\multicolumn{7}{l}{$^\\ddagger$ Unit of outcome: mean days per week.} \\\\ \n",
+    paste0(latex_table2[12], collapse = "\n"),
+    "}\n", 
+    "\\end{threeparttable}\n",
+    "\\end{table}\n",
+    "\\end{document}"
+)
+
+# Write LaTeX file
+latex_file <- paste0(output_file_prefix, "_supp_table_2.tex")
+writeLines(latex_doc, latex_file)
+
+# Compile to PDF
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))  # Run twice for proper formatting
+
+cat("\nSupplementary Table 2 saved to:\n")
+cat("  CSV: ", paste0(output_file_prefix, "_supp_table_2.csv"), "\n")
+cat("  LaTeX: ", latex_file, "\n")
+cat("  PDF: ", paste0(output_file_prefix, "_supp_table_2.pdf"), "\n")
+
+```
+
+## Supplementary Table 3 comparing primary endpoints in Colombia to those in Ukraine
+
+```{r make-supp-table-3, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
+pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+pos[, country := 'Colombia']
+
+tmp <- readRDS(paste0(output_file_prefix, "_ukraine_primary_endpoints_grouped.rds"))
+tmp <- subset(tmp, variable %in% c('bl','el','ratio2','diff2'))
+tmp[, country := 'Ukraine']
+
+pos <- rbind(pos, tmp, fill = TRUE)
+
+# Rename group labels for display
+pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
+pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
+pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
+pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+
+# Recode item_high_label for display
+pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
+pos[, item_high_label := factor(item_high_label, levels = c("Lower", "Higher"))]
+
+# Format numbers
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp] * 100, 1))
+}
+tmp <- pos[, which(!(variable %in% c('ratio2') | item_type == 'categorical'))]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp], 1))
+}
+pos[, value_string := NA_character_]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    " \\\\ (",
+    sprintf("%.1f", q_lower),
+    ", ",
+    sprintf("%.1f", q_upper),
+    ")}"
+)])
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    "\\% \\\\ (",
+    sprintf("%.1f", q_lower),
+    "\\%, ",
+    sprintf("%.1f", q_upper),
+    "\\%)}"
+)])
+
+# Recode item_type for display
+pos[item_type == "categorical", item_type := "$^\\dagger$"]
+pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
+
+# Reshape for table
+pos <- dcast.data.table(pos,
+    item_type + group_label_long + item_high_label ~ country + variable,
+    value.var = "value_string"
+)
+
+# Create outcome domain with superscript for footnote
+pos[, outcome_domain := paste0('\\makecell{',group_label_long, item_type, "}")]
+pos[, type := ""]
+
+# Save as CSV (include original columns for reference)
+fwrite(pos, file = paste0(output_file_prefix, "_supp_table_3.csv"))
+
+
+pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+# Reorder and select columns for display 
+pos1 <- pos1[, c("type","outcome_domain", "item_high_label", 
+                 "Colombia_bl", "Colombia_el", "Colombia_diff2", "Colombia_ratio2", 
+                 "Ukraine_bl", "Ukraine_el", "Ukraine_diff2", "Ukraine_ratio2")]
+pos2 <- pos2[, c("type","outcome_domain", "item_high_label", 
+                 "Colombia_bl", "Colombia_el", "Colombia_diff2", "Colombia_ratio2", 
+                 "Ukraine_bl", "Ukraine_el", "Ukraine_diff2", "Ukraine_ratio2")]
+
+# Recode names for display
+setnames(pos1,
+    old = c("type", "outcome_domain", "item_high_label", "Colombia_bl", "Colombia_el", "Colombia_diff2", "Colombia_ratio2", 
+                 "Ukraine_bl", "Ukraine_el", "Ukraine_diff2", "Ukraine_ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}",
+    "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+setnames(pos2,
+    old = c("type", "outcome_domain", "item_high_label", "Colombia_bl", "Colombia_el", "Colombia_diff2", "Colombia_ratio2", 
+                 "Ukraine_bl", "Ukraine_el", "Ukraine_diff2", "Ukraine_ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}",
+    "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+# Create LaTeX table
+latex_table1 <- kable(pos1, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l|","l","l","l","l|","l","l","l","l")
+)
+latex_table1 <- strsplit(latex_table1, "\n")[[1]]
+latex_table2 <- kable(pos2, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l|","l","l","l","l|","l","l","l","l")
+)
+latex_table2 <- strsplit(latex_table2, "\n")[[1]]
+
+# Create standalone LaTeX document with threeparttable for footnotes
+latex_doc <- paste0(
+    "\\documentclass{article}\n",
+    "\\usepackage{booktabs}\n",
+    "\\usepackage{longtable}\n",
+    "\\usepackage{array}\n",
+    "\\usepackage{multirow}\n",
+    "\\usepackage{wrapfig}\n",
+    "\\usepackage{float}\n",
+    "\\usepackage{colortbl}\n",
+    "\\usepackage{pdflscape}\n",
+    "\\usepackage{tabu}\n",
+    "\\usepackage{threeparttable}\n",
+    "\\usepackage{threeparttablex}\n",
+    "\\usepackage[normalem]{ulem}\n",
+    "\\usepackage{makecell}\n",
+    "\\usepackage{xcolor}\n",
+    "\\usepackage[margin=1in]{geometry}\n",
+    "\\renewcommand{\\thetable}{S\\arabic{table}}\n",
+    "\\usepackage{caption}\n",
+    "\\captionsetup[table]{skip=10pt, font=bf}\n",
+    "\\begin{document}\n",
+    "\\setcounter{table}{2}\n",
+    "\\thispagestyle{empty}\n",
+    "\\begin{landscape}\n",
+    "\\begin{table}[H]\n",
+    "\\centering\\renewcommand\\cellalign{lc}\n",
+    "\\setcellgapes{3pt}\\makegapedcells\n",
+    "\\centering\n",
+    "\\caption{Comparing Hope Groups Across Global Regions and Crisis Settings: Bereaved Next-of-Kin Caregivers in Colombia (2024-2025) versus Ukrainian Caregivers Amidst War and Displacement (2023)}\n",
+    "\\begin{threeparttable}\n",
+    "\\resizebox*{!}{0.55\\textwidth}\n",
+    "{\n",
+    "\\small\n",
+    "\\centering\n",
+    paste0(latex_table1[1:3], collapse = "\n"),
+    "& & & \\multicolumn{4}{c|}{\\textbf{Colombia}} & \\multicolumn{4}{c}{\\textbf{Ukraine}} \\\\ \n",
+    paste0(latex_table1[4:5], collapse = "\n"),
+    "\\textbf{Primary} & & & & & & & & & & \\\\ \n",
+    paste0(latex_table1[6:12], collapse = "\n"),
+    "\\midrule\\textbf{Secondary} & & & & & & & & & & \\\\ \n",
+    paste0(latex_table2[6:9], collapse = "\n"),
+    "\\multicolumn{7}{l}{$^\\dagger$ Unit of outcome: frequency of the two categories 'most of the time' and 'all of the time'.} \\\\ \n",    
+    "\\multicolumn{7}{l}{$^\\ddagger$ Unit of outcome: mean days per week.} \\\\ \n",
+    paste0(latex_table2[10], collapse = "\n"),
+    "}\n", 
+    "\\end{threeparttable}\n",
+    "\\end{table}\n",
+    "\\end{landscape}\n",
+    "\\end{document}"
+)
+
+# Write LaTeX file
+latex_file <- paste0(output_file_prefix, "_supp_table_3.tex")
+writeLines(latex_doc, latex_file)
+
+# Compile to PDF
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))  # Run twice for proper formatting
+
+cat("\nSupplementary Table 2 saved to:\n")
+cat("  CSV: ", paste0(output_file_prefix, "_supp_table_3.csv"), "\n")
+cat("  LaTeX: ", latex_file, "\n")
+cat("  PDF: ", paste0(output_file_prefix, "_supp_table_3.pdf"), "\n")
+
+```
+
 
 ## Figure 2
 

@@ -229,6 +229,7 @@ for (split_idx in split_idcs) {
                 iter_warmup = args$iter_warmup,
                 iter_sampling = args$iter_sampling,
                 seed = seed,
+                x_formula = ~ time - 1,
                 with_core_analyses = FALSE,
                 with_additional_analyses = FALSE
             )

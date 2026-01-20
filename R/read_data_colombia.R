@@ -50,6 +50,7 @@ read_data_colombia <- function(file_data) {
         "Months.since.caregiver.death.v3"
     )
     dmeta <- subset(dp, select = c("pid", "time_label", col_meta))
+    setnames(dmeta, 'pid', 'pid_label')  
 
     # Keep core outcome data
     set(dp, NULL, col_meta, NULL)
@@ -134,6 +135,10 @@ read_data_colombia <- function(file_data) {
     tmp <- data.table(f_label = dp[, sort(unique(f_label))])
     tmp[, fid := seq_len(nrow(tmp))]
     dp <- merge(dp, tmp, by = "f_label")
+
+    for(x in c('CG-INVOLVE_agg','CHI-BEHAVIOUR_agg','CG-MONITOR-CHI_agg','CG-MH_agg','CG-VIO_agg','CG-POS_agg')) {
+        set(dp, NULL, x, as.integer(dp[[x]]))
+    }   
 
     # Bring table into long format
     dp <- data.table::melt(
