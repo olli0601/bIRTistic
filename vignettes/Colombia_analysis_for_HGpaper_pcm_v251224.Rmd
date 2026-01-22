@@ -366,7 +366,7 @@ gc()
 
 # Plots and Tables
 
-## Create primary endpoints for each group of items
+## Create primary endpoints for each outcome comprising multiple response items
 
 Aggregate most + all of the time and compute mean for out-of-7
 
@@ -380,8 +380,17 @@ if(0) {
     categorical_threshold <- 3
 }
 
-# read fitted pcm model for Ukraine data
+# read fitted pcm model for Colombia data, matched participants
 if(1) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_col)
+    dit <- copy(dit_col)
+    categorical_threshold <- 3
+}
+
+# read fitted pcm model for Ukraine data
+if(0) {
     output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
     pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
     dp1 <- copy(dp1_ukr)
@@ -529,7 +538,7 @@ saveRDS(pos,
     file = paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
 ```
 
-## Create primary endpoints for each item
+## Create primary endpoints for each response item
 
 Aggregate most + all of the time and compute mean for out-of-7
 
@@ -543,8 +552,17 @@ if(0) {
     categorical_threshold <- 3
 }
 
-# read fitted pcm model for Ukraine data
+# read fitted pcm model for Colombia data, matched participants
 if(1) {
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
+    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
+    dp1 <- copy(dp1_col)
+    dit <- copy(dit_col)
+    categorical_threshold <- 3
+}
+
+# read fitted pcm model for Ukraine data
+if(0) {
     output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
     pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
     dp1 <- copy(dp1_ukr)
@@ -680,11 +698,18 @@ saveRDS(pos,
     file = paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
 ```
 
-## Supplementary Table 1 of primary endpoints in Colombia, aggregated
+## Table 2 of primary endpoints in Colombia, aggregated, both pre-post and quasi-experimental
 
-```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+```{r make-table-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
 pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
 pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+pos[, analysis := 'prepost']
+
+tmp <- readRDS(paste0(output_file_prefix, "_colombia_matched_primary_endpoints_grouped.rds"))
+tmp <- subset(tmp, variable %in% c('bl','el','ratio2','diff2'))
+tmp[, analysis := 'quasiexp']
+pos <- rbind(pos, tmp, fill = TRUE)
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
@@ -731,7 +756,7 @@ pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
 
 # Reshape for table
 pos <- dcast.data.table(pos,
-    item_type + group_label_long + item_high_label ~ variable,
+    analysis + item_type + group_label_long + item_high_label ~ variable,
     value.var = "value_string"
 )
 
@@ -743,21 +768,43 @@ pos[, type := ""]
 fwrite(pos, file = paste0(output_file_prefix, "_supp_table_1.csv"))
 
 
-pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
-
-pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos1 <- subset(pos, 
+    analysis == "prepost" & 
+    !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    )
+pos2 <- subset(pos, 
+    analysis == "prepost" & 
+    group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    )
+pos3 <- subset(pos, 
+    analysis == "quasiexp" & 
+    !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    )
+pos4 <- subset(pos, 
+    analysis == "quasiexp" & 
+    group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    )
 
 # Reorder and select columns for display 
 pos1 <- pos1[, c("type","outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2")]
 pos2 <- pos2[, c("type","outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2")]
+pos3 <- pos3[, c("type","outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2")]
+pos4 <- pos4[, c("type","outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2")]
 
 # Recode names for display
 setnames(pos1,
     old = c("type", "outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2"),
     new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
 )
-
 setnames(pos2,
+    old = c("type", "outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+setnames(pos3,
+    old = c("type", "outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+setnames(pos4,
     old = c("type", "outcome_domain", "item_high_label", "bl", "el", "diff2", "ratio2"),
     new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
 )
@@ -781,6 +828,24 @@ latex_table2 <- kable(pos2,
     align = c("l","l","l","l","l","l","l")
 )
 latex_table2 <- strsplit(latex_table2, "\n")[[1]]
+latex_table3 <- kable(pos3, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table3 <- strsplit(latex_table3, "\n")[[1]]
+latex_table4 <- kable(pos4, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table4 <- strsplit(latex_table4, "\n")[[1]]
 
 # Create standalone LaTeX document with threeparttable for footnotes
 latex_doc <- paste0(
@@ -800,27 +865,32 @@ latex_doc <- paste0(
     "\\usepackage{makecell}\n",
     "\\usepackage{xcolor}\n",
     "\\usepackage[margin=1in]{geometry}\n",
-    "\\renewcommand{\\thetable}{S\\arabic{table}}\n",
     "\\usepackage{caption}\n",
+    "\\setcounter{table}{1}\n",
     "\\captionsetup[table]{skip=10pt, font=bf}\n",
     "\\begin{document}\n",
     "\\thispagestyle{empty}\n",
-    "\\begin{landscape}\n",
     "\\begin{table}[H]\n",
     "\\centering\\renewcommand\\cellalign{lc}\n",
     "\\setcellgapes{3pt}\\makegapedcells\n",
     "\\centering\n",
-    "\\caption{Changes in Outcomes Following Hope Group Participation, among Next-of-kin Caregivers in Colombia in 2024-2025}\n",
+    "\\caption{Changes in outcomes following Hope Group participation among next-of-kin caregivers in Colombia in 2024-2025, utilising pre-post and quasi-experimental methodologies}\n",
     "\\begin{threeparttable}\n",
-    "\\resizebox*{!}{0.6\\textwidth}\n",
+    "\\resizebox*{!}{1.15\\textwidth}\n",
     "{\n",
     "\\small\n",
     "\\centering\n",
     paste0(latex_table1[1:5], collapse = "\n"),
     "\\textbf{Primary} & & & & & & \\\\ \n",
+    "\\multicolumn{7}{l}{\\textbf{Pre-Post Findings}} \\\\ \n",
     paste0(latex_table1[6:12], collapse = "\n"),
+    "\\multicolumn{7}{l}{\\textbf{Quasi-Experimental Findings}} \\\\ \n",
+    paste0(latex_table3[6:12], collapse = "\n"),
     "\\midrule\\textbf{Secondary} & & & & & & \\\\ \n",
-    paste0(latex_table2[6:9], collapse = "\n"),
+    "\\multicolumn{7}{l}{\\textbf{Pre-Post Findings}} \\\\ \n",
+    paste0(latex_table2[6:8], collapse = "\n"),
+    "\\multicolumn{7}{l}{\\textbf{Quasi-Experimental Findings}} \\\\ \n",
+    paste0(latex_table4[6:9], collapse = "\n"),
     "\\multicolumn{7}{l}{$^\\dagger$ Unit of outcome: frequency of the two categories 'most of the time' and 'all of the time'.} \\\\ \n",    
     "\\multicolumn{7}{l}{$^\\ddagger$ Unit of outcome: mean days per week.} \\\\ \n",
     paste0(latex_table2[10], collapse = "\n"),
@@ -831,7 +901,7 @@ latex_doc <- paste0(
 )
 
 # Write LaTeX file
-latex_file <- paste0(output_file_prefix, "_supp_table_1.tex")
+latex_file <- paste0(output_file_prefix, "_table_2.tex")
 writeLines(latex_doc, latex_file)
 
 # Compile to PDF
@@ -839,13 +909,13 @@ system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode
 system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))  # Run twice for proper formatting
 
 cat("\nSupplementary Table 1 saved to:\n")
-cat("  CSV: ", paste0(output_file_prefix, "_supp_table_1.csv"), "\n")
+cat("  CSV: ", paste0(output_file_prefix, "_table_2.csv"), "\n")
 cat("  LaTeX: ", latex_file, "\n")
-cat("  PDF: ", paste0(output_file_prefix, "_supp_table_1.pdf"), "\n")
+cat("  PDF: ", paste0(output_file_prefix, "_table_2.pdf"), "\n")
 
 ```
 
-## Supplementary Table 2 of primary endpoints in Colombia, in detail
+## Supplementary Table 1 of primary endpoints in Colombia, by items, pre-post
 
 ```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
 output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
@@ -926,12 +996,183 @@ pos2 <- pos2[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2
 # Recode names for display
 setnames(pos1,
     old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
-    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+    new = c("\\textbf{Type}", "\\textbf{Item}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
 )
 
 setnames(pos2,
     old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
-    new = c("\\textbf{Type}", "\\textbf{Outcome}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+    new = c("\\textbf{Type}", "\\textbf{Item}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+# Create LaTeX table
+latex_table1 <- kable(pos1, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table1 <- strsplit(latex_table1, "\n")[[1]]
+latex_table2 <- kable(pos2, 
+    format = "latex",
+    booktabs = TRUE,
+    longtable = FALSE,
+    escape = FALSE,
+    linesep = "",
+    align = c("l","l","l","l","l","l","l")
+)
+latex_table2 <- strsplit(latex_table2, "\n")[[1]]
+
+# Create standalone LaTeX document with threeparttable for footnotes
+latex_doc <- paste0(
+    "\\documentclass{article}\n",
+    "\\usepackage{booktabs}\n",
+    "\\usepackage{longtable}\n",
+    "\\usepackage{array}\n",
+    "\\usepackage{multirow}\n",
+    "\\usepackage{wrapfig}\n",
+    "\\usepackage{float}\n",
+    "\\usepackage{colortbl}\n",
+    "\\usepackage{pdflscape}\n",
+    "\\usepackage{tabu}\n",
+    "\\usepackage{threeparttable}\n",
+    "\\usepackage{threeparttablex}\n",
+    "\\usepackage[normalem]{ulem}\n",
+    "\\usepackage{makecell}\n",
+    "\\usepackage{xcolor}\n",
+    "\\usepackage[margin=1in]{geometry}\n",
+    "\\renewcommand{\\thetable}{S\\arabic{table}}\n",
+    "\\usepackage{caption}\n",
+    "\\captionsetup[table]{skip=10pt, font=bf}\n",
+    "\\begin{document}\n",
+    "\\setcounter{table}{0}\n",
+    "\\thispagestyle{empty}\n",
+    "\\begin{table}[H]\n",
+    "\\centering\\renewcommand\\cellalign{lc}\n",
+    "\\setcellgapes{3pt}\\makegapedcells\n",
+    "\\centering\n",
+    "\\caption{Changes in response items following Hope Group participation among next-of-kin caregivers in Colombia in 2024-2025, in the pre-post analysis}\n",
+    "\\begin{threeparttable}\n",
+    "\\resizebox*{!}{1.2\\textwidth}\n",
+    "{\n",
+    "\\small\n",
+    "\\centering\n",
+    paste0(latex_table1[1:5], collapse = "\n"),
+    "\\multicolumn{7}{l}{\\textbf{Primary (pre-post analysis)}} \\\\ \n",
+    paste0(latex_table1[6:21], collapse = "\n"),
+    "\\midrule\\multicolumn{7}{l}{\\textbf{Secondary (pre-post analysis)}} \\\\ \n",
+    paste0(latex_table2[6:11], collapse = "\n"), '\n',
+    "\\multicolumn{7}{l}{$^\\dagger$ Unit of outcome: frequency of the two categories 'most of the time' and 'all of the time'.} \\\\ \n",    
+    "\\multicolumn{7}{l}{$^\\ddagger$ Unit of outcome: mean days per week.} \\\\ \n",
+    paste0(latex_table2[12], collapse = "\n"),
+    "}\n", 
+    "\\end{threeparttable}\n",
+    "\\end{table}\n",
+    "\\end{document}"
+)
+
+# Write LaTeX file
+latex_file <- paste0(output_file_prefix, "_supp_table_1.tex")
+writeLines(latex_doc, latex_file)
+
+# Compile to PDF
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))
+system(paste0("cd ", dirname(latex_file), " && pdflatex -interaction=nonstopmode ", basename(latex_file)))  # Run twice for proper formatting
+
+cat("\nSupplementary Table 1 saved to:\n")
+cat("  CSV: ", paste0(output_file_prefix, "_supp_table_1.csv"), "\n")
+cat("  LaTeX: ", latex_file, "\n")
+cat("  PDF: ", paste0(output_file_prefix, "_supp_table_1.pdf"), "\n")
+```
+
+## Supplementary Table 2 of primary endpoints in Colombia, by items, quasi-experimental
+
+```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+pos <- readRDS(paste0(output_file_prefix, "_colombia_matched_primary_endpoints_detailed.rds"))
+pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+
+# Rename group labels for display
+pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
+pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
+pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
+pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+
+pos[, item_label_long := NA_character_]
+tmp <- pos[, which(item_label_short == '')]
+set(pos, tmp, 'item_label_long', pos[tmp, group_label_long])
+tmp <- pos[, which(item_label_short != '')]
+set(pos, tmp, 'item_label_long', pos[tmp, paste0(group_label_long, ": \\\\ ", item_label_short)])
+
+# Recode item_high_label for display
+pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
+pos[, item_high_label := factor(item_high_label, levels = c("Lower", "Higher"))]
+
+# Format numbers
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp] * 100, 1))
+}
+tmp <- pos[, which(!(variable %in% c('ratio2') | item_type == 'categorical'))]
+for(x in c('iqr_lower','iqr_upper','median','q_lower','q_upper')){
+    set(pos, tmp, x, round(pos[[x]][tmp], 1))
+}
+pos[, value_string := NA_character_]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    " \\\\ (",
+    sprintf("%.1f", q_lower),
+    ", ",
+    sprintf("%.1f", q_upper),
+    ")}"
+)])
+tmp <- pos[, which(variable %in% c('ratio2') | item_type == 'categorical')]
+set(pos, tmp, 'value_string', pos[tmp, paste0("\\makecell{",
+    sprintf("%.1f", median),
+    "\\% \\\\ (",
+    sprintf("%.1f", q_lower),
+    "\\%, ",
+    sprintf("%.1f", q_upper),
+    "\\%)}"
+)])
+
+# Recode item_type for display
+pos[item_type == "categorical", item_type := "$^\\dagger$"]
+pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
+
+# Reshape for table
+pos <- dcast.data.table(pos,
+    item_type + group_label_long + item_label_long + item_high_label ~ variable,
+    value.var = "value_string"
+)
+
+# Create outcome domain with superscript for footnote
+pos[, item_label_long := paste0('\\makecell{',item_label_long, item_type, "}")]
+pos[, type := ""]
+
+# Save as CSV (include original columns for reference)
+fwrite(pos, file = paste0(output_file_prefix, "_supp_table_2.csv"))
+
+
+pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+
+# Reorder and select columns for display 
+pos1 <- pos1[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
+pos2 <- pos2[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
+
+# Recode names for display
+setnames(pos1,
+    old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Item}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
+)
+
+setnames(pos2,
+    old = c("type", "item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2"),
+    new = c("\\textbf{Type}", "\\textbf{Item}", "\\textbf{\\makecell{Direction \\\\ of Impro- \\\\ vement}}", "\\makecell{\\textbf{Baseline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Endline}\\\\ \\\\(median, 95\\% CrI)}", "\\makecell{\\textbf{Difference} \\\\ \\textbf{(Endline vs Baseline)} \\\\ (median, 95\\% CrI)}", "\\makecell{\\textbf{Percent change} \\\\ \\textbf{(Endline vs Baseline)} \\\\(median, 95\\% CrI)}")
 )
 
 # Create LaTeX table
@@ -982,16 +1223,16 @@ latex_doc <- paste0(
     "\\centering\\renewcommand\\cellalign{lc}\n",
     "\\setcellgapes{3pt}\\makegapedcells\n",
     "\\centering\n",
-    "\\caption{Changes in Detailed Outcomes Following Hope Group Participation, among Next-of-kin Caregivers in Colombia in 2024-2025}\n",
+    "\\caption{Changes in response items following Hope Group participation among next-of-kin caregivers in Colombia in 2024-2025, in the quasi-experimental analysis}\n",
     "\\begin{threeparttable}\n",
     "\\resizebox*{!}{1.2\\textwidth}\n",
     "{\n",
     "\\small\n",
     "\\centering\n",
     paste0(latex_table1[1:5], collapse = "\n"),
-    "\\textbf{Primary} & & & & & & \\\\ \n",
+    "\\multicolumn{7}{l}{\\textbf{Primary (quasi-experimental analysis)}} \\\\ \n",
     paste0(latex_table1[6:21], collapse = "\n"),
-    "\\midrule\\textbf{Secondary} & & & & & & \\\\ \n",
+    "\\midrule\\multicolumn{7}{l}{\\textbf{Secondary (quasi-experimental analysis)}} \\\\ \n",
     paste0(latex_table2[6:11], collapse = "\n"), '\n',
     "\\multicolumn{7}{l}{$^\\dagger$ Unit of outcome: frequency of the two categories 'most of the time' and 'all of the time'.} \\\\ \n",    
     "\\multicolumn{7}{l}{$^\\ddagger$ Unit of outcome: mean days per week.} \\\\ \n",
@@ -1014,7 +1255,6 @@ cat("\nSupplementary Table 2 saved to:\n")
 cat("  CSV: ", paste0(output_file_prefix, "_supp_table_2.csv"), "\n")
 cat("  LaTeX: ", latex_file, "\n")
 cat("  PDF: ", paste0(output_file_prefix, "_supp_table_2.pdf"), "\n")
-
 ```
 
 ## Supplementary Table 3 comparing primary endpoints in Colombia to those in Ukraine
@@ -1164,7 +1404,7 @@ latex_doc <- paste0(
     "\\centering\\renewcommand\\cellalign{lc}\n",
     "\\setcellgapes{3pt}\\makegapedcells\n",
     "\\centering\n",
-    "\\caption{Comparing Hope Groups Across Global Regions and Crisis Settings: Bereaved Next-of-Kin Caregivers in Colombia (2024-2025) versus Ukrainian Caregivers Amidst War and Displacement (2023)}\n",
+    "\\caption{Comparing Hope Groups across global regions and crisis settings: bereaved next-of-kin caregivers in Colombia (2024-2025) versus Ukrainian caregivers amidst war and displacement (2023)}\n",
     "\\begin{threeparttable}\n",
     "\\resizebox*{!}{0.55\\textwidth}\n",
     "{\n",
