@@ -593,6 +593,7 @@ po <- po[,
     list(y_stan = 45, prob = sum(prob)),
     by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
 ]
+po <- unique(po, by = c(".draw", "pid", "item_time_id", "item_type"))
 po <- data.table::dcast(po,
     .draw + pid + item_type + item_label ~ time_label,
     value.var = "prob"
@@ -648,6 +649,7 @@ po <- po[,
     list(mean = sum((y_stan - 1) * prob)),
     by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
 ]
+po <- unique(po, by = c(".draw", "pid", "item_time_id", "item_type"))
 po <- data.table::dcast(po,
     .draw + pid + item_type + item_label ~ time_label,
     value.var = "mean"
@@ -1474,8 +1476,8 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
         color = "black",
         alpha = 0.5
     ) +
-    geom_line(aes(group = 1), linewidth = 1, color = "#E64B35FF") +
-    geom_point(size = 2.5, color = "#E64B35FF") +
+    geom_line(aes(group = 1), linewidth = 1, color = "#CE78B3FF") +
+    geom_point(size = 2.5, color = "#CE78B3FF") +
     geom_label(
         data = tmp_ratio_cat,
         aes(x = 1.5, y = y_pos_adjusted, label = ratio_pct),
@@ -1540,7 +1542,10 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, color = item_high_label)) 
         show.legend = FALSE
     ) +
     facet_wrap(~ group_label_long, ncol = 2, scales = "free_y") +
-    scale_color_npg(name = "Direction") +
+    scale_color_manual(
+        values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
+        name = "Direction"
+    ) +
     scale_x_discrete(expand = expansion(mult = c(0.1, 0.3))) +
     scale_y_continuous(breaks = 0:7, expand = c(0,0)) +
     labs(
@@ -1617,8 +1622,8 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
         color = "black",
         alpha = 0.5
     ) +
-    geom_line(aes(group = 1), linewidth = 1, color = "#E64B35FF") +
-    geom_point(size = 2.5, color = "#E64B35FF") +
+    geom_line(aes(group = 1), linewidth = 1, color = "#CE78B3FF") +
+    geom_point(size = 2.5, color = "#CE78B3FF") +
     geom_label(
         data = tmp_ratio_cat,
         aes(x = 1.5, y = y_pos_adjusted, label = ratio_pct),
@@ -1647,6 +1652,10 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
 tmp <- subset(pos, item_type == "out-of-7" & variable %in% c("bl", "el"))
 tmp[, time_label := ifelse(variable == "bl", "Baseline", "Endline")]
 tmp[, time_label := factor(time_label, levels = c("Baseline", "Endline"))]
+
+# Recode item_high_label for display
+tmp[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
+tmp[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
 
 # Get ratio data for labels and merge with median values for positioning
 tmp_ratio <- subset(pos, item_type == "out-of-7" & variable == "ratio2")
@@ -1689,7 +1698,10 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, group = item_label_short,
         show.legend = FALSE
     ) +
     facet_wrap(~ group_label_long, ncol = 3, scales = "free_y") +
-    scale_color_npg(name = "Direction") +
+    scale_color_manual(
+        values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
+        name = "Direction"
+    ) +
     scale_linetype_discrete(guide = "none") +
     scale_x_discrete(expand = expansion(mult = c(0.1, 0.3))) +
     scale_y_continuous(breaks = 0:7) +
