@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>amortised_decision_making</title>
+  <style>
+    /* Default styles provided by pandoc.
+    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+    */
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+  </style>
+  <script defer=""
+  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
+  type="text/javascript"></script>
+</head>
+<body>
+<h1
+id="amortized-decision-focussed-learning-for-real-time-interim-analyses-in-crisis-settings">Amortized
+decision-focussed learning for real-time interim analyses in crisis
+settings</h1>
+<h2 id="summary">1. Summary</h2>
+<p>In contrast to neural posterior estimation, the focus of this work is
+on amortization for Bayesian decision making. The key point is that
+decision rules are low-dimensional, so it should be much easier to
+perform amortised learning by focussing on what is relevant to make
+real-life decision in real-time.</p>
+<h2 id="target-objectives">2. Target objectives</h2>
+<p>Perhaps the simplest approach to this is to consider an intervention
+that estimates a treatment effect <span
+class="math inline">\(p\)</span>. The actions are declaring success
+(<span class="math inline">\(A_1\)</span>) or failure (<span
+class="math inline">\(A_0\)</span>) based on the binary decision rule
+<span class="math display">\[
+d(x) = 1\{P(H_1 \mid x) &gt; \eta\},
+\]</span> where <span class="math display">\[
+H_1 : p &gt; p_0.
+\]</span></p>
+<p>In practice, the interventions can be Cholera vaccination, our Hope
+group interventions in Jordan, alternative medical procedures, or
+similar. As generative models I am interested in various versions of
+item-response models such as the ordered categorical or partial credit
+model, but many other generative models are possible. The baseline
+treatment effect is without loss of generality <span
+class="math inline">\(p_0 = 0\)</span>, for example <span
+class="math inline">\(p\)</span> can be coded as a contrast between the
+intervention and standard-of-care arm. The decision threshold <span
+class="math inline">\(\eta\)</span> can be set to <span
+class="math inline">\(0.89\)</span> in defiance to <span
+class="math inline">\(0.95\)</span>, but can also be derived as the
+Bayes optimal threshold given false positive and false negative loss
+functions.</p>
+<p>There are two distinct targets.</p>
+<h3 id="target-1-current-decision-have-we-already-won">Target 1, current
+decision: “Have we already won?”</h3>
+<p>We evaluate the posterior success probability of <span
+class="math inline">\(H_1\)</span>, <span class="math inline">\(P(H_1
+\mid x)\)</span>, and evaluate the binary decision rule</p>
+<p><span class="math display">\[
+d(x) = 1\{P(H_1 \mid x) &gt; \eta\} \in \{ 0, 1 \},
+\]</span></p>
+<p>which declares success or failure. This answers the question: Have we
+already accumulated enough evidence to declare success now?</p>
+<h3
+id="target-2-predictive-probability-of-success-pps-how-likely-will-we-win-in-the-future">Target
+2, predictive probability of success (PPS): “How likely will we win in
+the future?”</h3>
+<p>We are interested in real-time decision-making, typically referred to
+as interim analyses to stop for efficacy or to stop for futility. This
+reframes the problem.</p>
+<p>The new questions are: If the current data <span
+class="math inline">\(x\)</span> declare failure, how likely is it that
+future data collection could overturn this result, or should we stop for
+failure and safety reasons now? The other way round, if the current data
+<span class="math inline">\(x\)</span> declare success, how likely is it
+that future data collection could overturn this result, or can we stop
+for efficacy early now?</p>
+<p>Suppose <span class="math inline">\(m\)</span> additional
+observations <span class="math inline">\(z\)</span> will be collected
+before the final analysis. Let the final decision rule be</p>
+<p><span class="math display">\[
+d(x,z) = 1\{P(H_1 \mid x,z) &gt; \eta\}.
+\]</span></p>
+<p>The predictive probability of success (PPS) is</p>
+<p><span class="math display">\[
+PPS(x) =
+\mathbb{E}_{z \sim p(z\mid x)}
+[
+1\{P(H_1 \mid x,z) &gt; \eta\}
+] \in [ 0, 1],
+\]</span> where the posterior predictive data generating distribution is
+<span class="math display">\[
+    p(z|x) = \int p(z|\theta)p(\theta|x)d\theta.
+\]</span></p>
+<p>The PPS quantifies the probability that the intervention will declare
+success in the future after <span class="math inline">\(m\)</span>
+further hypothetical data points <span class="math inline">\(z\)</span>,
+given the current data <span class="math inline">\(x\)</span>.</p>
+<p>Thus PPS thus answers: How likely are we to win in the future if the
+intervention continues?</p>
+<hr />
+<h1 id="analytically-tractable-examples">3. Analytically tractable
+examples</h1>
+<h2 id="binomial-model">3.1 Binomial Model</h2>
+<p>Let</p>
+<p><span class="math display">\[
+X_i \sim \text{Bernoulli}(p)
+\]</span></p>
+<p>with prior</p>
+<p><span class="math display">\[
+p \sim \text{Beta}(a,b).
+\]</span></p>
+<p>After observing <span class="math inline">\(x_{1:n}\)</span> data
+points with <span class="math inline">\(k^n\)</span> successes the
+posterior is</p>
+<p><span class="math display">\[
+p \mid x \sim \text{Beta}(a+k^n, b+n-k^n).
+\]</span></p>
+<p>Suppose the future, remaining data <span
+class="math inline">\(z\)</span> comprise <span
+class="math inline">\(m\)</span> additional data points. Then the
+posterior predictive distribution of <span
+class="math inline">\(k^m\)</span> future successes is</p>
+<p><span class="math display">\[\begin{align*}
+k^m &amp; \sim \int \text{Binomial}(m,p) \text{Beta}(p; a+k^n, b+n-k^n)
+\\
+&amp; = \text{Beta-Binomial}(m,a+k^n,b+n-k^n).
+\end{align*}\]</span></p>
+<p>If <span class="math inline">\(k^m\)</span> additional successes
+occur:</p>
+<p><span class="math display">\[
+p \mid x,z \sim
+\text{Beta}(a+k^n+k^m, b+n+m-k^n-k^m).
+\]</span></p>
+<p>The final posterior success probability is</p>
+<p><span class="math display">\[
+P(H_1 \mid x,z)
+=
+1 - F_{Beta}(p_0; a+k^n+k^m, b+n+m-k^n-k^m).
+\]</span></p>
+<p>In the future, with <span class="math inline">\(z\)</span> additional
+data, success occurs when</p>
+<p><span class="math display">\[
+P(H_1 \mid x,z) &gt; \eta.
+\]</span></p>
+<p>Let us define the set</p>
+<p><span class="math display">\[
+S =
+\{z :
+P(H_1 \mid x,z) &gt; \eta
+\}.
+\]</span></p>
+<p>Then the PPS becomes</p>
+<p><span class="math display">\[
+PPS(x)
+=
+\sum_{z \in S}
+p(z \mid x),
+\]</span></p>
+<p>where <span class="math inline">\(p(z \mid x)\)</span> is the
+Beta–Binomial predictive distribution from above. So,</p>
+<p><span class="math display">\[
+PPS(x)
+=
+\sum_{z \in S}
+{m \choose k^m}
+\frac{B(a+k^n+k^m,b+n+m-k^n-k^m)}{B(a+k^n,b+n-k^n)}.
+\]</span></p>
+<p>This is analytically computable.</p>
+<hr />
+<h2 id="categorical-model">3.2 Categorical model</h2>
+<p>For</p>
+<p><span class="math display">\[
+x_i \sim \text{Categorical}(p)
+\]</span></p>
+<p>with</p>
+<p><span class="math display">\[
+p \sim \text{Dirichlet}(\alpha)
+\]</span></p>
+<p>the sufficient statistic is the count vector</p>
+<p><span class="math display">\[
+N_k.
+\]</span></p>
+<p>Future observations produce counts</p>
+<p><span class="math display">\[
+M_k.
+\]</span></p>
+<p>The predictive distribution is</p>
+<p><span class="math display">\[
+M \mid x \sim \text{Dirichlet-Multinomial}.
+\]</span></p>
+<p>The PPS becomes</p>
+<p><span class="math display">\[
+PPS(x)
+=
+\sum_{M}
+1\{P(H_1 \mid x,M) &gt; \eta\}
+P(M \mid x),
+\]</span></p>
+<p>which is combinatorially larger but still analytic.</p>
+<hr />
+<h1 id="no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of
+the PPS to today’s knowledge</h1>
+<p>A particular confusion that often arises with the PPS is that it does
+not fall back to today’s knowledge.</p>
+<p>A key concept in Bayesian forecasting is self-consistency, in that if
+we make posterior predictions <span class="math inline">\(z\)</span>
+from today’s posterior and then consider the updated posterior <span
+class="math inline">\(p(\theta|x,z)\)</span>, the two expansion and
+contraction steps cancel each other out.</p>
+<p>In our setting, this Bayesian prediction self-consistency property
+equates to</p>
+<p><span class="math display">\[
+\mathbb{E}_{z|x}[P(H_1|x,z)] = P(H_1|x),
+\]</span></p>
+<p>and it follows from replacing <span
+class="math inline">\(p(\theta|x,z)p(z|x)\)</span> with <span
+class="math inline">\(p(\theta,z|x)\)</span>, exchanging integrals, and
+integrating out <span class="math inline">\(z\)</span>.</p>
+<p>The key point is that the PPS contains the indicator decision
+rule</p>
+<p><span class="math display">\[
+1\{P(H_1 \mid x,z) &gt; \eta\},
+\]</span></p>
+<p>and so</p>
+<p><span class="math display">\[
+\mathbb{E}_{z|x}[1\{P(H_1|x,z) &gt; \eta\}]
+\neq
+1\{P(H_1|x) &gt; \eta\},
+\]</span></p>
+<p>since <span class="math inline">\(E(f(X)) \neq f(E(X))\)</span>.
+Conceptually the PPS is a probability in <span
+class="math inline">\([0,1]\)</span> whereas today’s decision rule
+always evaluates to a binary value.</p>
+<hr />
+<h1 id="links-to-general-decision-theoretic-learning">5. Links to
+general decision-theoretic learning</h1>
+<h2 id="bayes-optimal-decisions-under-loss">5.1 Bayes optimal decisions
+under loss</h2>
+<p>In the broader decision theoretic literature, the objective is to
+evaluate the expected loss (or expected utility) of all possible actions
+given the observed data, and then choose the action that minimizes the
+expected loss.</p>
+<p>Let <span class="math inline">\(\mathcal{A}\)</span> denote the
+action space. Given data <span class="math inline">\(x\)</span>, the
+Bayes optimal action is</p>
+<p><span class="math display">\[
+a^* = \arg\min_{a \in \mathcal{A}} \mathbb{E}_{\theta \mid x}[L(a,
+\theta)]
+\]</span></p>
+<p>where <span class="math inline">\(L(a, \theta)\)</span> is the loss
+incurred by taking action <span class="math inline">\(a\)</span> when
+the unknown parameters are <span
+class="math inline">\(\theta\)</span>.</p>
+<p>In our setting, for final data <span
+class="math inline">\(x\)</span>, the decision theoretic problem
+simplifies to two actions:</p>
+<ul>
+<li><span class="math inline">\(a_1\)</span>: declare success, adopt
+intervention</li>
+<li><span class="math inline">\(a_0\)</span>: declare failure, reject
+intervention</li>
+</ul>
+<p>and two partitions on the unknown true treatment effect:</p>
+<ul>
+<li><span class="math inline">\(H_1\)</span>: success hypothesis (<span
+class="math inline">\(p &gt; p_0\)</span>)</li>
+<li><span class="math inline">\(H_0\)</span>: null hypothesis (<span
+class="math inline">\(p \leq p_0\)</span>)</li>
+</ul>
+<p>We can define the loss matrix:</p>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th><span class="math inline">\(H_1\)</span> true</th>
+<th><span class="math inline">\(H_0\)</span> true</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Declare success (<span class="math inline">\(a_1\)</span>)</td>
+<td>0</td>
+<td><span class="math inline">\(L_{FP}\)</span></td>
+</tr>
+<tr>
+<td>Declare failure (<span class="math inline">\(a_0\)</span>)</td>
+<td><span class="math inline">\(L_{FN}\)</span></td>
+<td>0</td>
+</tr>
+</tbody>
+</table>
+<p>where <span class="math inline">\(L_{FP}\)</span> is the cost of a
+false positive decision and <span class="math inline">\(L_{FN}\)</span>
+is the cost of a false negative decision.</p>
+<p>Given observed data <span class="math inline">\(x\)</span>, the
+expected loss of declaring success is</p>
+<p><span class="math display">\[
+\mathbb{E}_{H \mid x}[L(a_1, H)]
+= L_{FP} \cdot P(H_0 \mid x) + 0 \cdot P(H_1 \mid x)
+= L_{FP} \cdot P(H_0 \mid x),
+\]</span></p>
+<p>amd similarly the expected loss of declaring failure is</p>
+<p><span class="math display">\[
+\mathbb{E}_{H \mid x}[L(a_0, H)]
+= L_{FN} \cdot P(H_1 \mid x).
+\]</span></p>
+<p>The Bayes optimal action minimizes expected loss,</p>
+<p><span class="math display">\[
+a^*(x) = \arg\min_{a \in \{a_0, a_1\}} \mathbb{E}_{H \mid x}[L(a_1, H)].
+\]</span></p>
+<p>And so, to declare success we want <span
+class="math display">\[\begin{align*}
+&amp;
+\mathbb{E}_{H \mid x}[L(a_1, H)] &lt; \mathbb{E}_{H \mid x}[L(a_0, H)]
+\\
+\Leftrightarrow &amp;
+L_{FP} \cdot (1 - P(H_1 \mid x)) &lt; L_{FN} \cdot P(H_1 \mid x) \\
+\Leftrightarrow &amp;
+P(H_1 \mid x) &gt; L_{FP} / ( L_{FP} + L_{FN} ).
+\end{align*}\]</span></p>
+<p>This shows that the Bayes optimal decision threshold <span
+class="math inline">\(\eta\)</span> can be expressed in terms of
+utilities or loss terms. In particular, if false positives are more
+costly, <span class="math inline">\(\eta &gt; 0.5\)</span> and if false
+negatives are more costly, <span class="math inline">\(\eta &lt;
+0.5\)</span>. This provides a utility-based foundation for choosing
+<span class="math inline">\(\eta\)</span> in contrast to ad-hoc 0.89 or
+0.95.</p>
+<h2 id="net-benefit">5.2 Net benefit</h2>
+<p>A related concept is expected utility, normalised such that 1 unit
+corresponds to 1 true positive. Under the above action/partition set
+matrix, the relative cost of one false positive is <span
+class="math inline">\(w\)</span> and true pos and true neg have
+utility/cost 0. This does not depend on the particular units of the
+losses, and so is more easily interpretable.</p>
+<p>Under these utilities, the net benefit of declaring success is given
+by</p>
+<p><span class="math display">\[\begin{align*}
+NB(x)
+&amp;
+= P(H_1 \mid x) - w \cdot P(H_0 \mid x)
+\\
+&amp;
+= P(H_1 \mid x) - w \cdot (1 - P(H_1 \mid x) )
+\end{align*}\]</span></p>
+<p>and the net benefit decision rule is</p>
+<p><span class="math display">\[
+1\{ NB(x) &gt; 0 \}.    
+\]</span></p>
+<p>Under Bayes optimality, we find that the relative cost of a false
+positive must be <span class="math inline">\(w = L_{FP} /
+L_{FN}\)</span>. Using the expression for <span
+class="math inline">\(\eta\)</span> above, we then find <span
+class="math inline">\(w = \eta / (1 - \eta)\)</span>. Thus we can
+express the net benefit in the standard form</p>
+<p><span class="math display">\[
+NB(x) = P(H_1 \mid x) - \frac{\eta} {1 - \eta} \cdot (1 - P(H_1 \mid x)
+).
+\]</span></p>
+<p>This shows that our learning problem directly connects to standard
+cost-benefit analyses. Our PPS is equivalent to posterior predictive net
+benefit over future data <span class="math inline">\(z\)</span>, and so
+finding a way to amortise the PPS also means a solution to amortising
+posterior predictive net benefit.</p>
+<hr />
+<h1 id="amortized-inference-workflow">6. Amortized inference
+workflow</h1>
+<p>Rather than learning a neural posterior of high dimensional model
+parameters, an initial step might be to learn the function</p>
+<p><span class="math display">\[
+    z \rightarrow 𝑃( H_1 \mid x,z ),
+\]</span></p>
+<p>because this is the key component in the decision rules and PPS
+above. Here <span class="math inline">\(x\)</span> is today’s fixed
+observed data, but it is undesirable to repeat learning for every <span
+class="math inline">\(x\)</span>. This motivates me to learn a neural
+function</p>
+<p><span class="math display">\[
+(x_{1:n},z_{1:m}) \rightarrow q_\phi(x_{1:n},z_{1:m}) \approx P(H_1 \mid
+x_{1:n},z_{1:m}) \in [0,1]
+\]</span></p>
+<p>for arbitrary data <span class="math inline">\(x\)</span> with <span
+class="math inline">\(n\)</span> data points today and for arbitrary
+future data <span class="math inline">\(z\)</span> with remaining <span
+class="math inline">\(m\)</span> data points until the end of the
+scheduled intervention. In my setting, the posterior always factorizes,
+<span class="math display">\[
+    p(\theta \mid x,z) \propto p(\theta) \prod_{i=1}^n p(x_i \mid
+\theta) \prod_{i=1}^m p(z_i \mid \theta).
+\]</span></p>
+<p>I can re-frame this learning task as <span
+class="math display">\[\begin{align*}
+q_\phi(x,z)
+&amp;
+\approx \mathbb{E}_{\theta|x,z}(L(A,\theta))
+\\
+&amp;
+=  \int L(A,\theta) p(\theta | x,z) d\theta,
+\end{align*}\]</span> which makes clear that we focus on learning the
+loss weighted mean of the future posterior. This is decision-focussed
+learning, we learn what is required to make an optimal decision.</p>
+<p>For product likelihood models in the exponential family, we have</p>
+<p><span class="math display">\[
+p(x|\theta)=h(x)\exp\{\eta(\theta)^\top T(x)-A(\theta)\},
+\]</span></p>
+<p>and so with a conjugate prior, the posterior is also in the
+exponential family and depends only on the sufficient statistic <span
+class="math inline">\(T(x,z) = T(x) + T(z)\)</span>. We can re-express
+our target in terms of some deterministic random function <span
+class="math inline">\(g\)</span> <span class="math display">\[
+P(H_1|x,z) = g\big(T(x)+T(z)\big).
+\]</span></p>
+<p>So the neural model should learn</p>
+<p><span class="math display">\[
+(T(x),T(z)) \mapsto q_\phi(T(x)+T(z)) \approx g\big(T(x)+T(z)\big),
+\]</span></p>
+<p>which reduces the input dimension dramatically. This motivates
+learning low-dimensional summaries as part of the overall workflow, in
+the same way as in neural posterior estimation.</p>
+<h2 id="step-1-generating-labelled-training-data">Step 1: generating
+labelled training data</h2>
+<p>Generating training data is more challenging that in NPE, I wonder if
+the following could work.</p>
+<ul>
+<li><p>Draw parameters <span class="math inline">\(\theta^s \sim
+p(\theta)\)</span> for some simulation budget <span
+class="math inline">\(s=1,\dots,S\)</span>.</p></li>
+<li><p>Generate data from the prior predictive, <span
+class="math inline">\(x^s \sim p(\cdot \mid \theta^s)\)</span>, and
+future data from the posterior predictive <span
+class="math inline">\(z^s \sim p(\cdot \mid x^s)\)</span>. This involves
+the unknown posterior <span
+class="math inline">\(p(\theta|x^s)\)</span>, which is a
+problem.</p></li>
+<li><p>Generate labels. For each simulated dataset we need to compute
+<span class="math display">\[\begin{align*}
+y^{(s)} &amp;
+= P(H_1 \mid x^{(s)},z^{(s)})
+\\
+&amp;
+\int 1_{\theta \in H_1}\, p(\theta \mid x^{(s)},z^{(s)})\, d\theta.
+\end{align*}\]</span> To avoid learning the future posterior, we might
+be able to use importance reweighting with importance weights <span
+class="math display">\[\begin{align*}
+w^{(s)}_k &amp; \propto p(z^{(s)} \mid \theta_k) \\
+\theta_k &amp; \sim p(\cdot \mid x^{(s)})
+\end{align*}\]</span> Then we can calculate labels through <span
+class="math display">\[
+y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)})
+\approx
+\frac{\sum_k w^{(s)}_k  1_{\theta_k\in H_1}}{\sum_k w^{(s)}_k}.
+\]</span></p></li>
+</ul>
+<h2 id="step-2-learning-task">Step 2: learning task</h2>
+<p>Given the training data <span class="math inline">\((\theta^{(s)},
+x^{(s)}, z^{(s)}, y^{(s)})\)</span>, we need to learn two neural models
+that learn low-dimensional summaries and the decision target,</p>
+<p><span class="math display">\[
+q_\phi( q_\psi(x^{(s)}) + q_\psi(z^{(s)}) ) \approx y^{(s)} = P(H_1 \mid
+x^{(s)},z^{(s)}).
+\]</span></p>
+<p>Our observations are exchangeable, so we need to use
+permutation-invariant architectures, perhaps DeepSets.</p>
+<p>The summary network and decision rule network are differentiable, and
+we can simultaneously learn <span class="math inline">\(\phi,
+\psi\)</span> with end-to-end backpropagation.</p>
+<h2 id="step-3-amortising-pps">Step 3: amortising PPS</h2>
+<p>After training,</p>
+<ul>
+<li>for any observed data <span class="math inline">\(x_{1:n}\)</span>
+we can compute <span class="math inline">\(q_\psi( x_{1:n}
+)\)</span>.</li>
+<li>If we assume we have access to today’s posterior <span
+class="math inline">\(p(\theta | x)\)</span>, then it is cheap to
+generate posterior predictions <span
+class="math inline">\(z^\star_{1:m}\)</span>. We can also compute <span
+class="math inline">\(q_\psi( z^\star_{1:m} )\)</span>.</li>
+<li>Next we can compute <span class="math inline">\(q_\phi(
+q_\psi(x_{1:n}) + q_\psi(z^\star_{1:m}) )\)</span> and approximate the
+PPS through <span class="math display">\[
+PPS(x) \approx \sum_{z_{1:m}} 1\{ q_\phi( q_\psi(x_{1:n}) +
+q_\psi(z^\star_{1:m}) ) &gt; \eta \}
+\]</span></li>
+</ul>
+</body>
+</html>

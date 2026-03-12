@@ -24,8 +24,10 @@
         "/\\\\[a-zA-Z]+/g"
     ],
     "workbench.editorAssociations": {
-        "*.html": "livePreview.previewEditor"
+        "*.html": "default"
     },
+    "livePreview.defaultPreviewPath": "/",
+    "livePreview.autoRefreshPreview": "On Changes to Saved Files",
     "terminal.integrated.gpuAcceleration": "off",
     "window.restoreWindows": "all"
 }

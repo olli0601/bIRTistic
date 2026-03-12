@@ -1,0 +1,76 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Rtex",
+            "type": "shell",
+            "command": "Rscript",
+            "args": [
+                "-e",
+                "args <- commandArgs(trailingOnly=TRUE); knitr::knit(args[1])",
+                "${fileDirname}/${fileBasenameNoExtension}.Rtex"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Knits .Rtex to .tex"
+        },
+        {
+            "label": "Latexmk PDF",
+            "type": "shell",
+            "command": "latexmk",
+            "args": [
+                "-pdf",
+                "-interaction=nonstopmode",
+                "-synctex=1",
+                "${fileDirname}/${fileBasenameNoExtension}.tex"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "detail": "Compiles .tex to PDF"
+        },
+        {
+            "label": "Build Rtex -> PDF",
+            "dependsOn": [
+                "Build Rtex",
+                "Latexmk PDF"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "Knit Markdown to HTML (Pandoc)",
+            "type": "shell",
+            "command": "pandoc",
+            "args": [
+                "${file}",
+                "-f",
+                "markdown+tex_math_single_backslash",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}.html",
+                "--mathjax",
+                "--standalone"
+            ],
+            "group": "build",
+            "detail": "Converts .md to HTML using pandoc with MathJax support (handles \\(...\\) and \\[...\\] math)",
+            "problemMatcher": []
+        },
+        {
+            "label": "Knit Markdown to HTML (R)",
+            "type": "shell",
+            "command": "Rscript",
+            "args": [
+                "-e",
+                "rmarkdown::render('${file}')"
+            ],
+            "group": "build",
+            "detail": "Converts .md/.Rmd to HTML using R's rmarkdown package",
+            "problemMatcher": []
+        }
+    ]
+}
