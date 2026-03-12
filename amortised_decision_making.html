@@ -579,38 +579,196 @@ learning low-dimensional summaries as part of the overall workflow, in
 the same way as in neural posterior estimation.</p>
 <h2 id="step-1-generating-labelled-training-data">Step 1: generating
 labelled training data</h2>
-<p>Generating training data is more challenging that in NPE, I wonder if
-the following could work.</p>
-<ul>
-<li><p>Draw parameters <span class="math inline">\(\theta^s \sim
-p(\theta)\)</span> for some simulation budget <span
-class="math inline">\(s=1,\dots,S\)</span>.</p></li>
-<li><p>Generate data from the prior predictive, <span
-class="math inline">\(x^s \sim p(\cdot \mid \theta^s)\)</span>, and
-future data from the posterior predictive <span
-class="math inline">\(z^s \sim p(\cdot \mid x^s)\)</span>. This involves
-the unknown posterior <span
-class="math inline">\(p(\theta|x^s)\)</span>, which is a
-problem.</p></li>
-<li><p>Generate labels. For each simulated dataset we need to compute
-<span class="math display">\[\begin{align*}
-y^{(s)} &amp;
-= P(H_1 \mid x^{(s)},z^{(s)})
-\\
-&amp;
-\int 1_{\theta \in H_1}\, p(\theta \mid x^{(s)},z^{(s)})\, d\theta.
-\end{align*}\]</span> To avoid learning the future posterior, we might
-be able to use importance reweighting with importance weights <span
-class="math display">\[\begin{align*}
-w^{(s)}_k &amp; \propto p(z^{(s)} \mid \theta_k) \\
-\theta_k &amp; \sim p(\cdot \mid x^{(s)})
-\end{align*}\]</span> Then we can calculate labels through <span
+<p>Generating training data is more challenging than in neural posterior
+estimation (NPE). We consider two distinct cases depending on whether
+the current data <span class="math inline">\(x\)</span> is fixed or
+variable.</p>
+<h3 id="case-a-fixed-x-with-access-to-the-posterior">Case A: Fixed <span
+class="math inline">\(x\)</span> with access to the posterior</h3>
+<p>In this simpler setting, we have observed a specific interim dataset
+<span class="math inline">\(x_{1:n}\)</span> and have access to the
+posterior distribution <span class="math inline">\(p(\theta \mid
+x)\)</span>. Then it is relatively straightforward to generate labelled
+training data:</p>
+<ol type="1">
+<li><p>Draw posterior samples: For simulation budget <span
+class="math inline">\(s = 1, \dots, S\)</span>, sample <span
+class="math inline">\(\theta^{(s)} \sim p(\theta \mid
+x)\)</span>.</p></li>
+<li><p>Generate future data: Sample future observations from the
+likelihood <span class="math inline">\(z^{(s)} \sim p(\cdot \mid
+\theta^{(s)})\)</span>.</p></li>
+<li><p>Compute labels: For each simulated future dataset, we need to
+compute the posterior success probability <span class="math display">\[
+y^{(s)} := P(H_1 \mid x, z^{(s)}) = \int 1_{\theta \in H_1} \, p(\theta
+\mid x, z^{(s)}) \, d\theta.
+\]</span> Since we have the posterior <span
+class="math inline">\(p(\theta \mid x)\)</span>, we can use importance
+reweighting: <span class="math display">\[\begin{align*}
+w^{(s)}_k &amp; \propto p(z^{(s)} \mid \theta_k), \quad \theta_k \sim
+p(\cdot \mid x) \\
+y^{(s)} &amp; \approx \frac{\sum_k w^{(s)}_k \, 1_{\theta_k \in
+H_1}}{\sum_k w^{(s)}_k}.
+\end{align*}\]</span></p></li>
+</ol>
+<h3 id="case-b-variable-x">Case B: Variable <span
+class="math inline">\(x\)</span></h3>
+<p>In the more general setting, we want to learn a function that works
+for arbitrary interim data <span class="math inline">\(x\)</span>, not
+just a single fixed dataset. This enables true real-time decision-making
+as data accumulates.</p>
+<p>The key challenge is that for each training example, we need to
+approximate <span class="math inline">\(p(\theta \mid x^{(s)},
+z^{(s)})\)</span>, but this posterior varies for every simulated dataset
+pair. We exploit that when we generate data from <span
+class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>, this
+parameter lies in a high-likelihood region for both <span
+class="math inline">\(x^{(s)}\)</span> and <span
+class="math inline">\(z^{(s)}\)</span> generated from it, making <span
+class="math inline">\(\theta^{(s)}\)</span> a natural anchor point for
+approximating the joint posterior.</p>
+<p><strong>Option 1: Local importance sampling</strong></p>
+<p>This approach uses a local proposal distribution centered at the
+data-generating parameter <span
+class="math inline">\(\theta^{(s)}\)</span> to approximate the joint
+posterior <span class="math inline">\(p(\theta \mid x^{(s)},
+z^{(s)})\)</span>.</p>
+<p><strong>Algorithm:</strong></p>
+<p>For each <span class="math inline">\(s = 1, \ldots, S\)</span>,
+do:</p>
+<ol type="1">
+<li><p>Sample from prior: <span class="math inline">\(\theta^{(s)} \sim
+p(\theta)\)</span>.</p></li>
+<li><p>Generate current data: <span class="math inline">\(x^{(s)} \sim
+p(\cdot \mid \theta^{(s)})\)</span>.</p></li>
+<li><p>Generate future data: sample future observations from the same
+parameter <span class="math inline">\(z^{(s)} \sim p(\cdot \mid
+\theta^{(s)})\)</span>. Both <span
+class="math inline">\(x^{(s)}\)</span> and <span
+class="math inline">\(z^{(s)}\)</span> are generated from <span
+class="math inline">\(\theta^{(s)}\)</span>, so <span
+class="math inline">\(\theta^{(s)}\)</span> has high likelihood for both
+datasets.</p></li>
+<li><p>Construct local proposal: <span class="math display">\[
+q(\theta \mid \theta^{(s)}) = \mathcal{N}(\theta; \theta^{(s)}, \sigma^2
+I)
+\]</span> where <span class="math inline">\(\sigma^2\)</span> controls
+the local exploration radius, e.g., <span class="math inline">\(\sigma =
+0.1\)</span> times the prior standard deviation.</p></li>
+<li><p>Sample particles locally: Sample <span
+class="math inline">\(K\)</span> particles around <span
+class="math inline">\(\theta^{(s)}\)</span>: <span
 class="math display">\[
-y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)})
-\approx
-\frac{\sum_k w^{(s)}_k  1_{\theta_k\in H_1}}{\sum_k w^{(s)}_k}.
+\theta_k \sim q(\cdot \mid \theta^{(s)}), \quad k = 1, \ldots, K.
+\]</span> Optionally include <span
+class="math inline">\(\theta^{(s)}\)</span> itself as <span
+class="math inline">\(\theta_1 = \theta^{(s)}\)</span> to ensure at
+least one high-likelihood particle.</p></li>
+<li><p>Compute importance weights: Calculate weights for the joint
+posterior <span class="math inline">\(p(\theta \mid x^{(s)},
+z^{(s)})\)</span>: <span class="math display">\[\begin{align*}
+w_k &amp; = \frac{p(\theta_k \mid x^{(s)}, z^{(s)})}{q(\theta_k \mid
+\theta^{(s)})} \\
+&amp; \propto \frac{p(\theta_k) \, p(x^{(s)} \mid \theta_k) \, p(z^{(s)}
+\mid \theta_k)}{q(\theta_k \mid \theta^{(s)})},
+\end{align*}\]</span> and normalize to <span class="math display">\[
+\tilde{w}_k = w_k / \sum_{j=1}^K w_j.
 \]</span></p></li>
-</ul>
+<li><p>Estimate the label by <span class="math display">\[
+y^{(s)} := P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_k
+\, 1_{\theta_k \in H_1}.
+\]</span></p></li>
+</ol>
+<p><strong>Option 2: Sequential Monte Carlo</strong></p>
+<p>An alternative approach uses sequential importance sampling, which
+processes data incrementally and reuses the same <span
+class="math inline">\(K\)</span> particles across both <span
+class="math inline">\(x^{(s)}\)</span> and <span
+class="math inline">\(z^{(s)}\)</span>.</p>
+<p><strong>Algorithm:</strong></p>
+<p>For each <span class="math inline">\(s = 1, \ldots, S\)</span>,
+do:</p>
+<ol type="1">
+<li><p>Sample generating parameter: Sample <span
+class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>.</p></li>
+<li><p>Initialize particle system: Create <span
+class="math inline">\(K\)</span> particles by including <span
+class="math inline">\(\theta^{(s)}\)</span> and sampling <span
+class="math inline">\(K-1\)</span> additional particles from the prior:
+<span class="math display">\[
+\{\theta_{s,1} = \theta^{(s)}, \theta_{s,2}, \ldots, \theta_{s,K}\},
+\quad \theta_{s,k} \sim p(\theta) \text{ for } k \geq 2
+\]</span> with initial uniform weights <span
+class="math inline">\(w_{s,k}^{(0)} = 1/K\)</span> for all <span
+class="math inline">\(k\)</span>. Including <span
+class="math inline">\(\theta^{(s)}\)</span> as a particle ensures at
+least one particle has high likelihood.</p></li>
+<li><p>Generate current data: Sample one dataset <span
+class="math inline">\(x^{(s)} \sim p(\cdot \mid
+\theta^{(s)})\)</span>.</p></li>
+<li><p>Update particle weights for <span
+class="math inline">\(x^{(s)}\)</span>: Compute importance weights to
+approximate <span class="math inline">\(p(\theta \mid x^{(s)})\)</span>
+by evaluating how well each of the <span
+class="math inline">\(K\)</span> particles explains the observed <span
+class="math inline">\(x^{(s)}\)</span>: <span
+class="math display">\[\begin{align*}
+w_{s,k}^{(x)} &amp; \propto w_{s,k}^{(0)} \cdot p(x^{(s)} \mid
+\theta_{s,k}) \\
+\tilde{w}_{s,k}^{(x)} &amp; = w_{s,k}^{(x)} / \sum_{j=1}^K w_{s,j}^{(x)}
+\end{align*}\]</span> The normalized weights <span
+class="math inline">\(\{\theta_{s,k},
+\tilde{w}_{s,k}^{(x)}\}_{k=1}^K\)</span> now represent <span
+class="math inline">\(p(\theta \mid x^{(s)})\)</span>. Resample
+particles if the effective sample size <span
+class="math inline">\(1/\sum_k (\tilde{w}_{s,k}^{(x)})^2\)</span> is too
+small.</p></li>
+<li><p>Generate future data from posterior predictive: Sample one future
+dataset from the weighted particle system: <span class="math display">\[
+z^{(s)} \sim \sum_{k=1}^K \tilde{w}_{s,k}^{(x)} \, p(\cdot \mid
+\theta_{s,k}).
+\]</span> In practice, select a particle index <span
+class="math inline">\(\kappa \sim
+\text{Categorical}(\tilde{w}_{s,1}^{(x)}, \ldots,
+\tilde{w}_{s,K}^{(x)})\)</span> and generate <span
+class="math inline">\(z^{(s)} \sim p(\cdot \mid
+\theta_{s,\kappa})\)</span>.</p></li>
+<li><p>Sequential update for <span
+class="math inline">\(z^{(s)}\)</span>: Update the weights again to
+approximate <span class="math inline">\(p(\theta \mid x^{(s)},
+z^{(s)})\)</span> by evaluating how well each particle explains the
+joint data: <span class="math display">\[\begin{align*}
+w_{s,k}^{(x,z)} &amp; \propto \tilde{w}_{s,k}^{(x)} \cdot p(z^{(s)} \mid
+\theta_{s,k}) \\
+\tilde{w}_{s,k}^{(x,z)} &amp; = w_{s,k}^{(x,z)} / \sum_{j=1}^K
+w_{s,j}^{(x,z)}
+\end{align*}\]</span></p></li>
+<li><p>Estimate label: <span class="math display">\[
+y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K
+\tilde{w}_{s,k}^{(x,z)} \, 1_{\theta_{s,k} \in H_1}
+\]</span></p></li>
+</ol>
+<p><strong>Comparing Options 1 and 2</strong></p>
+<p>I was motivated to consider an alternative to option 1 because in
+option 1, both <span class="math inline">\(x^{(s)}\)</span> and <span
+class="math inline">\(z^{(s)}\)</span> are generated from the same <span
+class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>. The joint
+distribution is <span class="math display">\[
+  p^{\text{prior}}(x,z) = \int p(x \mid \theta) p(z \mid \theta)
+p(\theta) \, d\theta.
+  \]</span> However during deployment, for a fixed observed <span
+class="math inline">\(x\)</span>, we generate <span
+class="math inline">\(z \sim p(z \mid x)\)</span> from the posterior
+predictive to evaluate PPS, and thus the corresponding joint
+distribution is tighter. In option 2, after generating <span
+class="math inline">\(x^{(s)} \sim p(\cdot \mid \theta^{(s)})\)</span>,
+the future data <span class="math inline">\(z^{(s)}\)</span> is sampled
+from the posterior predictive <span class="math inline">\(p(z \mid
+x^{(s)})\)</span> via the particle approximation in step 4. The joint
+distribution is <span class="math display">\[
+  p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid
+\theta) p(\theta \mid x) \, d\theta\right] p(x),
+  \]</span> and this matches the deployment distribution.</p>
 <h2 id="step-2-learning-task">Step 2: learning task</h2>
 <p>Given the training data <span class="math inline">\((\theta^{(s)},
 x^{(s)}, z^{(s)}, y^{(s)})\)</span>, we need to learn two neural models

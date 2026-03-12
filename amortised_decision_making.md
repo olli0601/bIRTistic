@@ -371,32 +371,127 @@ which reduces the input dimension dramatically. This motivates learning low-dime
 
 ## Step 1: generating labelled training data
 
-Generating training data is more challenging that in NPE, I wonder if the following could work.
+Generating training data is more challenging than in neural posterior estimation (NPE). We consider two distinct cases depending on whether the current data \(x\) is fixed or variable.
 
-* Draw parameters \( \theta^s \sim p(\theta) \) for some simulation budget \(s=1,\dots,S\).
+### Case A: Fixed \(x\) with access to the posterior
 
-* Generate data from the prior predictive,
-\( x^s \sim p(\cdot \mid \theta^s) \), and future data from the posterior predictive \( z^s \sim p(\cdot \mid x^s) \). This involves the unknown posterior \( p(\theta|x^s) \), which is a problem.
+In this simpler setting, we have observed a specific interim dataset \(x_{1:n}\) and have access to the posterior distribution \(p(\theta \mid x)\). Then it is relatively straightforward to generate labelled training data:
 
-* Generate labels. For each simulated dataset we need to compute
-\begin{align*}
-y^{(s)} & 
-= P(H_1 \mid x^{(s)},z^{(s)}) 
-\\
-&
-\int 1_{\theta \in H_1}\, p(\theta \mid x^{(s)},z^{(s)})\, d\theta.
-\end{align*}
-To avoid learning the future posterior, we might be able to use importance reweighting with importance weights
-\begin{align*}
-w^{(s)}_k & \propto p(z^{(s)} \mid \theta_k) \\
-\theta_k & \sim p(\cdot \mid x^{(s)})
-\end{align*}
-Then we can calculate labels through
-\[
-y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)})
-\approx
-\frac{\sum_k w^{(s)}_k  1_{\theta_k\in H_1}}{\sum_k w^{(s)}_k}.
-\]
+1. Draw posterior samples: For simulation budget \(s = 1, \dots, S\), sample \( \theta^{(s)} \sim p(\theta \mid x) \).
+
+2. Generate future data: Sample future observations from the likelihood \( z^{(s)} \sim p(\cdot \mid \theta^{(s)}) \).
+
+3. Compute labels: For each simulated future dataset, we need to compute the posterior success probability
+   \[
+   y^{(s)} := P(H_1 \mid x, z^{(s)}) = \int 1_{\theta \in H_1} \, p(\theta \mid x, z^{(s)}) \, d\theta.
+   \]
+   Since we have the posterior \(p(\theta \mid x)\), we can use importance reweighting:
+   \begin{align*}
+   w^{(s)}_k & \propto p(z^{(s)} \mid \theta_k), \quad \theta_k \sim p(\cdot \mid x) \\
+   y^{(s)} & \approx \frac{\sum_k w^{(s)}_k \, 1_{\theta_k \in H_1}}{\sum_k w^{(s)}_k}.
+   \end{align*}
+
+### Case B: Variable \(x\)
+
+In the more general setting, we want to learn a function that works for arbitrary interim data \(x\), not just a single fixed dataset. This enables true real-time decision-making as data accumulates. 
+
+The key challenge is that for each training example, we need to approximate \(p(\theta \mid x^{(s)}, z^{(s)})\), but this posterior varies for every simulated dataset pair. We exploit that when we generate data from \(\theta^{(s)} \sim p(\theta)\), this parameter lies in a high-likelihood region for both \(x^{(s)}\) and \(z^{(s)}\) generated from it, making \(\theta^{(s)}\) a natural anchor point for approximating the joint posterior.
+
+**Option 1: Local importance sampling**
+
+This approach uses a local proposal distribution centered at the data-generating parameter \(\theta^{(s)}\) to approximate the joint posterior \(p(\theta \mid x^{(s)}, z^{(s)})\).
+
+**Algorithm:**
+
+For each \(s = 1, \ldots, S\), do:
+
+1. Sample from prior: \(\theta^{(s)} \sim p(\theta) \). 
+   
+2. Generate current data: \( x^{(s)} \sim p(\cdot \mid \theta^{(s)}) \).
+
+3. Generate future data: sample future observations from the same parameter \( z^{(s)} \sim p(\cdot \mid \theta^{(s)}) \). Both \(x^{(s)}\) and \(z^{(s)}\) are generated from \(\theta^{(s)}\), so \(\theta^{(s)}\) has high likelihood for both datasets.
+
+4. Construct local proposal:
+    \[
+    q(\theta \mid \theta^{(s)}) = \mathcal{N}(\theta; \theta^{(s)}, \sigma^2 I)
+    \]
+    where \(\sigma^2\) controls the local exploration radius, e.g., \(\sigma = 0.1\) times the prior standard deviation.
+
+5. Sample particles locally: Sample \(K\) particles around \(\theta^{(s)}\):
+    \[
+    \theta_k \sim q(\cdot \mid \theta^{(s)}), \quad k = 1, \ldots, K.
+    \]
+    Optionally include \(\theta^{(s)}\) itself as \(\theta_1 = \theta^{(s)}\) to ensure at least one high-likelihood particle.
+
+6. Compute importance weights: Calculate weights for the joint posterior \(p(\theta \mid x^{(s)}, z^{(s)})\):
+    \begin{align*}
+    w_k & = \frac{p(\theta_k \mid x^{(s)}, z^{(s)})}{q(\theta_k \mid \theta^{(s)})} \\
+    & \propto \frac{p(\theta_k) \, p(x^{(s)} \mid \theta_k) \, p(z^{(s)} \mid \theta_k)}{q(\theta_k \mid \theta^{(s)})},
+    \end{align*}
+    and normalize to
+    \[
+    \tilde{w}_k = w_k / \sum_{j=1}^K w_j.
+    \]
+
+7. Estimate the label by
+   \[
+    y^{(s)} := P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_k \, 1_{\theta_k \in H_1}.
+   \]
+   
+**Option 2: Sequential Monte Carlo**
+   
+An alternative approach uses sequential importance sampling, which processes data incrementally and reuses the same \(K\) particles across both \(x^{(s)}\) and \(z^{(s)}\).
+   
+**Algorithm:**
+
+For each \(s = 1, \ldots, S\), do:
+   
+   1. Sample generating parameter: Sample \(\theta^{(s)} \sim p(\theta)\).
+   
+   2. Initialize particle system: Create \(K\) particles by including \(\theta^{(s)}\) and sampling \(K-1\) additional particles from the prior:
+      \[
+      \{\theta_{s,1} = \theta^{(s)}, \theta_{s,2}, \ldots, \theta_{s,K}\}, \quad \theta_{s,k} \sim p(\theta) \text{ for } k \geq 2
+      \]
+      with initial uniform weights \(w_{s,k}^{(0)} = 1/K\) for all \(k\). Including \(\theta^{(s)}\) as a particle ensures at least one particle has high likelihood.
+   
+   3. Generate current data: Sample one dataset \(x^{(s)} \sim p(\cdot \mid \theta^{(s)})\).
+   
+   4. Update particle weights for \(x^{(s)}\): Compute importance weights to approximate \(p(\theta \mid x^{(s)})\) by evaluating how well each of the \(K\) particles explains the observed \(x^{(s)}\):
+      \begin{align*}
+      w_{s,k}^{(x)} & \propto w_{s,k}^{(0)} \cdot p(x^{(s)} \mid \theta_{s,k}) \\
+      \tilde{w}_{s,k}^{(x)} & = w_{s,k}^{(x)} / \sum_{j=1}^K w_{s,j}^{(x)}
+      \end{align*}
+      The normalized weights \(\{\theta_{s,k}, \tilde{w}_{s,k}^{(x)}\}_{k=1}^K\) now represent \(p(\theta \mid x^{(s)})\). Resample particles if the effective sample size \(1/\sum_k (\tilde{w}_{s,k}^{(x)})^2\) is too small.
+   
+   5. Generate future data from posterior predictive: Sample one future dataset from the weighted particle system:
+      \[
+      z^{(s)} \sim \sum_{k=1}^K \tilde{w}_{s,k}^{(x)} \, p(\cdot \mid \theta_{s,k}).
+      \]
+      In practice, select a particle index \(\kappa \sim \text{Categorical}(\tilde{w}_{s,1}^{(x)}, \ldots, \tilde{w}_{s,K}^{(x)})\) and generate \(z^{(s)} \sim p(\cdot \mid \theta_{s,\kappa})\).
+   
+   6. Sequential update for \(z^{(s)}\): Update the weights again to approximate \(p(\theta \mid x^{(s)}, z^{(s)})\) by evaluating how well each particle explains the joint data:
+      \begin{align*}
+      w_{s,k}^{(x,z)} & \propto \tilde{w}_{s,k}^{(x)} \cdot p(z^{(s)} \mid \theta_{s,k}) \\
+      \tilde{w}_{s,k}^{(x,z)} & = w_{s,k}^{(x,z)} / \sum_{j=1}^K w_{s,j}^{(x,z)}
+      \end{align*}
+   
+   7. Estimate label:
+      \[
+      y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_{s,k}^{(x,z)} \, 1_{\theta_{s,k} \in H_1}
+      \]
+
+**Comparing Options 1 and 2**
+
+I was motivated to consider an alternative to option 1 because in option 1, both \(x^{(s)}\) and \(z^{(s)}\) are generated from the same \(\theta^{(s)} \sim p(\theta)\). The joint distribution is
+  \[
+  p^{\text{prior}}(x,z) = \int p(x \mid \theta) p(z \mid \theta) p(\theta) \, d\theta.
+  \]
+However during deployment, for a fixed observed \(x\), we generate \(z \sim p(z \mid x)\) from the posterior predictive to evaluate PPS, and thus the corresponding joint distribution is tighter. In option 2, after generating \(x^{(s)} \sim p(\cdot \mid \theta^{(s)})\), the future data \(z^{(s)}\) is sampled from the posterior predictive \(p(z \mid x^{(s)})\) via the particle approximation in step 4. The joint distribution is
+  \[
+  p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid \theta) p(\theta \mid x) \, d\theta\right] p(x),
+  \]
+and this matches the deployment distribution.
+
 
 ## Step 2: learning task
 
