@@ -78,11 +78,20 @@ with prior
 p \sim \text{Beta}(a,b).
 \]
 
-After observing \(x_{1:n}\) data points with $k^n$ successes the posterior is
+The Bernoulli distribution belongs to the exponential family:
+\begin{align*}
+p(x_i \mid p) & 
+= p^{x_i}(1-p)^{1-x_i} = \exp\{x_i \log p + (1-x_i)\log(1-p)\} 
+\\
+& 
+= \exp\{\log\left(\frac{p}{1-p}\right) x_i + \log(1-p)\},
+\end{align*}
+with natural parameter \(\eta(p) = \log(p/(1-p))\), sufficient statistics \(T(x_i) = x_i\), and log-partition function \(A(p) = -\log(1-p)\). For \(n\) observations, the likelihood depends only on the sufficient statistic \(T(x_{1:n}) = \sum_{i=1}^n x_i = k^n\), the total number of successes. After observing \(x_{1:n}\) data points with $k^n$ successes the posterior is
 
 \[
 p \mid x \sim \text{Beta}(a+k^n, b+n-k^n).
 \]
+
 
 Suppose the future, remaining data \(z\) comprise \(m\) additional data points. Then the posterior predictive distribution of $k^m$ future successes is
 
@@ -112,81 +121,110 @@ In the future, with \(z\) additional data, success occurs when
 P(H_1 \mid x,z) > \eta.
 \]
 
-Let us define the set
+Since the posterior depends only on the sufficient statistic \(k^m\) (the number of successes in the future data), and \(P(H_1 \mid x, k^m)\) is monotonically increasing in \(k^m\), we can find the threshold
 
 \[
-S =
-\{z :
-P(H_1 \mid x,z) > \eta
-\}.
+k^m_\star = \min\{k^m \in \{0, 1, \ldots, m\} : P(H_1 \mid x, k^m) > \eta\}.
 \]
 
-Then the PPS becomes
+Then the PPS becomes a simple tail sum:
 
 \[
 PPS(x)
 =
-\sum_{z \in S}
-p(z \mid x),
+\sum_{k^m = k^m_\star}^m
+p(k^m \mid x),
 \]
 
-where \(p(z \mid x)\) is the Beta–Binomial predictive distribution from above. So,
+where \(p(k^m \mid x)\) is the Beta–Binomial predictive distribution. Explicitly,
 
 \[
 PPS(x)
 =
-\sum_{z \in S}
+\sum_{k^m = k^m_\star}^m
 {m \choose k^m}
 \frac{B(a+k^n+k^m,b+n+m-k^n-k^m)}{B(a+k^n,b+n-k^n)}.
 \]
-
-This is analytically computable.
 
 ---
 
 ## 3.2 Categorical model
 
-For
+Let
 
 \[
 x_i \sim \text{Categorical}(p)
 \]
 
-with
+with parameter vector \(p = (p_1, \ldots, p_K)\) where \(\sum_{k=1}^K p_k = 1\), and prior
 
 \[
-p \sim \text{Dirichlet}(\alpha)
+p \sim \text{Dirichlet}(\alpha),
 \]
 
-the sufficient statistic is the count vector
+where \(\alpha = (\alpha_1, \ldots, \alpha_K)\).
+
+The Categorical distribution belongs to the exponential family:
+\begin{align*}
+p(x_i \mid p) & 
+= \prod_{k=1}^K p_k^{1_{x_i = k}} 
+= \exp\left\{\sum_{k=1}^K 1_{x_i = k} \log p_k\right\}
+\\
+&
+= \exp\left\{\sum_{k=1}^{K-1} \log\left(\frac{p_k}{p_K}\right) 1_{x_i = k} + \log p_K\right\},
+\end{align*}
+with natural parameters \(\eta_k(p) = \log(p_k/p_K)\) for \(k = 1, \ldots, K-1\), sufficient statistics \(T_k(x_i) = 1_{x_i = k}\) for \(k = 1, \ldots, K-1\), and log-partition function \(A(p) = -\log p_K\). For \(n\) observations, the likelihood depends only on the sufficient statistic \(T(x_{1:n}) = (k_1^n, \ldots, k_K^n)\), the count vector where \(k_k^n = \sum_{i=1}^n 1_{x_i = k}\) is the number of observations in category \(k\). After observing \(x_{1:n}\) data points with counts \(k_k^n\) the posterior is
 
 \[
-N_k.
+p \mid x \sim \text{Dirichlet}(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n).
 \]
 
-Future observations produce counts
+Suppose the future, remaining data \(z\) comprise \(m\) additional data points. Then the posterior predictive distribution of the future count vector \((k_1^m, \ldots, k_K^m)\) is
+
+\begin{align*}
+(k_1^m, \ldots, k_K^m) & \sim \int \text{Multinomial}(m, p) \, \text{Dirichlet}(p; \alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n) \, dp \\
+& = \text{Dirichlet-Multinomial}(m, \alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n).
+\end{align*}
+
+If future counts \((k_1^m, \ldots, k_K^m)\) occur:
 
 \[
-M_k.
+p \mid x,z \sim \text{Dirichlet}(\alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m).
 \]
 
-The predictive distribution is
+The final posterior success probability is
 
 \[
-M \mid x \sim \text{Dirichlet-Multinomial}.
+P(H_1 \mid x,z) = \int 1_{p \in H_1} \, \text{Dirichlet}(p; \alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m) \, dp,
 \]
 
-The PPS becomes
+which can be computed via numerical integration or Monte Carlo sampling from the posterior.
+
+In the future, with \(z\) additional data, success occurs when
 
 \[
-PPS(x)
-=
-\sum_{M}
-1\{P(H_1 \mid x,M) > \eta\}
-P(M \mid x),
+P(H_1 \mid x,z) > \eta.
 \]
 
-which is combinatorially larger but still analytic.
+Since the posterior depends only on the sufficient statistic \((k_1^m, \ldots, k_K^m)\) (the count vector of future data), we can define the success set directly in terms of this count vector. Let
+
+\[
+S = \{(k_1^m, \ldots, k_K^m) : \sum_{j=1}^K k_j^m = m, \, P(H_1 \mid x, k_1^m, \ldots, k_K^m) > \eta\},
+\]
+
+where the constraint \(\sum_{j=1}^K k_j^m = m\) ensures the counts sum to the total number of future observations. Then the PPS becomes
+
+\[
+PPS(x) = \sum_{(k_1^m, \ldots, k_K^m) \in S} p(k_1^m, \ldots, k_K^m \mid x),
+\]
+
+where \(p(k_1^m, \ldots, k_K^m \mid x)\) is the Dirichlet-Multinomial predictive distribution:
+
+\[
+p(k_1^m, \ldots, k_K^m \mid x) = \frac{m!}{k_1^m! \cdots k_K^m!} \frac{B(\alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m)}{B(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n)},
+\]
+
+where \(B(\cdot)\) is the multivariate Beta function. This is analytically computable but combinatorially more expensive than the Binomial case due to the larger state space of count vectors.
 
 ---
 
@@ -350,26 +388,32 @@ q_\phi(x,z)
 \end{align*}
 which makes clear that we focus on learning the loss weighted mean of the future posterior. This is decision-focussed learning, we learn what is required to make an optimal decision.
 
-For product likelihood models in the exponential family, we have
+If we step back for a moment, for product likelihood models in the exponential family, we have for each data input \(\chi_i\)
 
 \[
-p(x|\theta)=h(x)\exp\{\eta(\theta)^\top T(x)-A(\theta)\},
+p(\chi_i|\theta)=h(x_i)\exp\{\eta(\theta)^\top T(\chi_i)-A(\theta)\},
 \]
 
-and so with a conjugate prior, the posterior is also in the exponential family and depends only on the sufficient statistic \( T(x,z) = T(x) + T(z) \). We can re-express our target in terms of some deterministic random function \(g\)
+and so with a conjugate prior, the posterior is also in the exponential family and depends only on the sufficient statistic. In this case, if we condition on \(x\) and \(z\), we can re-express our target in terms of some function \(g\)
 \[
-P(H_1|x,z) = g\big(T(x)+T(z)\big).
+P(H_1|x,z) = g\big(\sum_{i=1}^n T(x_i) + \sum_{i^*=1}^m T(z_{i^*})\big).
 \]
 
-So the neural model should learn
+We always have that the data \(x_i\) and \(z_{i^*}\) are permutation invariant, and this motivates that we want to learn end-to-end a two-stage neural model \( q_\psi, q_\tau \) that decomposes along the DeepSets theorem,
 
 \[
-(T(x),T(z)) \mapsto q_\phi(T(x)+T(z)) \approx g\big(T(x)+T(z)\big),
+(x,z) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x_i) + \sum_{i^* =1}^m q_\tau(z_{i^*})\bigg) \approx P(H_1|x,z).
 \]
 
-which reduces the input dimension dramatically. This motivates learning low-dimensional summaries as part of the overall workflow, in the same way as in neural posterior estimation.
+In particular, this immediately provides generalisability to different current data sets of different sizes \(n\), and to different future data sets of different sizes \(m\).
 
-## Step 1: generating labelled training data
+There are three steps:
+
+* Workflow Step 1: generating labelled training data
+* Workflow Step 2: learning neural architectures
+* Workflow Step 3: deployment, amortise PPS
+
+# 7. Workflow Step 1: generating labelled training data
 
 Generating training data is more challenging than in neural posterior estimation (NPE). We consider two distinct cases depending on whether the current data \(x\) is fixed or variable.
 
@@ -493,26 +537,65 @@ However during deployment, for a fixed observed \(x\), we generate \(z \sim p(z 
 and this matches the deployment distribution.
 
 
-## Step 2: learning task
+# 8. Step 2: learning neural architectures
 
-Given the training data \( (\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)}) \), we need to learn two neural models that learn low-dimensional summaries and the decision target,
+Given the training data \( (\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)}) \), the current idea is to learn end-to-end two neural models \(q_\tau\) and \(q_\psi\) that respectively learn low-dimensional summaries and the decision target,
 
 \[
-q_\phi( q_\psi(x^{(s)}) + q_\psi(z^{(s)}) ) \approx y^{(s)} = P(H_1 \mid x^{(s)},z^{(s)}). 
+(x^{(s)},z^{(s)}) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) \approx y^{(s)} = P(H_1|x^{(s)},z^{(s)}).
 \]
 
-Our observations are exchangeable, so we need to use  permutation-invariant architectures, perhaps DeepSets.
+Since \(y^{(s)}\) are probabilities, perhaps set the loss function to logit mean square error,
 
-The summary network and decision rule network are differentiable, and we can simultaneously learn \(\phi, \psi\) with end-to-end backpropagation.
+\[
+\mathrm{arg\,min}_{\psi, \tau} \frac{1}{S} \sum_{s=1}^S \bigg[ q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) - \text{logit} \: y^{(s)} \bigg]^2.
+\]
 
+The specifics of our core application (Hope Groups intervention) are as follows: our data are ordered categorical responses, so each person \(i\) provides \(J\) item responses \(x_{ij} \in \{1, \ldots, K\}\) where \(K\) is the number of ordered categories. The typical scale of our data sets is \(N \approx 1000\) persons, \(J \approx 20\) items, \(K \approx 8\) categories. The data are permutation invariant over participants \(i\), but not over survey items \(j\).
 
-## Step 3: amortising PPS 
+**Option 1:  unrestricted embeddings**
+
+Learn \(q_\psi\) and \(q_\tau\) without constraints, starting with a simple MLP architecture?
+
+**Option 2:  minimum embeddings**
+
+There are two simple, relevant models in the exponential family. First, the categorical model assuming that participants and responses are iid, and in this case the sufficient statistics are the \(K-1\) dimensional vector of counts, which can be written as the sum of \(K-1\) dimensional one-hot encodings for each \(i,j\). This suggests that the network \(q_\tau\) should be at least into \(\mathbb{R}^{K-1}\), and that the first \(K-1\) should be one-hot embeddings. 
+
+**Option 3:  minimum restricted embeddings**
+
+Second, the other extreme is a categorical model that assumes that participants are identical but responses are indpendent, in which case the sufficient statistics are the sum of \(JK-J\) dimensional one-hot encodings for each \(i\). This suggests that the network \(q_\tau\) should at most be into \(\mathbb{R}^{JK-J}\). 
+
+**Additional points on the training strategy**
+
+* Hold out a 20\% of the simulated examples \((\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)})\) as test set
+* Mini-batching: With \(S \sim 10^4\) to \(10^5\) training examples, use stochastic gradient descent with mini-batches of size 32-256.
+* Since \(y^{(s)} \in [0,1]\) is a probability, set the output layer to sigmoid activation
+* Vary \(n\) and \(m\) (number of persons in current and future data) within training examples to improve generalization
+
+**Nested DeepSets architecture:**
+
+Respect the hierarchical structure with person-level and dataset-level aggregation:
+\[
+q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N \rho_{\text{inner}}\left(\sum_{j=1}^J \phi_{\text{embed}}(x_{ij}, j)\right)\right)
+\]
+This first aggregates item responses within each person, then aggregates across persons.
+
+# 9. Step 3: Deployment, amortising PPS 
 
 After training, 
 
-* for any observed data \(x_{1:n}\) we can compute \(q_\psi( x_{1:n} )\). 
-* If we assume we have access to today's posterior \(p(\theta | x)\), then it is cheap to generate posterior predictions \(z^\star_{1:m}\). We can also compute \(q_\psi( z^\star_{1:m} )\).
-* Next we can compute \( q_\phi( q_\psi(x_{1:n}) + q_\psi(z^\star_{1:m}) ) \) and approximate the PPS through
+* for any observed data \(x_{1:n}\) we can compute \( \sum_{i=1}^n q_\tau(x^{(s)}_i) \). 
+* give interim data \(x_{1:n}\), in practice we will estimate today's posterior \(p(\theta | x)\) with some Monte Carlo algorithm, and compute the first target objective, have we already won, \( 1\{ P(H_1 \mid x ) > \eta \). It is cheap to generate posterior predictions \(z^\star_{1:m}\). Then we can compute \( \sum_{i^\star=1}^m q_\tau(z^{(s)}_{i^\star}) \) for the corresponding \(m = N - n\).
+* Next we can compute the PPS approximation
+
 \[
-PPS(x) \approx \sum_{z_{1:m}} 1\{ q_\phi( q_\psi(x_{1:n}) + q_\psi(z^\star_{1:m}) ) > \eta \}
+q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg).
 \]
+
+# 10. Tasks
+
+* Generate functions to compute the exact \( PPS(x) \) in the case of simple Binomial and Categorial models
+* Generate a case study that illustrates contracting posterior distributions with additional data, and evolving \( PPS(x) \) with additional data under the simple Binomial model. Illustrate stopping early for futility/safety and for efficacy. 
+* Generate functions that implement Case A and B in generating labelled training data.
+* Test these functions against the analytical formula under the simple Binomial and Categorial model.
+* Test these functions against the analytical formula under the Categorial model.
