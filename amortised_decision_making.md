@@ -413,6 +413,10 @@ There are three steps:
 * Workflow Step 2: learning neural architectures
 * Workflow Step 3: deployment, amortise PPS
 
+
+---
+
+
 # 7. Workflow Step 1: generating labelled training data
 
 Generating training data is more challenging than in neural posterior estimation (NPE). We consider two distinct cases depending on whether the current data \(x\) is fixed or variable.
@@ -537,6 +541,9 @@ However during deployment, for a fixed observed \(x\), we generate \(z \sim p(z 
 and this matches the deployment distribution.
 
 
+---
+
+
 # 8. Step 2: learning neural architectures
 
 Given the training data \( (\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)}) \), the current idea is to learn end-to-end two neural models \(q_\tau\) and \(q_\psi\) that respectively learn low-dimensional summaries and the decision target,
@@ -580,6 +587,10 @@ q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N \rho_{\text{inner}}\left(\sum_
 \]
 This first aggregates item responses within each person, then aggregates across persons.
 
+
+---
+
+
 # 9. Step 3: Deployment, amortising PPS 
 
 After training, 
@@ -591,6 +602,10 @@ After training,
 \[
 q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg).
 \]
+
+
+---
+
 
 # 10. Tasks
 

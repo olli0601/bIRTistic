@@ -672,6 +672,7 @@ different sizes <span class="math inline">\(m\)</span>.</p>
 <li>Workflow Step 2: learning neural architectures</li>
 <li>Workflow Step 3: deployment, amortise PPS</li>
 </ul>
+<hr />
 <h1 id="workflow-step-1-generating-labelled-training-data">7. Workflow
 Step 1: generating labelled training data</h1>
 <p>Generating training data is more challenging than in neural posterior
@@ -864,6 +865,7 @@ distribution is <span class="math display">\[
   p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid
 \theta) p(\theta \mid x) \, d\theta\right] p(x),
   \]</span> and this matches the deployment distribution.</p>
+<hr />
 <h1 id="step-2-learning-neural-architectures">8. Step 2: learning neural
 architectures</h1>
 <p>Given the training data <span class="math inline">\((\theta^{(s)},
@@ -941,6 +943,7 @@ q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N
 j)\right)\right)
 \]</span> This first aggregates item responses within each person, then
 aggregates across persons.</p>
+<hr />
 <h1 id="step-3-deployment-amortising-pps">9. Step 3: Deployment,
 amortising PPS</h1>
 <p>After training,</p>
@@ -964,6 +967,7 @@ class="math inline">\(m = N - n\)</span>.</li>
 q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m
 q_\tau(z^{(s)}_{i^*})\bigg).
 \]</span></p>
+<hr />
 <h1 id="tasks">10. Tasks</h1>
 <ul>
 <li>Generate functions to compute the exact <span
