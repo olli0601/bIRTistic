@@ -258,8 +258,7 @@ given the current data <span class="math inline">\(x\)</span>.</p>
 <p>Thus PPS thus answers: How likely are we to win in the future if the
 intervention continues?</p>
 <hr />
-<h1 id="analytically-tractable-examples">3. Analytically tractable
-examples</h1>
+<h1 id="examples">3. Examples</h1>
 <h2 id="binomial-model">3.1 Binomial Model</h2>
 <p>Let</p>
 <p><span class="math display">\[
@@ -437,6 +436,81 @@ k_K^m)}{B(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n)},
 multivariate Beta function. This is analytically computable but
 combinatorially more expensive than the Binomial case due to the larger
 state space of count vectors.</p>
+<h2 id="item-response-model">3.3 Item-response model</h2>
+<p>In our applications, we are interested in Item Response Theory (IRT)
+models that can be fitted to real-time survey data collected about
+interventions in humanitarian and social science settings. The data
+consist of responses to Likert-scale survey items collected from
+participants at baseline and endline. The data increases in size as more
+individuals are surveyed. The goal is to quantify intervention
+effectiveness based on the current data, and to quantify the predictive
+probability of success (PPS).</p>
+<p>Throughout, let <span class="math inline">\(i\)</span> index
+participants (<span class="math inline">\(i = 1, \ldots, n\)</span>),
+<span class="math inline">\(j\)</span> index items/questions (<span
+class="math inline">\(j = 1, \ldots, J\)</span>), and <span
+class="math inline">\(k\)</span> index response categories (<span
+class="math inline">\(k = 1, \ldots, K\)</span>). The response of
+participant <span class="math inline">\(i\)</span> to item <span
+class="math inline">\(j\)</span> at time <span
+class="math inline">\(t\)</span> (baesline or endline) is <span
+class="math inline">\(Y_{ijt}\)</span>; for simplicity we suppress <span
+class="math inline">\(t\)</span> in what follows. A widely-used IRT
+model which we use here is the partial credit model. The PCM models
+ordered categorical probabilities with cumulative logits,</p>
+<p><span class="math display">\[\begin{align*}
+P(Y_{ij} = k) &amp;= \text{softmax}(\phi_{i,j,k}) =
+\frac{\exp(\phi_{i,j,k})}{\sum_{k&#39;=1}^K \exp(\phi_{i,j,k&#39;})}\\
+\phi_{i,j,1} &amp;= 0\\
+\phi_{i,j,k} &amp;= \sum_{s=1}^k \lambda_{j} \cdot \left(\theta_i +
+\mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,s}\right), \quad
+k=2,\dotsc,K
+\end{align*}\]</span></p>
+<p>The number of free parameters are <span
+class="math inline">\(N\)</span> latent skills parameters <span
+class="math inline">\(\theta_i\)</span>, one for each participant; <span
+class="math inline">\(J(K-1)\)</span> incremental skill thresholds <span
+class="math inline">\(c_{j,s}\)</span>, one for each categorical
+increment for each response item; <span class="math inline">\(J\)</span>
+item loadings; and <span class="math inline">\(P\)</span> fixed
+participants effects. The total number of parameters is thus <span
+class="math inline">\(N+JK + P\)</span>, comprising <span
+class="math inline">\(N\)</span> local parameters that grow wich each
+new participant and <span class="math inline">\(JK + P\)</span> global
+parameters that are shared across participants.</p>
+<p>By construction, the PCM admits an incremental log-risk
+structure:</p>
+<p><span class="math display">\[\begin{align*}
+\log \frac{\Pr(Y_{i,j} = k)}{\Pr(Y_{i,j} = k-1)}
+=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T
+\boldsymbol{\beta} - c_{j,k}\right)
+\end{align*}\]</span></p>
+<p>The model thus does not follow the proportional cumulative odds
+assumptions, but it has a proportional incremental risk assumption: when
+<span class="math inline">\(\beta\)</span> represents an intervention
+effect (e.g., <span class="math inline">\(X_{i,j,t} = 1\)</span> at time
+<span class="math inline">\(t=1\)</span> and <span
+class="math inline">\(X_{i,j,t} = 0\)</span> at time <span
+class="math inline">\(t=0\)</span>), then</p>
+<p><span class="math display">\[\begin{align*}
+&amp;\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} =
+k-1 \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = k-1
+\mid \eta_{i,j,t=0})}\\
+&amp;\quad =
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
+=
+\exp( \lambda_j \beta ),
+\end{align*}\]</span></p>
+<p>so when measured in incremental risks, the effect of the intervention
+is proportional to <span class="math inline">\(\exp\beta\)</span>, and
+the same regardless of the category <span
+class="math inline">\(k\)</span>.</p>
+<p>Computationally, the PCM involves direct evaluations of category
+specific events (<span class="math inline">\(Pr(Y=k)\)</span> not <span
+class="math inline">\(Pr(Y\leq k)\)</span>) and therefore tends to be
+much faster to evaluate and less prone to numerical issues than other
+IRT models. Standard priors can be attached to all free parameters.</p>
 <hr />
 <h1 id="no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of
 the PPS to today’s knowledge</h1>

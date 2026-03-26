@@ -62,7 +62,7 @@ Thus PPS thus answers: How likely are we to win in the future if the interventio
 
 ---
 
-# 3. Analytically tractable examples
+# 3. Examples
 
 ## 3.1 Binomial Model
 
@@ -225,6 +225,43 @@ p(k_1^m, \ldots, k_K^m \mid x) = \frac{m!}{k_1^m! \cdots k_K^m!} \frac{B(\alpha_
 \]
 
 where \(B(\cdot)\) is the multivariate Beta function. This is analytically computable but combinatorially more expensive than the Binomial case due to the larger state space of count vectors.
+
+## 3.3 Item-response model
+
+In our applications, we are interested in Item Response Theory (IRT) models that can be fitted to real-time survey data collected about interventions in humanitarian and social science settings. 
+The data consist of responses to Likert-scale survey items collected from participants at baseline and endline. The data increases in size as more individuals are surveyed. The goal is to quantify intervention effectiveness based on the current data, and to quantify the predictive probability of success (PPS).
+
+Throughout, let $i$ index participants ($i = 1, \ldots, n$), $j$ index items/questions ($j = 1, \ldots, J$), and $k$ index response categories ($k = 1, \ldots, K$). The response of participant $i$ to item $j$ at time $t$ (baesline or endline) is $Y_{ijt}$; for simplicity we suppress $t$ in what follows. A widely-used IRT model which we use here is the partial credit model. The PCM models ordered categorical probabilities with cumulative logits,
+
+\begin{align*}
+P(Y_{ij} = k) &= \text{softmax}(\phi_{i,j,k}) = \frac{\exp(\phi_{i,j,k})}{\sum_{k'=1}^K \exp(\phi_{i,j,k'})}\\
+\phi_{i,j,1} &= 0\\
+\phi_{i,j,k} &= \sum_{s=1}^k \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,s}\right), \quad k=2,\dotsc,K
+\end{align*}
+
+The number of free parameters are \(N\) latent skills parameters \(\theta_i\), one for each participant; \(J(K-1)\) incremental skill thresholds \(c_{j,s}\), one for each categorical increment for each response item; \(J\) item loadings; and \(P\) fixed participants effects. The total number of parameters is thus \(N+JK + P\), comprising \(N\) local parameters that grow wich each new participant and \(JK + P\) global parameters that are shared across participants.
+
+By construction, the PCM admits an incremental log-risk structure:
+
+\begin{align*}
+\log \frac{\Pr(Y_{i,j} = k)}{\Pr(Y_{i,j} = k-1)}
+=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,k}\right)
+\end{align*}
+
+The model thus does not follow the proportional cumulative odds assumptions, but it has a proportional incremental risk assumption: when $\beta$ represents an intervention effect (e.g., $X_{i,j,t} = 1$ at time $t=1$ and $X_{i,j,t} = 0$ at time $t=0$), then 
+
+\begin{align*}
+&\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} = k-1 \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = k-1 \mid \eta_{i,j,t=0})}\\
+&\quad = 
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
+= 
+\exp( \lambda_j \beta ),
+\end{align*}
+
+so when measured in incremental risks, the effect of the intervention is proportional to $\exp\beta$, and the same regardless of the category $k$.
+
+Computationally, the PCM involves direct evaluations of category specific events ($Pr(Y=k)$ not $Pr(Y\leq k)$) and therefore tends to be much faster to evaluate and less prone to numerical issues than other IRT models. Standard priors can be attached to all free parameters.
 
 ---
 
