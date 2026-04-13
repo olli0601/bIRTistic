@@ -77,7 +77,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     set(dp, NULL, c("Physical_Emotional_Violence7",
         "Positive_Parenting7", "Parental_Involvement7", "Parental_Monitoring7",
         "Resilience7", "Child_Wellbeing7", "IPV_Prevention7", "Key"), NULL)
-    set(dp, NULL, c("CESD_hopeful", "Format_Final", 
+    set(dp, NULL, c("Format_Final", "Resilience",
         "IPV_Prevention", "overall_session_completion", "partner_conflict_num", 
         "PHQ4_add_ins1", "PHQ4_down_numeric", 
         "PHQ4_down_numeric_weight", "PHQ4_interest_numeric", 
@@ -94,9 +94,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     )
 
     # Rename up outcome labels - Mental Health
-    # TODO: only the following last 4 items map to categorical 0 - 3
-    # TODO: I don t know how they map to the Colombbia labels
-    # From Syd - MH variables do not map to Colombia labels. They are different survey scales.
+    # MH variables do not map to Colombia labels. They are different survey scales.
     setnames(
          dp,
          c(
@@ -109,8 +107,6 @@ read_data_ukraine <- function(file_data_Ukraine) {
     set(dp, NULL, c("PHQ4_anxious", "PHQ4_depress"), NULL)
 
     # Clean up outcome labels - Positive Parenting
-    # TODO please check, I replaced here "PSSS_learn" with "APQ_PP_compliment", is this as it should be?
-    # From Syd: Yes all correct!
     setnames(
         dp,
         c("Positive_Parenting", "APQ_PP_compliment", "APQ_I_play"),
@@ -141,15 +137,9 @@ read_data_ukraine <- function(file_data_Ukraine) {
     # Clean up outcome labels - Self-care and Discipline
     setnames(
         dp,
-        c("CESD_depressed", "selfcare", "grieve", "PARYC_SL_calmly"),
+        c("CESD_depressed", "selfcare", "CESD_hopeful", "PARYC_SL_calmly"),
         c("CG-DEPRESSION", "CG-SELFCARE", "CG-RESILIENCE", "CG-NONVIOLENT-DISCIPLINE")
     )
-
-    # TODO: "Resilience" does not map to 0-7 days as in Colombia
-    # From Syd - "Resilience" in Colombia links to "CESD_hopeful" in Ukraine
-    # You may have deleted this in line 83 above 
-    
-    set(dp, NULL, "Resilience", NULL)
 
     # Clean up date - handles ISO 8601 format automatically
     set(
