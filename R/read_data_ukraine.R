@@ -96,6 +96,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     # Rename up outcome labels - Mental Health
     # TODO: only the following last 4 items map to categorical 0 - 3
     # TODO: I don t know how they map to the Colombbia labels
+    # From Syd - MH variables do not map to Colombia labels. They are different survey scales.
     setnames(
          dp,
          c(
@@ -109,6 +110,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
 
     # Clean up outcome labels - Positive Parenting
     # TODO please check, I replaced here "PSSS_learn" with "APQ_PP_compliment", is this as it should be?
+    # From Syd: Yes all correct!
     setnames(
         dp,
         c("Positive_Parenting", "APQ_PP_compliment", "APQ_I_play"),
@@ -144,6 +146,9 @@ read_data_ukraine <- function(file_data_Ukraine) {
     )
 
     # TODO: "Resilience" does not map to 0-7 days as in Colombia
+    # From Syd - "Resilience" in Colombia links to "CESD_hopeful" in Ukraine
+    # You may have deleted this in line 83 above 
+    
     set(dp, NULL, "Resilience", NULL)
 
     # Clean up date - handles ISO 8601 format automatically
