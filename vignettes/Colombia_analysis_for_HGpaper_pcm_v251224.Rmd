@@ -162,13 +162,11 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 
-```{r create prepost propensity scores}
-#  create propensity score for pre-post model
-
-dp1_col <- dp1_col %>% mutate(pid_timepoint = str_c(pid_label, time_label))
-dmeta_col <- dmeta_col %>% mutate(pid_timepoint = str_c(pid_label, time_label), time = ifelse(time_label == "Baseline",0,1))
-
-dmeta_col4prop <- dmeta_col %>% distinct(pid_timepoint, .keep_all = TRUE)
+```{r create prepost propensity scores, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+#  create propensity score and time since death as fixed effectsfor pre-post model
+dp1_col[, pt_label := paste0(pid_label, time_label)]
+dmeta_col[, pt_label := paste0(pid_label, time_label)]
+dmeta_col[, time := fifelse(time_label == "Baseline", 0, 1)]
 
 ps_vars <- c(
   "time",
@@ -190,17 +188,26 @@ ps_vars <- c(
 )
 
 # Keep only observations with no missing values in PS variables
-dmeta_col4prop <- dmeta_col4prop %>%
-  filter(if_all(all_of(ps_vars), ~ !is.na(.)))
+tmp <- unique(dmeta_col, by = "pt_label")
+tmp <- tmp[complete.cases(tmp[, ..ps_vars])]
 
 # Make propensity score
-propensity <- glm(time ~ age + sex + stressmeals + household_adults + household_children + child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + services_COUNSELING + services_CHILDCARE + education + income.per.person + maritalstat, family = "binomial", data=dmeta_col4prop)
-predicted <- predict(propensity, type="response", data=dmeta_col4prop)
+fit_propensity <- glm(
+  time ~ age + sex + stressmeals + household_adults + household_children + 
+    child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + 
+    services_COUNSELING + services_CHILDCARE + education + income.per.person + 
+    maritalstat, 
+  family = "binomial", 
+  data = tmp
+)
+tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
 
-# Combine propensity scores with dataset for model 
-prop.data <- cbind(predicted, dmeta_col4prop) %>% select(pid_timepoint, predicted, time_since_death)
-dp1_col <- dp1_col %>% left_join(prop.data, by="pid_timepoint")
-dp1_col <- dp1_col %>% mutate(time_since_death = scale(time_since_death))
+# Add propensity scores and time since death to dp1_col
+tmp <- subset(tmp, select = c("pt_label", "ps_score", "time_since_death"))
+dp1_col <- merge(dp1_col, tmp, by= "pt_label")
+dp1_col[, time_since_death_scaled := scale(time_since_death)]
+dp1_col[, ps_score_scaled := scale(ps_score)]
+dp1_col[, pt_label := NULL]
 ```
 
 
@@ -246,11 +253,11 @@ dmeta_col <- copy(tmp$dmeta)
 # setnames(match_data, "time", "treat")
 # setkey(match_data, submission_date, treat, pid)
 # m_out <- MatchIt::matchit(
-  #   treat ~ date_numeric,
-  #   data = as.data.frame(match_data),
-  #   method = "nearest",
-  #   distance = "mahalanobis",
-  #   ratio = 1
+#   treat ~ date_numeric,
+#   data = as.data.frame(match_data),
+#   method = "nearest",
+#   distance = "mahalanobis",
+#   ratio = 1
 # )
 matched_data <- as.data.table(MatchIt::match.data(m_out))
 tmp <- matched_data[, list(n = length(date_numeric), date_diff = diff(date_numeric)), by = 'subclass']
