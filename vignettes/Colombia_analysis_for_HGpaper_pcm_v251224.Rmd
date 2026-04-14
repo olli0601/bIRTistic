@@ -76,11 +76,12 @@ source(here::here("R", "train_test_split_data.R"))
 source(here::here("R", "fit_credit_model.R"))
 source(here::here("R", "fit_ordered_logit_model.R"))
 source(here::here("R", "fit_partial_credit_model.R"))
+source(here::here("R", "fit_partial_credit_model_ncats.R"))
 ```
 
-## Run partial credit model v251224 on Colombia data
+## Run partial credit model v260413 on Colombia data (vanilla)
 
-```{r define-data-locations, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r define-data-locations-260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define directories
 if (grepl("^/rds/general/user/or105", here::here())) {
     # Working on HPC
@@ -102,7 +103,117 @@ set.seed(42L)
 seed <- c(123L)
 ```
 
-```{r load-and-preprocess-data-colombia, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r load-and-preprocess-data-colombia-260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data from Colombia
+tmp <- read_data_colombia(file_data)
+dp_col <- copy(tmp$dp)
+dit_col <- copy(tmp$dit)
+dmeta_col <- copy(tmp$dmeta)
+
+# Preprocess data
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1_col$item_label)),
+    time = unique(dp1_col$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
+setkey(dp1_col, item_type_id, pid, time, item_label)
+dp1_col[, oid := .I]
+setkey(dp1_col, oid)
+tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
+
+setkey(dp1_col, pid, time, item_label)
+```
+
+```{r setup-pcm-directories-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define partial credit model output directories
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-vanilla")
+dir_logs_pcm <- file.path(dir_out_pcm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_pcm)) {
+    dir.create(dir_out_pcm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_pcm)) {
+    dir.create(dir_logs_pcm, recursive = TRUE)
+}
+
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+```
+
+```{r compile-stan-model-pcm-v260413-vanilla, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "partial_credit_model_ncats_v260413.stan")
+pcm_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
+    )
+```
+
+```{r pcm-fit-colombia-data-vanilla-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+if (!file.exists(rds_file)) {
+    cat("\n=== Running partial credit model v260413===\n")
+    pcm_fit <-fit_partial_credit_model_ncats(
+            dit_col,
+            dp1_col,
+            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
+            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 1000L,
+            seed = seed,
+            x_formula = ~ time - 1,
+            with_core_analyses = TRUE,
+            with_additional_analyses = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+}
+gc()
+```
+
+## Run partial credit model v260413 on Colombia data with propensity score and time since death as fixed effects
+
+```{r define-data-locations-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define directories
+if (grepl("^/rds/general/user/or105", here::here())) {
+    # Working on HPC
+    on_hpc <- TRUE
+    dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
+    dir_out_base <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups"
+} else {
+    # Working locally
+    on_hpc <- FALSE
+    dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
+    dir_out_base <- "/Users/or105/sandbox"
+}
+
+# Define file names
+file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
+file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
+
+set.seed(42L)
+seed <- c(123L)
+```
+
+```{r load-and-preprocess-data-colombia-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Read in data from Colombia
 tmp <- read_data_colombia(file_data)
 dp_col <- copy(tmp$dp)
@@ -135,9 +246,9 @@ dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 setkey(dp1_col, pid, time, item_label)
 ```
 
-```{r setup-pcm-directories-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r setup-pcm-directories-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define partial credit model output directories
-dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-251224")
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413")
 dir_logs_pcm <- file.path(dir_out_pcm, "logs")
 
 # Create output directories if they don't exist
@@ -151,8 +262,8 @@ if (!dir.exists(dir_logs_pcm)) {
 output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
 ```
 
-```{r compile-stan-model-pcm-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v251224.stan")
+```{r compile-stan-model-pcm-v260413, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v260413.stan")
 pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -162,7 +273,7 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 
-```{r create prepost propensity scores, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r update-using-prepost-propensity-scores-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 #  create propensity score and time since death as fixed effectsfor pre-post model
 dp1_col[, pt_label := paste0(pid_label, time_label)]
 dmeta_col[, pt_label := paste0(pid_label, time_label)]
@@ -211,15 +322,15 @@ dp1_col[, pt_label := NULL]
 ```
 
 
-```{r pcm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r pcm-fit-colombia-data-vanilla-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
 if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v251224===\n")
+    cat("\n=== Running partial credit model v260413===\n")
     pcm_fit <-fit_partial_credit_model(
             dit_col,
             dp1_col,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,

@@ -1,23 +1,62 @@
-# Test Files
+# Tests for bIRTistic
 
-This folder contains test files for validating model implementations.
+This directory contains tests for the Stan models and R code in the bIRTistic project.
 
-## Files
+## Unit Tests
 
-### test_pcm_2cats_vs_ncats.Rmd
+### test_pcm_ncats_correctness.R
 
-Validates that `partial_credit_model_2cats_v251224.stan` and `partial_credit_model_ncats_v260413.stan` produce identical `log_lik` values when run on the same Colombia data with the same seed.
+**Purpose:** Verify computational correctness of `partial_credit_model_ncats_v260413.stan`
 
-**Purpose**: Ensure the flexible ncats implementation is numerically equivalent to the hardcoded 2cats version.
+**What it tests:**
+- Both `partial_credit_model_2cats_v251224.stan` (reference) and `partial_credit_model_ncats_v260413.stan` (new flexible version) produce **identical** log-likelihood values when run with identical fixed parameter values
+- Uses simple synthetic data with 2 category types, 2 questions per type, 4 total observations
+- Runs both models with `fixed_param=TRUE` to evaluate computational logic without MCMC sampling variation
 
-**What it does**:
-- Loads Colombia data
-- Prepares data in both formats (old 2cats and new ncats)
-- Runs both models for 100 iterations with the same seed
-- Compares log-likelihood values
-- Visualizes any differences
+**How to run:**
+```r
+# Using testthat
+library(testthat)
+test_file("test/test_pcm_ncats_correctness.R")
 
-**Expected result**: Maximum absolute difference in log_lik values should be < 1e-8 (numerical tolerance).
+# Or directly
+Rscript test/test_pcm_ncats_correctness.R
+```
+
+**Expected output:**
+```
+══ Testing test_pcm_ncats_correctness.R ═══
+[ FAIL 0 | WARN 0 | SKIP 0 | PASS 7 ] Done!
+```
+
+**Framework:** Uses `testthat` package for structured assertions and better diagnostics
+
+**Rationale:**
+This test validates that the ncats model's more complex implementation (concatenated arrays, long vector storage, dynamic indexing) produces mathematically equivalent results to the simpler hardcoded 2cats model. The test uses fixed parameters to eliminate MCMC stochasticity and focus purely on computational correctness.
+
+---
+
+## Test Strategy
+
+The unit test (`test_pcm_ncats_correctness.R`) provides fast, deterministic verification of computational correctness. Run it after any code changes to the Stan models to ensure numerical equivalence is maintained.
+
+### Running All Tests
+
+To run all unit tests at once:
+```r
+# Option 1: Using the helper script
+Rscript test/run_all_tests.R
+
+# Option 2: Using testthat directly
+library(testthat)
+test_dir("test")
+```
+
+### Individual Test Execution
+
+See individual test sections above for how to run specific tests.
+
+---
 
 ## Related Files
 

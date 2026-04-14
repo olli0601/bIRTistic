@@ -40,12 +40,24 @@ data {
 }
 transformed data {
   real s2z_sd_unit;
-  array[C] int cat_obs_start;
-  array[C] int cat_obs_end;
-  array[C] int cat_question_offset;
+  int skill_threshold_total_length;
+  int ordered_prob_length;
+  int eta_length;
   int K_max = max(K);
   int Q_max = max(Q);
   int N_max = max(N);
+  array[C] int skill_threshold_offset;
+  array[C] int ordered_prob_offset;
+  array[N_total] int eta_obs_offset;
+  array[C] int cat_obs_start;
+  array[C] int cat_obs_end;
+  array[C] int cat_question_offset;
+  array[C] matrix[K_max - 1, K_max - 1] cat_cumsum_matrix;
+  array[C] matrix[K_max, K_max - 1] cat_cumsum_matrix_brier;
+  array[C] matrix[N_max, K_max - 1] cat_cum_obs;
+  array[C, Q_max] int cat_question_start;
+  array[C, Q_max] int cat_question_end;
+  array[C, N_max] int cat_sorted_indices;
   
   // Check that cat_type is ordered (all cat_type[i]==1, then all ==2, etc.)
   for (i in 2 : N_total) {
@@ -75,22 +87,26 @@ transformed data {
     cat_question_offset[c] = cat_question_offset[c - 1] + Q[c - 1];
   }
   
-  // Compute total length for eta long vector and offsets for each observation
-  int eta_length = 0; // total number of eta values across all observations
-  array[N_total] int eta_obs_offset; // starting position in eta vector for each observation
+  // Compute total length for skill thresholds flat vector and offsets
+  skill_threshold_total_length = 0;
+  for (c in 1 : C) {
+    skill_threshold_offset[c] = skill_threshold_total_length;
+    skill_threshold_total_length += Q[c] * (K[c] - 1);
+  }
   
+  // Compute total length for ordered probabilities (averaged by question)
+  ordered_prob_length = 0;
+  for (c in 1 : C) {
+    ordered_prob_offset[c] = ordered_prob_length;
+    ordered_prob_length += Q[c] * K[c];
+  }
+  
+  // Compute total length for eta long vector and offsets for each observation
+  eta_length = 0; // total number of eta values across all observations
   for (i in 1 : N_total) {
     eta_obs_offset[i] = eta_length + 1; // 1-indexed
     eta_length += K[cat_type[i]];
   }
-  
-  // Store processing structures for each category type
-  array[C] matrix[K_max - 1, K_max - 1] cat_cumsum_matrix;
-  array[C] matrix[K_max, K_max - 1] cat_cumsum_matrix_brier;
-  array[C] matrix[N_max, K_max - 1] cat_cum_obs;
-  array[C, Q_max] int cat_question_start;
-  array[C, Q_max] int cat_question_end;
-  array[C, N_max] int cat_sorted_indices;
   
   s2z_sd_unit = inv(sqrt(1. - inv(U)));
   
@@ -172,8 +188,8 @@ parameters {
   sum_to_zero_vector[U] latent_factor_unit;
   vector[P] latent_factor_beta;
   
-  // Parameters stored in concatenated format
-  matrix[Q_total, K_max - 1] skill_thresholds;
+  // Parameters stored in flat vector format (no padding)
+  vector[skill_threshold_total_length] skill_thresholds;
   vector<lower=0>[Q_total - C] loadings_questions_m1; // all questions minus one per category type
 }
 transformed parameters {
@@ -192,6 +208,16 @@ transformed parameters {
       this_cat_obs_start = cat_obs_start[c];
       this_cat_obs_end = cat_obs_end[c];
       
+      // Extract and reshape skill thresholds for this category type
+      // Reshape: Stan's to_matrix fills column-by-column, but we stored row-by-row
+      // So we reshape to (Km1c x Qc) and transpose to get (Qc x Km1c)  
+      matrix[Qc, Km1c] skill_thresholds_c;
+      skill_thresholds_c = to_matrix(
+                                     segment(skill_thresholds,
+                                             skill_threshold_offset[c] + 1,
+                                             Qc * Km1c),
+                                     Km1c, Qc)';
+      
       // Compute eta matrix for this category type (fully vectorized)
       matrix[N[c], K[c]] eta_matrix_c;
       eta_matrix_c = pcm_get_etas(
@@ -199,7 +225,7 @@ transformed parameters {
                                              segment(loadings_questions_m1,
                                                      q_off - (c - 1) + 1,
                                                      Qc - 1)),
-                                  skill_thresholds[(q_off + 1) : (q_off + Qc), 1 : Km1c],
+                                  skill_thresholds_c,
                                   latent_factor_unit[unit_of_obs[this_cat_obs_start : this_cat_obs_end]]
                                   + X[this_cat_obs_start : this_cat_obs_end,  : ]
                                     * latent_factor_beta,
@@ -207,10 +233,11 @@ transformed parameters {
                                   unit_of_obs[this_cat_obs_start : this_cat_obs_end],
                                   cat_cumsum_matrix[c][1 : Km1c, 1 : Km1c]);
       
-      // Flatten matrix to vector and insert into eta at correct positions
-      eta[eta_obs_offset[this_cat_obs_start] : (eta_obs_offset[this_cat_obs_end]
-                                                + Km1c)] = to_vector(
-                                                                    eta_matrix_c');
+      // Flatten matrix row-by-row and insert into eta at correct positions
+      // Since observations are contiguous, assign entire category at once
+      this_cat_obs_start = eta_obs_offset[this_cat_obs_start];
+      this_cat_obs_end = eta_obs_offset[this_cat_obs_end] + Km1c;
+      eta[this_cat_obs_start : this_cat_obs_end] = to_vector(eta_matrix_c');
     }
   }
 }
@@ -228,13 +255,13 @@ model {
   target += std_normal_lupdf(latent_factor_beta);
   
   // priors for skill thresholds
-  target += normal_lupdf(to_vector(skill_thresholds) | 0, 3.5);
+  target += normal_lupdf(skill_thresholds | 0, 3.5);
   
   // priors for loadings
   target += student_t_lupdf(loadings_questions_m1 | 3, 0, 1);
 }
 generated quantities {
-  vector[eta_length] ordered_prob_by_obs; // long vector storing all probabilities without padding
+  vector[ordered_prob_length] ordered_prob_by_cat_qu; // averaged probabilities per (cat_type, question)
   array[N_total] int<lower=0> ypred;
   array[N_total] real log_lik;
   array[C] vector[Q_max] ordinal_brier_score;
@@ -246,24 +273,35 @@ generated quantities {
     int Km1c = Kc - 1;
     int this_cat_obs_start = cat_obs_start[c];
     int this_cat_obs_end = cat_obs_end[c];
+    int obs_idx;
+    int start;
+    vector[Kc] tmp_Kc;
+    vector[Kc] prob_obs;
     matrix[Nc, Kc] this_cat_prob_obs;
+    matrix[Qc, Kc] thiscat_ordered_prob_by_question = rep_matrix(0., Qc, Kc);
+    array[Qc] int count_by_question = rep_array(0, Qc);
     
     // Initialize category-specific structures
     ordinal_brier_score[c] = rep_vector(0., Q_max);
     
     // Compute probabilities and predictions
     for (n in 1 : Nc) {
-      int obs_idx = this_cat_obs_start + n - 1;
-      int eta_start = eta_obs_offset[obs_idx];
-      vector[Kc] eta_obs = segment(eta, eta_start, Kc);
-      vector[Kc] prob_obs = softmax(eta_obs);
-      
-      this_cat_prob_obs[n,  : ] = prob_obs';
-      ypred[obs_idx] = categorical_logit_rng(eta_obs);
-      log_lik[obs_idx] = categorical_logit_lpmf(y[obs_idx] | eta_obs);
-      
-      // Store probabilities in long vector
-      ordered_prob_by_obs[(eta_start) : (eta_start + Kc - 1)] = prob_obs;
+      obs_idx = this_cat_obs_start + n - 1;
+      start = eta_obs_offset[obs_idx];
+      tmp_Kc = segment(eta, start, Kc);
+      this_cat_prob_obs[n,  : ] = softmax(tmp_Kc)';
+      ypred[obs_idx] = categorical_logit_rng(tmp_Kc);
+      log_lik[obs_idx] = categorical_logit_lpmf(y[obs_idx] | tmp_Kc);
+      thiscat_ordered_prob_by_question[question_of_obs[obs_idx],  : ] += this_cat_prob_obs[n,  : ];
+      count_by_question[question_of_obs[obs_idx]] += 1;
+    }
+    
+    // Compute averaged probabilities and store in long vector
+    for (q in 1 : Qc) {
+      start = ordered_prob_offset[c] + (q - 1) * Kc + 1;
+      tmp_Kc = to_vector(thiscat_ordered_prob_by_question[q,  : ])
+               / count_by_question[q];
+      ordered_prob_by_cat_qu[start : (start + Kc - 1)] = tmp_Kc;
     }
     
     // Compute ordinal Brier scores by question
@@ -282,8 +320,8 @@ generated quantities {
       
       ordinal_brier_score[c][1 : Qc] = pcm_get_ordered_brier_score(
                                          this_cat_prob_obs,
-                                         question_of_obs[this_cat_obs_start : (
-                                         this_cat_obs_start + Nc - 1)],
+                                         segment(question_of_obs,
+                                                 this_cat_obs_start, Nc),
                                          cat_cumsum_matrix_brier[c][1 : Kc, 1 : Km1c],
                                          cat_cum_obs[c][1 : Nc, 1 : Km1c],
                                          q_start_c, q_end_c, sorted_idx_c);

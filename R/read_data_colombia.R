@@ -211,6 +211,16 @@ read_data_colombia <- function(file_data) {
             x
         )
     })]
+    dit[, cat_length := sapply(item_type, function(x) {
+        switch(x,
+            "categorical" = 5L,
+            "out-of-7" = 8L,
+            NA_integer_
+        )
+    })]
+    tmp <- data.table(item_type = sort(unique(dit$item_type)))
+    tmp[, item_type_id := 1:nrow(tmp)]
+    dit <- merge(dit, tmp, by = "item_type")
 
     list(dp = dp, dit = dit, dmeta = dmeta)
 }

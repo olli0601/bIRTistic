@@ -50,13 +50,14 @@ fit_partial_credit_model_ncats <- function(
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- cat_type_id <- NULL
+        iqr_upper <- prob <- item_type_id <- NULL
 
     require(data.table)
     require(ggplot2)
     require(ggsci)
     require(bayesplot)
     require(cmdstanr)
+    require(cowplot)
 
     # Print configuration
     cat("\n========================================\n")
@@ -90,55 +91,46 @@ fit_partial_credit_model_ncats <- function(
     # Prepare data in ncats format
     cat("Preparing Stan data in ncats format...\n")
     
-    # Get unique item types (sorted)
-    item_types <- sort(unique(dcati$item_type))
-    C <- length(item_types)
-    
-    # Assign cat_type_id based on sorted item types
-    dcati_copy <- copy(dcati)
-    dcati_copy[, cat_type_id := match(item_type, item_types)]
-    
-    # Sort data by cat_type_id to ensure proper ordering
-    setkey(dcati_copy, cat_type_id, oidt)
-    
+    # Ensure oid is sequential and ordered by item_type_id and oidt
+    setkey(dcati, item_type_id, oidt)
+    stopifnot(all( 1:nrow(dcati) == dcati[,oid] ))  
+
     # Build stan_data
     stan_data <- list()
-    stan_data$C <- C
-    stan_data$U <- max(dcati_copy$pid)
+    stan_data$C <- dcati[, max(item_type_id)]
+    stan_data$U <- dcati[, max(pid)] 
     
     # Arrays for each category type
-    stan_data$N <- integer(C)
-    stan_data$Q <- integer(C)
-    stan_data$K <- integer(C)
-    
-    for (i in 1:C) {
-        item_type_i <- item_types[i]
-        stan_data$N[i] <- nrow(dcati_copy[item_type == item_type_i])
-        stan_data$Q[i] <- max(dcati_copy[item_type == item_type_i, item_time_id])
-        stan_data$K[i] <- length(unique(dcati_copy[item_type == item_type_i, y_stan]))
-    }
+    tmp <- dcati[, .(
+        N = .N,
+        Q = max(item_time_id),
+        K = length(unique(y_stan))
+    ), by = item_type_id]
+    stan_data$N <- tmp$N
+    stan_data$Q <- tmp$Q
+    stan_data$K <- tmp$K
     
     # Total counts
     stan_data$N_total <- sum(stan_data$N)
     stan_data$Q_total <- sum(stan_data$Q)
     
-    # Concatenated observation data (data is already sorted by cat_type_id)
-    stan_data$y <- dcati_copy$y_stan
-    stan_data$unit_of_obs <- dcati_copy$pid
-    stan_data$question_of_obs <- dcati_copy$item_time_id
-    stan_data$cat_type <- dcati_copy$cat_type_id
+    # Concatenated observation data (data is already sorted by item_type_id)
+    stan_data$y <- dcati$y_stan
+    stan_data$unit_of_obs <- dcati$pid
+    stan_data$question_of_obs <- dcati$item_time_id
+    stan_data$cat_type <- dcati$item_type_id
     
     # Create design matrix for all observations
     stan_data$X <- model.matrix(
         x_formula,
-        data = as.data.frame(dcati_copy)
+        data = as.data.frame(dcati)
     )
     stan_data$P <- ncol(stan_data$X)
     
     cat("Design matrix number of predictors: P =", stan_data$P, "\n")
     cat("Design matrix column names:", paste(colnames(stan_data$X), collapse = ", "), "\n")
-    cat("Number of category types: C =", C, "\n")
-    cat("Category type labels:", paste(item_types, collapse = ", "), "\n")
+    cat("Number of category types: C =", stan_data$C, "\n")
+    cat("Category type labels:", paste(unique(dit$item_type), collapse = ", "), "\n")
     cat("N per category:", paste(stan_data$N, collapse = ", "), "\n")
     cat("Q per category:", paste(stan_data$Q, collapse = ", "), "\n")
     cat("K per category:", paste(stan_data$K, collapse = ", "), "\n")
@@ -301,14 +293,8 @@ fit_partial_credit_model_ncats <- function(
             id.vars = c(".draw", ".chain", ".iteration"),
             value.name = "ypred"
         )
-        po[, obs_idx := as.integer(gsub("ypred\\[([0-9]+)\\]", "\\1", variable))]
+        po[, oid := as.integer(gsub("ypred\\[([0-9]+)\\]", "\\1", variable))]
         set(po, NULL, "variable", NULL)
-
-        # Map back to original observation structure using sorted dcati_copy
-        dcati_copy[, obs_idx := .I]
-        po <- merge(po, dcati_copy[, .(obs_idx, item_type, oidt, y_stan, oid, item_label, time_label)], 
-                    by = "obs_idx")
-
         pos <- po[,
             list(
                 summary_value = quantile(
@@ -317,15 +303,14 @@ fit_partial_credit_model_ncats <- function(
                 ),
                 summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
             ),
-            by = c("item_type", "oidt")
+            by = c("oid")
         ]
         pos <- data.table::dcast(pos,
-            item_type + oidt ~ summary_name,
+            oid ~ summary_name,
             value.var = "summary_value"
         )
-
-        pos <- merge(pos, unique(dcati_copy[, .(item_type, oidt, y_stan, oid, item_label, time_label)]), 
-                     by = c("item_type", "oidt"))
+        tmp <- dcati[, .(oid, item_type, item_type_id, oidt, y_stan, item_label, time_label)]
+        pos <- merge(pos, tmp, by = "oid")
         pos[, in_ppi := y_stan >= q_lower & y_stan <= q_upper]
         cat("Proportion in 95% PPI:", pos[, mean(in_ppi)], "\n")
 
@@ -378,19 +363,15 @@ fit_partial_credit_model_ncats <- function(
         )
         
         # Parse indices: ordinal_brier_score[c,q]
-        brier[, cat_id := as.integer(gsub(
+        brier[, item_type_id := as.integer(gsub(
             "ordinal_brier_score\\[([0-9]+),([0-9]+)\\]", "\\1",
             variable
         ))]
-        brier[, question_id := as.integer(gsub(
+        brier[, item_time_id := as.integer(gsub(
             "ordinal_brier_score\\[([0-9]+),([0-9]+)\\]", "\\2",
             variable
         ))]
         set(brier, NULL, "variable", NULL)
-        
-        # Map cat_id back to item_type
-        cat_type_map <- data.table(cat_id = 1:C, item_type = item_types)
-        brier <- merge(brier, cat_type_map, by = "cat_id")
         
         # Compute median
         brier_summary <- brier[,
@@ -400,9 +381,12 @@ fit_partial_credit_model_ncats <- function(
                 q025_brier_score = quantile(brier_score, 0.025),
                 q975_brier_score = quantile(brier_score, 0.975)
             ),
-            by = c("item_type", "question_id")
+            by = c("item_type_id", "item_time_id")
         ]
-        
+        tmp <- unique(subset(dcati, select = c(item_type_id, item_time_id, item_type, item_label, time_label)))
+        brier_summary <- merge(brier_summary, tmp, by = c("item_type_id", "item_time_id"))
+        brier_summary <- brier_summary[order(item_type_id, item_time_id), ]
+
         data.table::fwrite(
             brier_summary,
             file = paste0(output_file_prefix, "_ordered_brierscore.csv")
@@ -415,12 +399,12 @@ fit_partial_credit_model_ncats <- function(
         cat("Generating probability plots...\n")
         
         # Extract ordered_prob_by_obs (long vector format)
-        # NOTE: In ncats model, ordered_prob_by_obs is a single long vector [eta_length]
-        # where probabilities for each observation are stored contiguously.
-        # This differs from the 2cats model which has separate matrices
-        # cat1_ordered_prob_by_obs[Ncat1, Kcat1] and cat2_ordered_prob_by_obs[Ncat2, Kcat2]
+        # NOTE: In ncats model, ordered_prob_by_obs stores averaged probabilities
+        # per (category type, question) combination.
+        # Format: for each category c, for each question q in that category,
+        # store K[c] probabilities (one per response category)
         po <- pcm_fit$draws(
-            variables = c("ordered_prob_by_obs"),
+            variables = c("ordered_prob_by_cat_qu"),
             inc_warmup = FALSE,
             format = "draws_array"
         )
@@ -432,46 +416,13 @@ fit_partial_credit_model_ncats <- function(
             value.name = "prob"
         )
         
-        # Parse index from ordered_prob_by_obs[i]
-        po[, prob_idx := as.integer(gsub(
-            "ordered_prob_by_obs\\[([0-9]+)\\]", "\\1",
+        # Parse index from ordered_prob_by_cat_qu[i]
+        po[, cq_id := as.integer(gsub(
+            "ordered_prob_by_cat_qu\\[([0-9]+)\\]", "\\1",
             variable
         ))]
         set(po, NULL, "variable", NULL)
-        
-        # Map prob_idx back to observation and response category
-        # Need to reconstruct eta_obs_offset from stan_data
-        K_vec <- stan_data$K[stan_data$cat_type]  # K for each observation
-        eta_obs_offset <- cumsum(c(1, K_vec[-length(K_vec)]))  # Starting position for each obs
-        
-        # Create mapping table
-        mapping <- data.table()
-        for (obs_idx in 1:stan_data$N_total) {
-            K_obs <- K_vec[obs_idx]
-            offset <- eta_obs_offset[obs_idx]
-            obs_mapping <- data.table(
-                prob_idx = offset:(offset + K_obs - 1),
-                obs_idx = obs_idx,
-                y_stan = 1:K_obs
-            )
-            mapping <- rbind(mapping, obs_mapping)
-        }
-        
-        # Merge with probability data
-        po <- merge(po, mapping, by = "prob_idx")
-        
-        # Merge with observation metadata
-        dcati_copy[, obs_idx := .I]
-        po <- merge(po, dcati_copy[, .(obs_idx, item_type, oidt, pid, item_time_id, time, 
-                                       time_label, item_label)], 
-                    by = "obs_idx")
-        
-        # Average over observations at same time/item/response
-        po <- po[,
-            list(prob = mean(prob)),
-            by = c(".draw", "time", "item_time_id", "y_stan", "item_type")
-        ]
-        
+
         # Compute quantiles
         pos <- po[,
             list(
@@ -481,23 +432,32 @@ fit_partial_credit_model_ncats <- function(
                 ),
                 summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
             ),
-            by = c("time", "item_time_id", "y_stan", "item_type")
+            by = c("cq_id")
         ]
+        po <- NULL
+        gc()
+
         pos <- data.table::dcast(pos,
-            time + item_time_id + y_stan + item_type ~ summary_name,
+            cq_id ~ summary_name,
             value.var = "summary_value"
         )
-        
-        # Add labels
-        tmp <- unique(dcati_copy[, .(time, time_label)])
-        pos <- merge(pos, tmp, by = "time")
-        tmp <- unique(dcati_copy[, .(item_time_id, item_label, item_type)])
-        pos <- merge(pos, tmp, by = c("item_time_id", "item_type"))
-        tmp <- unique(dcati_copy[, .(y, y_stan, y_label)])
-        pos <- merge(pos, tmp, by = "y_stan")
+
+        # Map cq_id back to (item_type_id, item_time_id, y_stan)
+        tmp <- unique(subset(dcati, select = c(item_type_id, item_label, item_time_id)))
+        tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+        setkey(tmp, item_type_id, item_time_id)
+        tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+        tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+        tmp <- merge(tmp, 
+                     unique(subset(dcati, 
+                                    select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                    )), 
+                     by = c("item_type_id", "item_time_id", "y")
+                     )
+        pos <- merge(tmp, pos, by = "cq_id")              
         
         # Compute empirical probabilities
-        tmp <- dcati_copy[,
+        tmp <- dcati[,
             list(n = .N),
             by = c("time_label", "item_label", "y_label")
         ]
@@ -509,11 +469,10 @@ fit_partial_credit_model_ncats <- function(
             by = c("time_label", "item_label", "y_label"),
             all.x = TRUE
         )
-        set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)
-        pos[, y_stan := NULL]
+        set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)        
         
         # Merge with dit for plotting
-        pos <- merge(pos, dit, by = "item_label")
+        pos <- merge(pos, dit, by = c("item_type_id","item_label"))
         pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
 
         cat(
@@ -527,51 +486,91 @@ fit_partial_credit_model_ncats <- function(
         )
 
         # Make plots
-        pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(
-            pos[, length(unique(item_label))]
-        )
+        # Create named color palette to ensure consistent colors across all subplots
+        all_items <- unique(pos$item_label_long)
+        pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(length(all_items))
+        names(pal) <- all_items
 
-        p <- ggplot(
+        # Get unique groups and times
+        groups <- unique(pos$group_label_long)
+        times <- unique(pos$time_label)
+        
+        # Create individual plots for each group-time combination
+        plot_list <- list()
+        for (g in groups) {
+            for (t in times) {
+                plot_data <- pos[group_label_long == g & time_label == t]
+                
+                p_sub <- ggplot(
+                    plot_data,
+                    aes(x = y_label, group = interaction(item_label_long, y_label))
+                ) +
+                    geom_col(aes(fill = item_label_long, y = p_emp),
+                        position = position_dodge(width = 0.9, preserve = "single"),
+                        alpha = 0.8,
+                        width = 0.8
+                    ) +
+                    geom_boxplot(
+                        aes(
+                            ymin = q_lower, lower = iqr_lower,
+                            middle = median, upper = iqr_upper,
+                            ymax = q_upper
+                        ),
+                        position = position_dodge(0.9, preserve = "single"),
+                        stat = "identity",
+                        alpha = 0,
+                        width = 0.3
+                    ) +
+                    scale_y_continuous(labels = scales::percent) +
+                    scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
+                    ggtitle(paste0(g, " - ", t)) +
+                    theme_bw() +
+                    theme(
+                        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+                        legend.position = "none",
+                        plot.title = element_text(size = 10)
+                    ) +
+                    labs(x = "", y = "proportion of outcomes", fill = "survey items")
+                
+                plot_list[[paste(g, t, sep = "_")]] <- p_sub
+            }
+        }
+        
+        # Extract legend from one plot
+        p_legend <- ggplot(
             pos,
             aes(x = y_label, group = interaction(item_label_long, y_label))
         ) +
-            geom_col(aes(fill = item_label_long, y = p_emp),
-                position = position_dodge(width = 0.9, preserve = "single"),
-                alpha = 0.8,
-                width = 0.8
-            ) +
-            geom_boxplot(
-                aes(
-                    ymin = q_lower, lower = iqr_lower,
-                    middle = median, upper = iqr_upper,
-                    ymax = q_upper
-                ),
-                position = position_dodge(0.9, preserve = "single"),
-                stat = "identity",
-                alpha = 0,
-                width = 0.3
-            ) +
-            scale_y_continuous(labels = scales::percent) +
-            scale_fill_manual(values = pal) +
-            facet_wrap(group_label_long ~ time_label, scales = "free_x", ncol = 2) +
+            geom_col(aes(fill = item_label_long, y = p_emp)) +
+            scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
             theme_bw() +
-            theme(
-                axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
-                legend.position = "bottom"
-            ) +
-            labs(x = "", y = "proportion of outcomes", fill = "survey items") +
+            theme(legend.position = "bottom") +
+            labs(fill = "survey items") +
             guides(fill = guide_legend(ncol = 3))
+        
+        legend <- cowplot::get_legend(p_legend)
+        
+        # Arrange plots in grid: 4 columns (2 groups × 2 times each)
+        p <- cowplot::plot_grid(
+            plotlist = plot_list,
+            ncol = 4,
+            align = "hv",
+            axis = "tb"
+        )
+        
+        # Add legend below
+        p <- cowplot::plot_grid(p, legend, ncol = 1, rel_heights = c(1, 0.1))
         ggsave(
             file = paste0(output_file_prefix, "_probs_barplot_v2.png"),
             plot = p,
-            h = 40,
-            w = 12
+            h = 30,
+            w = 24
         )
         ggsave(
             file = paste0(output_file_prefix, "_probs_barplot_v2.pdf"),
             plot = p,
-            h = 40,
-            w = 12
+            h = 30,
+            w = 24
         )
     }
 
