@@ -165,13 +165,13 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r pcm-fit-colombia-data-vanilla-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+rds_file <- paste0(output_file_prefix, "_fit_vanilla_stan.rds")
 if (!file.exists(rds_file)) {
     cat("\n=== Running partial credit model v260413===\n")
     pcm_fit <-fit_partial_credit_model_ncats(
             dit_col,
             dp1_col,
-            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
+            output_file_prefix = paste0(output_file_prefix, "_fit_vanilla"),
             stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
@@ -191,64 +191,9 @@ gc()
 
 ## Run partial credit model v260413 on Colombia data with propensity score and time since death as fixed effects
 
-```{r define-data-locations-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# Define directories
-if (grepl("^/rds/general/user/or105", here::here())) {
-    # Working on HPC
-    on_hpc <- TRUE
-    dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
-    dir_out_base <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups"
-} else {
-    # Working locally
-    on_hpc <- FALSE
-    dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
-    dir_out_base <- "/Users/or105/sandbox"
-}
-
-# Define file names
-file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
-file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
-
-set.seed(42L)
-seed <- c(123L)
-```
-
-```{r load-and-preprocess-data-colombia-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# Read in data from Colombia
-tmp <- read_data_colombia(file_data)
-dp_col <- copy(tmp$dp)
-dit_col <- copy(tmp$dit)
-dmeta_col <- copy(tmp$dmeta)
-
-# Preprocess data
-dp1_col <- subset(dp_col, !grepl("agg", item_label))
-dp1_col[, y_stan := y + 1L]
-tmp <- CJ(
-    item_label = sort(unique(dp1_col$item_label)),
-    time = unique(dp1_col$time)
-)
-tmp[, item_type := ifelse(
-    grepl("CG-MH", item_label), "categorical", "out-of-7"
-)]
-tmp <- tmp[
-    , list(
-        item_label = item_label, time = time,
-        item_time_id = seq_along(item_label)
-    ),
-    by = "item_type"
-]
-dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
-setkey(dp1_col, pid, time, item_label)
-dp1_col[, oid := .I]
-setkey(dp1_col, oid)
-tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
-dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
-setkey(dp1_col, pid, time, item_label)
-```
-
 ```{r setup-pcm-directories-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define partial credit model output directories
-dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413")
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
 dir_logs_pcm <- file.path(dir_out_pcm, "logs")
 
 # Create output directories if they don't exist
@@ -262,21 +207,14 @@ if (!dir.exists(dir_logs_pcm)) {
 output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
 ```
 
-```{r compile-stan-model-pcm-v260413, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v260413.stan")
-pcm_compiled <- cmdstanr::cmdstan_model(
-        stan_file,
-        include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE),
-        force_recompile = TRUE
-    )
-```
-
-
 ```{r update-using-prepost-propensity-scores-260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-#  create propensity score and time since death as fixed effectsfor pre-post model
-dp1_col[, pt_label := paste0(pid_label, time_label)]
-dmeta_col[, pt_label := paste0(pid_label, time_label)]
+# Read in data from Colombia
+tmp <- read_data_colombia(file_data)
+dp_col <- copy(tmp$dp)
+dit_col <- copy(tmp$dit)
+dmeta_col <- copy(tmp$dmeta)
+
+#  create propensity score and time since death as fixed effects for pre-post model
 dmeta_col[, time := fifelse(time_label == "Baseline", 0, 1)]
 
 ps_vars <- c(
@@ -299,7 +237,7 @@ ps_vars <- c(
 )
 
 # Keep only observations with no missing values in PS variables
-tmp <- unique(dmeta_col, by = "pt_label")
+tmp <- unique(dmeta_col, by = c("pid_label", "time_label"))
 tmp <- tmp[complete.cases(tmp[, ..ps_vars])]
 
 # Make propensity score
@@ -312,32 +250,56 @@ fit_propensity <- glm(
   data = tmp
 )
 tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
+tmp <- subset(tmp, select = c("pid_label", "time_label", "ps_score", "time_since_death"))
 
 # Add propensity scores and time since death to dp1_col
-tmp <- subset(tmp, select = c("pt_label", "ps_score", "time_since_death"))
-dp1_col <- merge(dp1_col, tmp, by= "pt_label")
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "time_label"))
 dp1_col[, time_since_death_scaled := scale(time_since_death)]
 dp1_col[, ps_score_scaled := scale(ps_score)]
-dp1_col[, pt_label := NULL]
+
+# Preprocess data
+dp1_col[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1_col$item_label)),
+    time = unique(dp1_col$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
+setkey(dp1_col, item_type_id, pid, time, item_label)
+dp1_col[, oid := .I]
+setkey(dp1_col, oid)
+tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
+setkey(dp1_col, pid, time, item_label)
 ```
 
-
-```{r pcm-fit-colombia-data-vanilla-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+```{r pcm-fit-colombia-propensity-scores-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+rds_file <- paste0(output_file_prefix, "_fit_ps_tsd_stan.rds")
 if (!file.exists(rds_file)) {
     cat("\n=== Running partial credit model v260413===\n")
-    pcm_fit <-fit_partial_credit_model(
+    pcm_fit <- fit_partial_credit_model_ncats(
             dit_col,
             dp1_col,
-            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v260413.stan"),
+            output_file_prefix = paste0(output_file_prefix, "_fit_ps_tsd"),
+            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
             iter_warmup = 500L,
             iter_sampling = 1000L,
             seed = seed,
-            x_formula = ~ time + time_since_death + predicted - 1,  # added here standardised time since caregiver death and propensity score
+            x_formula = ~ time + time_since_death_scaled + ps_score_scaled - 1, 
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
@@ -347,43 +309,35 @@ if (!file.exists(rds_file)) {
 gc()
 ```
 
-## Run partial credit model v251224 on Colombia data with matched participants
+## Run partial credit model v260413 on Colombia data with matched participants
 
-```{r load-and-preprocess-and-match-data-colombia, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+```{r setup-pcm-directories-v260413-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define partial credit model output directories
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+dir_logs_pcm <- file.path(dir_out_pcm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_pcm)) {
+    dir.create(dir_out_pcm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_pcm)) {
+    dir.create(dir_logs_pcm, recursive = TRUE)
+}
+
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
+```
+
+```{r load-and-preprocess-and-match-data-colombia-v260413-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Read in data from Colombia
 tmp <- read_data_colombia(file_data)
 dp_col <- copy(tmp$dp)
 dit_col <- copy(tmp$dit)
 dmeta_col <- copy(tmp$dmeta)
+dmeta_col[, time := fifelse(time_label == "Baseline", 0, 1)]
 
-#  Olli's Original Matching Code: Sydney has commented it out and rewritten below
-
-## Match endline surveys with baseline surveys based on nearest submission_date
-# match_data <- unique(dp_col[, .(pid, time, time_label, submission_date)])
-# match_data[, date_numeric := as.numeric(submission_date - min(submission_date))]
-# setnames(match_data, "time", "treat")
-# setkey(match_data, submission_date, treat, pid)
-# m_out <- MatchIt::matchit(
-#   treat ~ date_numeric,
-#   data = as.data.frame(match_data),
-#   method = "nearest",
-#   distance = "mahalanobis",
-#   ratio = 1
-# )
-matched_data <- as.data.table(MatchIt::match.data(m_out))
-tmp <- matched_data[, list(n = length(date_numeric), date_diff = diff(date_numeric)), by = 'subclass']
-
-# Exclude matches with time difference > 14 days
-# tmp <- subset(tmp, n == 2 & abs(date_diff) < 14)
-# setkey(tmp, subclass)
-# tmp[, mid := as.factor(1:nrow(tmp))] 
-# matched_data <- merge(matched_data, tmp, by = c("subclass"))
-
-# dp_col <- merge(dp_col, subset(matched_data, select = c("pid", "mid")), by = 'pid')
-
-# BELOW: Sydney's Updated Matching Approach and Addition of Propensity Score
-
-match_data <- dmeta_col %>% select(
+# Matching of study participants for quasi-experimental evaluation
+match_data <- unique(dp_col[, .(pid_label, time_label, pid, time, submission_date)])
+tmp <- unique(dmeta_col[, .(
   pid_label,
   time_label,
   age,
@@ -400,48 +354,44 @@ match_data <- dmeta_col %>% select(
   services_CHILDCARE,
   education,
   income.per.person,
-  maritalstat) %>% mutate(pid_merge1 = str_c(pid_label, time_label)) %>%
-  left_join(dp_col %>% select(pid_merge1, pid, time, submission_date), by="pid_merge1") %>% distinct(pid_merge1, .keep_all = TRUE)
+  maritalstat,
+  time_since_death
+)])
+match_data <- merge(match_data, tmp, by = c("pid_label", "time_label"))
+match_data <- unique(match_data, by = c("pid_label", "time_label"))
 
 # Creating needed date variables
-match_data <- match_data %>% mutate(submission_date = as.Date(submission_date, format="%Y/%m/%d")) %>% filter(!is.na(submission_date))
-start_date <- min(match_data$submission_date)
-match_data <- match_data %>% mutate(ref = round(difftime(submission_date, start_date, units = "days")), ref_week = round(difftime(submission_date, start_date, units = "weeks")))
+match_data <- subset(match_data, !is.na(submission_date))
+tmp <- min(match_data$submission_date)
+match_data[, ref := round(difftime(submission_date, tmp, units = "days"))]
+match_data[, ref_week := round(difftime(submission_date, tmp, units = "weeks"))]
 
 # Dropping all baselines earlier than two weeks before first endline - no chance for match
-data.filter <- match_data |> filter(submission_date > as.Date("26/04/2024", format = "%d/%m/%Y"))
+match_data <- subset(match_data, submission_date > as.Date("26/04/2024", format = "%d/%m/%Y"))
 
 # Matching
-match.week <- matchit(
-  time ~ ref_week,
-  # Week
-  data = data.filter,
-  method = "exact",
-  replacement = F
-)
-match_data2.m <- MatchIt::match.data(match.week, drop.unmatched = FALSE)
+dmatched_col <- MatchIt::match.data(MatchIt::matchit( time ~ ref_week, data = match_data, method = "exact", replacement = FALSE ), drop.unmatched = FALSE)
+dmatched_col <- as.data.table(dmatched_col)
+setnames(dmatched_col, "subclass", "mid")
+set(dmatched_col, NULL, 'mid', dmatched_col[, as.integer(mid)])
 
 # Manually match participants with subclass==NA who fit within 2 weeks of another subclass.
-match_data_trim <- match_data2.m |> 
-  mutate(
-    subclass_final = case_when(
-      ref_week == "10" ~ "2",
-      ref_week == "25" ~ "34",
-      ref_week == "29" ~ "10",
-      ref_week == "39" ~ "13",
-      ref_week == "31" ~ "35",
-      ref_week == "47" ~ "31",
-      ref_week == "54" ~ "36",
-      ref_week == "58" ~ "6",
-      TRUE ~ subclass
-    ),
-    mid = as.factor(subclass_final)) # using mid to work with olli's code - this should be a number for each match
+dmatched_col[, mid := fcase(
+  ref_week == 10L, 2L,
+  ref_week == 25L, 34L,
+  ref_week == 29L, 10L,
+  ref_week == 39L, 13L,
+  ref_week == 31L, 35L,
+  ref_week == 47L, 31L,
+  ref_week == 54L, 36L,
+  ref_week == 58L, 6L,
+  default = mid
+)]
 
-# Data prepping
-match_data_trim <- match_data_trim %>% filter(!is.na(subclass_final))
+# Drop unmatched
+dmatched_col <- subset(dmatched_col, !is.na(mid))
 
-# Create propensity score
-
+#  create propensity score and time since death as fixed effects for pre-post model
 ps_vars <- c(
   "time",
   "age",
@@ -462,29 +412,27 @@ ps_vars <- c(
 )
 
 # Keep only observations with no missing values in PS variables
-match_data_trim_clean <- match_data_trim %>%
-  filter(if_all(all_of(ps_vars), ~ !is.na(.)))
+tmp <- dmatched_col[complete.cases(dmatched_col[, ..ps_vars])]
 
 # Make propensity score
-propensity <- glm(time ~ age + sex + stressmeals + household_adults + household_children + child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + services_COUNSELING + services_CHILDCARE + education + income.per.person + maritalstat, family = "binomial", data=match_data_trim_clean)
-predicted <- predict(propensity, type="response", data=match_data_trim_clean)
+fit_propensity <- glm(
+  time ~ age + sex + stressmeals + household_adults + household_children + 
+    child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + 
+    services_COUNSELING + services_CHILDCARE + education + income.per.person + 
+    maritalstat, 
+  family = "binomial", 
+  data = tmp
+)
+tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
+tmp <- subset(tmp, select = c("pid_label", "time_label", "mid", "ps_score", "time_since_death"))
 
-# Combine propensity scores with original dataset 
-combined_match_prop <- cbind(predicted, match_data_trim_clean)
-
-# Prepare matched dataset with prop scores for merging: subset columns
-combined_match_prop2merge <- combined_match_prop %>% select(pid_merge1, mid, predicted)
-
-# Note - Olli, I think I fixed the below 'merge' line that we discussed.
-# Anyone who did not 'match' will have NA for mid, and should drop out of the quasi-experimental model below. 
-# After the below merge line, it is back to your original code.
-dp_col <- dp_col %>% left_join(combined_match_prop2merge, by = 'pid_merge1') 
-
-tmp <- unique(subset(dp_col, select = c('pid_label')))
-dmeta_col <- merge(dmeta_col, tmp, by = 'pid_label')
+# Add matchgin IDs, propensity scores and time since death to dp1_col
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "time_label"))
+dp1_col[, time_since_death_scaled := scale(time_since_death)]
+dp1_col[, ps_score_scaled := scale(ps_score)]
 
 # Preprocess data
-dp1_col <- subset(dp_col, !grepl("agg", item_label))
 dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_col$item_label)),
@@ -501,18 +449,8 @@ tmp <- tmp[
     by = "item_type"
 ]
 dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
-
-tmp <- data.table(pid = dp1_col[, sort(unique(pid))])
-tmp[, pid_new := seq_len(nrow(tmp))]
-dp1_col <- merge(dp1_col, tmp, by = "pid")
-set(dp1_col, NULL, "pid", NULL)
-setnames(dp1_col, c("pid_new"), c("pid"))
-
-tmp <- unique(subset(dmeta_col, select = c("pid_label", "time_label", "time_since_death")))
-set(tmp, NULL, 'time_since_death', tmp[, scale(time_since_death)])
-dp1_col <- merge(dp1_col, tmp, by = c("pid_label", "time_label"))
-
-setkey(dp1_col, pid, time, item_label)
+dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
+setkey(dp1_col, item_type_id, pid, time, item_label)
 dp1_col[, oid := .I]
 setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
@@ -520,18 +458,19 @@ dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 setkey(dp1_col, pid, time, item_label)
 ```
 
-```{r pcm-fit-on-training-data-v251224, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
+```{r pcm-fit-on-data-v260413-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+output_file_prefix <- file.path(dir_out_pcm, "_fit_matched_ps_tsd")
 
-rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
+rds_file <- paste0(output_file_prefix, "_fit_matched_ps_tsd_stan.rds")
 if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v251224===\n")
-    pcm_fit <-fit_partial_credit_model(
+    cat("\n=== Running partial credit model v260413===\n")
+    pcm_fit <- fit_partial_credit_model_ncats(
             dit_col,
             dp1_col,
-            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
-            x_formula = ~ time + mid + time_since_death + predicted - 1, #  added propensity score here (predicted)
+            output_file_prefix = paste0(output_file_prefix, "_fit_matched_ps_tsd"),
+            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+            x_formula = ~ time + factor(mid) + time_since_death_scaled + ps_score_scaled - 1, 
+            x_formula_ignore_regex = "mid",
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,

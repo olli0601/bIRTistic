@@ -84,7 +84,8 @@ test_that("PCM ncats model produces identical log_lik to 2cats model with fixed 
     unit_of_obs = combined$unit,
     question_of_obs = combined$question,
     cat_type = combined$cat_type,
-    X = matrix(combined$X, ncol = 1)
+    X = matrix(combined$X, ncol = 1),
+    Xpr_id = c(1L)
   )
   
   # Define fixed parameter values

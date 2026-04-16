@@ -23,6 +23,7 @@ data {
   int<lower=1> C; // number of category types
   int<lower=1> P; // number of predictors
   int<lower=1> U; // number of units
+  int<lower=1, upper=P> P_pr; // number of predictors to include in the model for predicting the ordered probabilities
   
   array[C] int<lower=1> N; // number of observations per category type
   array[C] int<lower=2> Q; // number of questions per category type
@@ -37,6 +38,7 @@ data {
   array[N_total] int<lower=1> question_of_obs; // local question id within category type
   array[N_total] int<lower=1, upper=C> cat_type; // which category type each observation belongs to
   matrix[N_total, P] X;
+  array[P_pr] int<lower=1, upper=P> Xpr_id; // X indices to include in the model for predicting the ordered probabilities
 }
 transformed data {
   real s2z_sd_unit;
@@ -261,7 +263,8 @@ model {
   target += student_t_lupdf(loadings_questions_m1 | 3, 0, 1);
 }
 generated quantities {
-  vector[ordered_prob_length] ordered_prob_by_cat_qu; // averaged probabilities per (cat_type, question)
+  vector[ordered_prob_length] ordered_prob_by_cat_qu_fit; // averaged probabilities per (cat_type, question), best fit
+  vector[ordered_prob_length] ordered_prob_by_cat_qu_pr; // averaged probabilities per (cat_type, question), posterior predictive, potentially excluding X columns
   array[N_total] int<lower=0> ypred;
   array[N_total] real log_lik;
   array[C] vector[Q_max] ordinal_brier_score;
@@ -301,7 +304,7 @@ generated quantities {
       start = ordered_prob_offset[c] + (q - 1) * Kc + 1;
       tmp_Kc = to_vector(thiscat_ordered_prob_by_question[q,  : ])
                / count_by_question[q];
-      ordered_prob_by_cat_qu[start : (start + Kc - 1)] = tmp_Kc;
+      ordered_prob_by_cat_qu_fit[start : (start + Kc - 1)] = tmp_Kc;
     }
     
     // Compute ordinal Brier scores by question
@@ -325,6 +328,65 @@ generated quantities {
                                          cat_cumsum_matrix_brier[c][1 : Kc, 1 : Km1c],
                                          cat_cum_obs[c][1 : Nc, 1 : Km1c],
                                          q_start_c, q_end_c, sorted_idx_c);
+    }
+  }
+  
+  // Compute ordered_prob_by_cat_qu_pr
+  if (P_pr == P) {
+    // If using all predictors, just copy the fitted probabilities
+    ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit;
+  } else {
+    // Recompute probabilities using only specified X columns
+    for (c in 1 : C) {
+      int Nc = N[c];
+      int Qc = Q[c];
+      int Kc = K[c];
+      int Km1c = Kc - 1;
+      int q_off = cat_question_offset[c];
+      int this_cat_obs_start = cat_obs_start[c];
+      int this_cat_obs_end = cat_obs_end[c];
+      matrix[Qc, Kc] thiscat_ordered_prob_by_question_pr = rep_matrix(0., Qc,
+                                                                    Kc);
+      array[Qc] int count_by_question = rep_array(0, Qc);
+      
+      // Extract skill thresholds for this category type
+      matrix[Qc, Km1c] skill_thresholds_c;
+      skill_thresholds_c = to_matrix(
+                                     segment(skill_thresholds,
+                                             skill_threshold_offset[c] + 1,
+                                             Qc * Km1c),
+                                     Km1c, Qc)';
+      
+      // Compute eta using only specified X columns
+      matrix[Nc, Kc] eta_matrix_pr;
+      eta_matrix_pr = pcm_get_etas(
+                                   append_row(1.0,
+                                              segment(loadings_questions_m1,
+                                                      q_off - (c - 1) + 1,
+                                                      Qc - 1)),
+                                   skill_thresholds_c,
+                                   X[this_cat_obs_start : this_cat_obs_end, Xpr_id]
+                                   * latent_factor_beta[Xpr_id],
+                                   question_of_obs[this_cat_obs_start : this_cat_obs_end],
+                                   unit_of_obs[this_cat_obs_start : this_cat_obs_end],
+                                   cat_cumsum_matrix[c][1 : Km1c, 1 : Km1c]);
+      
+      // Compute probabilities and average by question
+      for (n in 1 : Nc) {
+        int obs_idx = this_cat_obs_start + n - 1;
+        vector[Kc] prob_pr = softmax(eta_matrix_pr[n,  : ]');
+        thiscat_ordered_prob_by_question_pr[question_of_obs[obs_idx],  : ] += prob_pr';
+        count_by_question[question_of_obs[obs_idx]] += 1;
+      }
+      
+      // Store averaged probabilities in long vector
+      for (q in 1 : Qc) {
+        int start = ordered_prob_offset[c] + (q - 1) * Kc + 1;
+        vector[Kc] tmp_Kc = to_vector(
+                                      thiscat_ordered_prob_by_question_pr[q,  : ])
+                            / count_by_question[q];
+        ordered_prob_by_cat_qu_pr[start : (start + Kc - 1)] = tmp_Kc;
+      }
     }
   }
 }
