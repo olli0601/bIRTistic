@@ -21,6 +21,7 @@
 #' @param seed Integer. Random seed for reproducibility (default: 123)
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
+#' @param resume Logical. If TRUE and all output files exist, skip MCMC sampling and load existing results (default: FALSE)
 #' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic plots (default: FALSE)
 #'
@@ -46,6 +47,7 @@ fit_partial_credit_model_ncats <- function(
   seed = 123L,
   show_messages = FALSE,
   show_exceptions = FALSE,
+  resume = FALSE,
   with_core_analyses = TRUE,
   with_additional_analyses = FALSE
 ) {
@@ -77,12 +79,26 @@ fit_partial_credit_model_ncats <- function(
     cat("Warmup iterations:", iter_warmup, "\n")
     cat("Sampling iterations:", iter_sampling, "\n")
     cat("Seed:", seed, "\n")
+    cat("Resume:", resume, "\n")
     cat("Core analyses:", with_core_analyses, "\n")
     cat("Additional analyses:", with_additional_analyses, "\n")
     cat("========================================\n\n")
 
     # Create output directory if it doesn't exist
     dir.create(dirname(output_file_prefix), showWarnings = FALSE, recursive = TRUE)
+    
+    # Define output file paths
+    timing_file <- paste0(output_file_prefix, "_timing.csv")
+    draws_file <- paste0(output_file_prefix, "_draws.rds")
+    output_file <- paste0(output_file_prefix, "_stan.rds")
+    mixing_file <- paste0(output_file_prefix, "_convergence_mixing.csv")
+    
+    # Check if we should resume from existing outputs
+    can_resume <- resume && 
+                  file.exists(timing_file) && 
+                  file.exists(draws_file) && 
+                  file.exists(output_file) && 
+                  file.exists(mixing_file)
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
@@ -147,90 +163,93 @@ fit_partial_credit_model_ncats <- function(
     cat("Q per category:", paste(stan_data$Q, collapse = ", "), "\n")
     cat("K per category:", paste(stan_data$K, collapse = ", "), "\n")
 
-    # Sample from the model
-    cat("Running MCMC sampling...\n")
-    flush.console()
-    pcm_fit <- pcm_compiled$sample(
-        data = stan_data,
-        seed = seed,
-        chains = chains,
-        parallel_chains = parallel_chains,
-        threads_per_chain = threads_per_chain,
-        iter_warmup = iter_warmup,
-        iter_sampling = iter_sampling,
-        refresh = 500,
-        save_warmup = TRUE,
-        show_messages = show_messages,
-        show_exceptions = show_exceptions
-    )
-    
-    # Remove any trajectories that did not converge
-    cat("Checking for divergent transitions and removing non-converged chains...\n")
-    tmp <- as.data.table(pcm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
-    tmp <- tmp[, .(
-        mean_lp = mean(lp__),
-        sd_lp = sd(lp__),
-        n = .N
-    ), by = .chain]
-    
-    threshold <- tmp[which.max(mean_lp), mean_lp - 2 * sd_lp]
-    pcm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
-    cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
-
-    # Extract chain timing information
-    cat("\nExtracting timing information...\n")
-    chain_times <- pcm_fit$time()
-    timing_data <- data.table(
-        chain = pcm_fit_good_chains,
-        warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
-        sampling_minutes = chain_times$chains$sampling[pcm_fit_good_chains] / 60,
-        total_chain_minutes = chain_times$chains$total[pcm_fit_good_chains] / 60
-    )
-    
-    timing_file <- paste0(output_file_prefix, "_timing.csv")
-    write.csv(timing_data, file = timing_file, row.names = FALSE)
-    cat("Saved timing information to:", timing_file, "\n")
-
-    # Extract and save draws
-    cat("Extracting draws...\n")
-    draws_file <- paste0(output_file_prefix, "_draws.rds")
-    draws <- pcm_fit$draws(format = "draws_array")
-    draws <- draws[, pcm_fit_good_chains, , drop = FALSE]
-    saveRDS(draws, file = draws_file)
-    cat("Saved draws to:", draws_file, "\n")
-    draws <- NULL
-    gc()
-
-    # Save output to RDS
-    output_file <- paste0(output_file_prefix, "_stan.rds")
-    cat("Saving model fit to:", output_file, "\n")
-    pcm_fit$save_object(file = output_file)
-
-    # Check convergence and mixing
-    cat("Generating convergence diagnostics...\n")
-    tmp <- pcm_fit$summary(
-        variables = c(
-            "latent_factor_unit", "latent_factor_beta",
-            "skill_thresholds", "loadings_questions_m1"
+    # Check if resuming from existing outputs
+    if (can_resume) {
+        cat("\n========================================\n")
+        cat("RESUMING from existing outputs\n")
+        cat("========================================\n")
+        
+        cat("Loading draws into poa from:", draws_file, "\n")
+        poa <- readRDS(draws_file)
+        
+        cat("Loading timing data from:", timing_file, "\n")
+        timing_data <- read.csv(timing_file)
+        pcm_fit_good_chains <- timing_data$chain
+        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
+        cat("========================================\n\n")
+    } else {
+        if (resume) {
+            cat("\nNote: Resume requested but not all output files exist. Running full analysis.\n\n")
+        }
+        
+        # Sample from the model
+        cat("Running MCMC sampling...\n")
+        flush.console()
+        pcm_fit <- pcm_compiled$sample(
+            data = stan_data,
+            seed = seed,
+            chains = chains,
+            parallel_chains = parallel_chains,
+            threads_per_chain = threads_per_chain,
+            iter_warmup = iter_warmup,
+            iter_sampling = iter_sampling,
+            refresh = 500,
+            save_warmup = TRUE,
+            show_messages = show_messages,
+            show_exceptions = show_exceptions
         )
-    )
-    tmp <- as.data.table(tmp)
-    tmp <- tmp[order(ess_bulk), ]
-    write.csv(
-        tmp,
-        file = paste0(output_file_prefix, "_convergence_mixing.csv"),
-        row.names = FALSE
-    )
+        
+        # Remove any trajectories that did not converge
+        cat("Checking for divergent transitions and removing non-converged chains...\n")
+        tmp <- as.data.table(pcm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
+        tmp <- tmp[, .(
+            mean_lp = mean(lp__),
+            sd_lp = sd(lp__),
+            n = .N
+        ), by = .chain]
+        
+        threshold <- tmp[which.max(mean_lp), mean_lp - 2 * sd_lp]
+        pcm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
+        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
 
-    # Additional diagnostic analyses (optional)
-    if (with_additional_analyses) {
-        cat("\nRunning additional diagnostic analyses...\n")
+        # Extract chain timing information
+        cat("\nExtracting timing information...\n")
+        chain_times <- pcm_fit$time()
+        timing_data <- data.table(
+            chain = pcm_fit_good_chains,
+            warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
+            sampling_minutes = chain_times$chains$sampling[pcm_fit_good_chains] / 60,
+            total_chain_minutes = chain_times$chains$total[pcm_fit_good_chains] / 60
+        )
+        
+        write.csv(timing_data, file = timing_file, row.names = FALSE)
+        cat("Saved timing information to:", timing_file, "\n")
+
+        # Save output to RDS
+        cat("Saving model fit to:", output_file, "\n")
+        pcm_fit$save_object(file = output_file)
+
+        # Check convergence and mixing
+        cat("Generating convergence diagnostics...\n")
+        tmp <- pcm_fit$summary(
+            variables = c(
+                "latent_factor_unit", "latent_factor_beta",
+                "skill_thresholds", "loadings_questions_m1"
+            )
+        )
+        tmp <- as.data.table(tmp)
+        tmp <- tmp[order(ess_bulk), ]
+        write.csv(
+            tmp,
+            file = mixing_file,
+            row.names = FALSE
+        )
 
         # Worst parameters with lowest ess_bulk
         worst_var <- tmp$variable[1:9]
 
         # Make worst trace plot
-        cat("Generating trace plots...\n")
+        cat("Generating trace plots...\n")        
         po <- pcm_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
@@ -265,18 +284,26 @@ fit_partial_credit_model_ncats <- function(
             w = 20
         )
 
+        # Extract and save draws
+        cat("Extracting draws...\n")
+        poa <- pcm_fit$draws(format = "draws_array")
+        poa <- poa[, pcm_fit_good_chains, , drop = FALSE]
+        saveRDS(poa, file = draws_file)
+        cat("Saved draws to:", draws_file, "\n")
+
+        pcm_fit <- NULL
+        gc()
+
+    }
+
+    # Additional diagnostic analyses (optional)
+    if (with_additional_analyses) {
+        cat("\nRunning additional diagnostic analyses...\n")
+
         # Make intervals plot
         cat("Generating parameter plots...\n")
-        po <- pcm_fit$draws(
-            variables = c(
-                "latent_factor_unit", "latent_factor_beta",
-                "skill_thresholds", "loadings_questions_m1"
-            ),
-            inc_warmup = FALSE,
-            format = "draws_array"
-        )
-        po <- po[, pcm_fit_good_chains, , drop = FALSE]
-
+        tmp <- c("latent_factor_unit", "latent_factor_beta","skill_thresholds", "loadings_questions_m1")                
+        po <- poa[,, grepl(paste(tmp, collapse = "|"), dimnames(poa)[[3]]), drop = FALSE]
         color_scheme_set("teal")
         p <- bayesplot::mcmc_intervals(
             po,
@@ -292,12 +319,7 @@ fit_partial_credit_model_ncats <- function(
 
         # Make posterior predictive check
         cat("Generating posterior predictive checks...\n")
-        po <- pcm_fit$draws(
-            variables = c("ypred"),
-            inc_warmup = FALSE,
-            format = "draws_array"
-        )
-        po <- po[, pcm_fit_good_chains, , drop = FALSE]
+        po <- poa[,, grepl("ypred", dimnames(poa)[[3]]), drop = FALSE]
         po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
         po <- data.table::melt(
@@ -360,13 +382,8 @@ fit_partial_credit_model_ncats <- function(
         # Compute and save ordinal Brier scores by question
         cat("Computing ordinal Brier scores by question...\n")
         
-        # Extract Brier scores (now in format ordinal_brier_score[c,q])
-        brier <- pcm_fit$draws(
-            variables = c("ordinal_brier_score"),
-            inc_warmup = FALSE,
-            format = "draws_array"
-        )
-        brier <- brier[, pcm_fit_good_chains, , drop = FALSE]
+        # Extract Brier scores (now in format ordinal_brier_score[c,q])     
+        brier <- poa[,, grepl("ordinal_brier_score", dimnames(poa)[[3]]), drop = FALSE]
         brier <- posterior::as_draws_df(brier)
         brier <- as.data.table(brier)
         brier <- data.table::melt(brier,
@@ -414,13 +431,8 @@ fit_partial_credit_model_ncats <- function(
         # NOTE: In ncats model, ordered_prob_by_obs stores averaged probabilities
         # per (category type, question) combination.
         # Format: for each category c, for each question q in that category,
-        # store K[c] probabilities (one per response category)
-        po <- pcm_fit$draws(
-            variables = c("ordered_prob_by_cat_qu_fit"),
-            inc_warmup = FALSE,
-            format = "draws_array"
-        )
-        po <- po[, pcm_fit_good_chains, , drop = FALSE]
+        # store K[c] probabilities (one per response category)        
+        po <- poa[,, grepl("ordered_prob_by_cat_qu_fit", dimnames(poa)[[3]]), drop = FALSE]
         po <- posterior::as_draws_df(po)
         po <- as.data.table(po)
         po <- data.table::melt(po,
@@ -590,12 +602,7 @@ fit_partial_credit_model_ncats <- function(
             cat("Generating posterior predictive probability plots (ordered_prob_by_cat_qu_pr)...\n")
             
             # Extract ordered_prob_by_cat_qu_pr
-            po2 <- pcm_fit$draws(
-                variables = c("ordered_prob_by_cat_qu_pr"),
-                inc_warmup = FALSE,
-                format = "draws_array"
-            )
-            po2 <- po2[, pcm_fit_good_chains, , drop = FALSE]
+            po2 <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
             po2 <- posterior::as_draws_df(po2)
             po2 <- as.data.table(po2)
             po2 <- data.table::melt(po2,
@@ -761,6 +768,4 @@ fit_partial_credit_model_ncats <- function(
             )
         }
     }
-
-    invisible(pcm_fit)
 }

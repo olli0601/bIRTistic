@@ -165,10 +165,7 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r pcm-fit-colombia-data-vanilla-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_vanilla_stan.rds")
-if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v260413===\n")
-    pcm_fit <-fit_partial_credit_model_ncats(
+fit_partial_credit_model_ncats(
             dit_col,
             dp1_col,
             output_file_prefix = paste0(output_file_prefix, "_fit_vanilla"),
@@ -180,12 +177,12 @@ if (!file.exists(rds_file)) {
             iter_sampling = 1000L,
             seed = seed,
             x_formula = ~ time - 1,
+            resume = TRUE,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
             show_exceptions = TRUE
         )
-}
 gc()
 ```
 
@@ -282,30 +279,29 @@ setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 setkey(dp1_col, pid, time, item_label)
+
+saveRDS(list(dp1 = dp1_col, dit = dit_col), paste0(output_file_prefix, "_ps_tsd_data.rds"))
 ```
 
 ```{r pcm-fit-colombia-propensity-scores-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_ps_tsd_stan.rds")
-if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v260413===\n")
-    pcm_fit <- fit_partial_credit_model_ncats(
-            dit_col,
-            dp1_col,
-            output_file_prefix = paste0(output_file_prefix, "_fit_ps_tsd"),
-            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
-            chains = 4L,
-            parallel_chains = 4L,
-            threads_per_chain = 1L,
-            iter_warmup = 500L,
-            iter_sampling = 1000L,
-            seed = seed,
-            x_formula = ~ time + time_since_death_scaled + ps_score_scaled - 1, 
-            with_core_analyses = TRUE,
-            with_additional_analyses = TRUE,
-            show_messages = TRUE,
-            show_exceptions = TRUE
-        )
-}
+fit_partial_credit_model_ncats(
+        dit_col,
+        dp1_col,
+        output_file_prefix = paste0(output_file_prefix, "_fit_ps_tsd"),
+        stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 1000L,
+        seed = seed,
+        x_formula = ~ time + time_since_death_scaled + ps_score_scaled - 1, 
+        resume = TRUE,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
 gc()
 ```
 
@@ -456,37 +452,50 @@ setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 setkey(dp1_col, pid, time, item_label)
+
+saveRDS(list(dp1 = dp1_col, dit = dit_col), paste0(output_file_prefix, "_matched_ps_tsd_data.rds"))
 ```
 
 ```{r pcm-fit-on-data-v260413-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-output_file_prefix <- file.path(dir_out_pcm, "_fit_matched_ps_tsd")
-
-rds_file <- paste0(output_file_prefix, "_fit_matched_ps_tsd_stan.rds")
-if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v260413===\n")
-    pcm_fit <- fit_partial_credit_model_ncats(
-            dit_col,
-            dp1_col,
-            output_file_prefix = paste0(output_file_prefix, "_fit_matched_ps_tsd"),
-            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
-            x_formula = ~ time + factor(mid) + time_since_death_scaled + ps_score_scaled - 1, 
-            x_formula_ignore_regex = "mid",
-            chains = 4L,
-            parallel_chains = 4L,
-            threads_per_chain = 1L,
-            iter_warmup = 500L,
-            iter_sampling = 1000L,
-            seed = seed,
-            with_core_analyses = TRUE,
-            with_additional_analyses = TRUE,
-            show_messages = TRUE,
-            show_exceptions = TRUE
-        )
-}
+fit_partial_credit_model_ncats(
+        dit_col,
+        dp1_col,
+        output_file_prefix = paste0(output_file_prefix, "_fit_matched_ps_tsd"),
+        stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+        x_formula = ~ time + factor(mid) + time_since_death_scaled + ps_score_scaled - 1, 
+        x_formula_ignore_regex = "mid",
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 1000L,
+        seed = seed,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
 gc()
 ```
 
-## Data loading and pre-processing of Ukraine data
+## Run partial credit model v260413 on Ukraine data, vanilla
+
+```{r setup-pcm-directories-v260413-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define partial credit model output directories
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ukraine-comparison")
+dir_logs_pcm <- file.path(dir_out_pcm, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_pcm)) {
+    dir.create(dir_out_pcm, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_pcm)) {
+    dir.create(dir_logs_pcm, recursive = TRUE)
+}
+
+output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
+```
+
 
 ```{r load-and-preprocess-data-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 file_data_Ukraine <- file.path(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
@@ -515,34 +524,19 @@ tmp <- tmp[
     by = "item_type"
 ]
 dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_label", "time"))
-setkey(dp1_ukr, pid, time, item_label)
+dp1_ukr <- merge(dp1_ukr, unique(subset(dit_ukr, select = c(item_type, item_type_id))), by = "item_type")
+setkey(dp1_ukr, item_type_id, pid, time, item_label)
 dp1_ukr[, oid := .I]
 setkey(dp1_ukr, oid)
 tmp <- dp1_ukr[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_type", "oid"))
 setkey(dp1_ukr, pid, time, item_label)
+
+saveRDS(list(dp1 = dp1_ukr, dit = dit_ukr), paste0(output_file_prefix, "_vanilla_data.rds"))
 ```
 
-## Run partial credit model v251224 on Ukraine data
-
-```{r setup-pcm-directories-v251224-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# Define partial credit model output directories
-dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-251224")
-dir_logs_pcm <- file.path(dir_out_pcm, "logs")
-
-# Create output directories if they don't exist
-if (!dir.exists(dir_out_pcm)) {
-    dir.create(dir_out_pcm, recursive = TRUE)
-}
-if (!dir.exists(dir_logs_pcm)) {
-    dir.create(dir_logs_pcm, recursive = TRUE)
-}
-
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
-```
-
-```{r compile-stan-model-pcm-v251224-ukraine, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v251224.stan")
+```{r compile-stan-model-pcm-v260413-ukraine, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "partial_credit_model_ncats_v260413.stan")
 pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -551,28 +545,25 @@ pcm_compiled <- cmdstanr::cmdstan_model(
     )
 ```
 
-```{r pcm-fit-on-training-data-v251224-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-rds_file <- paste0(output_file_prefix, "_fit_alldata_stan.rds")
-if (!file.exists(rds_file)) {
-    cat("\n=== Running partial credit model v251224 on Ukraine data for comparison ===\n")
-    pcm_ukr_fit <-fit_partial_credit_model(
-            dit_ukr,
-            dp1_ukr,
-            output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
-            chains = 4L,
-            parallel_chains = 4L,
-            threads_per_chain = 1L,
-            iter_warmup = 500L,
-            iter_sampling = 1000L,
-            seed = seed,
-            x_formula = ~ time - 1,
-            with_core_analyses = TRUE,
-            with_additional_analyses = TRUE,
-            show_messages = TRUE,
-            show_exceptions = TRUE
-        )
-}
+```{r pcm-fit-on-training-data-v260413-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+fit_partial_credit_model_ncats(
+        dit_ukr,
+        dp1_ukr,
+        output_file_prefix = paste0(output_file_prefix, "_fit_vanilla"),
+        stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+        chains = 4L,
+        parallel_chains = 4L,
+        threads_per_chain = 1L,
+        iter_warmup = 500L,
+        iter_sampling = 1000L,
+        seed = seed,
+        x_formula = ~ time - 1,
+        resume = TRUE,
+        with_core_analyses = TRUE,
+        with_additional_analyses = TRUE,
+        show_messages = TRUE,
+        show_exceptions = TRUE
+    )
 gc()
 ```
 
@@ -584,62 +575,74 @@ Aggregate most + all of the time and compute mean for out-of-7
 
 ```{r colombia-endpoints, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
 # read fitted pcm model for Colombia data
-if(0) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_col)
-    dit <- copy(dit_col)
+if(1) {
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_ps_tsd_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)        
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_")    
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))
     categorical_threshold <- 3
 }
 
 # read fitted pcm model for Colombia data, matched participants
-if(1) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_col)
-    dit <- copy(dit_col)
+if(0) {
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_matched_ps_tsd_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)    
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_")
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))
     categorical_threshold <- 3
 }
 
 # read fitted pcm model for Ukraine data
 if(0) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_ukr)
-    dit <- copy(dit_ukr)
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ukraine-comparison")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_ukraine_vanilla_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)            
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine_fit_vanilla_")
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))    
     categorical_threshold <- 2
 }
 
 # Aggregate categorical probabilities for most + all of the time
-po <- pcm_fit$draws(
-    variables = c("cat1_ordered_prob_by_obs"),
-    inc_warmup = FALSE,
-    format = "draws_df"
-)
+po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
+po <- posterior::as_draws_df(po)
 po <- as.data.table(po)
 po <- data.table::melt(po,
     id.vars = c(".draw", ".chain", ".iteration"),
     value.name = "prob"
-)
-po[, y_stan := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3", variable))]
-po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2", variable))]
+    )
+po[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+    variable
+    ))]
 set(po, NULL, "variable", NULL)
+tmp <- unique(subset(dp1, select = c(item_type_id, item_label, item_time_id)))
+tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+setkey(tmp, item_type_id, item_time_id)
+tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+po <- merge(tmp, po, by = "cq_id")   
+
 tmp <- unique(subset(dp1[item_type == "categorical", ],
-    select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
+    select = c(item_type_id, item_label, item_time_id, item_type, time_label)
 ))
-po <- merge(po, tmp, by = c("oidt"))
-po <- subset(po, y_stan > categorical_threshold)
+po <- merge(po, tmp, by = c("item_type_id", "item_time_id"))
+po <- subset(po, y >= categorical_threshold)
 po <- po[,
     list(y_stan = 45, prob = sum(prob)),
-    by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
+    by = c(".draw", "item_type_id", "item_time_id", "item_label", "item_type", "time_label")
 ]
 po <- merge(po, subset(dit, select = c(item_type, item_label, group_label)), by = c("item_type", "item_label"))
 po <- po[,
     list(prob = mean(prob)),
-    by = c(".draw", "pid", "item_type", "time_label", "group_label")
+    by = c(".draw", "item_type", "time_label", "group_label")
 ]
 po <- data.table::dcast(po,
-    .draw + pid + item_type + group_label ~ time_label,
+    .draw + item_type + group_label ~ time_label,
     value.var = "prob"
 )
 po <- subset(po, !is.na(Baseline) & !is.na(Endline))
@@ -647,13 +650,9 @@ po[, diff := Baseline - Endline]
 po[, ratio := 1 - Endline / Baseline]
 po[, diff2 := Endline - Baseline]
 po[, ratio2 := Endline / Baseline - 1]
-po <- po[,
-    list(diff = mean(diff), ratio = mean(ratio), diff2 = mean(diff2), ratio2 = mean(ratio2), bl = mean(Baseline), el = mean(Endline)),
-    by = c(".draw", "item_type", "group_label")
-]
 po <- melt(po,
     id.vars = c(".draw", "item_type", "group_label"),
-    measure.vars = c("diff", "ratio", "diff2", "ratio2", "bl", "el")
+    measure.vars = c("diff", "ratio", "diff2", "ratio2", "Baseline", "Endline")
 )
 pos <- po[,
     list(
@@ -673,34 +672,40 @@ po <- NULL
 gc()
 
 # Compute mean for out-of-7 responses
-po <- pcm_fit$draws(
-    variables = c("cat2_ordered_prob_by_obs"),
-    inc_warmup = FALSE,
-    format = "draws_df"
-)
+po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
+po <- posterior::as_draws_df(po)
 po <- as.data.table(po)
 po <- data.table::melt(po,
     id.vars = c(".draw", ".chain", ".iteration"),
     value.name = "prob"
-)
-po[, y_stan := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3", variable))]
-po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2", variable))]
+    )
+po[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+    variable
+    ))]
 set(po, NULL, "variable", NULL)
+tmp <- unique(subset(dp1, select = c(item_type_id, item_label, item_time_id)))
+tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+setkey(tmp, item_type_id, item_time_id)
+tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+po <- merge(tmp, po, by = "cq_id")  
+
 tmp <- unique(subset(dp1[item_type == "out-of-7", ],
-    select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
+    select = c(item_type_id, item_label, item_time_id, item_type, time_label)
 ))
-po <- merge(po, tmp, by = c("oidt"))
+po <- merge(po, tmp, by = c("item_type_id", "item_time_id"))
 po <- po[,
-    list(mean = sum((y_stan - 1) * prob)),
-    by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
+    list(mean = sum(y * prob)),
+    by = c(".draw", "item_label", "item_time_id", "item_type", "time_label")
 ]
 po <- merge(po, subset(dit, select = c(item_type, item_label, group_label)), by = c("item_type", "item_label"))
 po <- po[,
     list(mean = mean(mean)),
-    by = c(".draw", "pid", "item_type", "time_label", "group_label")
+    by = c(".draw", "item_type", "time_label", "group_label")
 ]
 po <- data.table::dcast(po,
-    .draw + pid + item_type + group_label ~ time_label,
+    .draw + item_type + group_label ~ time_label,
     value.var = "mean"
 )
 po <- subset(po, !is.na(Baseline) & !is.na(Endline))
@@ -718,13 +723,9 @@ set(po, tmp, "diff", po[tmp, Endline - Baseline])
 set(po, tmp, "ratio", po[tmp, Endline / Baseline - 1])
 po[, diff2 := Endline - Baseline]
 po[, ratio2 := Endline / Baseline - 1]
-po <- po[,
-    list(diff = mean(diff), ratio = mean(ratio), diff2 = mean(diff2), ratio2 = mean(ratio2), bl = mean(Baseline), el = mean(Endline)),
-    by = c(".draw", "item_type", "group_label", "item_high_label")
-]
 po <- melt(po,
     id.vars = c(".draw", "item_type", "group_label", "item_high_label"),
-    measure.vars = c("diff", "ratio", "diff2", "ratio2", "bl", "el")
+    measure.vars = c("diff", "ratio", "diff2", "ratio2", "Baseline", "Endline")
 )
 pos <- po[,
     list(
@@ -745,9 +746,9 @@ gc()
 
 pos <- rbind(pos_cat1, pos_cat2, fill = TRUE)
 
-cat("\nwrite endpoints to file=", paste0(output_file_prefix, "_primary_endpoints_grouped.rds"), "\n")
+cat("\nwrite endpoints to file=", paste0(output_file_prefix, "primary_endpoints_grouped.rds"), "\n")
 saveRDS(pos,
-    file = paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
+    file = paste0(output_file_prefix, "primary_endpoints_grouped.rds"))
 ```
 
 ## Create primary endpoints for each response item
@@ -757,57 +758,68 @@ Aggregate most + all of the time and compute mean for out-of-7
 ```{r colombia-endpoints-detailed, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, cache=TRUE}
 # read fitted pcm model for Colombia data
 if(0) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_col)
-    dit <- copy(dit_col)
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_ps_tsd_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)        
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_")    
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))
     categorical_threshold <- 3
 }
 
 # read fitted pcm model for Colombia data, matched participants
-if(1) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_colombia_matched")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_col)
-    dit <- copy(dit_col)
+if(0) {
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_matched_ps_tsd_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)    
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_")
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))
     categorical_threshold <- 3
 }
 
 # read fitted pcm model for Ukraine data
-if(0) {
-    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine")
-    pcm_fit <- readRDS(paste0(output_file_prefix, "_fit_alldata_stan.rds"))
-    dp1 <- copy(dp1_ukr)
-    dit <- copy(dit_ukr)
+if(1) {
+    dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ukraine-comparison")
+    tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_ukraine_vanilla_data.rds"))
+    dp1 <- copy(tmp$dp1)
+    dit <- copy(tmp$dit)            
+    output_file_prefix <- file.path(dir_out_pcm, "pcm_1_ukraine_fit_vanilla_")
+    poa <- readRDS(paste0(output_file_prefix, "draws.rds"))    
     categorical_threshold <- 2
 }
 
 # Aggregate categorical probabilities for most + all of the time
-po <- pcm_fit$draws(
-    variables = c("cat1_ordered_prob_by_obs"),
-    inc_warmup = FALSE,
-    format = "draws_df"
-)
+po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
+po <- posterior::as_draws_df(po)
 po <- as.data.table(po)
 po <- data.table::melt(po,
     id.vars = c(".draw", ".chain", ".iteration"),
     value.name = "prob"
-)
-po[, y_stan := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3", variable))]
-po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2", variable))]
+    )
+po[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+    variable
+    ))]
 set(po, NULL, "variable", NULL)
+tmp <- unique(subset(dp1, select = c(item_type_id, item_label, item_time_id)))
+tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+setkey(tmp, item_type_id, item_time_id)
+tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+po <- merge(tmp, po, by = "cq_id")   
+
 tmp <- unique(subset(dp1[item_type == "categorical", ],
-    select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
+    select = c(item_type_id, item_label, item_time_id, item_type, time_label)
 ))
-po <- merge(po, tmp, by = c("oidt"))
-po <- subset(po, y_stan > categorical_threshold)
+po <- merge(po, tmp, by = c("item_type_id", "item_time_id"))
+po <- subset(po, y >= categorical_threshold)
 po <- po[,
     list(y_stan = 45, prob = sum(prob)),
-    by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
+    by = c(".draw", "item_type_id", "item_time_id", "item_label", "item_type", "time_label")
 ]
-po <- unique(po, by = c(".draw", "pid", "item_time_id", "item_type"))
 po <- data.table::dcast(po,
-    .draw + pid + item_type + item_label ~ time_label,
+    .draw + item_type + item_label ~ time_label,
     value.var = "prob"
 )
 po <- subset(po, !is.na(Baseline) & !is.na(Endline))
@@ -815,13 +827,9 @@ po[, diff := Baseline - Endline]
 po[, ratio := 1 - Endline / Baseline]
 po[, diff2 := Endline - Baseline]
 po[, ratio2 := Endline / Baseline - 1]
-po <- po[,
-    list(diff = mean(diff), ratio = mean(ratio), diff2 = mean(diff2), ratio2 = mean(ratio2), bl = mean(Baseline), el = mean(Endline)),
-    by = c(".draw", "item_type", "item_label")
-]
 po <- melt(po,
     id.vars = c(".draw", "item_type", "item_label"),
-    measure.vars = c("diff", "ratio", "diff2", "ratio2", "bl", "el")
+    measure.vars = c("diff", "ratio", "diff2", "ratio2", "Baseline", "Endline")
 )
 pos <- po[,
     list(
@@ -834,41 +842,47 @@ pos <- data.table::dcast(pos,
     item_type + item_label + variable ~ summary_name,
     value.var = "summary_value"
 )
-pos <- merge(pos, dit, by = c("item_type", "item_label"))
+tmp <- unique(subset(dit, select = c(item_type, item_label, item_label_short, group_label, group_label_long, item_high_label)))
+pos <- merge(pos, tmp, by = c("item_type", "item_label"))
 pos_cat1 <- copy(pos)
 po <- NULL
 gc()
 
 # Compute mean for out-of-7 responses
-po <- pcm_fit$draws(
-    variables = c("cat2_ordered_prob_by_obs"),
-    inc_warmup = FALSE,
-    format = "draws_df"
-)
+po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
+po <- posterior::as_draws_df(po)
 po <- as.data.table(po)
 po <- data.table::melt(po,
     id.vars = c(".draw", ".chain", ".iteration"),
     value.name = "prob"
-)
-po[, y_stan := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\3", variable))]
-po[, oidt := as.integer(gsub("([a-z0-9_]+)\\[([0-9]+),([0-9]+)\\]", "\\2", variable))]
+    )
+po[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+    variable
+    ))]
 set(po, NULL, "variable", NULL)
+tmp <- unique(subset(dp1, select = c(item_type_id, item_label, item_time_id)))
+tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+setkey(tmp, item_type_id, item_time_id)
+tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+po <- merge(tmp, po, by = "cq_id")  
+
 tmp <- unique(subset(dp1[item_type == "out-of-7", ],
-    select = c(oidt, pid, item_label, item_time_id, item_type, time_label)
+    select = c(item_type_id, item_label, item_time_id, item_type, time_label)
 ))
-po <- merge(po, tmp, by = c("oidt"))
+po <- merge(po, tmp, by = c("item_type_id", "item_time_id"))
 po <- po[,
-    list(mean = sum((y_stan - 1) * prob)),
-    by = c(".draw", "oidt", "pid", "item_label", "item_time_id", "item_type", "time_label")
+    list(mean = sum(y * prob)),
+    by = c(".draw", "item_label", "item_time_id", "item_type", "time_label")
 ]
-po <- unique(po, by = c(".draw", "pid", "item_time_id", "item_type"))
 po <- data.table::dcast(po,
-    .draw + pid + item_type + item_label ~ time_label,
+    .draw + item_type + item_label ~ time_label,
     value.var = "mean"
 )
 po <- subset(po, !is.na(Baseline) & !is.na(Endline))
 po <- merge(po,
-    subset(dit, select = c(item_type, item_label, item_high_label)),
+    unique(subset(dit, select = c(item_type, item_label, group_label, item_high_label))),
     by = c("item_type", "item_label")
 )
 po[, diff := NA_real_]
@@ -881,14 +895,10 @@ set(po, tmp, "diff", po[tmp, Endline - Baseline])
 set(po, tmp, "ratio", po[tmp, Endline / Baseline - 1])
 po[, diff2 := Endline - Baseline]
 po[, ratio2 := Endline / Baseline - 1]
-po <- po[,
-    list(diff = mean(diff), ratio = mean(ratio), diff2 = mean(diff2), ratio2 = mean(ratio2), bl = mean(Baseline), el = mean(Endline)),
-    by = c(".draw", "item_type", "item_label", "item_high_label")
-]
 po <- melt(po,
     id.vars = c(".draw", "item_type", "item_label", "item_high_label"),
-    measure.vars = c("diff", "ratio", "diff2", "ratio2", "bl", "el")
-)
+    measure.vars = c("diff", "ratio", "diff2", "ratio2", "Baseline", "Endline")
+    )
 pos <- po[,
     list(
         summary_value = quantile(value, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
@@ -900,30 +910,36 @@ pos <- data.table::dcast(pos,
     item_type + item_label + item_high_label + variable ~ summary_name,
     value.var = "summary_value"
 )
-pos <- merge(pos, dit, by = c("item_type", "item_label", "item_high_label"))
+tmp <- unique(subset(dit, select = c(item_type, item_label, item_label_short, group_label, group_label_long, item_high_label)))
+pos <- merge(pos, tmp, by = c("item_type", "item_label", "item_high_label"))
 pos_cat2 <- copy(pos)
 po <- NULL
 gc()
 
 pos <- rbind(pos_cat1, pos_cat2, fill = TRUE)
 
-cat("\nwrite endpoints to file=", paste0(output_file_prefix, "_primary_endpoints_detailed.rds"), "\n")
+cat("\nwrite endpoints to file=", paste0(output_file_prefix, "primary_endpoints_detailed.rds"), "\n")
 saveRDS(pos,
-    file = paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
+    file = paste0(output_file_prefix, "primary_endpoints_detailed.rds"))
 ```
 
 ## Table 2 of primary endpoints in Colombia, aggregated, both pre-post and quasi-experimental
 
 ```{r make-table-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
-pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_grouped.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
 pos[, analysis := 'prepost']
 
-tmp <- readRDS(paste0(output_file_prefix, "_colombia_matched_primary_endpoints_grouped.rds"))
-tmp <- subset(tmp, variable %in% c('bl','el','ratio2','diff2'))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_primary_endpoints_grouped.rds"))
+tmp <- subset(tmp, variable %in% c('Baseline','Endline','ratio2','diff2'))
 tmp[, analysis := 'quasiexp']
 pos <- rbind(pos, tmp, fill = TRUE)
+set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
+set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
+
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
@@ -1132,9 +1148,14 @@ cat("  PDF: ", paste0(output_file_prefix, "_table_2.pdf"), "\n")
 ## Supplementary Table 1 of primary endpoints in Colombia, by items, pre-post
 
 ```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_detailed.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
+set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
+set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
@@ -1303,9 +1324,13 @@ cat("  PDF: ", paste0(output_file_prefix, "_supp_table_1.pdf"), "\n")
 ## Supplementary Table 2 of primary endpoints in Colombia, by items, quasi-experimental
 
 ```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-pos <- readRDS(paste0(output_file_prefix, "_colombia_matched_primary_endpoints_detailed.rds"))
-pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_primary_endpoints_detailed.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
+set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
+set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
+
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
@@ -1474,16 +1499,22 @@ cat("  PDF: ", paste0(output_file_prefix, "_supp_table_2.pdf"), "\n")
 ## Supplementary Table 3 comparing primary endpoints in Colombia to those in Ukraine
 
 ```{r make-supp-table-3, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
-output_file_prefix <- file.path(dir_out_pcm, "pcm_1")
-pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
-pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_grouped.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
 pos[, country := 'Colombia']
 
-tmp <- readRDS(paste0(output_file_prefix, "_ukraine_primary_endpoints_grouped.rds"))
-tmp <- subset(tmp, variable %in% c('bl','el','ratio2','diff2'))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ukraine-comparison")
+tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_ukraine_fit_vanilla_primary_endpoints_grouped.rds"))
+tmp <- subset(tmp, variable %in% c('Baseline','Endline','ratio2','diff2'))
 tmp[, country := 'Ukraine']
+tmp <- subset(tmp, group_label_long != 'grieve')
 
 pos <- rbind(pos, tmp, fill = TRUE)
+set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
+set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
+
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
@@ -1656,11 +1687,14 @@ cat("  PDF: ", paste0(output_file_prefix, "_supp_table_3.pdf"), "\n")
 
 ```
 
-
 ## Figure 2
 
 ```{r plot-main-figure-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
-pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_grouped.rds"))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_grouped.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+
 
 # Recode group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
@@ -1669,12 +1703,17 @@ pos[group_label_long == "Caregiver exercising physical or emotional violence", g
 pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
 
 # Plot A: Categorical mental health
-tmp_cat <- subset(pos, item_type == "categorical" & group_label_long == "Caregiver Depression and Anxiety" & variable %in% c("bl", "el"))
-tmp_cat[, time_label := ifelse(variable == "bl", "Baseline", "Endline")]
-tmp_cat[, time_label := factor(time_label, levels = c("Baseline", "Endline"))]
+tmp_cat <- subset(pos, item_type == "categorical" & 
+    group_label_long == "Caregiver Depression and Anxiety" & 
+    variable %in% c( "Baseline", "Endline")
+    )
+tmp_cat[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Get ratio data for labels
-tmp_ratio_cat <- subset(pos, item_type == "categorical" & group_label_long == "Caregiver Depression and Anxiety" & variable == "ratio2")
+tmp_ratio_cat <- subset(pos, item_type == "categorical" & 
+    group_label_long == "Caregiver Depression and Anxiety" & 
+    variable == "ratio2"
+    )
 tmp_ratio_cat[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
 tmp_mean_cat <- tmp_cat[, list(y_pos = mean(median)), by = c("group_label_long")]
 tmp_ratio_cat <- merge(tmp_ratio_cat, tmp_mean_cat, by = c("group_label_long"))
@@ -1715,16 +1754,19 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
     )
 
 # Plot B: Out-of-7 items
-tmp <- subset(pos, item_type == "out-of-7" & variable %in% c("bl", "el"))
-tmp[, time_label := ifelse(variable == "bl", "Baseline", "Endline")]
-tmp[, time_label := factor(time_label, levels = c("Baseline", "Endline"))]
+tmp <- subset(pos, item_type == "out-of-7" & 
+    variable %in% c("Baseline", "Endline")
+    )
+tmp[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Recode item_high_label for display
 tmp[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
 tmp[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
 
 # Get ratio data for labels
-tmp_ratio <- subset(pos, item_type == "out-of-7" & variable == "ratio2")
+tmp_ratio <- subset(pos, item_type == "out-of-7" & 
+    variable == "ratio2"
+    )
 tmp_ratio[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
 # Recode item_high_label for display in ratio data too
 tmp_ratio[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
@@ -1753,7 +1795,7 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, color = item_high_label)) 
         label.size = 0.5,
         show.legend = FALSE
     ) +
-    facet_wrap(~ group_label_long, ncol = 2, scales = "free_y") +
+    facet_wrap(~ group_label_long, ncol = 3, scales = "free_y") +
     scale_color_manual(
         values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
         name = "Direction"
@@ -1776,29 +1818,103 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, color = item_high_label)) 
     guides(color = guide_legend(nrow = 1))
 
 # Create top row with plot_a on left and empty space on right
-top_row <- plot_grid(plot_a, NULL, ncol = 2, 
-    rel_widths = c(1.2, 1), labels = c("a", ""))
+top_row <- plot_grid(plot_a, NULL, ncol = 3, 
+    rel_widths = c(1.2, 1, 1), labels = c("a", ""))
 # Stack top row with plot_b that spans full width, with axis alignment
 combined_plot <- plot_grid(top_row, plot_b, 
-    ncol = 1, nrow = 2, rel_heights = c(0.8, 3), 
+    ncol = 1, nrow = 2, rel_heights = c(1.2, 3), 
     labels = c("", "b"))
-
 
 # Save combined plot
 ggsave(
-    filename = paste0(output_file_prefix, "_combined_figure_2.pdf"),
+    filename = paste0(output_file_prefix, "_figure_2.pdf"),
     plot = combined_plot,
-    width = 10,
+    width = 14,
     height = 17,
     dpi = 300
 )
 ```
 
+## Figure 3
+```{r plot-main-figure-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_grouped.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
+pos[, analysis := 'prepost']
 
-## Supplementary Figure 2
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
+tmp <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_primary_endpoints_grouped.rds"))
+tmp <- subset(tmp, variable %in% c('Baseline','Endline','ratio2','diff2'))
+tmp[, analysis := 'quasiexp']
+pos <- rbind(pos, tmp, fill = TRUE)
+set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
+set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
+pos <- subset(pos, variable == 'ratio2')
+
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+
+# Recode group labels for display
+pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
+pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
+pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
+pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
+
+pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
+pos[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
+
+pos[, analysis_label := ifelse(analysis == "prepost", "Pre-Post analysis", "Quasi-experimental analysis")]
+pos[, analysis_label := factor(analysis_label, levels = c("Quasi-experimental analysis", "Pre-Post analysis"))]
+
+p <- ggplot(pos, aes(x = analysis_label)) +
+    geom_col(
+        aes(y = median, fill = item_high_label), 
+        colour = 'transparent'
+        ) +
+    geom_boxplot(aes(ymin = q_lower, lower = iqr_lower, middle = median, upper = iqr_upper, ymax = q_upper), 
+        colour = "black",
+        fill = 'transparent',
+        width = 0.35,
+        stat = "identity",
+        outlier.shape = NA) +
+    scale_y_continuous(
+        labels = scales::percent, 
+        breaks = seq(-1.5, 1.5, by = 0.5),
+        limits = c(-1.9, 1.9),
+        expand = c(0,0)
+    ) +
+    facet_wrap(group_label_long ~ ., ncol = 3) +
+    labs(
+        x = "Analysis type", 
+        y = "Percent change (Endline vs Baseline)"
+        ) +
+    scale_fill_manual(
+        values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
+        name = "Direction"
+        ) +
+    coord_flip() +
+    theme_bw() +
+    theme(
+        legend.title = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom"
+        )
+ggsave(
+    filename = paste0(output_file_prefix, "_figure_3.pdf"),
+    plot = p,
+    width = 14,
+    height = 7,
+    dpi = 300
+)
+```
+
+
+## Supplementary Figure 3
 
 ```{r plot-figure-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=16}
-pos <- readRDS(paste0(output_file_prefix, "_primary_endpoints_detailed.rds"))
+dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
+pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_detailed.rds"))
+pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
 pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
@@ -1807,15 +1923,20 @@ pos[group_label_long == "Caregiver exercising physical or emotional violence", g
 pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
 
 # Plot A: Categorical mental health items
-tmp_cat <- subset(pos, item_type == "categorical" & group_label_long == "Caregiver Depression and Anxiety" & variable %in% c("bl", "el"))
-tmp_cat[, time_label := ifelse(variable == "bl", "Baseline", "Endline")]
-tmp_cat[, time_label := factor(time_label, levels = c("Baseline", "Endline"))]
+tmp_cat <- subset(pos, item_type == "categorical" & 
+    group_label_long == "Caregiver Depression and Anxiety" & 
+    variable %in% c("Baseline", "Endline")
+    )
+tmp_cat[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Create facet label combining group and item
 tmp_cat[, facet_label := paste0(group_label_long, "\n(", item_label_short, ")")]
 
 # Get ratio data for labels and merge with median values for positioning
-tmp_ratio_cat <- subset(pos, item_type == "categorical" & group_label_long == "Caregiver Depression and Anxiety" & variable == "ratio2")
+tmp_ratio_cat <- subset(pos, item_type == "categorical" & 
+    group_label_long == "Caregiver Depression and Anxiety" & 
+    variable == "ratio2"
+    )
 tmp_ratio_cat[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
 tmp_ratio_cat[, facet_label := paste0(group_label_long, "\n(", item_label_short, ")")]
 # Get the mean of baseline and endline for each item to position the label
@@ -1861,16 +1982,19 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
     )
 
 # Plot B: Out-of-7 items
-tmp <- subset(pos, item_type == "out-of-7" & variable %in% c("bl", "el"))
-tmp[, time_label := ifelse(variable == "bl", "Baseline", "Endline")]
-tmp[, time_label := factor(time_label, levels = c("Baseline", "Endline"))]
+tmp <- subset(pos, item_type == "out-of-7" & 
+    variable %in% c("Baseline", "Endline")
+    )
+tmp[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Recode item_high_label for display
 tmp[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
 tmp[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
 
 # Get ratio data for labels and merge with median values for positioning
-tmp_ratio <- subset(pos, item_type == "out-of-7" & variable == "ratio2")
+tmp_ratio <- subset(pos, item_type == "out-of-7" & 
+    variable == "ratio2"
+    )
 tmp_ratio[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
 # Get the mean of baseline and endline for each item to position the label
 tmp_mean <- tmp[, list(y_pos = mean(median)), by = c("item_label_short", "item_high_label", "group_label_long")]
@@ -1892,7 +2016,7 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, group = item_label_short,
     geom_line(aes(linetype = item_label_short), linewidth = 1) +
     geom_point(size = 2.5) +
     geom_text(
-        data = subset(tmp, variable == "el"),
+        data = subset(tmp, variable == "Endline"),
         aes(label = item_label_short),
         hjust = -0.3,
         size = 3,
@@ -1933,14 +2057,14 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, group = item_label_short,
     guides(color = guide_legend(nrow = 1))
 
 # Combine plots
-combined_plot <- ggpubr::ggarrange(plot_a, plot_b, ncol = 1, nrow = 2, heights = c(1, 2), labels = c("a", "b"), align = "v")
+combined_plot <- ggpubr::ggarrange(plot_a, plot_b, ncol = 1, nrow = 2, heights = c(2, 3), labels = c("a", "b"), align = "v")
 
 # Save combined plot
 ggsave(
-    filename = paste0(output_file_prefix, "_combined_supp_figure_2.pdf"),
+    filename = paste0(output_file_prefix, "_supp_figure_3.pdf"),
     plot = combined_plot,
-    width = 10,
-    height = 16,
+    width = 14,
+    height = 17,
     dpi = 300
 )
 ```
