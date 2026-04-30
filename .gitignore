@@ -9,6 +9,8 @@ src/stan/*
 .RData
 .Rproj.user
 *.Rproj
+*_cache/
+cache/
 
 # RStudio
 .Rproj.user/
@@ -23,6 +25,7 @@ src/stan/*
 
 # Python
 __pycache__/
+__packages/
 *.py[cod]
 *$py.class
 *.so

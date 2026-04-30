@@ -1,0 +1,751 @@
+---
+title: "Investigate ADVI vs HMC for ordered logit model on Colombia data"
+date: "2026-04-30"
+output: 
+  bookdown::html_document2:
+    toc: TRUE
+    toc_float: TRUE
+    highlight: tango
+  bookdown::pdf_book:
+    keep_tex: yes
+---
+
+<style type="text/css">
+h1{
+  font-size: 24pt;
+}
+h2{
+  font-size: 18pt;
+}
+body{
+  font-size: 12pt;
+}
+</style>
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+This vignette applies the ordered logit model (ncats v260413) to the Colombia data for comparison with other IRT models. It generates plots and tables for the Hope Groups paper using the ordered logit model v260413.
+
+# Standalone model fit
+
+## Load/Install packages
+
+```{r load-packages, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Install and load packages
+packages <- c(
+    "cowplot",
+    "data.table",
+    "here",
+    "purrr",
+    "formatR",
+    "ggplot2",
+    "ggsci",
+    "ggpubr",
+    "hexbin",
+    "bayesplot",
+    "knitr",
+    "kableExtra",
+    "cmdstanr",
+    "loo",
+    "polycor",
+    "GGally",
+    "MatchIt",
+    "posterior"
+)
+
+# install.packages("remotes")  # if you don’t already have it
+# remotes::install_github("stan-dev/cmdstanr") # if you don’t already have it
+
+invisible(lapply(packages, function(pkg) {
+  if (!require(pkg, character.only = TRUE)) {
+    install.packages(pkg)
+    library(pkg, character.only = TRUE)
+  }
+}))
+
+```
+
+```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+source(here::here("R", "read_data_colombia.R"))
+source(here::here("R", "read_data_ukraine.R"))
+source(here::here("R", "train_test_split_data.R"))
+source(here::here("R", "fit_credit_model.R"))
+source(here::here("R", "fit_ordered_logit_model.R"))
+source(here::here("R", "fit_partial_credit_model.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats_advi.R"))
+```
+
+## Run ordered logit model v260413 on Colombia data (vanilla)
+
+```{r define-data-locations-260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define directories
+if (grepl("^/rds/general/user/or105", here::here())) {
+    # Working on HPC
+    on_hpc <- TRUE
+    dir_data <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups/data"
+    dir_out_base <- "/rds/general/user/or105/home/WORK/2025_project_Hope_Groups"
+} else {
+    # Working locally
+    on_hpc <- FALSE
+    dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
+    dir_out_base <- "/Users/or105/sandbox"
+}
+
+# Define file names
+file_data <- file.path(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
+file_data_quasi <- file.path(dir_data, "Colombia_data_quasi_assignments_250927.csv")
+
+set.seed(42L)
+seed <- c(123L)
+```
+
+```{r load-and-preprocess-data-colombia-260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Read in data from Colombia
+tmp <- read_data_colombia(file_data)
+dp_col <- copy(tmp$dp)
+dit_col <- copy(tmp$dit)
+dmeta_col <- copy(tmp$dmeta)
+
+# Preprocess data
+dp1_col <- subset(dp_col, !grepl("agg", item_label))
+dp1_col[, y_stan := y + 1L]
+tmp <- CJ(
+    item_label = sort(unique(dp1_col$item_label)),
+    time = unique(dp1_col$time)
+)
+tmp[, item_type := ifelse(
+    grepl("CG-MH", item_label), "categorical", "out-of-7"
+)]
+tmp <- tmp[
+    , list(
+        item_label = item_label, time = time,
+        item_time_id = seq_along(item_label)
+    ),
+    by = "item_type"
+]
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
+setkey(dp1_col, item_type_id, pid, time, item_label)
+dp1_col[, oid := .I]
+setkey(dp1_col, oid)
+tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
+dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
+
+setkey(dp1_col, pid, time, item_label)
+```
+
+```{r setup-ol-directories-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Define ordered logit model output directories
+dir_out_ol <- "/Users/or105/sandbox/colombia-ordered_logit-260430-vanilla-advi-vs-hmc"
+dir_logs_ol <- file.path(dir_out_ol, "logs")
+
+# Create output directories if they don't exist
+if (!dir.exists(dir_out_ol)) {
+    dir.create(dir_out_ol, recursive = TRUE)
+}
+if (!dir.exists(dir_logs_ol)) {
+    dir.create(dir_logs_ol, recursive = TRUE)
+}
+
+output_file_prefix_hmc <- file.path(dir_out_ol, "ol_1_hmc")
+output_file_prefix_advi <- file.path(dir_out_ol, "ol_1_advi")
+
+# Save data for later use
+data_file <- file.path(dir_out_ol, "ol_1_hmc_data.rds")
+if (!file.exists(data_file)) {
+    saveRDS(list(dp1 = dp1_col, dit = dit_col), file = data_file)
+    cat("Saved data to:", data_file, "\n")
+}
+```
+
+```{r compile-stan-model-ol-v260413-vanilla, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
+stan_file <- here::here("src", "stan", "ordered_logit_ncats_v260413.stan")
+ol_compiled <- cmdstanr::cmdstan_model(
+        stan_file,
+        include_paths = dirname(stan_file),
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
+    )
+```
+
+```{r ol-fit-colombia-data-vanilla-hmc, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+fit_ordered_logit_model_ncats(
+            dit_col,
+            dp1_col,
+            output_file_prefix = output_file_prefix_hmc,
+            stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
+            chains = 4L,
+            parallel_chains = 4L,
+            threads_per_chain = 1L,
+            iter_warmup = 500L,
+            iter_sampling = 1000L,
+            seed = seed,
+            x_formula = ~ time - 1,
+            resume = TRUE,
+            with_core_analyses = FALSE,
+            with_additional_analyses = FALSE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+gc()
+```
+
+## Run ordered logit model v260413 on Colombia data using ADVI
+
+```{r ol-fit-colombia-data-vanilla-advi, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+fit_ordered_logit_model_ncats_advi(
+            dit_col,
+            dp1_col,
+            output_file_prefix = output_file_prefix_advi,
+            stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
+            iter = 10000L,
+            grad_samples = 1L,
+            elbo_samples = 100L,
+            output_samples = 4000L,
+            seed = seed,
+            x_formula = ~ time - 1,
+            resume = TRUE,
+            show_messages = TRUE,
+            show_exceptions = TRUE
+        )
+gc()
+```
+
+# Compare HMC vs ADVI
+
+## Load results
+
+```{r load-results, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Load draws from both methods
+draws_hmc <- readRDS(paste0(output_file_prefix_hmc, "_draws.rds"))
+draws_advi <- readRDS(paste0(output_file_prefix_advi, "_draws.rds"))
+
+# Convert to data.table format for easier manipulation
+require(posterior)
+require(data.table)
+
+df_hmc <- as_draws_df(draws_hmc)
+df_advi <- as_draws_df(draws_advi)
+
+cat("HMC draws:", nrow(df_hmc), "samples\n")
+cat("ADVI draws:", nrow(df_advi), "samples\n")
+```
+
+## 1. Compare ordered_prob_by_cat_qu_fit (key analysis quantities)
+
+```{r compare-ordered-probs, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Extract ordered_prob_by_cat_qu_fit parameters
+prob_params <- grep("^ordered_prob_by_cat_qu_fit\\[", names(df_hmc), value = TRUE)
+cat("Found", length(prob_params), "ordered_prob_by_cat_qu_fit parameters\n")
+
+# Compute quantiles for each parameter under both methods
+compute_quantiles <- function(df, params) {
+    result <- data.table(parameter = params)
+    result[, median := sapply(params, function(p) median(df[[p]]))]
+    result[, q_05 := sapply(params, function(p) quantile(df[[p]], 0.05))]
+    result[, q_25 := sapply(params, function(p) quantile(df[[p]], 0.25))]
+    result[, q_75 := sapply(params, function(p) quantile(df[[p]], 0.75))]
+    result[, q_975 := sapply(params, function(p) quantile(df[[p]], 0.975))]
+    return(result)
+}
+
+probs_hmc <- compute_quantiles(df_hmc, prob_params)
+setnames(probs_hmc, c("median", "q_05", "q_25", "q_75", "q_975"),
+         c("median_hmc", "q_05_hmc", "q_25_hmc", "q_75_hmc", "q_975_hmc"))
+
+probs_advi <- compute_quantiles(df_advi, prob_params)
+setnames(probs_advi, c("median", "q_05", "q_25", "q_75", "q_975"),
+         c("median_advi", "q_05_advi", "q_25_advi", "q_75_advi", "q_975_advi"))
+
+# Merge and compute differences
+probs_combined <- merge(probs_hmc, probs_advi, by = "parameter")
+probs_combined[, median_diff := median_hmc - median_advi]
+probs_combined[, abs_median_diff := abs(median_diff)]
+
+# Order by absolute difference
+setorder(probs_combined, -abs_median_diff)
+
+cat("\nTop 10 ordered_prob_by_cat_qu_fit with largest median differences:\n")
+print(probs_combined[1:10, .(parameter, median_hmc, median_advi, median_diff)])
+
+# Save full results to CSV
+fwrite(
+    probs_combined,
+    file = file.path(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv")
+)
+cat("\nSaved ordered_prob comparison to:", file.path(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv"), "\n")
+```
+
+## Plot ordered_probs by surveyitem
+
+```{r plot-ordered-probs-by-item, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=24, fig.height=30}
+# Load data to get item mappings and empirical probabilities
+tmp <- readRDS(paste0(output_file_prefix_hmc, "_data.rds"))
+dp1 <- copy(tmp$dp1)
+dit <- copy(tmp$dit)
+
+# Load HMC draws in array format
+poa <- readRDS(paste0(output_file_prefix_hmc, "_draws.rds"))
+
+# Extract ordered_prob parameters from HMC
+po_hmc <- poa[,, grepl("ordered_prob_by_cat_qu_fit", dimnames(poa)[[3]]), drop = FALSE]
+po_hmc <- posterior::as_draws_df(po_hmc)
+po_hmc <- as.data.table(po_hmc)
+po_hmc <- data.table::melt(po_hmc,
+    id.vars = c(".draw", ".chain", ".iteration"),
+    value.name = "prob"
+)
+po_hmc[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_fit\\[([0-9]+)\\]", "\\1",
+    variable
+))]
+set(po_hmc, NULL, "variable", NULL)
+
+# Compute quantiles for HMC
+pos_hmc <- po_hmc[,
+    list(
+        summary_value = quantile(prob, prob = c(0.25, 0.5, 0.75)),
+        summary_name = c("q25", "median", "q75")
+    ),
+    by = c("cq_id")
+]
+pos_hmc <- data.table::dcast(pos_hmc,
+    cq_id ~ summary_name,
+    value.var = "summary_value"
+)
+pos_hmc[, method := "HMC"]
+
+# Extract ordered_prob parameters from ADVI
+poa_advi <- readRDS(paste0(output_file_prefix_advi, "_draws.rds"))
+po_advi <- poa_advi[,, grepl("ordered_prob_by_cat_qu_fit", dimnames(poa_advi)[[3]]), drop = FALSE]
+po_advi <- posterior::as_draws_df(po_advi)
+po_advi <- as.data.table(po_advi)
+po_advi <- data.table::melt(po_advi,
+    id.vars = c(".draw", ".chain", ".iteration"),
+    value.name = "prob"
+)
+po_advi[, cq_id := as.integer(gsub(
+    "ordered_prob_by_cat_qu_fit\\[([0-9]+)\\]", "\\1",
+    variable
+))]
+set(po_advi, NULL, "variable", NULL)
+
+# Compute quantiles for ADVI
+pos_advi <- po_advi[,
+    list(
+        summary_value = quantile(prob, prob = c(0.25, 0.5, 0.75)),
+        summary_name = c("q25", "median", "q75")
+    ),
+    by = c("cq_id")
+]
+pos_advi <- data.table::dcast(pos_advi,
+    cq_id ~ summary_name,
+    value.var = "summary_value"
+)
+pos_advi[, method := "ADVI"]
+
+# Combine HMC and ADVI
+pos <- rbind(pos_hmc, pos_advi)
+
+# Map cq_id back to (item_type_id, item_time_id, y_stan)
+tmp_map <- unique(subset(dp1, select = c(item_type_id, item_label, item_time_id)))
+tmp_map <- merge(tmp_map, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+setkey(tmp_map, item_type_id, item_time_id)
+tmp_map[, cq_id := cumsum(cat_length) - cat_length + 1L]
+tmp_map <- tmp_map[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+tmp_map <- merge(tmp_map, 
+                 unique(subset(dp1, 
+                                select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                )), 
+                 by = c("item_type_id", "item_time_id", "y")
+                 )
+pos <- merge(tmp_map, pos, by = "cq_id")
+
+# Compute empirical probabilities
+tmp_emp <- dp1[,
+    list(n = .N),
+    by = c("time_label", "item_label", "y_label", "item_type_id", "item_time_id", "y")
+]
+tmp2 <- tmp_emp[, list(total = sum(n)), by = c("time_label", "item_label", "item_type_id", "item_time_id")]
+tmp_emp <- merge(tmp_emp, tmp2, by = c("time_label", "item_label", "item_type_id", "item_time_id"))
+tmp_emp[, median := n / total]
+tmp_emp[, q25 := NA_real_]
+tmp_emp[, q75 := NA_real_]
+tmp_emp[, method := "Empirical"]
+tmp_emp[, c("n", "total") := NULL]
+
+# Merge with dit for plotting
+pos <- merge(pos, dit, by = c("item_type_id","item_label"))
+pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+
+# Add empirical data - merge with dit to get item_label_long
+tmp_emp <- merge(tmp_emp, dit, by = c("item_type_id","item_label"))
+tmp_emp[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+
+# Ensure tmp_emp has all columns that pos has (use common subset)
+common_cols <- intersect(names(pos), names(tmp_emp))
+
+# Combine HMC/ADVI with Empirical using rbind
+pos <- rbind(
+    pos[, ..common_cols],
+    tmp_emp[, ..common_cols]
+)
+
+# Create plots: one subplot per item_label_long × time_label
+items <- unique(pos$item_label_long)
+times <- unique(pos$time_label)
+
+plot_list <- list()
+for (item in items) {
+    for (t in times) {
+        plot_data <- pos[item_label_long == item & time_label == t]
+        
+        # Set method factor levels for consistent ordering and colors
+        plot_data[, method := factor(method, levels = c("Empirical", "HMC", "ADVI"))]
+        
+        p_sub <- ggplot(
+            plot_data,
+            aes(x = y_label, y = median, fill = method, group = interaction(method, y_label))
+        ) +
+            geom_col(position = position_dodge(width = 0.9), alpha = 0.7, width = 0.8) +
+            geom_errorbar(
+                aes(ymin = q25, ymax = q75),
+                position = position_dodge(width = 0.9),
+                width = 0.25
+            ) +
+            scale_y_continuous(labels = scales::percent, limits = c(0, NA)) +
+            scale_fill_manual(values = c("Empirical" = "#B4C8A8", "HMC" = "#008080", "ADVI" = "#CA562C")) +
+            ggtitle(paste0(item, " - ", t)) +
+            theme_bw() +
+            theme(
+                axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 7),
+                legend.position = "none",
+                plot.title = element_text(size = 8)
+            ) +
+            labs(x = "", y = "probability", fill = "Method")
+        
+        plot_list[[paste(item, t, sep = "___")]] <- p_sub
+    }
+}
+
+# Extract legend from one plot
+p_legend <- ggplot(
+    pos,
+    aes(x = y_label, y = median, fill = method)
+) +
+    geom_col() +
+    scale_fill_manual(
+        values = c("Empirical" = "#B4C8A8", "HMC" = "#008080", "ADVI" = "#CA562C"),
+        limits = c("Empirical", "HMC", "ADVI")
+    ) +
+    theme_bw() +
+    theme(legend.position = "top") +
+    labs(fill = "Method") +
+    guides(fill = guide_legend(ncol = 3))
+
+legend <- cowplot::get_legend(p_legend)
+
+# Arrange plots in grid: 2 columns (Baseline and Endline for each item)
+n_items <- length(items)
+p <- cowplot::plot_grid(
+    plotlist = plot_list,
+    ncol = 2,
+    align = "hv",
+    axis = "tb"
+)
+
+# Add legend on top
+p <- cowplot::plot_grid(legend, p, ncol = 1, rel_heights = c(0.05, 1))
+
+ggsave(
+    filename = file.path(dir_out_ol, "ordered_prob_comparison_by_item.pdf"),
+    plot = p,
+    h = 4 * n_items,
+    w = 12,
+    limitsize = FALSE
+)
+ggsave(
+    filename = file.path(dir_out_ol, "ordered_prob_comparison_by_item.png"),
+    plot = p,
+    h = 4 * n_items,
+    w = 12,
+    limitsize = FALSE
+)
+
+cat("\nSaved item-level probability comparison plots\n")
+```
+
+## 2. Compare model parameters (latent_factor_unit, skill_thresholds, loadings)
+
+```{r compare-model-params, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Extract model parameter groups
+param_groups <- list(
+    latent_factor_unit = grep("^latent_factor_unit\\[", names(df_hmc), value = TRUE),
+    skill_thresholds_1 = grep("^skill_thresholds_1\\[", names(df_hmc), value = TRUE),
+    skill_thresholds_incs = grep("^skill_thresholds_incs\\[", names(df_hmc), value = TRUE),
+    loadings_questions_m1 = grep("^loadings_questions_m1\\[", names(df_hmc), value = TRUE)
+)
+
+cat("Parameter counts:\n")
+for (group in names(param_groups)) {
+    cat("  ", group, ":", length(param_groups[[group]]), "\n")
+}
+
+# Compute quantiles for all model parameters
+model_params_hmc <- compute_quantiles(df_hmc, unlist(param_groups))
+setnames(model_params_hmc, c("median", "q_05", "q_25", "q_75", "q_975"),
+         c("median_hmc", "q_05_hmc", "q_25_hmc", "q_75_hmc", "q_975_hmc"))
+
+model_params_advi <- compute_quantiles(df_advi, unlist(param_groups))
+setnames(model_params_advi, c("median", "q_05", "q_25", "q_75", "q_975"),
+         c("median_advi", "q_05_advi", "q_25_advi", "q_75_advi", "q_975_advi"))
+
+# Merge and compute differences
+model_params_combined <- merge(model_params_hmc, model_params_advi, by = "parameter")
+model_params_combined[, median_diff := median_hmc - median_advi]
+model_params_combined[, abs_median_diff := abs(median_diff)]
+
+# Add parameter group
+model_params_combined[, param_group := NA_character_]
+for (group in names(param_groups)) {
+    model_params_combined[parameter %in% param_groups[[group]], param_group := group]
+}
+
+# Order by absolute difference within each group
+setorder(model_params_combined, param_group, -abs_median_diff)
+
+cat("\nTop 5 parameters per group with largest median differences:\n")
+for (group in names(param_groups)) {
+    cat("\n", group, ":\n")
+    print(model_params_combined[param_group == group][1:min(5, .N), 
+          .(parameter, median_hmc, median_advi, median_diff)])
+}
+
+# Save full results to CSV
+fwrite(
+    model_params_combined,
+    file = file.path(dir_out_ol, "model_params_comparison_hmc_vs_advi.csv")
+)
+cat("\nSaved model params comparison to:", file.path(dir_out_ol, "model_params_comparison_hmc_vs_advi.csv"), "\n")
+```
+
+## Plot worst model parameters using density lines
+
+```{r plot-model-params, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=16, fig.height=12}
+# Select top parameters from each group
+top_per_group <- 8
+
+top_model_params <- rbindlist(lapply(names(param_groups), function(group) {
+    model_params_combined[param_group == group][1:min(top_per_group, .N), .(parameter, param_group)]
+}))
+
+# Prepare data for plotting (long format)
+plot_data_model <- rbind(
+    data.table::melt(
+        as.data.table(df_hmc)[, c(".draw", top_model_params$parameter), with = FALSE],
+        id.vars = ".draw",
+        variable.name = "parameter",
+        value.name = "value"
+    )[, method := "HMC"],
+    data.table::melt(
+        as.data.table(df_advi)[, c(".draw", top_model_params$parameter), with = FALSE],
+        id.vars = ".draw",
+        variable.name = "parameter",
+        value.name = "value"
+    )[, method := "ADVI"]
+)
+
+# Add parameter group
+plot_data_model <- merge(plot_data_model, top_model_params, by = "parameter")
+
+# Create density plot faceted by parameter
+p2 <- ggplot(plot_data_model, aes(x = value, color = method)) +
+    geom_density(linewidth = 1.0, alpha = 0.8) +
+    facet_wrap(~ parameter, scales = "free", ncol = 4) +
+    scale_color_manual(values = c("HMC" = "#008080", "ADVI" = "#CA562C")) +
+    theme_bw() +
+    theme(
+        legend.position = "top",
+        strip.text = element_text(size = 7),
+        axis.text = element_text(size = 6),
+        axis.title = element_text(size = 9)
+    ) +
+    labs(
+        title = "Comparison of Posterior Densities: Model Parameters",
+        subtitle = paste("Top", top_per_group, "parameters per group ordered by largest difference"),
+        x = "Parameter value",
+        y = "Density",
+        color = "Method"
+    )
+
+print(p2)
+
+ggsave(
+    filename = file.path(dir_out_ol, "model_params_comparison_densities.pdf"),
+    plot = p2,
+    width = 16,
+    height = 12,
+    dpi = 300
+)
+
+ggsave(
+    filename = file.path(dir_out_ol, "model_params_comparison_densities.png"),
+    plot = p2,
+    width = 16,
+    height = 12,
+    dpi = 300
+)
+```
+
+## 3. Compare ypred using geom_col
+
+```{r compare-ypred, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Extract ypred parameters
+ypred_params <- grep("^ypred\\[", names(df_hmc), value = TRUE)
+cat("Found", length(ypred_params), "ypred parameters\n")
+
+# Compute quantiles for ypred (including 25% and 75% for error bars)
+compute_ypred_quantiles <- function(df, params) {
+    result <- data.table(parameter = params)
+    result[, median := sapply(params, function(p) median(df[[p]]))]
+    result[, mean := sapply(params, function(p) mean(df[[p]]))]
+    result[, q_25 := sapply(params, function(p) quantile(df[[p]], 0.25))]
+    result[, q_75 := sapply(params, function(p) quantile(df[[p]], 0.75))]
+    return(result)
+}
+
+ypred_hmc <- compute_ypred_quantiles(df_hmc, ypred_params)
+setnames(ypred_hmc, c("median", "mean", "q_25", "q_75"),
+         c("median_hmc", "mean_hmc", "q25_hmc", "q75_hmc"))
+
+ypred_advi <- compute_ypred_quantiles(df_advi, ypred_params)
+setnames(ypred_advi, c("median", "mean", "q_25", "q_75"),
+         c("median_advi", "mean_advi", "q25_advi", "q75_advi"))
+
+# Merge
+ypred_combined <- merge(ypred_hmc, ypred_advi, by = "parameter")
+ypred_combined[, median_diff := median_hmc - median_advi]
+ypred_combined[, mean_diff := mean_hmc - mean_advi]
+ypred_combined[, abs_median_diff := abs(median_diff)]
+
+# Order by absolute median difference
+setorder(ypred_combined, -abs_median_diff)
+
+cat("\nTop 10 ypred with largest median differences:\n")
+print(ypred_combined[1:10, .(parameter, median_hmc, median_advi, median_diff, mean_hmc, mean_advi)])
+
+# Find parameters with disagreement (different medians rounded to nearest integer)
+disagreements <- ypred_combined[round(median_hmc) != round(median_advi)]
+cat("\nNumber of ypred parameters with different rounded medians:", nrow(disagreements), "out of", nrow(ypred_combined), "\n")
+cat("Disagreement rate:", round(100 * nrow(disagreements) / nrow(ypred_combined), 2), "%\n")
+```
+
+## Plot worst ypred using geom_col with error bars
+
+```{r plot-ypred, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=14, fig.height=10}
+# Select top 30 by absolute median difference
+top_n_ypred <- 30
+top_ypred_params <- ypred_combined$parameter[1:top_n_ypred]
+
+# Prepare data for plotting (using means for continuous comparison)
+plot_data_ypred <- rbind(
+    data.table(
+        parameter = top_ypred_params,
+        method = "HMC",
+        mean = ypred_combined[1:top_n_ypred, mean_hmc],
+        q25 = ypred_combined[1:top_n_ypred, q25_hmc],
+        q75 = ypred_combined[1:top_n_ypred, q75_hmc]
+    ),
+    data.table(
+        parameter = top_ypred_params,
+        method = "ADVI",
+        mean = ypred_combined[1:top_n_ypred, mean_advi],
+        q25 = ypred_combined[1:top_n_ypred, q25_advi],
+        q75 = ypred_combined[1:top_n_ypred, q75_advi]
+    )
+)
+
+# Set factor levels to maintain order
+plot_data_ypred[, parameter := factor(parameter, levels = rev(top_ypred_params))]
+
+# Create bar plot with error bars
+p3 <- ggplot(plot_data_ypred, aes(x = parameter, y = mean, fill = method)) +
+    geom_col(position = position_dodge(width = 0.9), alpha = 0.7, width = 0.8) +
+    geom_errorbar(
+        aes(ymin = q25, ymax = q75),
+        position = position_dodge(width = 0.9),
+        width = 0.3
+    ) +
+    scale_fill_manual(values = c("HMC" = "#008080", "ADVI" = "#CA562C")) +
+    coord_flip() +
+    theme_bw() +
+    theme(
+        legend.position = "top",
+        axis.text.y = element_text(size = 6),
+        axis.text.x = element_text(size = 8),
+        axis.title = element_text(size = 10)
+    ) +
+    labs(
+        title = "Comparison of Posterior Means: ypred",
+        subtitle = paste("Top", top_n_ypred, "parameters ordered by largest median difference\nError bars show 25%-75% quantiles"),
+        x = "Parameter",
+        y = "Posterior Mean",
+        fill = "Method"
+    )
+
+print(p3)
+
+ggsave(
+    filename = file.path(dir_out_ol, "ypred_comparison_geom_col.pdf"),
+    plot = p3,
+    width = 14,
+    height = 10,
+    dpi = 300
+)
+
+ggsave(
+    filename = file.path(dir_out_ol, "ypred_comparison_geom_col.png"),
+    plot = p3,
+    width = 14,
+    height = 10,
+    dpi = 300
+)
+```
+
+## Summary of all comparisons
+
+```{r final-summary, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+cat("\n=== SUMMARY OF HMC VS ADVI COMPARISON ===\n\n")
+
+cat("1. ordered_prob_by_cat_qu_fit:\n")
+cat("   - Total parameters:", nrow(probs_combined), "\n")
+cat("   - Max absolute median difference:", round(max(probs_combined$abs_median_diff), 6), "\n")
+cat("   - Mean absolute median difference:", round(mean(probs_combined$abs_median_diff), 6), "\n")
+cat("   - Results saved to: ordered_prob_comparison_hmc_vs_advi.csv\n")
+cat("   - Item-level plots: ordered_prob_comparison_by_item.{pdf,png}\n\n")
+
+cat("2. Model parameters:\n")
+for (group in names(param_groups)) {
+    group_data <- model_params_combined[param_group == group]
+    cat("   ", group, ":\n")
+    cat("     - Parameters:", nrow(group_data), "\n")
+    cat("     - Max abs diff:", round(max(group_data$abs_median_diff), 6), "\n")
+    cat("     - Mean abs diff:", round(mean(group_data$abs_median_diff), 6), "\n")
+}
+cat("   - Results saved to: model_params_comparison_hmc_vs_advi.csv\n\n")
+
+cat("3. ypred:\n")
+cat("   - Total parameters:", nrow(ypred_combined), "\n")
+cat("   - Disagreements (different rounded medians):", nrow(disagreements), "\n")
+cat("   - Disagreement rate:", round(100 * nrow(disagreements) / nrow(ypred_combined), 2), "%\n")
+cat("   - Max absolute median difference:", round(max(abs(ypred_combined$median_diff)), 4), "\n")
+cat("   - Plots include 25%-75% quantile error bars\n\n")
+
+cat("All plots and CSV files saved to:", dir_out_ol, "\n")
+```
