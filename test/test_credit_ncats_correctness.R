@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Unit test: Verify partial_credit_model_ncats_v260413.stan computational correctness
+# Unit test: Verify credit_model_ncats_v260413.stan computational correctness
 #
 # This test verifies that the ncats model produces identical log-likelihood values
 # to the reference 2cats model when run with identical fixed parameter values.
@@ -12,7 +12,7 @@ library(data.table)
 
 # Set working directory to project root
 if (!grepl("bIRTistic$", getwd())) {
-  if (file.exists("test/test_pcm_ncats_correctness.R")) {
+  if (file.exists("test/test_credit_ncats_correctness.R")) {
     # Already in project root
   } else if (file.exists("../R")) {
     setwd("..")
@@ -21,17 +21,17 @@ if (!grepl("bIRTistic$", getwd())) {
   }
 }
 
-test_that("PCM ncats model produces identical log_lik to 2cats model with fixed parameters", {
+test_that("Credit model ncats produces identical log_lik to 2cats model with fixed parameters", {
   
   # Compile models
   model_2cats <- cmdstan_model(
-    "src/stan/partial_credit_model_2cats_v251224.stan",
+    "src/stan/credit_model_2cats_v251224.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )
   
   model_ncats <- cmdstan_model(
-    "src/stan/partial_credit_model_ncats_v260413.stan",
+    "src/stan/credit_model_ncats_v260413.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )
@@ -89,7 +89,8 @@ test_that("PCM ncats model produces identical log_lik to 2cats model with fixed 
     Xpr_id = c(1L)
   )
   
-  # Define fixed parameter values
+  # Define fixed parameter values for credit model
+  # Credit model uses skill_thresholds directly (not thresholds_1 + incs)
   init_2cats <- list(
     latent_factor_unit = c(-0.5, 0.5),
     latent_factor_beta = 1.0,
@@ -99,7 +100,7 @@ test_that("PCM ncats model produces identical log_lik to 2cats model with fixed 
     cat2_loadings_questions_m1 = 0.8
   )
   
-  # Convert to ncats format - now using flat vector without padding
+  # Convert to ncats format - flat vector without padding
   # Category 1: 2 questions × 2 thresholds = 4 values
   # Category 2: 2 questions × 3 thresholds = 6 values
   # Total: 10 values

@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# Unit test: Verify partial_credit_model_ncats_v260413.stan computational correctness
+# Unit test: Verify ordered_logit_ncats_v260413.stan computational correctness
 #
 # This test verifies that the ncats model produces identical log-likelihood values
 # to the reference 2cats model when run with identical fixed parameter values.
@@ -12,7 +12,7 @@ library(data.table)
 
 # Set working directory to project root
 if (!grepl("bIRTistic$", getwd())) {
-  if (file.exists("test/test_pcm_ncats_correctness.R")) {
+  if (file.exists("test/test_ordered_logit_ncats_correctness.R")) {
     # Already in project root
   } else if (file.exists("../R")) {
     setwd("..")
@@ -21,17 +21,17 @@ if (!grepl("bIRTistic$", getwd())) {
   }
 }
 
-test_that("PCM ncats model produces identical log_lik to 2cats model with fixed parameters", {
+test_that("Ordered logit ncats model produces identical log_lik to 2cats model with fixed parameters", {
   
   # Compile models
   model_2cats <- cmdstan_model(
-    "src/stan/partial_credit_model_2cats_v251224.stan",
+    "src/stan/ordered_logit_2cats_v251222.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )
   
   model_ncats <- cmdstan_model(
-    "src/stan/partial_credit_model_ncats_v260413.stan",
+    "src/stan/ordered_logit_ncats_v260413.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )
@@ -89,29 +89,43 @@ test_that("PCM ncats model produces identical log_lik to 2cats model with fixed 
     Xpr_id = c(1L)
   )
   
-  # Define fixed parameter values
+  # Define fixed parameter values for ordered logit
+  # For ordered logit: skill_thresholds_1 + cumsum(skill_thresholds_incs)
+  # Category 1: K=3, so 2 cutpoints per question (Km1=2)
+  #   - For each question: 1 skill_thresholds_1 + 1 skill_thresholds_inc (Km2=1)
+  # Category 2: K=4, so 3 cutpoints per question (Km1=3)  
+  #   - For each question: 1 skill_thresholds_1 + 2 skill_thresholds_incs (Km2=2)
+  
   init_2cats <- list(
     latent_factor_unit = c(-0.5, 0.5),
     latent_factor_beta = 1.0,
-    cat1_skill_thresholds = matrix(c(0.5, 1.0, -0.5, 0.5), nrow = 2, byrow = TRUE),
+    cat1_skill_thresholds_1 = c(0.5, -0.5),
+    cat1_skill_thresholds_incs = matrix(c(0.8, 0.6), nrow = 2, byrow = TRUE),
     cat1_loadings_questions_m1 = 1.5,
-    cat2_skill_thresholds = matrix(c(0.3, 0.6, 0.9, -0.3, -0.6, -0.9), nrow = 2, byrow = TRUE),
+    cat2_skill_thresholds_1 = c(0.3, -0.3),
+    cat2_skill_thresholds_incs = matrix(c(0.5, 0.7, 0.4, 0.6), nrow = 2, byrow = TRUE),
     cat2_loadings_questions_m1 = 0.8
   )
   
-  # Convert to ncats format - now using flat vector without padding
-  # Category 1: 2 questions × 2 thresholds = 4 values
-  # Category 2: 2 questions × 3 thresholds = 6 values
-  # Total: 10 values
-  skill_thresholds_vec <- c(
-    as.vector(t(init_2cats$cat1_skill_thresholds)),  # cat1: flatten row-by-row
-    as.vector(t(init_2cats$cat2_skill_thresholds))   # cat2: flatten row-by-row
+  # Convert to ncats format - flat vectors without padding
+  # skill_thresholds_1: all Q questions (4 total)
+  # skill_thresholds_incs: cat1 has 2*1=2 values, cat2 has 2*2=4 values, total 6
+  
+  skill_thresholds_1_vec <- c(
+    init_2cats$cat1_skill_thresholds_1,  # 2 values
+    init_2cats$cat2_skill_thresholds_1   # 2 values
+  )
+  
+  skill_thresholds_incs_vec <- c(
+    as.vector(t(init_2cats$cat1_skill_thresholds_incs)),  # cat1: 2 values (2 questions × 1 inc)
+    as.vector(t(init_2cats$cat2_skill_thresholds_incs))   # cat2: 4 values (2 questions × 2 incs)
   )
   
   init_ncats <- list(
     latent_factor_unit = c(-0.5, 0.5),
     latent_factor_beta = 1.0,
-    skill_thresholds = skill_thresholds_vec,
+    skill_thresholds_1 = skill_thresholds_1_vec,
+    skill_thresholds_incs = skill_thresholds_incs_vec,
     loadings_questions_m1 = c(1.5, 0.8)
   )
   
