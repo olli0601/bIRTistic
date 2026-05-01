@@ -59,17 +59,17 @@
 #' )
 #'
 #' # Run with additional diagnostics
-#' fit_credit_model(
+#' fit_credit_model_2cats(
 #'     dit = dit,
 #'     dcati = dcati,
 #'     output_file_prefix = "output/analysis_job1",
-#'     stan_file = "src/stan/credit_model_2cats_v251120.stan",
+#'     stan_file = "test/stan/credit_model_2cats_v251224.stan",
 #'     with_additional_analyses = TRUE
 #' )
 #' }
 #'
 #' @export
-fit_credit_model <- function(
+fit_credit_model_2cats <- function(
   dit,
   dcati,
   output_file_prefix,

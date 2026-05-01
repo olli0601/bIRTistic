@@ -81,7 +81,7 @@ config <- list(
     test_individuals_p = 0.5,
     test_items_p = 0.5,
     n_splits = 20,
-    stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+    stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
     dir_data = dir_data,
     dir_out = dir_out,
     chains = 2,

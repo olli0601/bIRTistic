@@ -217,9 +217,9 @@ invisible(lapply(packages, library, character.only = TRUE))
 ```{r source-functions, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "fit_credit_model.R"))
-source(here::here("R", "fit_ordered_logit_model.R"))
-source(here::here("R", "fit_partial_credit_model.R"))
+source(here::here("R", "fit_credit_model_ncats.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats.R"))
+source(here::here("R", "fit_partial_credit_model_ncats.R"))
 ```
 
 ## Data loading and pre-processing
@@ -282,7 +282,7 @@ dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
 setkey(dp1, pid, time, item_label)
 ```
 
-## Run ordered logistic model with 2 categories
+## Run ordered logistic model (ncats version ordered_logit_ncats_v260413)
 
 ```{r setup-ordlog-directories, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 # Define ordered logistic output directories
@@ -301,11 +301,12 @@ output_file_prefix <- file.path(dir_out, "ordlog_1")
 ```
 
 ```{r compile-stan-model, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "ordered_logit_2cats_v251222.stan")
+stan_file <- here::here("src", "stan", "ordered_logit_ncats_v260413.stan")
 ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE)
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
     )
 ```
 
@@ -318,11 +319,11 @@ for (seed in seeds) {
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
         cat("\n=== Running ordered logit model with seed", seed, "===\n")
-        fit_ordered_logit_model(
+        fit_ordered_logit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222.stan"),
+            stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -330,6 +331,7 @@ for (seed in seeds) {
             iter_sampling = 500L,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
@@ -340,7 +342,7 @@ for (seed in seeds) {
 }
 ```
 
-## Run credit model with 2 categories version credit_model_2cats_v251223
+## Run credit model (ncats version credit_model_ncats_v260413)
 
 ```{r setup-creditmodel-directories-v251223, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 # Define credit model output directories
@@ -359,11 +361,12 @@ output_file_prefix_cm <- file.path(dir_out_cm, "cm_2")
 ```
 
 ```{r compile-stan-model-v251223, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "credit_model_2cats_v251223.stan")
+stan_file <- here::here("src", "stan", "credit_model_ncats_v260413.stan")
 cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE)
+        cpp_options = list(stan_threads = TRUE),
+        force_recompile = TRUE
     )
 ```
 
@@ -375,12 +378,12 @@ for (seed in seeds) {
     output_file_prefix_seed <- file.path(seed_dir, "cm_2")
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
-        cat("\n=== Running credit model v251223 with seed", seed, "===\n")
-        fit_credit_model(
+        cat("\n=== Running credit model v260413 with seed", seed, "===\n")
+        fit_credit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "credit_model_2cats_v251223.stan"),
+            stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -388,6 +391,7 @@ for (seed in seeds) {
             iter_sampling = 500L,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
@@ -398,7 +402,7 @@ for (seed in seeds) {
 }
 ```
 
-## Run credit model with 2 categories version credit_model_2cats_v251224
+## Run credit model (ncats version credit_model_ncats_v260413)
 
 ```{r setup-creditmodel-directories-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 # Define credit model output directories
@@ -417,7 +421,7 @@ output_file_prefix_cm <- file.path(dir_out_cm, "cm_3")
 ```
 
 ```{r compile-stan-model-3, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "credit_model_2cats_v251224.stan")
+stan_file <- here::here("src", "stan", "credit_model_ncats_v260413.stan")
 cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -434,12 +438,12 @@ for (seed in seeds) {
     output_file_prefix_seed <- file.path(seed_dir, "cm_3")
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
-        cat("\n=== Running credit model v251224 with seed", seed, "===\n")
-        fit_credit_model(
+        cat("\n=== Running credit model v260413 with seed", seed, "===\n")
+        fit_credit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "credit_model_2cats_v251224.stan"),
+            stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -447,6 +451,7 @@ for (seed in seeds) {
             iter_sampling = 500L,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,
@@ -457,7 +462,7 @@ for (seed in seeds) {
 }
 ```
 
-## Run partial credit model with 2 categories version partial_credit_model_2cats_v251224
+## Run partial credit model (ncats version partial_credit_model_ncats_v260413)
 
 ```{r setup-pcm-directories-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
 # Define partial credit model output directories
@@ -476,7 +481,7 @@ output_file_prefix_pcm <- file.path(dir_out_pcm, "pcm_1")
 ```
 
 ```{r compile-stan-model-pcm-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "partial_credit_model_2cats_v251224.stan")
+stan_file <- here::here("src", "stan", "partial_credit_model_ncats_v260413.stan")
 pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -493,12 +498,12 @@ for (seed in seeds) {
     output_file_prefix_seed <- file.path(seed_dir, "pcm_1")
     rds_file <- paste0(output_file_prefix_seed, "_fit_alldata_stan.rds")
     if (!file.exists(rds_file)) {
-        cat("\n=== Running partial credit model v251224 with seed", seed, "===\n")
-        fit_partial_credit_model(
+        cat("\n=== Running partial credit model v260413 with seed", seed, "===\n")
+        fit_partial_credit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -506,6 +511,7 @@ for (seed in seeds) {
             iter_sampling = 500L,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = TRUE,
             with_additional_analyses = TRUE,
             show_messages = TRUE,

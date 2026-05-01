@@ -73,9 +73,6 @@ invisible(lapply(packages, function(pkg) {
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "read_data_ukraine.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "fit_credit_model.R"))
-source(here::here("R", "fit_ordered_logit_model.R"))
-source(here::here("R", "fit_partial_credit_model.R"))
 source(here::here("R", "fit_partial_credit_model_ncats.R"))
 source(here::here("R", "get_endpoints.R"))
 ```

@@ -156,29 +156,29 @@ seeds <- c(123L, 456L, 789L, 1011L, 1213L, 1415L, 1617L, 1819L, 2021L, 2223L)
 models <- list(
     list(
         model_name = "ordered_logit",
-        model_version = "v251222",
-        stan_file = here::here("src", "stan", "ordered_logit_2cats_v251222.stan"),
+        model_version = "v260413",
+        stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
         dir_out = dir_out_ol,
         output_prefix = "ordlog_1"
     ),
     list(
         model_name = "credit_model",
-        model_version = "v251223",
-        stan_file = here::here("src", "stan", "credit_model_2cats_v251223.stan"),
+        model_version = "v260413",
+        stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
         dir_out = dir_out_cm_v251223,
         output_prefix = "cm_2"
     ),
     list(
         model_name = "credit_model",
-        model_version = "v251224",
-        stan_file = here::here("src", "stan", "credit_model_2cats_v251224.stan"),
+        model_version = "v260413",
+        stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
         dir_out = dir_out_cm_v251224,
         output_prefix = "cm_3"
     ),
     list(
         model_name = "partial_credit_model",
-        model_version = "v251224",
-        stan_file = here::here("src", "stan", "partial_credit_model_2cats_v251224.stan"),
+        model_version = "v260413",
+        stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
         dir_out = dir_out_pcm,
         output_prefix = "pcm_1"
     )

@@ -12,7 +12,7 @@
 #'   item_type_id, item_label, cat_length, item_type, group_label, item_label_short,
 #'   group_label_long, item_high_label.
 #' @param draws_file Character string specifying the path to the RDS file containing
-#'   posterior draws (array format with ordered_prob_by_cat_qu_pr parameters).
+#'   posterior draws (array format with ordered_prob_by_cat_qu_pr or ordered_prob_by_cat_qu_fit parameters).
 #' @param categorical_threshold Integer specifying the threshold for aggregating
 #'   categorical responses. Categories >= this value are summed. Default is 3,
 #'   which aggregates "most" and "all of the time" categories for 5-category items.
@@ -20,6 +20,10 @@
 #'   - "items": Keeps individual items (item_type_id, item_time_id preserved)
 #'   - "item_groups": Aggregates across items within groups (group_label level)
 #'   Default is "items".
+#' @param param_name Character string specifying which ordered probability parameters to use:
+#'   - "ordered_prob_by_cat_qu_pr": Posterior predictions
+#'   - "ordered_prob_by_cat_qu_fit": Fitted values
+#'   Default is "ordered_prob_by_cat_qu_pr".
 #'
 #' @return A data.table containing endpoint summaries with columns:
 #'   - item_type, group_label, group_label_long: Item type and groupings
@@ -55,29 +59,36 @@
 #' dp1 <- copy(tmp$dp1)
 #' dit <- copy(tmp$dit)
 #'
-#' # Get detailed endpoints by individual items
+#' # Get detailed endpoints by individual items using posterior predictions
 #' pos <- get_endpoints(
 #'   dp1 = dp1,
 #'   dit = dit,
 #'   draws_file = "path/to/draws.rds",
 #'   categorical_threshold = 3,
-#'   endpoint_type = "items"
+#'   endpoint_type = "items",
+#'   param_name = "ordered_prob_by_cat_qu_pr"
 #' )
 #'
-#' # Get grouped endpoints aggregated across items
+#' # Get grouped endpoints aggregated across items using fitted values
 #' pos_grouped <- get_endpoints(
 #'   dp1 = dp1,
 #'   dit = dit,
 #'   draws_file = "path/to/draws.rds",
 #'   categorical_threshold = 3,
-#'   endpoint_type = "item_groups"
+#'   endpoint_type = "item_groups",
+#'   param_name = "ordered_prob_by_cat_qu_fit"
 #' )
 #' }
 #'
-#' @importFrom data.table copy merge setkey dcast melt set rbind
+#' @importFrom data.table copy merge setkey dcast melt set rbind data.table as.data.table setnames setorder
 #' @importFrom posterior as_draws_df
 #' @export
-get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items") {
+get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items", param_name = "ordered_prob_by_cat_qu_pr") {
+    
+    # Ensure data.table is available
+    if (!requireNamespace("data.table", quietly = TRUE)) {
+        stop("Package 'data.table' is required but not installed.")
+    }
     
     # Validate inputs
     if (!file.exists(draws_file)) {
@@ -88,6 +99,10 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         stop("endpoint_type must be either 'items' or 'item_groups'")
     }
     
+    if (!param_name %in% c("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit")) {
+        stop("param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'")
+    }
+    
     # Load draws
     poa <- readRDS(draws_file)
     
@@ -96,15 +111,16 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # =========================================================================
     
     # Extract ordered probability parameters
-    po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]
+    po <- poa[,, grepl(param_name, dimnames(poa)[[3]]), drop = FALSE]
     po <- posterior::as_draws_df(po)
     po <- data.table::as.data.table(po)
     po <- data.table::melt(po,
         id.vars = c(".draw", ".chain", ".iteration"),
         value.name = "prob"
     )
+    
     po[, cq_id := as.integer(gsub(
-        "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+        paste0(param_name, "\\[([0-9]+)\\]"), "\\1",
         variable
     ))]
     data.table::set(po, NULL, "variable", NULL)
@@ -123,12 +139,16 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     tmp <- unique(subset(dp1[item_type == "categorical", ],
         select = c(item_type_id, item_label, item_time_id, item_type, time_label)
     ))
+    
     po <- merge(po, tmp, by = c("item_type_id", "item_time_id"))
+    
     po <- subset(po, y >= categorical_threshold)
+    
     po <- po[,
         list(y_stan = 45, prob = sum(prob)),
         by = c(".draw", "item_type_id", "item_time_id", "item_label", "item_type", "time_label")
     ]
+    
     po <- merge(po, subset(dit, select = c(item_type, item_label, group_label)), 
                 by = c("item_type", "item_label"))
     
@@ -145,11 +165,17 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         )
     } else {
         # Reshape to wide format (Baseline vs Endline)
+        # Note: item_time_id is removed from formula since Baseline and Endline have different item_time_ids
+        # But we save it first to add back later
+        item_time_mapping <- unique(po[time_label == "Baseline", .(item_type_id, item_label, item_time_id)])
         po <- data.table::dcast(po,
-            .draw + item_type_id + item_time_id + item_label + item_type + group_label ~ time_label,
+            .draw + item_type_id + item_label + item_type + group_label ~ time_label,
             value.var = "prob"
         )
+        # Add back item_time_id from Baseline measurements
+        po <- merge(po, item_time_mapping, by = c("item_type_id", "item_label"), all.x = TRUE)
     }
+    
     po <- subset(po, !is.na(Baseline) & !is.na(Endline))
     
     # Compute differences and ratios
@@ -212,7 +238,7 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # =========================================================================
     
     # Extract ordered probability parameters again
-    po <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]
+    po <- poa[,, grepl(param_name, dimnames(poa)[[3]]), drop = FALSE]
     po <- posterior::as_draws_df(po)
     po <- data.table::as.data.table(po)
     po <- data.table::melt(po,
@@ -220,7 +246,7 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         value.name = "prob"
     )
     po[, cq_id := as.integer(gsub(
-        "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+        paste0(param_name, "\\[([0-9]+)\\]"), "\\1",
         variable
     ))]
     data.table::set(po, NULL, "variable", NULL)
@@ -296,10 +322,15 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         pos <- merge(pos, tmp, by = c("item_type", "group_label", "item_high_label"))
     } else {
         # Reshape to wide format (Baseline vs Endline)
+        # Note: item_time_id is removed from formula since Baseline and Endline have different item_time_ids
+        # But we save it first to add back later
+        item_time_mapping <- unique(po[time_label == "Baseline", .(item_label, item_time_id)])
         po <- data.table::dcast(po,
-            .draw + item_label + item_time_id + item_type + group_label ~ time_label,
+            .draw + item_label + item_type + group_label ~ time_label,
             value.var = "mean"
         )
+        # Add back item_time_id from Baseline measurements
+        po <- merge(po, item_time_mapping, by = "item_label", all.x = TRUE)
         po <- subset(po, !is.na(Baseline) & !is.na(Endline))
         po <- merge(po,
             unique(subset(dit, select = c(item_type, group_label, item_high_label))),
@@ -318,7 +349,7 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         po[, ratio2 := Endline / Baseline - 1]
         # Reshape to long format for summarization
         po <- data.table::melt(po,
-            id.vars = c(".draw", "item_label", "item_time_id", "item_type", "group_label", "item_high_label"),
+            id.vars = c(".draw", "item_label", "item_type", "group_label", "item_high_label"),
             measure.vars = c("diff", "ratio", "diff2", "ratio2", "Baseline", "Endline")
         )
         # Compute quantile summaries
@@ -327,10 +358,10 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
                 summary_value = quantile(value, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
                 summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
             ),
-            by = c("item_label", "item_time_id", "item_type", "group_label", "item_high_label", "variable")
+            by = c("item_label", "item_type", "group_label", "item_high_label", "variable")
         ]
         pos <- data.table::dcast(pos,
-            item_label + item_time_id + item_type + group_label + item_high_label + variable ~ summary_name,
+            item_label + item_type + group_label + item_high_label + variable ~ summary_name,
             value.var = "summary_value"
         )
         # Merge with item metadata
@@ -348,7 +379,7 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # Combine both parts
     # =========================================================================
     
-    pos <- data.table::rbind(pos_cat1, pos_cat2, fill = TRUE)
+    pos <- rbind(pos_cat1, pos_cat2, fill = TRUE)
     
     return(pos)
 }

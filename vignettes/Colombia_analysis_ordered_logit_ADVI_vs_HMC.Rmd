@@ -74,11 +74,9 @@ invisible(lapply(packages, function(pkg) {
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "read_data_ukraine.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "fit_credit_model.R"))
-source(here::here("R", "fit_ordered_logit_model.R"))
-source(here::here("R", "fit_partial_credit_model.R"))
 source(here::here("R", "fit_ordered_logit_model_ncats.R"))
 source(here::here("R", "fit_ordered_logit_model_ncats_advi.R"))
+source(here::here("R", "get_endpoints.R"))
 ```
 
 ## Run ordered logit model v260413 on Colombia data (vanilla)
@@ -237,7 +235,258 @@ cat("HMC draws:", nrow(df_hmc), "samples\n")
 cat("ADVI draws:", nrow(df_advi), "samples\n")
 ```
 
-## 1. Compare ordered_prob_by_cat_qu_fit (key analysis quantities)
+## Compare effect size estimates for each survey item 
+
+```{r compare-endpoints, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
+# Load data
+tmp <- readRDS(paste0(output_file_prefix_hmc, "_data.rds"))
+dp1 <- copy(tmp$dp1)
+dit <- copy(tmp$dit)
+
+cat("\nCalling get_endpoints for HMC...\n")
+# Get endpoints using the function for HMC
+endpoints_hmc <- get_endpoints(
+    dp1 = dp1,
+    dit = dit,
+    draws_file = paste0(output_file_prefix_hmc, "_draws.rds"),
+    categorical_threshold = 3,
+    endpoint_type = "items"
+)
+
+cat("\nget_endpoints returned successfully\n")
+cat("Class:", class(endpoints_hmc), "\n")
+cat("Dimensions:", dim(endpoints_hmc), "\n")
+cat("Column names:", paste(names(endpoints_hmc), collapse = ", "), "\n")
+cat("First few rows:\n")
+print(head(endpoints_hmc, 3))
+
+endpoints_hmc[, method := "HMC"]
+
+# Get endpoints using the function for ADVI
+endpoints_advi <- get_endpoints(
+    dp1 = dp1,
+    dit = dit,
+    draws_file = paste0(output_file_prefix_advi, "_draws.rds"),
+    categorical_threshold = 3,
+    endpoint_type = "items"
+)
+endpoints_advi[, method := "ADVI"]
+
+# Check what columns we have
+cat("\nColumns in endpoints_hmc:\n")
+print(names(endpoints_hmc))
+cat("\nFirst few rows:\n")
+print(head(endpoints_hmc))
+
+# Merge HMC and ADVI results for comparison
+# Both datasets contain categorical items (with item_time_id) and out-of-7 items (without)
+# Use all common columns for merging
+common_cols <- intersect(names(endpoints_hmc), names(endpoints_advi))
+common_cols <- setdiff(common_cols, "method")  # Remove method column
+cat("\nCommon columns for comparison:\n")
+print(common_cols)
+
+# For merging, we need unique identifiers
+# Categorical items: item_type, item_label, item_time_id, variable
+# Out-of-7 items: item_type, item_label, variable (no item_time_id)
+# We'll create a unique ID that handles both cases
+
+endpoints_hmc_copy <- copy(endpoints_hmc)
+endpoints_advi_copy <- copy(endpoints_advi)
+
+# Create unique ID for merging
+if ("item_time_id" %in% names(endpoints_hmc_copy)) {
+    endpoints_hmc_copy[, merge_id := paste(item_type, item_label, 
+                                            ifelse(is.na(item_time_id), "NA", as.character(item_time_id)), 
+                                            variable, sep = "___")]
+    endpoints_advi_copy[, merge_id := paste(item_type, item_label,
+                                             ifelse(is.na(item_time_id), "NA", as.character(item_time_id)),
+                                             variable, sep = "___")]
+} else {
+    endpoints_hmc_copy[, merge_id := paste(item_type, item_label, variable, sep = "___")]
+    endpoints_advi_copy[, merge_id := paste(item_type, item_label, variable, sep = "___")]
+}
+
+# Select quantile columns and merge_id
+quant_cols_hmc <- endpoints_hmc_copy[, .(merge_id, q_lower, iqr_lower, median, iqr_upper, q_upper)]
+setnames(quant_cols_hmc, 
+         c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper"),
+         c("q_lower_hmc", "iqr_lower_hmc", "median_hmc", "iqr_upper_hmc", "q_upper_hmc"))
+
+quant_cols_advi <- endpoints_advi_copy[, .(merge_id, q_lower, iqr_lower, median, iqr_upper, q_upper)]
+setnames(quant_cols_advi,
+         c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper"),
+         c("q_lower_advi", "iqr_lower_advi", "median_advi", "iqr_upper_advi", "q_upper_advi"))
+
+# Merge
+endpoints_comparison <- merge(quant_cols_hmc, quant_cols_advi, by = "merge_id")
+
+# Add back metadata from HMC (they should be identical for both)
+meta_cols <- setdiff(names(endpoints_hmc), c("method", "q_lower", "iqr_lower", "median", "iqr_upper", "q_upper"))
+endpoints_hmc_copy[, merge_id := paste(item_type, item_label,
+                                        ifelse("item_time_id" %in% names(endpoints_hmc_copy) & !is.na(item_time_id), 
+                                               as.character(item_time_id), "NA"),
+                                        variable, sep = "___")]
+meta_data <- unique(endpoints_hmc_copy[, c("merge_id", ..meta_cols)])
+endpoints_comparison <- merge(endpoints_comparison, meta_data, by = "merge_id")
+
+# Compute difference in medians
+endpoints_comparison[, median_diff := median_hmc - median_advi]
+endpoints_comparison[, abs_median_diff := abs(median_diff)]
+
+# Order by absolute difference
+setorder(endpoints_comparison, -abs_median_diff)
+
+# Save to CSV
+fwrite(
+    endpoints_comparison,
+    file = file.path(dir_out_ol, "endpoints_comparison_hmc_vs_advi.csv")
+)
+cat("\nSaved endpoint comparison to:", file.path(dir_out_ol, "endpoints_comparison_hmc_vs_advi.csv"), "\n")
+
+cat("\nTop 10 endpoints with largest median differences:\n")
+if ("item_label_short" %in% names(endpoints_comparison)) {
+    print(endpoints_comparison[1:10, .(item_label_short, variable, median_hmc, median_advi, median_diff)])
+} else {
+    print(endpoints_comparison[1:10, .(item_label, variable, median_hmc, median_advi, median_diff)])
+}
+
+# Create barplot with facet_wrap
+# Combine HMC and ADVI for plotting
+endpoints_combined <- rbind(endpoints_hmc, endpoints_advi)
+
+# Filter for key variables of interest
+endpoints_plot <- endpoints_combined[variable %in% c("diff", "ratio")]
+
+# Create item identifier
+if ("item_label_short" %in% names(endpoints_plot)) {
+    endpoints_plot[, item_id := item_label_short]
+} else {
+    endpoints_plot[, item_id := item_label]
+}
+
+# Set method factor for consistent ordering
+endpoints_plot[, method := factor(method, levels = c("HMC", "ADVI"))]
+
+# Create y-axis labels based on item_type and variable
+endpoints_plot[item_type == "out-of-7" & variable == "diff", 
+               y_label := "Difference in mean days per week\n(Baseline - Endline)"]
+endpoints_plot[item_type != "out-of-7" & variable == "diff", 
+               y_label := "Difference in frequency\nof categories 'most of the time' and 'all of the time'"]
+endpoints_plot[item_type == "out-of-7" & variable == "ratio", 
+               y_label := "% change in mean days per week\n(1 - Endline/Baseline)"]
+endpoints_plot[item_type != "out-of-7" & variable == "ratio", 
+               y_label := "% change in frequency\nof categories 'most of the time' and 'all of the time'\n(1 - Endline/Baseline)"]
+
+# Create facet label combining group and y-axis description
+endpoints_plot[, facet_label := paste0(group_label_long, "\n", y_label)]
+
+# Create separate plots for diff and ratio
+# Plot 1: Difference (Baseline - Endline)
+p_diff <- ggplot(
+    endpoints_plot[variable == "diff"],
+    aes(x = item_id, y = median, fill = method)
+) +
+    geom_col(position = position_dodge(width = 0.9), alpha = 0.8, width = 0.8) +
+    geom_errorbar(
+        aes(ymin = iqr_lower, ymax = iqr_upper),
+        position = position_dodge(width = 0.9),
+        width = 0.3,
+        linewidth = 0.4
+    ) +
+    facet_wrap(~ facet_label, scales = "free", ncol = 2) +
+    scale_fill_manual(values = c("HMC" = "#008080", "ADVI" = "#CA562C")) +
+    theme_minimal() +
+    theme(
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 9),
+        axis.text.y = element_text(size = 9),
+        legend.position = "bottom",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 9),
+        strip.text = element_text(size = 9, face = "bold", lineheight = 1.1),
+        strip.background = element_rect(fill = "transparent", color = NA),
+        panel.spacing = unit(1, "lines"),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.margin = margin(10, 10, 10, 10)
+    ) +
+    labs(
+        x = "Item", 
+        y = "Estimate", 
+        fill = "Method",
+        title = "Endpoint Comparison: Difference"
+    )
+
+# Plot 2: Ratio (1 - Endline/Baseline)
+p_ratio <- ggplot(
+    endpoints_plot[variable == "ratio"],
+    aes(x = item_id, y = median, fill = method)
+) +
+    geom_col(position = position_dodge(width = 0.9), alpha = 0.8, width = 0.8) +
+    geom_errorbar(
+        aes(ymin = iqr_lower, ymax = iqr_upper),
+        position = position_dodge(width = 0.9),
+        width = 0.3,
+        linewidth = 0.4
+    ) +
+    facet_wrap(~ facet_label, scales = "free_y", ncol = 1) +
+    scale_fill_manual(values = c("HMC" = "#008080", "ADVI" = "#CA562C")) +
+    theme_minimal() +
+    theme(
+        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1, size = 9),
+        axis.text.y = element_text(size = 9),
+        legend.position = "bottom",
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 9),
+        strip.text = element_text(size = 9, face = "bold", lineheight = 1.1),
+        strip.background = element_rect(fill = "transparent", color = NA),
+        panel.spacing = unit(1, "lines"),
+        plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+        plot.margin = margin(10, 10, 10, 10)
+    ) +
+    labs(
+        x = "Item", 
+        y = "Estimate", 
+        fill = "Method",
+        title = "Endpoint Comparison: Ratio"
+    )
+
+# Save plots
+ggsave(
+    filename = file.path(dir_out_ol, "endpoints_comparison_barplot_diff.pdf"),
+    plot = p_diff,
+    h = 14,
+    w = 12,
+    limitsize = FALSE
+)
+ggsave(
+    filename = file.path(dir_out_ol, "endpoints_comparison_barplot_diff.png"),
+    plot = p_diff,
+    h = 14,
+    w = 12,
+    limitsize = FALSE,
+    dpi = 300
+)
+
+ggsave(
+    filename = file.path(dir_out_ol, "endpoints_comparison_barplot_ratio.pdf"),
+    plot = p_ratio,
+    h = 14,
+    w = 12,
+    limitsize = FALSE
+)
+ggsave(
+    filename = file.path(dir_out_ol, "endpoints_comparison_barplot_ratio.png"),
+    plot = p_ratio,
+    h = 14,
+    w = 12,
+    limitsize = FALSE,
+    dpi = 300
+)
+
+cat("\nSaved endpoint comparison barplots (diff and ratio)\n")
+```
+
+## Compare ordered response probabilities for each survey item
 
 ```{r compare-ordered-probs, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Extract ordered_prob_by_cat_qu_fit parameters
@@ -280,11 +529,9 @@ fwrite(
     file = file.path(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv")
 )
 cat("\nSaved ordered_prob comparison to:", file.path(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv"), "\n")
-```
 
-## Plot ordered_probs by surveyitem
+# make plot
 
-```{r plot-ordered-probs-by-item, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=24, fig.height=30}
 # Load data to get item mappings and empirical probabilities
 tmp <- readRDS(paste0(output_file_prefix_hmc, "_data.rds"))
 dp1 <- copy(tmp$dp1)
@@ -481,7 +728,7 @@ ggsave(
 cat("\nSaved item-level probability comparison plots\n")
 ```
 
-## 2. Compare model parameters (latent_factor_unit, skill_thresholds, loadings)
+## Compare core model parameters 
 
 ```{r compare-model-params, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Extract model parameter groups
@@ -533,11 +780,8 @@ fwrite(
     file = file.path(dir_out_ol, "model_params_comparison_hmc_vs_advi.csv")
 )
 cat("\nSaved model params comparison to:", file.path(dir_out_ol, "model_params_comparison_hmc_vs_advi.csv"), "\n")
-```
 
-## Plot worst model parameters using density lines
-
-```{r plot-model-params, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=16, fig.height=12}
+# make density plot
 # Select top parameters from each group
 top_per_group <- 8
 
@@ -603,7 +847,7 @@ ggsave(
 )
 ```
 
-## 3. Compare ypred using geom_col
+## Compare worst posterior predictions of outcomes
 
 ```{r compare-ypred, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Extract ypred parameters
@@ -644,11 +888,8 @@ print(ypred_combined[1:10, .(parameter, median_hmc, median_advi, median_diff, me
 disagreements <- ypred_combined[round(median_hmc) != round(median_advi)]
 cat("\nNumber of ypred parameters with different rounded medians:", nrow(disagreements), "out of", nrow(ypred_combined), "\n")
 cat("Disagreement rate:", round(100 * nrow(disagreements) / nrow(ypred_combined), 2), "%\n")
-```
 
-## Plot worst ypred using geom_col with error bars
-
-```{r plot-ypred, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, fig.width=14, fig.height=10}
+# make plot
 # Select top 30 by absolute median difference
 top_n_ypred <- 30
 top_ypred_params <- ypred_combined$parameter[1:top_n_ypred]
