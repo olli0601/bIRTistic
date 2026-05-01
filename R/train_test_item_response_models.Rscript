@@ -91,7 +91,7 @@ invisible(lapply(packages, library, character.only = TRUE))
 # Source functions
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("test", "R", "fit_credit_model_2cats.R"))
+source(here::here("R", "fit_credit_model_ncats.R"))
 
 # Define data locations
 file_data <- file.path(args$dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
@@ -219,7 +219,7 @@ for (split_idx in split_idcs) {
         cat("Training fit draws file already exists. Skipping model fitting.\n")
     } else {
         cat("\nFitting model on training data...\n")
-        fit_credit_model_2cats(
+        fit_credit_model_ncats(
                 dit,
                 dtrain,
                 output_file_prefix = paste0(output_file_prefix, "_trainingfit"),
@@ -230,6 +230,7 @@ for (split_idx in split_idcs) {
                 iter_sampling = args$iter_sampling,
                 seed = seed,
                 x_formula = ~ time - 1,
+                x_formula_ignore_regex = NA_character_,
                 with_core_analyses = FALSE,
                 with_additional_analyses = FALSE
             )

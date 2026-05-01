@@ -35,10 +35,10 @@ This vignette demonstrates how to submit item response model comparison jobs to 
 3. Submitting the job to the HPC scheduler as a job array
 
 We compare four different IRT models fitted to the Colombia data:
-- Ordered Logistic Model (v251222)
-- Credit Model (v251223)
-- Credit Model (v251224)
-- Partial Credit Model (v251224)
+- Ordered Logistic Model (ncats v260413)
+- Credit Model (ncats v260413)
+- Credit Model (ncats v260413)
+- Partial Credit Model (ncats v260413)
 
 Each model is fitted with 10 different random seeds, for a total of 40 runs.
 

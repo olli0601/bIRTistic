@@ -66,40 +66,69 @@ Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'be
 ```
 bIRTistic/
 ├── R/                                      # R scripts
-│   ├── fit_credit_model.R                   # Fit credit model
-│   ├── fit_ordered_logit_model.R            # Fit ordered logit model
-│   ├── fit_partial_credit_model.R           # Fit partial credit model
-│   ├── fit_item_response_models.Rscript     # Generic IRT model fitting script
+│   ├── fit_credit_model_ncats.R             # Fit credit model 
+│   ├── fit_ordered_logit_model_ncats.R      # Fit ordered logit model 
+│   ├── fit_ordered_logit_model_ncats_advi.R # Fit ordered logit model with ADVI
+│   ├── fit_partial_credit_model_ncats.R     # Fit partial credit model
+│   ├── get_endpoints.R                      # Compute endpoint statistics from model fits
+│   ├── fit_item_response_models.Rscript     # Generic IRT model fitting script 
 │   ├── hpc_submit_generic_job.R             # HPC job submission helper
 │   ├── read_data_colombia.R                 # Read and preprocess Colombia data
 │   ├── read_data_ukraine.R                  # Read and preprocess Ukraine data
 │   ├── train_test_split_data.R              # Train/test data splitting
-│   ├── train_test_item_response_models.Rscript  # Train/test IRT models
+│   ├── train_test_item_response_models.Rscript  # Train/test IRT models (uses R/fit_credit_model_ncats.R)
 │   └── train_test_item_response_models_template.json  # Configuration template
 ├── src/
-│   ├── stan/                                # Stan model files
-│   │   ├── continuation_ratio_model_2cats_v251218.stan
-│   │   ├── credit_model_2cats_v251223.stan
-│   │   ├── credit_model_2cats_v251224.stan
+│   ├── stan/                                # Stan model files (ncats versions)
+│   │   ├── credit_model_ncats_v260413.stan
 │   │   ├── credit_model_functions.stan
-│   │   ├── ordered_logit_2cats_v251222.stan
+│   │   ├── ordered_logit_ncats_v260413.stan
 │   │   ├── ordered_logit_functions.stan
-│   │   ├── partial_credit_model_2cats_v251224.stan
+│   │   ├── partial_credit_model_ncats_v260413.stan
 │   │   └── [compiled model files]
 │   └── hpc/                                 # HPC submission scripts
 │       ├── submit_hpc_job.sh
 │       └── README_HPC.md
+├── test/                                    # Test files and legacy 2cats models
+│   ├── R/                                   # Legacy 2cats R functions (for testing)
+│   │   ├── fit_credit_model_2cats.R
+│   │   ├── fit_ordered_logit_model_2cats.R
+│   │   └── fit_partial_credit_model_2cats.R
+│   ├── stan/                                # Legacy 2cats Stan models (for testing)
+│   │   ├── continuation_ratio_model_2cats_v251218.stan
+│   │   ├── credit_model_2cats_v251223.stan
+│   │   ├── credit_model_2cats_v251224.stan
+│   │   ├── ordered_logit_2cats_v251222.stan
+│   │   └── partial_credit_model_2cats_v251224.stan
+│   ├── test_credit_ncats_correctness.R      # Verify ncats matches 2cats
+│   ├── test_ordered_logit_ncats_correctness.R
+│   ├── test_pcm_ncats_correctness.R
+│   ├── run_all_tests.R                      # Run all test suites
+│   └── README.md                            # Test documentation
 ├── vignettes/                               # R Markdown analysis examples
-│   ├── Colombia_analysis_for_HGpaper_pcm_v251224.Rmd
-│   ├── Colombia_compare_models_2cat.Rmd
+│   ├── Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd  # Hope Groups paper (ordered logit)
+│   ├── Colombia_analysis_for_HGpaper_pcm_v251224.Rmd            # Hope Groups paper (PCM)
+│   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd          # Compare ADVI vs HMC
+│   ├── Colombia_compare_models_2cat.Rmd     # Compare IRT models 
 │   ├── Colombia_interim_analyses_parallel.R
 │   ├── Colombia_interim_analyses_v251007.Rmd
 │   ├── Colombia_latent-factor-model_v250929.Rmd
 │   ├── Colombia_validate_credit_model.Rmd
-│   ├── hpc_Colombia_compare_models_2cat.Rmd
-│   └── hpc_Colombia_train_test_item_response_models.Rmd
+│   ├── hpc_Colombia_compare_models_2cat.Rmd # HPC model comparison 
+│   └── hpc_Colombia_train_test_item_response_models.Rmd  # HPC train/test 
 └── bIRTistic.yml                            # Conda environment specification
 ```
+
+### Key Features
+
+- **ncats models**: Flexible models that handle multiple response category types simultaneously
+  - Each item type can have different numbers of response categories (K)
+  - More efficient than separate 2cats models
+  - Located in `src/stan/*_ncats_v260413.stan`
+
+- **Legacy 2cats models**: Original models supporting exactly 2 category types
+  - Preserved in `test/stan/` for validation
+  - Unit tests verify ncats models produce identical results to 2cats models
 
 ## Quick Start
 
@@ -122,13 +151,25 @@ mamba activate birtistic
 Examples:
 
 See the `vignettes/` directory for example analyses:
-- `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` - Hope Groups paper analysis using partial credit model
-- `Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, on laptop
-- `hpc_Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, run jobs in parallel on HPC
-- - `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data, on laptop
+- `Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd` - Hope Groups paper analysis using ordered logit model 
+- `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` - Hope Groups paper analysis using partial credit model 
+- `Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd` - Compare ADVI vs HMC inference methods
+- `Colombia_compare_models.Rmd` - Compare IRT models on Colombia data, on laptop
+- `hpc_Colombia_compare_models.Rmd` - Compare IRT models on Colombia data, run jobs in parallel on HPC
+- `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data, on laptop
 - `Colombia_interim_analyses_parallel.R` - Interim analyses on Colombia data, run jobs in parallel on HPC
 - `Colombia_validate_credit_model.Rmd` - Additional train/test IRT models that withholds all responses from some participants, on laptop
-- `hpc_Colombia_train_test_item_response_models.Rmd` - Additional train/test IRT models that withholds all responses from some participants, run jobs in parallel on HPC
+- `hpc_Colombia_train_test_item_response_models.Rmd` - Additional train/test IRT models, run jobs in parallel on HPC (now uses ncats)
+
+### Running Tests
+
+Verify that ncats models produce identical results to the legacy 2cats models:
+
+```bash
+Rscript test/run_all_tests.R
+```
+
+This runs unit tests comparing log-likelihood values between ncats and 2cats implementations.
 
 ## Troubleshooting
 

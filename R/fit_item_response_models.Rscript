@@ -10,8 +10,8 @@
 # The JSON configuration file should contain:
 #   - runs: array of run configurations, each with:
 #       * model_name: "ordered_logit", "credit_model", or "partial_credit_model"
-#       * model_version: version string (e.g., "v251222")
-#       * stan_file: path to Stan model file
+#       * model_version: version string (e.g., "v260413")
+#       * stan_file: path to Stan model file (ncats version recommended)
 #       * seed: random seed for reproducibility
 #       * output_prefix: prefix for output files
 #       * dir_out: output directory for that model
@@ -117,9 +117,9 @@ packages <- c(
 invisible(lapply(packages, library, character.only = TRUE))
 
 # Source functions
-source(here::here("test", "R", "fit_credit_model_2cats.R"))
-source(here::here("test", "R", "fit_ordered_logit_model_2cats.R"))
-source(here::here("test", "R", "fit_partial_credit_model_2cats.R"))
+source(here::here("R", "fit_credit_model_ncats.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats.R"))
+source(here::here("R", "fit_partial_credit_model_ncats.R"))
 
 cat("\nConfiguration:\n")
 cat(sprintf("  chains: %s\n", chains))
@@ -190,7 +190,7 @@ for (split_idx in split_idcs) {
     # Fit model based on model name
     cat("Fitting model...\n")
     if (model_name == "ordered_logit") {
-        fit_ordered_logit_model_2cats(
+        fit_ordered_logit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
@@ -202,13 +202,14 @@ for (split_idx in split_idcs) {
             iter_sampling = iter_sampling,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = with_core_analyses,
             with_additional_analyses = with_additional_analyses,
             show_messages = show_messages,
             show_exceptions = show_exceptions
         )
     } else if (model_name == "credit_model") {
-        fit_credit_model_2cats(
+        fit_credit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
@@ -220,13 +221,14 @@ for (split_idx in split_idcs) {
             iter_sampling = iter_sampling,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = with_core_analyses,
             with_additional_analyses = with_additional_analyses,
             show_messages = show_messages,
             show_exceptions = show_exceptions
         )
     } else if (model_name == "partial_credit_model") {
-        fit_partial_credit_model_2cats(
+        fit_partial_credit_model_ncats(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
@@ -238,6 +240,7 @@ for (split_idx in split_idcs) {
             iter_sampling = iter_sampling,
             seed = seed,
             x_formula = ~ time - 1,
+            x_formula_ignore_regex = NA_character_,
             with_core_analyses = with_core_analyses,
             with_additional_analyses = with_additional_analyses,
             show_messages = show_messages,
