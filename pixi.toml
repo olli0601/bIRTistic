@@ -1,0 +1,69 @@
+[workspace]
+name = "birtistic-pixi"
+version = "0.1.0"
+description = "Bayesian Item Response Theory with Stan - Fast installation with pixi"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64"]
+
+[dependencies]
+# R and compiler toolchain
+r-base = ">=4.3"
+compilers = "*"
+make = "*"
+cmake = "*"
+
+# System libraries needed for spatial/geometry packages
+udunits2 = "*"
+abseil-cpp = "*"
+
+# CmdStan
+cmdstan = "==2.37.0"
+
+# Core R packages from conda-forge (pre-compiled, no source compilation needed)
+"r-data.table" = "*"
+"r-ggplot2" = "*"
+"r-here" = "*"
+"r-jsonlite" = "*"
+"r-knitr" = "*"
+"r-rmarkdown" = "*"
+"r-posterior" = "*"
+"r-bayesplot" = "*"
+"r-matrixstats" = "*"
+"r-scales" = "*"
+"r-patchwork" = "*"
+"r-bookdown" = "*"
+
+# Additional R packages
+"r-argparse" = "*"
+"r-formatr" = "*"
+"r-ggally" = "*"
+"r-ggsci" = "*"
+"r-gridextra" = "*"
+"r-ggpubr" = "*"
+"r-hexbin" = "*"
+"r-kableextra" = "*"
+"r-loo" = "*"
+"r-matchit" = "*"
+"r-polycor" = "*"
+"r-purrr" = "*"
+
+# Spatial packages (pre-compiled from conda-forge)
+"r-sf" = "*"
+"r-s2" = "*"
+"r-units" = "*"
+
+# cmdstanr needs to be installed from R-universe (see tasks below)
+# ggpattern may need special handling
+
+[tasks]
+# Post-installation task to install cmdstanr from R-universe
+install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'))" """
+
+# Install any remaining packages not in conda-forge
+install-extra = """Rscript -e "packages <- c('ggpattern'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')" """
+
+# Verify installation
+verify = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing Bernoulli model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ Installation verified successfully!\\n')" """
+
+# Complete setup (run all post-install tasks)
+setup = { depends-on = ["install-cmdstanr", "install-extra", "verify"] }

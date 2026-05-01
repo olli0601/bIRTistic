@@ -29,5 +29,10 @@
     "livePreview.defaultPreviewPath": "/",
     "livePreview.autoRefreshPreview": "On Changes to Saved Files",
     "terminal.integrated.gpuAcceleration": "off",
-    "window.restoreWindows": "all"
+    "window.restoreWindows": "all",
+    "r.rterm.mac": "/Users/or105/git/bIRTistic/.vscode/birtistic_pixi_r.sh",
+    "r.rterm.option": [
+        "--no-save",
+        "--no-restore"
+    ]
 }

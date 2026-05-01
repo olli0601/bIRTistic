@@ -58,12 +58,21 @@ ENV/
 env.bak/
 venv.bak/
 
+# Pixi environment
+.pixi/
+pixi.lock
+
 # IDE
-.vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+# VSCode - track settings but ignore local state
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/*.sh
 
 # Output files
 *.rds

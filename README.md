@@ -8,58 +8,39 @@ This repository contains tools for running Bayesian Item Response Theory (IRT) a
 
 ## Installation
 
-### Prerequisites
+Please install our prerequisites:
 
-- [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Mamba](https://mamba.readthedocs.io/) (recommended for faster installation)
+- [Pixi](https://pixi.sh/) (recommended - fast, cross-platform package manager)
+  - Install: `curl -fsSL https://pixi.sh/install.sh | bash`
+  - Or with Homebrew: `brew install pixi`
+- Alternatively: [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Mamba](https://mamba.readthedocs.io/)
 - Git
 
-### Step 1: Clone the repository
+We recommend to use Pixi for installation, which takes about 1 minute:
 
 ```bash
+# Clone the repository
 git clone https://github.com/olli0601/bIRTistic.git
 cd bIRTistic
+
+# Install all dependencies (R, CmdStan, all packages)
+pixi install
+
+# Install cmdstanr and ggpattern from CRAN/R-universe
+pixi run setup
+
+# Verify installation (includes Bernoulli model compilation and sampling test)
+pixi run verify
 ```
 
-### Step 2: Create conda environment
-
-Using Imperial HPC:
-```bash
-module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
-eval "$(~/miniforge3/bin/conda shell.bash hook)"
-eval "$(mamba shell hook --shell bash)"
-# install cmdstan only once and expose to other environment files
-mamba create -n cmdstan-build -c conda-forge cmdstan=2.37.0 -y
-# minimum conda environment to avoid installation from source
-mamba env create -f bIRTistic.yml -y
-mamba activate birtistic
-```
-
-### Step 3: Install R packages through R
-
-After activating the environment, install R packages through R (possibly from source):
+Then activate the environment through
 
 ```bash
-# installing data.table
-# requires zlib, expose via module load
-Rscript -e "packages <- c('data.table'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')"
-# installing cmdstanr
-#Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'), ask = false)"
-# installing everything else 
-# xml2 requires libxml2/2.11.5-GCCcore-13.2.0, expose via module load
-Rscript -e "packages <- c('argparse', 'bayesplot', 'bookdown', 'formatR', 'GGally', 'ggpattern', 'ggplot2', 'ggsci', 'gridExtra', 'ggpubr', 'here', 'hexbin', 'jsonlite', 'kableExtra', 'knitr', 'loo', 'MatchIt', 'matrixStats', 'patchwork', 'polycor', 'posterior', 'purrr','rmarkdown', 'scales'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
+# Activate the environment
+pixi shell
 ```
 
-### Step 4: Verify installation
-
-Test that everything is working:
-
-```bash
-# check using the latest version of cmdstan
-Rscript -e "library(cmdstanr); cmdstanr::cmdstan_version()"
-
-# check Hello World Bernoulli model compiles and runs
-Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500);"
-```
+An alternative though slower installation routine with conda/mamba is listed further below.
 
 ## Project Structure
 
@@ -134,42 +115,85 @@ bIRTistic/
 
 ### Running Analysis Examples
 
-Load precompiled libraries and activate shell hooks if needed:
+```bash
+# Activate the environment
+pixi shell
 
+# Run our unit tests
+Rscript test/run_all_tests.R
+
+# then e.g. render a vignette with
+Rscript -e "rmarkdown::render('vignettes/Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd')"
+```
+
+**Example analyses** (see `vignettes/` directory):
+- `Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd` - Hope Groups paper analysis using ordered logit model 
+- `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` - Hope Groups paper analysis using partial credit model 
+- `Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd` - Compare ADVI vs HMC inference methods
+- `Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, on laptop
+- `hpc_Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, run jobs in parallel on HPC
+- `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data, on laptop
+- `Colombia_interim_analyses_parallel.R` - Interim analyses on Colombia data, run jobs in parallel on HPC
+- `Colombia_validate_credit_model.Rmd` - Additional train/test IRT models that withholds all responses from some participants, on laptop
+- `hpc_Colombia_train_test_item_response_models.Rmd` - Additional train/test IRT models, run jobs in parallel on HPC
+
+
+
+
+## Alternative Installation (Conda/Mamba)
+
+<details>
+<summary>Click to expand conda/mamba installation instructions</summary>
+
+#### On Imperial HPC:
 ```bash
 module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
 eval "$(~/miniforge3/bin/conda shell.bash hook)"
 eval "$(mamba shell hook --shell bash)"
-```
 
-Activate environment:
+# Install cmdstan only once and expose to other environment files
+mamba create -n cmdstan-build -c conda-forge cmdstan=2.37.0 -y
 
-```bash
+# Minimum conda environment to avoid installation from source
+mamba env create -f bIRTistic.yml -y
 mamba activate birtistic
 ```
 
-Examples:
+#### Install R packages through R:
 
-See the `vignettes/` directory for example analyses:
-- `Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd` - Hope Groups paper analysis using ordered logit model 
-- `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` - Hope Groups paper analysis using partial credit model 
-- `Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd` - Compare ADVI vs HMC inference methods
-- `Colombia_compare_models.Rmd` - Compare IRT models on Colombia data, on laptop
-- `hpc_Colombia_compare_models.Rmd` - Compare IRT models on Colombia data, run jobs in parallel on HPC
-- `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data, on laptop
-- `Colombia_interim_analyses_parallel.R` - Interim analyses on Colombia data, run jobs in parallel on HPC
-- `Colombia_validate_credit_model.Rmd` - Additional train/test IRT models that withholds all responses from some participants, on laptop
-- `hpc_Colombia_train_test_item_response_models.Rmd` - Additional train/test IRT models, run jobs in parallel on HPC (now uses ncats)
-
-### Running Tests
-
-Verify that ncats models produce identical results to the legacy 2cats models:
+After activating the environment, install R packages through R (possibly from source):
 
 ```bash
-Rscript test/run_all_tests.R
+# Installing data.table (requires zlib, expose via module load)
+Rscript -e "packages <- c('data.table'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')"
+
+# Installing everything else (xml2 requires libxml2/2.11.5-GCCcore-13.2.0, expose via module load)
+Rscript -e "packages <- c('argparse', 'bayesplot', 'bookdown', 'formatR', 'GGally', 'ggpattern', 'ggplot2', 'ggsci', 'gridExtra', 'ggpubr', 'here', 'hexbin', 'jsonlite', 'kableExtra', 'knitr', 'loo', 'MatchIt', 'matrixStats', 'patchwork', 'polycor', 'posterior', 'purrr','rmarkdown', 'scales'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
 ```
 
-This runs unit tests comparing log-likelihood values between ncats and 2cats implementations.
+#### Verify installation:
+
+The conda/mamba installation can be verified using the same tests that `pixi run verify` uses:
+
+```bash
+# Check CmdStan version
+Rscript -e "library(cmdstanr); cmdstanr::cmdstan_version()"
+
+# Check Bernoulli model compiles and runs
+Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500);"
+```
+
+#### Running Examples with Conda/Mamba on HPC:
+
+```bash
+# Load modules and activate environment
+module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
+eval "$(~/miniforge3/bin/conda shell.bash hook)"
+eval "$(mamba shell hook --shell bash)"
+mamba activate birtistic
+```
+
+</details>
 
 ## Troubleshooting
 
