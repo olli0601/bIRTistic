@@ -113,12 +113,12 @@ Rscript -e "rmarkdown::render('vignettes/Colombia_analysis_ordered_logit_ADVI_vs
 - `Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd` - Hope Groups paper analysis using ordered logit model 
 - `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` - Hope Groups paper analysis using partial credit model 
 - `Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd` - Compare ADVI vs HMC inference methods
-- `Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, on laptop
-- `hpc_Colombia_compare_models_2cat.Rmd` - Compare IRT models on Colombia data, run jobs in parallel on HPC
-- `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data, on laptop
-- `Colombia_interim_analyses_parallel.R` - Interim analyses on Colombia data, run jobs in parallel on HPC
-- `Colombia_validate_credit_model.Rmd` - Additional train/test IRT models that withholds all responses from some participants, on laptop
-- `hpc_Colombia_train_test_item_response_models.Rmd` - Additional train/test IRT models, run jobs in parallel on HPC
+- `Colombia_compare_models.Rmd` - Compare IRT models on Colombia data (local)
+- `hpc_Colombia_compare_models.Rmd` - Compare IRT models on Colombia data (HPC parallel)
+- `Colombia_interim_analyses_v251007.Rmd` - Interim analyses on Colombia data (local)
+- `Colombia_interim_analyses_parallel.R` - Interim analyses on Colombia data (HPC parallel)
+- `Colombia_validate_credit_model.Rmd` - Train/test validation withholding participant responses (local)
+- `hpc_Colombia_train_test_item_response_models.Rmd` - Train/test validation (HPC parallel)
 
 
 
@@ -129,41 +129,47 @@ Rscript -e "rmarkdown::render('vignettes/Colombia_analysis_ordered_logit_ADVI_vs
 
 ```
 bIRTistic/
-├── R/                                      # R scripts
-│   ├── fit_credit_model_ncats.R             # Fit credit model 
-│   ├── fit_ordered_logit_model_ncats.R      # Fit ordered logit model 
+├── .vscode/                                 # VS Code workspace configuration
+│   ├── birtistic_pixi_r.sh                  # R terminal launcher for pixi environment
+│   ├── icacuk_hpc_r_birtistic.sh            # R terminal launcher for HPC mamba environment
+│   ├── settings.json                        # Editor settings and R configuration
+│   └── tasks.json                           # Build tasks (Rtex, LaTeX, Markdown)
+├── R/                                       # R scripts and functions
+│   ├── fit_credit_model_ncats.R             # Fit credit model (ncats)
+│   ├── fit_ordered_logit_model_ncats.R      # Fit ordered logit model (ncats)
 │   ├── fit_ordered_logit_model_ncats_advi.R # Fit ordered logit model with ADVI
-│   ├── fit_partial_credit_model_ncats.R     # Fit partial credit model
+│   ├── fit_partial_credit_model_ncats.R     # Fit partial credit model (ncats)
 │   ├── get_endpoints.R                      # Compute endpoint statistics from model fits
-│   ├── fit_item_response_models.Rscript     # Generic IRT model fitting script 
+│   ├── fit_item_response_models.Rscript     # Generic IRT model fitting script (for HPC)
 │   ├── hpc_submit_generic_job.R             # HPC job submission helper
 │   ├── read_data_colombia.R                 # Read and preprocess Colombia data
 │   ├── read_data_ukraine.R                  # Read and preprocess Ukraine data
 │   ├── train_test_split_data.R              # Train/test data splitting
-│   ├── train_test_item_response_models.Rscript  # Train/test IRT models (uses R/fit_credit_model_ncats.R)
-│   └── train_test_item_response_models_template.json  # Configuration template
+│   ├── train_test_item_response_models.Rscript       # Train/test IRT models
+│   └── train_test_item_response_models_template.json # Configuration template
 ├── src/
-│   ├── stan/                                # Stan model files (ncats versions)
+│   ├── stan/                                # Current Stan models (ncats versions)
 │   │   ├── credit_model_ncats_v260413.stan
 │   │   ├── credit_model_functions.stan
 │   │   ├── ordered_logit_ncats_v260413.stan
 │   │   ├── ordered_logit_functions.stan
 │   │   ├── partial_credit_model_ncats_v260413.stan
-│   │   └── [compiled model files]
+│   │   └── [compiled model binaries]
 │   └── hpc/                                 # HPC submission scripts
 │       ├── submit_hpc_job.sh
 │       └── README_HPC.md
-├── test/                                    # Test files and legacy 2cats models
-│   ├── R/                                   # Legacy 2cats R functions (for testing)
+├── test/                                    # Test suite and legacy 2cats models
+│   ├── R/                                   # Legacy 2cats R functions (for validation)
 │   │   ├── fit_credit_model_2cats.R
 │   │   ├── fit_ordered_logit_model_2cats.R
 │   │   └── fit_partial_credit_model_2cats.R
-│   ├── stan/                                # Legacy 2cats Stan models (for testing)
+│   ├── stan/                                # Legacy 2cats Stan models (for validation)
 │   │   ├── continuation_ratio_model_2cats_v251218.stan
 │   │   ├── credit_model_2cats_v251223.stan
 │   │   ├── credit_model_2cats_v251224.stan
 │   │   ├── ordered_logit_2cats_v251222.stan
-│   │   └── partial_credit_model_2cats_v251224.stan
+│   │   ├── partial_credit_model_2cats_v251224.stan
+│   │   └── [compiled model binaries]
 │   ├── test_credit_ncats_correctness.R      # Verify ncats matches 2cats
 │   ├── test_ordered_logit_ncats_correctness.R
 │   ├── test_pcm_ncats_correctness.R
@@ -173,14 +179,22 @@ bIRTistic/
 │   ├── Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd  # Hope Groups paper (ordered logit)
 │   ├── Colombia_analysis_for_HGpaper_pcm_v251224.Rmd            # Hope Groups paper (PCM)
 │   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd          # Compare ADVI vs HMC
-│   ├── Colombia_compare_models_2cat.Rmd     # Compare IRT models 
-│   ├── Colombia_interim_analyses_parallel.R
+│   ├── Colombia_compare_models.Rmd          # Compare IRT models (local)
+│   ├── Colombia_interim_analyses_parallel.R # Interim analyses (HPC parallel)
 │   ├── Colombia_interim_analyses_v251007.Rmd
 │   ├── Colombia_latent-factor-model_v250929.Rmd
 │   ├── Colombia_validate_credit_model.Rmd
-│   ├── hpc_Colombia_compare_models_2cat.Rmd # HPC model comparison 
-│   └── hpc_Colombia_train_test_item_response_models.Rmd  # HPC train/test 
-└── bIRTistic.yml                            # Conda environment specification
+│   ├── hpc_Colombia_compare_models.Rmd      # Compare IRT models (HPC)
+│   └── hpc_Colombia_train_test_item_response_models.Rmd  # Train/test (HPC)
+├── old/                                     # Archived Stan models
+│   └── stan/                                # Very old 2cats models (pre-reorganization)
+├── python/                                  # Python utilities (if any)
+├── pixi.toml                                # Pixi environment specification
+├── pixi.lock                                # Pixi lock file (exact versions)
+├── bIRTistic.yml                            # Conda environment specification (alternative)
+├── job_config.csv.example                   # Example HPC job configuration
+├── amortised_decision_making.md             # Documentation on amortised decision making
+└── README.md                                # This file
 ```
 
 </details>
