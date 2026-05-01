@@ -126,6 +126,7 @@ Rscript -e "rmarkdown::render('vignettes/Colombia_analysis_ordered_logit_ADVI_vs
 
 <details>
 <summary>Click to expand</summary>
+
 ```
 bIRTistic/
 ├── R/                                      # R scripts
@@ -181,6 +182,7 @@ bIRTistic/
 │   └── hpc_Colombia_train_test_item_response_models.Rmd  # HPC train/test 
 └── bIRTistic.yml                            # Conda environment specification
 ```
+
 </details>
 
 
