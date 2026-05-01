@@ -20,6 +20,8 @@
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
 #' @param resume Logical. If TRUE and all output files exist, skip ADVI and load existing results (default: FALSE)
+#' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
+#' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic plots (default: FALSE)
 #'
 #' @return Invisibly returns the fitted cmdstanr model object
 #'
@@ -42,18 +44,26 @@ fit_ordered_logit_model_ncats_advi <- function(
   seed = 123L,
   show_messages = FALSE,
   show_exceptions = FALSE,
-  resume = FALSE
+  resume = FALSE,
+  with_core_analyses = TRUE,
+  with_additional_analyses = FALSE
 ) {
     # Suppress data.table NSE warnings
     item_type <- y_stan <- item_time_id <- pid <- time <- oidt <- variable <-
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- NULL
+        iqr_upper <- prob <- item_type_id <- stat <- brier_score <-
+        median_brier_score <- mean_brier_score <- q025_brier_score <-
+        q975_brier_score <- cq_id <- cat_length <- summary_value <-
+        summary_name <- NULL
 
     require(data.table)
     require(ggplot2)
+    require(ggsci)
+    require(bayesplot)
     require(cmdstanr)
+    require(cowplot)
 
     # Print configuration
     cat("\n========================================\n")
@@ -69,6 +79,8 @@ fit_ordered_logit_model_ncats_advi <- function(
     cat("Output samples:", output_samples, "\n")
     cat("Seed:", seed, "\n")
     cat("Resume:", resume, "\n")
+    cat("Core analyses:", with_core_analyses, "\n")
+    cat("Additional analyses:", with_additional_analyses, "\n")
     cat("========================================\n\n")
 
     # Create output directory if it doesn't exist
@@ -210,6 +222,479 @@ fit_ordered_logit_model_ncats_advi <- function(
 
     cat("\nADVI analysis complete!\n")
     cat("========================================\n\n")
+
+    # Additional diagnostic analyses (optional)
+    if (with_additional_analyses) {
+        cat("\nRunning additional diagnostic analyses...\n")
+
+        # Make intervals plot
+        cat("Generating parameter plots...\n")
+        tmp <- c("latent_factor_unit", "latent_factor_beta","skill_thresholds_1", "skill_thresholds_incs", "loadings_questions_m1")                
+        po <- poa[,, grepl(paste(tmp, collapse = "|"), dimnames(poa)[[3]]), drop = FALSE]
+        color_scheme_set("teal")
+        p <- bayesplot::mcmc_intervals(
+            po,
+            prob = 0.5, prob_outer = 0.95, outer_size = 1, point_size = 2
+        ) + theme_bw()
+        ggsave(
+            file = paste0(output_file_prefix, "_intervals.pdf"),
+            plot = p,
+            h = 50,
+            w = 8,
+            limitsize = FALSE
+        )
+
+        # Make posterior predictive check
+        cat("Generating posterior predictive checks...\n")
+        po <- poa[,, grepl("ypred", dimnames(poa)[[3]]), drop = FALSE]
+        po <- posterior::as_draws_df(po)
+        po <- as.data.table(po)
+        po <- data.table::melt(
+            po,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "ypred"
+        )
+        po[, oid := as.integer(gsub("ypred\\[([0-9]+)\\]", "\\1", variable))]
+        set(po, NULL, "variable", NULL)
+        pos <- po[,
+            list(
+                summary_value = quantile(
+                    ypred,
+                    prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                ),
+                summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+            ),
+            by = c("oid")
+        ]
+        pos <- data.table::dcast(pos,
+            oid ~ summary_name,
+            value.var = "summary_value"
+        )
+        tmp <- dcati[, .(oid, item_type, item_type_id, oidt, y_stan, item_label, time_label)]
+        pos <- merge(pos, tmp, by = "oid")
+        pos[, in_ppi := y_stan >= q_lower & y_stan <= q_upper]
+        cat("Proportion in 95% PPI:", pos[, mean(in_ppi)], "\n")
+
+        # Plot posterior predictive check
+        p <- ggplot(pos, aes(x = oid, group = oid)) +
+            geom_boxplot(
+                aes(
+                    ymin = q_lower,
+                    lower = iqr_lower,
+                    middle = median,
+                    upper = iqr_upper,
+                    ymax = q_upper
+                ),
+                stat = "identity"
+            ) +
+            geom_point(aes(y = y_stan, colour = in_ppi)) +
+            facet_grid(item_label ~ time_label, scales = "free") +
+            scale_x_discrete() +
+            scale_y_continuous() +
+            ggsci::scale_color_npg() +
+            labs(
+                x = "",
+                y = "outcome",
+                colour = "within\n95% posterior\nprediction\ninterval"
+            ) +
+            theme_bw() +
+            theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
+        ggsave(
+            file = paste0(output_file_prefix, "_ppcheck.png"),
+            p,
+            w = 20,
+            h = 20
+        )
+
+        # Compute and save ordinal Brier scores by question
+        cat("Computing ordinal Brier scores by question...\n")
+        
+        # Extract Brier scores (now in format ordinal_brier_score[c,q])     
+        brier <- poa[,, grepl("ordinal_brier_score", dimnames(poa)[[3]]), drop = FALSE]
+        brier <- posterior::as_draws_df(brier)
+        brier <- as.data.table(brier)
+        brier <- data.table::melt(brier,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "brier_score"
+        )
+        
+        # Parse indices: ordinal_brier_score[c,q]
+        brier[, item_type_id := as.integer(gsub(
+            "ordinal_brier_score\\[([0-9]+),([0-9]+)\\]", "\\1",
+            variable
+        ))]
+        brier[, item_time_id := as.integer(gsub(
+            "ordinal_brier_score\\[([0-9]+),([0-9]+)\\]", "\\2",
+            variable
+        ))]
+        set(brier, NULL, "variable", NULL)
+        
+        # Compute median
+        brier_summary <- brier[,
+            list(
+                median_brier_score = median(brier_score),
+                mean_brier_score = mean(brier_score),
+                q025_brier_score = quantile(brier_score, 0.025),
+                q975_brier_score = quantile(brier_score, 0.975)
+            ),
+            by = c("item_type_id", "item_time_id")
+        ]
+        tmp <- unique(subset(dcati, select = c(item_type_id, item_time_id, item_type, item_label, time_label)))
+        brier_summary <- merge(brier_summary, tmp, by = c("item_type_id", "item_time_id"))
+        brier_summary <- brier_summary[order(item_type_id, item_time_id), ]
+
+        data.table::fwrite(
+            brier_summary,
+            file = paste0(output_file_prefix, "_ordered_brierscore.csv")
+        )
+        cat("Ordinal Brier scores saved to", paste0(output_file_prefix, "_ordered_brierscore.csv"), "\n")
+    }
+
+    # Generate probability plots
+    if (with_core_analyses) {
+        cat("Generating probability plots...\n")
+        
+        # Extract ordered_prob_by_obs (long vector format)
+        # NOTE: In ncats model, ordered_prob_by_obs stores averaged probabilities
+        # per (category type, question) combination.
+        # Format: for each category c, for each question q in that category,
+        # store K[c] probabilities (one per response category)        
+        po <- poa[,, grepl("ordered_prob_by_cat_qu_fit", dimnames(poa)[[3]]), drop = FALSE]
+        po <- posterior::as_draws_df(po)
+        po <- as.data.table(po)
+        po <- data.table::melt(po,
+            id.vars = c(".draw", ".chain", ".iteration"),
+            value.name = "prob"
+        )
+        
+        # Parse index from ordered_prob_by_cat_qu_fit[i]
+        po[, cq_id := as.integer(gsub(
+            "ordered_prob_by_cat_qu_fit\\[([0-9]+)\\]", "\\1",
+            variable
+        ))]
+        set(po, NULL, "variable", NULL)
+
+        # Compute quantiles
+        pos <- po[,
+            list(
+                summary_value = quantile(
+                    prob,
+                    prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                ),
+                summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+            ),
+            by = c("cq_id")
+        ]
+        po <- NULL
+        gc()
+
+        pos <- data.table::dcast(pos,
+            cq_id ~ summary_name,
+            value.var = "summary_value"
+        )
+
+        # Map cq_id back to (item_type_id, item_time_id, y_stan)
+        tmp <- unique(subset(dcati, select = c(item_type_id, item_label, item_time_id)))
+        tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+        setkey(tmp, item_type_id, item_time_id)
+        tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+        tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+        tmp <- merge(tmp, 
+                     unique(subset(dcati, 
+                                    select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                    )), 
+                     by = c("item_type_id", "item_time_id", "y")
+                     )
+        pos <- merge(tmp, pos, by = "cq_id")              
+        
+        # Compute empirical probabilities
+        tmp <- dcati[,
+            list(n = .N),
+            by = c("time_label", "item_label", "y_label")
+        ]
+        tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
+        tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
+        tmp[, p_emp := n / total]
+        pos <- merge(pos,
+            subset(tmp, select = -c(n, total)),
+            by = c("time_label", "item_label", "y_label"),
+            all.x = TRUE
+        )
+        set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)        
+        
+        # Merge with dit for plotting
+        pos <- merge(pos, dit, by = c("item_type_id","item_label"))
+        pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+
+        cat(
+            "\nSaving posterior probabilities to RDS with name",
+            paste0(output_file_prefix, "_posterior_probabilities_fit.rds"),
+            "...\n"
+        )
+        saveRDS(
+            pos,
+            file = paste0(output_file_prefix, "_posterior_probabilities_fit.rds")
+        )
+
+        # Make plots
+        # Create named color palette to ensure consistent colors across all subplots
+        all_items <- unique(pos$item_label_long)
+        pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(length(all_items))
+        names(pal) <- all_items
+
+        # Get unique groups and times
+        groups <- unique(pos$group_label_long)
+        times <- unique(pos$time_label)
+        
+        # Create individual plots for each group-time combination
+        plot_list <- list()
+        for (g in groups) {
+            for (t in times) {
+                plot_data <- pos[group_label_long == g & time_label == t]
+                
+                p_sub <- ggplot(
+                    plot_data,
+                    aes(x = y_label, group = interaction(item_label_long, y_label))
+                ) +
+                    geom_col(aes(fill = item_label_long, y = p_emp),
+                        position = position_dodge(width = 0.9, preserve = "single"),
+                        alpha = 0.8,
+                        width = 0.8
+                    ) +
+                    geom_boxplot(
+                        aes(
+                            ymin = q_lower, lower = iqr_lower,
+                            middle = median, upper = iqr_upper,
+                            ymax = q_upper
+                        ),
+                        position = position_dodge(0.9, preserve = "single"),
+                        stat = "identity",
+                        alpha = 0,
+                        width = 0.3
+                    ) +
+                    scale_y_continuous(labels = scales::percent) +
+                    scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
+                    ggtitle(paste0(g, " - ", t)) +
+                    theme_bw() +
+                    theme(
+                        axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+                        legend.position = "none",
+                        plot.title = element_text(size = 10)
+                    ) +
+                    labs(x = "", y = "proportion of outcomes", fill = "survey items")
+                
+                plot_list[[paste(g, t, sep = "_")]] <- p_sub
+            }
+        }
+        
+        # Extract legend from one plot
+        p_legend <- ggplot(
+            pos,
+            aes(x = y_label, group = interaction(item_label_long, y_label))
+        ) +
+            geom_col(aes(fill = item_label_long, y = p_emp)) +
+            scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
+            theme_bw() +
+            theme(legend.position = "bottom") +
+            labs(fill = "survey items") +
+            guides(fill = guide_legend(ncol = 3))
+        
+        legend <- cowplot::get_legend(p_legend)
+        
+        # Arrange plots in grid: 4 columns (2 groups × 2 times each)
+        p <- cowplot::plot_grid(
+            plotlist = plot_list,
+            ncol = 4,
+            align = "hv",
+            axis = "tb"
+        )
+        
+        # Add legend below
+        p <- cowplot::plot_grid(p, legend, ncol = 1, rel_heights = c(1, 0.1))
+        ggsave(
+            file = paste0(output_file_prefix, "_probs_barplot_v2_fit.png"),
+            plot = p,
+            h = 30,
+            w = 24
+        )
+        ggsave(
+            file = paste0(output_file_prefix, "_probs_barplot_v2_fit.pdf"),
+            plot = p,
+            h = 30,
+            w = 24
+        )
+        
+        # Generate plots for posterior predictive probabilities if x_formula_ignore_regex is specified
+        if (!is.na(x_formula_ignore_regex)) {
+            cat("Generating posterior predictive probability plots (ordered_prob_by_cat_qu_pr)...\n")
+            
+            # Extract ordered_prob_by_cat_qu_pr
+            po2 <- poa[,, grepl("ordered_prob_by_cat_qu_pr", dimnames(poa)[[3]]), drop = FALSE]            
+            po2 <- posterior::as_draws_df(po2)
+            po2 <- as.data.table(po2)
+            po2 <- data.table::melt(po2,
+                id.vars = c(".draw", ".chain", ".iteration"),
+                value.name = "prob"
+            )
+            
+            # Parse index from ordered_prob_by_cat_qu_pr[i]
+            po2[, cq_id := as.integer(gsub(
+                "ordered_prob_by_cat_qu_pr\\[([0-9]+)\\]", "\\1",
+                variable
+            ))]
+            set(po2, NULL, "variable", NULL)
+
+            # Compute quantiles
+            pos2 <- po2[,
+                list(
+                    summary_value = quantile(
+                        prob,
+                        prob = c(0.025, 0.25, 0.5, 0.75, 0.975)
+                    ),
+                    summary_name = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+                ),
+                by = c("cq_id")
+            ]
+            po2 <- NULL
+            gc()
+
+            pos2 <- data.table::dcast(pos2,
+                cq_id ~ summary_name,
+                value.var = "summary_value"
+            )
+
+            # Map cq_id back to (item_type_id, item_time_id, y_stan)
+            tmp <- unique(subset(dcati, select = c(item_type_id, item_label, item_time_id)))
+            tmp <- merge(tmp, subset(dit, select = c(item_type_id, item_label, cat_length)), by = c("item_type_id", "item_label"))
+            setkey(tmp, item_type_id, item_time_id)
+            tmp[, cq_id := cumsum(cat_length) - cat_length + 1L]
+            tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
+            tmp <- merge(tmp, 
+                         unique(subset(dcati, 
+                                        select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                        )), 
+                         by = c("item_type_id", "item_time_id", "y")
+                         )
+            pos2 <- merge(tmp, pos2, by = "cq_id")                            
+            
+            # Merge with dit for plotting
+            pos2 <- merge(pos2, dit, by = c("item_type_id","item_label"))
+            pos2[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+
+            cat(
+                "\nSaving posterior predictive probabilities to RDS with name",
+                paste0(output_file_prefix, "_posterior_predictive_probabilities_pr.rds"),
+                "...\n"
+            )
+            saveRDS(
+                pos2,
+                file = paste0(output_file_prefix, "_posterior_predictive_probabilities_pr.rds")
+            )
+
+            pos[, stat:= 'fitted']
+            pos2[, stat:= 'predictive']
+            pos <- rbind(pos, pos2, use.names = TRUE, fill = TRUE)
+            
+            # Create comparison plots (fitted vs predictive)
+            all_items <- unique(pos$item_label_long)
+            pal <- colorRampPalette(ggsci::pal_futurama("planetexpress")(12))(length(all_items))
+            names(pal) <- all_items
+
+            # Get unique groups and times
+            groups <- unique(pos$group_label_long)
+            times <- unique(pos$time_label)      
+            
+            # Create individual comparison plots for each group-time combination
+            ps <- list()
+            for (g in groups) {
+                for (t in times) {
+                    tmp <- pos[group_label_long == g & time_label == t]                    
+                    p <- ggplot(
+                        tmp,
+                        aes(x = y_label, group = interaction(stat, item_label_long, y_label))
+                    ) +
+                    geom_boxplot(
+                        aes(
+                                ymin = q_lower, lower = iqr_lower,
+                                middle = median, upper = iqr_upper,
+                                ymax = q_upper,
+                                fill = item_label_long,
+                                linetype = stat,
+                                alpha = stat
+                            ),
+                            position = position_dodge2(width = 0.9, preserve = "single"),
+                            stat = "identity",
+                            outlier.shape = NA
+                        ) +
+                        scale_alpha_manual(values = c("fitted" = 0.7, "predictive" = 0.3)) +
+                        scale_linetype_manual(values = c("fitted" = "solid", "predictive" = "dashed")) +
+                        scale_y_continuous(labels = scales::percent) +
+                        scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
+                        ggtitle(paste0(g, " - ", t)) +
+                        theme_bw() +
+                        theme(
+                            axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1),
+                            legend.position = "none",
+                            plot.title = element_text(size = 10)
+                        ) +
+                        labs(x = "", y = "proportion of outcomes", fill = "survey items", linetype = "Model", alpha = "Model")
+                    
+                    ps[[paste(g, t, sep = "_")]] <- p
+                }
+            }
+            
+            # Extract combined legend showing both fill and linetype/alpha
+            # Create minimal dataset for legend (one row per item_label_long x stat x y_label combination)
+            pos_legend <- unique(pos[, .(item_label_long, stat, y_label, q_lower, iqr_lower, median, iqr_upper, q_upper)])            
+            p_legend_combined <- ggplot(
+                pos_legend,
+                aes(x = y_label, group = interaction(stat, item_label_long, y_label))
+            ) +
+            geom_col(
+                    aes(
+                        y = median, 
+                        fill = item_label_long,
+                        linetype = stat,
+                        alpha = stat
+                    )                    
+            ) +
+            scale_alpha_manual(values = c("fitted" = 0.7, "predictive" = 0.3)) +
+            scale_linetype_manual(values = c("fitted" = "solid", "predictive" = "dashed")) +
+            scale_fill_manual(values = pal, limits = all_items, drop = FALSE) +
+            theme_bw() +
+            theme(legend.position = "bottom") +
+            labs(fill = "survey items", linetype = "Model", alpha = "Model") +
+            guides(
+                fill = guide_legend(ncol = 3, order = 1),
+                linetype = guide_legend(order = 2),
+                alpha = guide_legend(order = 2)
+            )            
+            legend_combined <- cowplot::get_legend(p_legend_combined)
+            
+            # Arrange comparison plots in grid
+            p <- cowplot::plot_grid(
+                plotlist = ps,
+                ncol = 4,
+                align = "hv",
+                axis = "tb"
+            )
+            
+            # Add legend below
+            p <- cowplot::plot_grid(p, legend_combined, ncol = 1, rel_heights = c(1, 0.15))
+            ggsave(
+                file = paste0(output_file_prefix, "_probs_comparison_fit_vs_pr.png"),
+                plot = p,
+                h = 30,
+                w = 24
+            )
+            ggsave(
+                file = paste0(output_file_prefix, "_probs_comparison_fit_vs_pr.pdf"),
+                plot = p,
+                h = 30,
+                w = 24
+            )
+        }
+    }
     
     invisible(poa)
 }
