@@ -32,6 +32,10 @@ Choose the environment that fits your needs.
 Option 1: Install default environment (Python + R)
 
 ```bash
+# Clone the repository
+git clone https://github.com/olli0601/bIRTistic.git
+cd bIRTistic
+
 # Install all dependencies (Python + R)
 pixi install
 
@@ -174,22 +178,6 @@ fig = plot_item_characteristics(results)
 fig.save("item_characteristics.png")
 ```
 
-## Testing
-
-Run the test suite:
-
-```bash
-# Run all tests
-pixi shell
-pytest
-
-# Run with coverage
-pytest --cov=birtistic --cov-report=html
-
-# Run specific test file
-pytest tests/test_data_loading.py
-```
-
 
 ### Running R Analysis Examples
 
@@ -215,6 +203,22 @@ Rscript -e "rmarkdown::render('vignettes/Colombia_analysis_ordered_logit_ADVI_vs
 - `Colombia_validate_credit_model.Rmd` - Train/test validation withholding participant responses (local)
 - `hpc_Colombia_train_test_item_response_models.Rmd` - Train/test validation (HPC parallel)
 
+
+## Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+pixi shell
+pytest
+
+# Run with coverage
+pytest --cov=birtistic --cov-report=html
+
+# Run specific test file
+pytest tests/test_data_loading.py
+```
 
 
 ## Project Structure
