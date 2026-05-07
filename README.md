@@ -8,6 +8,8 @@ This repository contains tools for running Bayesian Item Response Theory (IRT) a
 
 ## Installation
 
+### Setup Instructions
+
 Please install our prerequisites:
 
 - [Pixi](https://pixi.sh/) (recommended - fast, cross-platform package manager)
@@ -18,26 +20,52 @@ Please install our prerequisites:
 
 We strongly recommend to use Pixi for installation:
 
-```bash
-# Clone the repository
-git clone https://github.com/olli0601/bIRTistic.git
-cd bIRTistic
+### Environment Options
 
-# Install all dependencies
+This repository supports two pixi environments:
+
+1. **`default`** (Python + R): Full stack with Python packages (JAX, NumPyro, etc.) and R packages
+2. **`r-only`**: Minimal R-only environment with CmdStan (no Python dependencies)
+
+Choose the environment that fits your needs.
+
+Option 1: Install default environment (Python + R)
+
+```bash
+# Install all dependencies (Python + R)
 pixi install
 
 # Setup cmdstanr etc from CRAN/R-universe
 pixi run setup
 
-# Verify installation (includes model compilation and sampling test)
+# Verify R installation (includes 8 schools model test)
 pixi run verify
-```
 
-Then activate the environment:
+# Verify Python installation (includes CmdStanPy and 8 schools test)
+pixi run verify-python
 
-```bash
 # Activate the environment
 pixi shell
+```
+
+Option 2: Install R environment only
+
+```bash
+# Clone the repository
+git clone https://github.com/olli0601/bIRTistic.git
+cd bIRTistic
+
+# Install R-only dependencies (no Python)
+pixi install -e r-only
+
+# Setup cmdstanr etc from CRAN/R-universe
+pixi run -e r-only setup
+
+# Verify installation (includes 8 schools model test)
+pixi run -e r-only verify
+
+# Activate the R-only environment
+pixi shell -e r-only
 ```
 
 <details>
@@ -56,6 +84,20 @@ mamba create -n cmdstan-build -c conda-forge cmdstan=2.37.0 -y
 # Minimum conda environment to avoid installation from source
 mamba env create -f bIRTistic.yml -y
 mamba activate birtistic
+```
+
+#### Install python packages:
+
+```bash
+# Install core packages
+pip install numpy scipy pandas matplotlib
+pip install jax jaxlib flax optax
+pip install numpyro cmdstanpy
+pip install plotnine
+pip install pytest pytest-cov jupyterlab ipykernel
+
+# Verify installation
+python python/test_environment.py
 ```
 
 #### Install R packages through R:
@@ -96,7 +138,60 @@ mamba activate birtistic
 
 ## Quick Start
 
-### Running Analysis Examples
+### Data Loading
+
+```python
+from birtistic.data_loading import read_data_colombia, read_data_ukraine
+
+# Load Colombia data
+data = read_data_colombia("path/to/Colombia_data_baseline_endline_itemised.csv")
+dp = data['dp']    # Participant data (long format)
+dit = data['dit']  # Item metadata
+dmeta = data['dmeta']  # Participant metadata
+```
+
+### Model Fitting
+
+```python
+from birtistic.model_fitting import fit_partial_credit_model_ncats
+
+# Fit model with HMC
+results = fit_partial_credit_model_ncats(
+    data=dp,
+    item_metadata=dit,
+    method='hmc',  # or 'advi' for variational inference
+    seed=12345
+)
+```
+
+### Plotting
+
+```python
+from birtistic.plotting import plot_item_characteristics
+
+# Create plots
+fig = plot_item_characteristics(results)
+fig.save("item_characteristics.png")
+```
+
+## Testing
+
+Run the test suite:
+
+```bash
+# Run all tests
+pixi shell
+pytest
+
+# Run with coverage
+pytest --cov=birtistic --cov-report=html
+
+# Run specific test file
+pytest tests/test_data_loading.py
+```
+
+
+### Running R Analysis Examples
 
 ```bash
 # Activate the environment
@@ -170,12 +265,21 @@ bIRTistic/
 │   │   ├── ordered_logit_2cats_v251222.stan
 │   │   ├── partial_credit_model_2cats_v251224.stan
 │   │   └── [compiled model binaries]
+│   ├── python/                              # Python test suite
+│   │   ├── test_data_loading.py             # Test data loading functions
+│   │   ├── test_utils.py                    # Test utility functions
+│   │   ├── conftest.py                      # Pytest configuration
+│   │   ├── fixtures/                        # Test fixtures
+│   │   ├── utils/                           # Test utilities
+│   │   ├── generate_baselines_colombia.py   # Generate baseline test data
+│   │   ├── generate_r_baselines.py          # Generate R baseline data
+│   │   └── pytest.ini                       # Pytest settings
 │   ├── test_credit_ncats_correctness.R      # Verify ncats matches 2cats
 │   ├── test_ordered_logit_ncats_correctness.R
 │   ├── test_pcm_ncats_correctness.R
-│   ├── run_all_tests.R                      # Run all test suites
+│   ├── run_all_tests.R                      # Run all R test suites
 │   └── README.md                            # Test documentation
-├── vignettes/                               # R Markdown analysis examples
+├── scripts-R/                               # R analysis scripts (formerly vignettes/)
 │   ├── Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd  # Hope Groups paper (ordered logit)
 │   ├── Colombia_analysis_for_HGpaper_pcm_v251224.Rmd            # Hope Groups paper (PCM)
 │   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd          # Compare ADVI vs HMC
@@ -186,14 +290,28 @@ bIRTistic/
 │   ├── Colombia_validate_credit_model.Rmd
 │   ├── hpc_Colombia_compare_models.Rmd      # Compare IRT models (HPC)
 │   └── hpc_Colombia_train_test_item_response_models.Rmd  # Train/test (HPC)
+├── scripts-py/                              # Python analysis scripts
+│   └── Colombia_analysis_ordered_logit_ADVI_vs_HMC.py  # ADVI vs HMC comparison
+├── dev/                                     # Development documentation
+│   ├── IMPLEMENTATION_COMPLETE.md           # Implementation completion notes
+│   ├── IMPLEMENTATION_SUMMARY.md            # Implementation summary
+│   ├── PYTHON_PORT_STATUS.md                # Python port status
+│   └── amortised_decision_making.md         # Amortised decision making documentation
 ├── old/                                     # Archived Stan models
 │   └── stan/                                # Very old 2cats models (pre-reorganization)
-├── python/                                  # Python utilities (if any)
-├── pixi.toml                                # Pixi environment specification
+├── python/                                  # Python implementation (JAX/NumPyro/CmdStanPy)
+│   ├── __init__.py
+│   ├── data_loading.py                      # Data loading functions
+│   ├── model_fitting.py                     # Model fitting functions
+│   ├── analysis.py                          # Analysis utilities
+│   ├── test_environment.py                  # Python environment verification script
+│   └── requirements.txt                     # Python package requirements
+├── pixi.toml                                # Pixi environment specification (default + r-only)
 ├── pixi.lock                                # Pixi lock file (exact versions)
 ├── bIRTistic.yml                            # Conda environment specification (alternative)
 ├── job_config.csv.example                   # Example HPC job configuration
-├── amortised_decision_making.md             # Documentation on amortised decision making
+├── ENVIRONMENTS.md                          # Guide to pixi environments (default vs r-only)
+├── README-python-port.md                    # Python implementation documentation
 └── README.md                                # This file
 ```
 

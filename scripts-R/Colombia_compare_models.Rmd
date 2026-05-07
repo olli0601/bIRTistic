@@ -235,7 +235,7 @@ if (grepl("^/rds/general/user/or105", here::here())) {
     # Working locally
     on_hpc <- FALSE
     dir_data <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
-    dir_out_base <- "/Users/or105/sandbox"
+    dir_out_base <- "/Users/or105/sandbox/bIRTistic"
 }
 
 # Define file names

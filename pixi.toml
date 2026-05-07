@@ -1,10 +1,13 @@
 [workspace]
-name = "birtistic-pixi"
+name = "birtistic"
 version = "0.1.0"
-description = "Bayesian Item Response Theory with Stan - Fast installation with pixi"
+description = "Making Bayesian Item Response Theory models faster with amortised inference"
 channels = ["conda-forge"]
 platforms = ["osx-arm64", "osx-64", "linux-64"]
 
+# ============================================================================
+# Base R dependencies (shared by all environments)
+# ============================================================================
 [dependencies]
 # R and compiler toolchain
 r-base = ">=4.3"
@@ -55,15 +58,80 @@ cmdstan = "==2.37.0"
 # cmdstanr needs to be installed from R-universe (see tasks below)
 # ggpattern may need special handling
 
+# ============================================================================
+# Python feature (optional - only in 'default' environment)
+# ============================================================================
+[feature.python.dependencies]
+# Python and packages
+python = ">=3.10"
+pip = "*"
+
+# Python core scientific stack (pinning scipy for JAX compatibility)
+numpy = "*"
+scipy = ">=1.10,<1.12"
+pandas = "*"
+matplotlib = "*"
+
+# JAX/Flax ecosystem
+jax = "*"
+jaxlib = "*"
+flax = "*"
+optax = "*"
+
+# Probabilistic programming
+numpyro = "*"
+cmdstanpy = "*"
+
+# Plotting
+plotnine = "*"
+
+# Testing and development
+pytest = "*"
+pytest-cov = "*"
+jupyterlab = "*"
+ipykernel = "*"
+arviz = ">=0.23.4,<0.24"
+
+# ============================================================================
+# Environment definitions
+# ============================================================================
+[environments]
+# Default environment: Full Python + R stack
+default = { features = ["python"], solve-group = "default" }
+
+# R-only environment: Just R and CmdStan (inherits base dependencies)
+r-only = { solve-group = "r-only" }
+
+# ============================================================================
+# Tasks
+# ============================================================================
+# Note: Use '-e <environment>' to run tasks in specific environments:
+#   - pixi run <task>              # Runs in default (Python + R) environment
+#   - pixi run -e r-only <task>    # Runs in R-only environment
+
 [tasks]
+# --------------------------------------------------------------------------
+# R environment setup tasks (available in both environments)
+# --------------------------------------------------------------------------
+
 # Post-installation task to install cmdstanr from R-universe
 install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'))" """
 
 # Install any remaining packages not in conda-forge
 install-extra = """Rscript -e "packages <- c('ggpattern'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')" """
 
-# Verify installation
-verify = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing Bernoulli model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ Installation verified successfully!\\n')" """
+# Verify R/CmdStan installation with 8 schools example
+verify = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing 8 schools model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
 
-# Complete setup (run all post-install tasks)
+# Complete R setup (run all R post-install tasks)
 setup = { depends-on = ["install-cmdstanr", "install-extra", "verify"] }
+
+# --------------------------------------------------------------------------
+# Python environment tasks (only available in default environment)
+# --------------------------------------------------------------------------
+
+# Verify Python environment with CmdStan and 8 schools example
+verify-python = """python python/test_environment.py"""
+
+# Complete Python setup
+setup-python = { depends-on = ["verify-python"] }
