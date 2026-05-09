@@ -23,6 +23,9 @@
         "/\\\\[a-zA-Z]+\\{[^}]*\\}/g",
         "/\\\\[a-zA-Z]+/g"
     ],
+    "cSpell.enableFiletypes": [
+        "!python"
+    ],
     "workbench.editorAssociations": {
         "*.html": "default"
     },
@@ -34,5 +37,42 @@
     "r.rterm.option": [
         "--no-save",
         "--no-restore"
-    ]
+    ],
+    "python.defaultInterpreterPath": "/Users/or105/git/bIRTistic/.pixi/envs/default/bin/python",
+    "python.terminal.activateEnvironment": false,
+    "python.REPL.enableREPLSmartSend": true,
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/python"
+    ],
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingModuleSource": "none",
+        "reportUndefinedVariable": "none"
+    },
+    "terminal.integrated.env.osx": {
+        "PIXI_PROJECT_ROOT": "${workspaceFolder}"
+    },
+    "terminal.integrated.profiles.osx": {
+        "Python (bIRTistic pixi)": {
+            "path": "zsh",
+            "args": [
+                "-c",
+                "cd ${workspaceFolder} && pixi run ipython -i -c \"exec(open('.pythonrc.py').read())\""
+            ],
+            "icon": "snake"
+        },
+        "zsh (bIRTistic pixi)": {
+            "path": "zsh",
+            "args": [
+                "-c",
+                "cd ${workspaceFolder} && pixi shell"
+            ],
+            "icon": "terminal-bash"
+        },
+        "zsh": {
+            "path": "zsh",
+            "icon": "terminal"
+        }
+    },
+    "terminal.integrated.defaultProfile.osx": "zsh (bIRTistic pixi)"
 }

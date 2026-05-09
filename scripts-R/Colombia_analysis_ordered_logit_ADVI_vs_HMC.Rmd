@@ -140,7 +140,7 @@ setkey(dp1_col, pid, time, item_label)
 
 ```{r setup-ol-directories-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
 # Define ordered logit model output directories
-dir_out_ol <- "/Users/or105/sandbox/colombia-ordered_logit-260430-vanilla-advi-vs-hmc"
+dir_out_ol <- "/Users/or105/sandbox/bIRTistic/colombia-ordered_logit-260430-vanilla-advi-vs-hmc"
 dir_logs_ol <- file.path(dir_out_ol, "logs")
 
 # Create output directories if they don't exist

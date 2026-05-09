@@ -43,7 +43,7 @@ pixi install
 pixi run setup
 
 # Verify R installation (includes 8 schools model test)
-pixi run verify
+pixi run verify-r
 
 # Verify Python installation (includes CmdStanPy and 8 schools test)
 pixi run verify-python
@@ -66,7 +66,7 @@ pixi install -e r-only
 pixi run -e r-only setup
 
 # Verify installation (includes 8 schools model test)
-pixi run -e r-only verify
+pixi run -e r-only verify-r
 
 # Activate the R-only environment
 pixi shell -e r-only
@@ -118,7 +118,7 @@ Rscript -e "packages <- c('argparse', 'bayesplot', 'bookdown', 'formatR', 'GGall
 
 #### Verify installation:
 
-The conda/mamba installation can be verified using the same tests that `pixi run verify` uses:
+The conda/mamba installation can be verified using the same tests that `pixi run verify-r` uses:
 
 ```bash
 # Check CmdStan version

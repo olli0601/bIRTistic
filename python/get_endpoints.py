@@ -2,7 +2,7 @@
 Analysis functions for Bayesian IRT models.
 
 This module provides functions for analyzing posterior draws from IRT models,
-including endpoint extraction and effect size computation.
+specifically endpoint extraction and effect size computation.
 """
 
 from typing import Optional, Literal
@@ -16,11 +16,11 @@ import numpy as np
 def get_endpoints(
     dp1: pd.DataFrame,
     dit: pd.DataFrame,
+    fit_file: str,
     draws_file: str,
     categorical_threshold: int = 3,
     endpoint_type: Literal["items", "item_groups"] = "items",
-    param_name: str = "ordered_prob_by_cat_qu_pr",
-    fit_file: Optional[str] = None,
+    param_name: str = "ordered_prob_by_cat_qu_pr"
 ) -> pd.DataFrame:
     """
     Get endpoints from ordered logit model draws.
@@ -99,85 +99,40 @@ def get_endpoints(
     
     # Load draws
     print(f"Loading draws from: {draws_file}")
-    poa = pd.read_pickle(draws_file)
+
+    import arviz as az
     
-    # Handle both HMC (3D: iterations × chains × parameters) and ADVI (2D: samples × parameters)
-    if poa.ndim == 2:
-        # ADVI format: reshape to 3D with single chain
-        print("Detected ADVI format (2D array), reshaping to 3D...")
-        n_samples, n_params = poa.shape
-        poa = poa.reshape(n_samples, 1, n_params)
-    elif poa.ndim != 3:
-        raise ValueError(f"Unexpected draws array shape: {poa.shape}. Expected 2D (ADVI) or 3D (HMC)")
-    
-    # Get column names from fit object
-    if fit_file is None:
-        # Infer fit file path from draws file path
-        fit_file = draws_file.replace('_draws.pkl', '_stan.pkl')
-    
-    if not os.path.exists(fit_file):
-        raise FileNotFoundError(f"Fit file not found: {fit_file}. Please provide fit_file parameter.")
-    
-    print(f"Loading fit object from: {fit_file}")
-    fit = pd.read_pickle(fit_file)
-    param_names = fit.column_names
-    
+    # Check if it's zarr format
+
+    idata = az.from_zarr(draws_file)
+    posterior = idata.posterior
+    po = idata.posterior[param_name].values
+
+    # shape: (chain, draw, cq_id)
+    n_chains, n_draws, n_cq = po.shape
+                                
+    # Reshape to (draw, cq_id)
+    po = po.reshape(-1, n_cq)
+    po = pd.DataFrame.from_records(po)
+    po = po.melt(var_name='cq_id', value_name='prob', ignore_index=False).reset_index().rename(columns={"index":".draw"})	
+
     # =========================================================================
     # Part 1: Categorical items - aggregate probabilities for high categories
     # =========================================================================
     
     print("Processing categorical items...")
     
-    # Extract ordered probability parameters from draws array
-    # poa is shape (iterations, chains, parameters)
-    # We need to convert to long format
-    n_iter, n_chains, n_params = poa.shape
-    
-    # Find indices of ordered_prob parameters using actual column names
-    ordered_prob_indices = [i for i, name in enumerate(param_names) if param_name in name]
-    
-    if len(ordered_prob_indices) == 0:
-        raise ValueError(f"No parameters found matching '{param_name}' in the draws")
-    
-    # Create long-format dataframe
-    po_data = []
-    for chain_idx in range(n_chains):
-        for iter_idx in range(n_iter):
-            for param_idx in ordered_prob_indices:
-                po_data.append({
-                    '.draw': iter_idx + chain_idx * n_iter + 1,
-                    '.chain': chain_idx + 1,
-                    '.iteration': iter_idx + 1,
-                    'variable': param_names[param_idx],
-                    'prob': poa[iter_idx, chain_idx, param_idx]
-                })
-    
-    po = pd.DataFrame(po_data)
-    
-    # Extract cq_id from variable name
-    po['cq_id'] = po['variable'].str.extract(r'\[(\d+)\]')[0].astype(int)
-    po = po.drop(columns=['variable'])
-    
     # Map cq_id back to item structure
     tmp = dp1[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
     tmp = tmp.merge(dit[['item_type_id', 'item_label', 'cat_length']], 
                    on=['item_type_id', 'item_label'])
     tmp = tmp.sort_values(['item_type_id', 'item_time_id']).reset_index(drop=True)
-    tmp['cq_id'] = tmp.groupby(['item_type_id'])['cat_length'].cumsum() - tmp['cat_length'] + 1
-    
-    # Expand to get all category levels
-    cq_mapping = []
-    for _, row in tmp.iterrows():
-        for y in range(row['cat_length']):
-            cq_mapping.append({
-                'item_type_id': row['item_type_id'],
-                'item_time_id': row['item_time_id'],
-                'cq_id': row['cq_id'] + y,
-                'y': y
-            })
-    cq_mapping = pd.DataFrame(cq_mapping)
-    
-    po = po.merge(cq_mapping, on='cq_id')
+    tmp['cq_id'] = tmp['cat_length'].cumsum() - tmp['cat_length']
+    tmp = tmp.assign(y=tmp['cat_length'].map(lambda n: np.arange(n))).explode('y', ignore_index=True)
+    tmp['y'] = tmp['y'].astype(int)
+    tmp['cq_id'] = tmp['cq_id'] + tmp['y']
+    tmp.drop(columns=['cat_length','item_label'], inplace=True)
+    po = po.merge(tmp, on='cq_id')
     
     # Filter for categorical items and aggregate high categories
     tmp = dp1[dp1['item_type'] == 'categorical'][
@@ -276,8 +231,8 @@ def get_endpoints(
     
     print("Processing out-of-7 items...")
     
-    # Re-extract ordered probability parameters
-    po = pd.DataFrame(po_data)
+    # Re-use extracted ordered probability parameters
+    po = po_all.copy()
     po['cq_id'] = po['variable'].str.extract(r'\[(\d+)\]')[0].astype(int)
     po = po.drop(columns=['variable'])
     
@@ -291,15 +246,18 @@ def get_endpoints(
     
     po = po.merge(tmp, on=['item_type_id', 'item_time_id'])
     
-    # Compute weighted mean
-    po['weighted'] = po['y'] * po['prob']
-    po = po.groupby(['.draw', 'item_label', 'item_time_id', 'item_type', 'time_label']).agg({
-        'weighted': 'sum'
-    }).reset_index()
-    po = po.rename(columns={'weighted': 'mean'})
-    
-    po = po.merge(dit[['item_type', 'item_label', 'group_label']], 
-                 on=['item_type', 'item_label'])
+    if len(po) == 0:
+        pos2 = pd.DataFrame()
+    else:
+        # Compute weighted mean
+        po['weighted'] = po['y'] * po['prob']
+        po = po.groupby(['.draw', 'item_label', 'item_time_id', 'item_type', 'time_label']).agg({
+            'weighted': 'sum'
+        }).reset_index()
+        po = po.rename(columns={'weighted': 'mean'})
+        
+        po = po.merge(dit[['item_type', 'item_label', 'group_label']], 
+                     on=['item_type', 'item_label'])
     
     # Aggregate across items if endpoint_type="item_groups"
     if endpoint_type == "item_groups":
@@ -357,13 +315,15 @@ def get_endpoints(
     else:
         # Item-level processing
         # Reshape to wide format
+        # Note: Don't include item_time_id in index because Baseline and Endline have different item_time_ids
         po_wide = po.pivot_table(
-            index=['.draw', 'item_label', 'item_time_id', 'item_type', 'group_label'],
+            index=['.draw', 'item_label', 'item_type', 'group_label'],
             columns='time_label',
             values='mean'
         ).reset_index()
         
         po_wide = po_wide.dropna(subset=['Baseline', 'Endline'])
+        
         po_wide = po_wide.merge(
             dit[['item_type', 'item_label', 'item_high_label']].drop_duplicates(),
             on=['item_type', 'item_label']
@@ -382,7 +342,7 @@ def get_endpoints(
         po_wide.loc[higher_mask, 'ratio'] = po_wide.loc[higher_mask, 'Endline'] / po_wide.loc[higher_mask, 'Baseline'] - 1
         
         # Reshape to long format
-        id_vars = ['.draw', 'item_label', 'item_time_id', 'item_type', 'group_label', 'item_high_label']
+        id_vars = ['.draw', 'item_label', 'item_type', 'group_label', 'item_high_label']
         po_long = po_wide.melt(
             id_vars=id_vars,
             value_vars=['diff', 'ratio', 'Baseline', 'Endline'],
@@ -391,7 +351,7 @@ def get_endpoints(
         )
         
         # Compute quantile summaries
-        pos2 = po_long.groupby(['item_label', 'item_time_id', 'item_type', 'group_label', 'variable'])['value'].quantile(quantiles).unstack()
+        pos2 = po_long.groupby(['item_label', 'item_type', 'group_label', 'variable'])['value'].quantile(quantiles).unstack()
         
         if len(pos2) > 0:
             pos2.columns = quantile_names

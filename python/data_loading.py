@@ -47,7 +47,7 @@ def read_data_colombia(file_data: str) -> Dict[str, pd.DataFrame]:
     # Read CSV
     dp = pd.read_csv(file_data)
     
-    # R's read.csv() converts spaces to dots in column names - replicate this
+    # convert spaces to dots in column names
     dp.columns = [col.replace(' ', '.') for col in dp.columns]
     
     # Rename columns
@@ -113,8 +113,7 @@ def read_data_colombia(file_data: str) -> Dict[str, pd.DataFrame]:
     # Remove participant with double endline - remove last record
     dp = dp[~((dp['pid'] == 'otmar20231963') & (dp['submission_date'] == '2024-12-12'))]
     
-    # Remove participants with only baseline records
-    # (we are interested in pre-post comparison)
+    # Select participants who have both baseline and endline records
     participant_counts = dp.groupby('pid')['submission_date'].count().reset_index(name='n')
     participants_with_both = participant_counts[participant_counts['n'] == 2]['pid']
     dp = dp[dp['pid'].isin(participants_with_both)]
@@ -139,7 +138,6 @@ def read_data_colombia(file_data: str) -> Dict[str, pd.DataFrame]:
                 'CG-MH_agg', 'CG-VIO_agg', 'CG-POS_agg']
     for col in agg_cols:
         if col in dp.columns:
-            # Truncate (not round) to match R's as.integer() behavior
             dp[col] = np.floor(dp[col]).astype('Int64')
     
     # Bring table into long format
@@ -153,7 +151,7 @@ def read_data_colombia(file_data: str) -> Dict[str, pd.DataFrame]:
     )
     
     # Remove NA's
-    dp = dp[dp['y'].notna()].copy()
+    dp = dp.dropna(subset=['y'])
     
     # Define character values for y
     dp['y_label'] = pd.Series(dtype='object')  # Initialize as object dtype
@@ -202,10 +200,8 @@ def read_data_colombia(file_data: str) -> Dict[str, pd.DataFrame]:
     
     # Extract item_label_short
     dit['item_label_short'] = dit['item_label'].str.replace(r'([^_]+)_([^_]+)', r'\2', regex=True)
-    # Set to empty string if starts with 'CG'
-    dit.loc[dit['item_label_short'].str.startswith('CG'), 'item_label_short'] = ''
-    # Convert empty strings to NaN to match R/pandas behavior
-    dit['item_label_short'] = dit['item_label_short'].replace('', np.nan)
+    # Set to NaN if starts with 'CG'
+    dit.loc[dit['item_label_short'].str.startswith('CG'), 'item_label_short'] = np.nan
     
     # Create group_label_long with full names
     group_mapping = {
@@ -457,7 +453,7 @@ def read_data_ukraine(file_data: str) -> Dict[str, pd.DataFrame]:
     )
     
     # Remove NA's
-    dp = dp[dp['y'].notna()].copy()
+    dp = dp.dropna(subset=['y'])
     
     # Define character values for y
     dp['y_label'] = pd.Series(dtype='object')

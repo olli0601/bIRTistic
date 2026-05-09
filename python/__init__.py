@@ -13,12 +13,12 @@ __version__ = "0.1.0"
 __author__ = "bIRTistic Team"
 
 from .data_loading import read_data_colombia, read_data_ukraine
-from .model_fitting import (
+from .fit_ordered_logit_model_ncats_advi import (
     fit_partial_credit_model_ncats,
     fit_ordered_logit_model_ncats,
     fit_ordered_logit_model_ncats_advi
 )
-from .analysis import get_endpoints
+from .get_endpoints import get_endpoints
 
 __all__ = [
     'read_data_colombia',

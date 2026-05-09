@@ -54,6 +54,8 @@ cmdstan = "==2.37.0"
 "r-sf" = "*"
 "r-s2" = "*"
 "r-units" = "*"
+zarr = ">=2.5,<3"
+h5netcdf = ">=1.8.1,<2"
 
 # cmdstanr needs to be installed from R-universe (see tasks below)
 # ggpattern may need special handling
@@ -121,17 +123,17 @@ install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https:
 install-extra = """Rscript -e "packages <- c('ggpattern'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')" """
 
 # Verify R/CmdStan installation with 8 schools example
-verify = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing 8 schools model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
+verify-r = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing 8 schools model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
 
 # Complete R setup (run all R post-install tasks)
-setup = { depends-on = ["install-cmdstanr", "install-extra", "verify"] }
+setup = { depends-on = ["install-cmdstanr", "install-extra", "verify-r"] }
 
 # --------------------------------------------------------------------------
 # Python environment tasks (only available in default environment)
 # --------------------------------------------------------------------------
 
 # Verify Python environment with CmdStan and 8 schools example
-verify-python = """python python/test_environment.py"""
+verify-python = """python test/python/test_environment.py"""
 
 # Complete Python setup
 setup-python = { depends-on = ["verify-python"] }
