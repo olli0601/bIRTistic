@@ -40,7 +40,10 @@
     ],
     "python.defaultInterpreterPath": "/Users/or105/git/bIRTistic/.pixi/envs/default/bin/python",
     "python.terminal.activateEnvironment": false,
+    "python.terminal.activateEnvInCurrentTerminal": true,
     "python.REPL.enableREPLSmartSend": true,
+    "python.REPL.sendToNativeREPL": false,
+    "jupyter.interactiveWindow.textEditor.executeSelection": false,
     "python.analysis.extraPaths": [
         "${workspaceFolder}/python"
     ],
@@ -74,5 +77,6 @@
             "icon": "terminal"
         }
     },
-    "terminal.integrated.defaultProfile.osx": "zsh (bIRTistic pixi)"
+    "terminal.integrated.defaultProfile.osx": "zsh (bIRTistic pixi)",
+    "jupyter.interactiveWindow.codeLens.enable": false
 }

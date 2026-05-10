@@ -266,18 +266,53 @@ def fit_ordered_logit_model_ncats_advi(
             # Fallback: extract as DataFrame directly
             draws_df = fit.draws_pd()
         
-        # Create InferenceData from the draws
-        # Reshape to (chains=1, draws=N, vars) format expected by ArviZ
-        posterior_dict = {}
+        # Create InferenceData from ADVI draws while preserving Stan parameter structure.
+        # CmdStan variational draws flatten array parameters into columns like var[1], var[2], ...
+        # Reconstruct those into a single variable with explicit dimensions for ArviZ.
+        n_draws = len(draws_df)
+        col_pattern = re.compile(r"^(?P<name>[^\[]+)(?:\[(?P<idx>[0-9,]+)\])?$")
+
+        grouped_cols = {}
         for col in draws_df.columns:
-            # Skip metadata columns
-            if col in ['lp__', 'lp_approx__']:
-                posterior_dict[col] = draws_df[col].values.reshape(1, -1)
-            else:
-                # Regular parameters
-                posterior_dict[col] = draws_df[col].values.reshape(1, -1)
-        
-        idata = az.from_dict(posterior=posterior_dict)
+            match = col_pattern.match(col)
+            if match is None:
+                raise ValueError(f"Unrecognized draw column format: {col}")
+
+            base_name = match.group("name")
+            idx_str = match.group("idx")
+            idx_tuple = None if idx_str is None else tuple(int(i) for i in idx_str.split(","))
+            grouped_cols.setdefault(base_name, []).append((idx_tuple, col))
+
+        posterior_dict = {}
+        dims = {}
+
+        for base_name, entries in grouped_cols.items():
+            first_idx = entries[0][0]
+
+            if first_idx is None:
+                # Scalar parameter, shape -> (chain, draw)
+                posterior_dict[base_name] = draws_df[entries[0][1]].to_numpy().reshape(1, n_draws)
+                continue
+
+            ndim = len(first_idx)
+            if any(idx is None for idx, _ in entries):
+                raise ValueError(f"Mixed scalar/indexed columns for parameter '{base_name}'")
+            if any(len(idx) != ndim for idx, _ in entries):
+                raise ValueError(f"Inconsistent index dimensionality for parameter '{base_name}'")
+
+            shape = tuple(max(idx[d] for idx, _ in entries) for d in range(ndim))
+            arr = np.full((n_draws, *shape), np.nan, dtype=float)
+
+            for idx, col in entries:
+                arr[(slice(None),) + tuple(i - 1 for i in idx)] = draws_df[col].to_numpy()
+
+            if np.isnan(arr).any():
+                raise ValueError(f"Incomplete indexed draws for parameter '{base_name}'")
+
+            posterior_dict[base_name] = arr[np.newaxis, ...]
+            dims[base_name] = [f"{base_name}_dim_{i}" for i in range(ndim)]
+
+        idata = az.from_dict(posterior=posterior_dict, dims=dims)
         
         print(f"Saving draws to: {draws_file}")
         idata.to_zarr(draws_file)

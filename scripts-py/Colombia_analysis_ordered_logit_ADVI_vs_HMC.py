@@ -160,7 +160,7 @@ print(f"  Item types: {sorted(dp1_col['item_type'].unique())}")
 # %%
 
 # Save data for model fitting
-tmp = os.path.join(dir_out_ol, "ol_1_data_dp.pkl")
+tmp = os.path.join(dir_out_ol, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 
@@ -245,6 +245,7 @@ endpoints_advi = get_endpoints(
     dp1=dp1_col,
     dit=dit_col,
     draws_file=f"{output_file_prefix_advi}_draws.zarr",
+    param_name="ordered_prob_by_cat_qu_pr",
     categorical_threshold=3,
     endpoint_type="items"
 )
