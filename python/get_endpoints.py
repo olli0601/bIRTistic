@@ -7,16 +7,13 @@ specifically endpoint extraction and effect size computation.
 
 from typing import Optional, Literal
 import os
-import re
-
 import pandas as pd
 import numpy as np
-
+import arviz as az
 
 def get_endpoints(
     dp1: pd.DataFrame,
     dit: pd.DataFrame,
-    fit_file: str,
     draws_file: str,
     categorical_threshold: int = 3,
     endpoint_type: Literal["items", "item_groups"] = "items",
@@ -41,9 +38,6 @@ def get_endpoints(
     draws_file : str
         Path to pickle file containing posterior draws (array format with ordered_prob_by_cat_qu_pr
         or ordered_prob_by_cat_qu_fit parameters).
-    fit_file : str, optional
-        Path to pickle file containing the cmdstanpy fit object. If provided, column names will be
-        extracted from the fit object. If not provided, will attempt to infer from draws_file path.
     categorical_threshold : int, default 3
         Threshold for aggregating categorical responses. Categories >= this value are summed.
         Default is 3, which aggregates "most" and "all of the time" for 5-category items.
@@ -99,8 +93,6 @@ def get_endpoints(
     
     # Load draws
     print(f"Loading draws from: {draws_file}")
-
-    import arviz as az
     
     # Read samples using ArviZ
     idata = az.from_zarr(draws_file)    
@@ -295,7 +287,7 @@ def get_endpoints(
         tmp = dit[['item_type', 'item_label', 'item_label_short', 'group_label', 
                   'group_label_long', 'item_high_label']].drop_duplicates()
         pos = pos.merge(tmp, on=['item_type', 'item_label'])
-        
+
     # %%                                
     # Combine categorical and out-of-7 results
     pos = pd.concat([pos_cat1, pos], ignore_index=True)
