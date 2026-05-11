@@ -15,10 +15,16 @@ import time
 import pandas as pd
 import numpy as np
 import patsy
+import ggsci
+import cowpatch as cow
+import matplotlib.colors as mcolors
+import arviz as az
 import matplotlib.pyplot as plt
 from cmdstanpy import CmdStanModel
 from plotnine import *
-import arviz as az
+from plotnine import options as p9_options
+
+from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _plot_worst_chain_traces, _fit_ordered_logit_make_stan_data
 
 def fit_ordered_logit_model_ncats(
     dit: pd.DataFrame,
@@ -93,6 +99,7 @@ def fit_ordered_logit_model_ncats(
         - 'timing': DataFrame with chain timing information
         - 'good_chains': List of chain IDs that converged
     """
+    #%%
     # Set default stan_file if not provided  
     if stan_file is None:
         # Assume we're running from the bIRTistic root directory
@@ -144,63 +151,12 @@ def fit_ordered_logit_model_ncats(
     
     # Prepare data in ncats format (same as fit_partial_credit_model_ncats)
     print("Preparing Stan data in ncats format...")
-    
-    # Ensure dcati is sorted by item_type_id and oidt
-    dcati_sorted = dcati.sort_values(['item_type_id', 'oidt']).reset_index(drop=True)
-    
-    # Verify oid is sequential
-    assert (dcati_sorted['oid'] == dcati_sorted.index + 1).all(), \
-        "oid must be sequential 1:N after sorting by item_type_id, oidt"
-    
-    # Build stan_data dictionary
-    stan_data = {}
-    stan_data['C'] = int(dcati['item_type_id'].max())
-    stan_data['U'] = int(dcati['pid'].max())
-    
-    # Arrays for each category type
-    category_stats = dcati.groupby('item_type_id').agg({
-        'oid': 'count',
-        'item_time_id': 'max',
-        'y_stan': lambda x: len(x.unique())
-    }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
-    
-    stan_data['N'] = category_stats['N'].astype(int).tolist()
-    stan_data['Q'] = category_stats['Q'].astype(int).tolist()
-    stan_data['K'] = category_stats['K'].astype(int).tolist()
-    
-    # Total counts
-    stan_data['N_total'] = int(sum(stan_data['N']))
-    stan_data['Q_total'] = int(sum(stan_data['Q']))
-    
-    # Concatenated observation data
-    stan_data['y'] = dcati['y_stan'].astype(int).tolist()
-    stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
-    stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
-    stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
-    
-    # Create design matrix using patsy
-    design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')
-    
-    # Determine which columns to use for predictive probabilities
-    if x_formula_ignore_regex is not None:
-        xpr_id = [i + 1 for i, col in enumerate(design_matrix.columns) 
-                  if not re.search(x_formula_ignore_regex, col)]
-    else:
-        xpr_id = list(range(1, len(design_matrix.columns) + 1))
-    
-    stan_data['X'] = design_matrix.values.tolist()
-    stan_data['Xpr_id'] = xpr_id
-    stan_data['P'] = len(design_matrix.columns)
-    stan_data['P_pr'] = len(xpr_id)
-    
-    print(f"Design matrix number of predictors: P = {stan_data['P']}")
-    print(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
-    print(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
-    print(f"Number of category types: C = {stan_data['C']}")
-    print(f"Category type labels: {', '.join(dit['item_type'].unique())}")
-    print(f"N per category: {', '.join(map(str, stan_data['N']))}")
-    print(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
-    print(f"K per category: {', '.join(map(str, stan_data['K']))}")
+    stan_data = _fit_ordered_logit_make_stan_data(
+        dit=dit,
+        dcati=dcati,
+        x_formula=x_formula,
+        x_formula_ignore_regex=x_formula_ignore_regex,
+    )
     
     # Check if resuming from existing outputs
     if can_resume:
@@ -208,7 +164,10 @@ def fit_ordered_logit_model_ncats(
         print("RESUMING from existing outputs")
         print("=" * 40)
         
-        print(f"Loading draws from: {draws_file}")
+        print(f"Loading fit from: {output_file}")        
+        fit = pd.read_pickle(output_file)
+
+        print(f"Loading draws from: {draws_file}")        
         idata = az.from_zarr(draws_file)
         
         print(f"Loading timing data from: {timing_file}")
@@ -217,11 +176,6 @@ def fit_ordered_logit_model_ncats(
         print(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
         print("=" * 40 + "\n")
         
-        return {
-            'draws': idata,
-            'timing': timing_data,
-            'good_chains': good_chains
-        }
     else:
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
@@ -321,300 +275,103 @@ def fit_ordered_logit_model_ncats(
         
         # Check convergence and mixing
         print("Generating convergence diagnostics...")
-        summary_df = fit.summary()
-        
-        # Filter to key variables of interest
         key_vars = ['latent_factor_unit', 'latent_factor_beta', 
-                   'skill_thresholds_1', 'skill_thresholds_incs', 'loadings_questions_m1']
-        # Filter rows where variable name starts with any of the key variable prefixes
-        mask = summary_df.index.to_series().apply(
-            lambda x: any(x.startswith(var) for var in key_vars)
-        )
-        summary_df_filtered = summary_df[mask]
-        
-        # Sort by ESS if available, otherwise just save as-is
-        if 'ess_bulk' in summary_df_filtered.columns:
-            summary_df_filtered = summary_df_filtered.sort_values('ess_bulk')
-        elif 'N_Eff' in summary_df_filtered.columns:
-            summary_df_filtered = summary_df_filtered.sort_values('N_Eff')
-        
-        summary_df_filtered.to_csv(mixing_file)
-        
+               'skill_thresholds_1', 'skill_thresholds_incs', 'loadings_questions_m1']
+        summary_df = az.summary(idata, var_names=key_vars)
+        summary_df = summary_df.sort_values('ess_bulk')        
+                
         print(f"Saved convergence diagnostics to: {mixing_file}")
+        summary_df.to_csv(mixing_file)
+
+        if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_worsttrace.pdf"):
+            print("Generating worst-chain trace plot...")
+
+            worst_vars = summary_df.head(9).index.tolist()
+            worst_vars = [sub(r"\[(\d+)\]", lambda match: f"[{int(match.group(1)) + 1}]", v)
+                          for v in worst_vars]
+            po = fit.draws_pd(inc_warmup=True)            
+            assert all(v in po.columns for v in worst_vars), \
+                f"Missing worst_vars in draws: {[v for v in worst_vars if v not in po.columns]}"        
+            
+            _plot_worst_chain_traces(
+                po=po[['lp__', 'chain__', 'iter__', 'draw__'] + worst_vars],
+                iter_warmup=iter_warmup,
+                output_file_stem=f"{output_file_prefix}_worsttrace",
+            )
+
+    #%%    
+    # Additional diagnostic analyses
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
+        print("\nRunning additional diagnostic analyses...")
         
-        # Additional diagnostic analyses
-        if with_additional_analyses:
-            print("\nRunning additional diagnostic analyses...")
-            
-            # 1. Generate parameter intervals plot
-            print("Generating parameter plots...")
-            key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
-                                        'skill_thresholds_1', 'skill_thresholds_incs', 
-                                        'loadings_questions_m1'])
-            
-            # Use ArviZ plot_forest for parameter intervals
-            var_names = [v for v in idata.posterior.data_vars 
-                        if any(pat in v for pat in key_vars_pattern.split('|'))]
-            
-            if var_names:
-                fig = az.plot_forest(
-                    idata,
-                    var_names=var_names,
-                    combined=True,
-                    hdi_prob=0.95,
-                    figsize=(8, min(50, len(var_names) * 0.3))
-                )
-                plt.tight_layout()
-                plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
-                plt.close()
-            
-            # 2. Posterior predictive checks
-            print("Generating posterior predictive checks...")
-            
-            # Extract ypred from posterior
-            if 'ypred' in idata.posterior.data_vars:
-                ypred_data = idata.posterior['ypred'].values  # shape: (chain, draw, oid)
-                n_chains, n_draws, n_obs = ypred_data.shape
-                
-                # Reshape to (draw, oid) by combining chains
-                ypred_flat = ypred_data.reshape(-1, n_obs)  # (chain*draw, oid)
-                
-                # Compute quantiles
-                q_lower = np.percentile(ypred_flat, 2.5, axis=0)
-                iqr_lower = np.percentile(ypred_flat, 25, axis=0)
-                median = np.percentile(ypred_flat, 50, axis=0)
-                iqr_upper = np.percentile(ypred_flat, 75, axis=0)
-                q_upper = np.percentile(ypred_flat, 97.5, axis=0)
-                
-                # Create dataframe with predictions
-                pos = pd.DataFrame({
-                    'oid': range(1, n_obs + 1),
-                    'q_lower': q_lower,
-                    'iqr_lower': iqr_lower,
-                    'median': median,
-                    'iqr_upper': iqr_upper,
-                    'q_upper': q_upper
-                })
-                
-                # Merge with actual data
-                tmp = dcati[['oid', 'item_type', 'item_type_id', 'oidt', 'y_stan', 
-                            'item_label', 'time_label']].copy()
-                pos = pos.merge(tmp, on='oid')
-                pos['in_ppi'] = (pos['y_stan'] >= pos['q_lower']) & (pos['y_stan'] <= pos['q_upper'])
-                
-                print(f"Proportion in 95% PPI: {pos['in_ppi'].mean():.4f}")
-                
-                # Plot posterior predictive check
-                fig, axes = plt.subplots(
-                    len(pos['item_label'].unique()),
-                    len(pos['time_label'].unique()),
-                    figsize=(20, 20),
-                    sharex=True
-                )
-                
-                for i, item in enumerate(sorted(pos['item_label'].unique())):
-                    for j, time in enumerate(sorted(pos['time_label'].unique())):
-                        ax = axes[i, j] if len(axes.shape) > 1 else axes[j]
-                        data = pos[(pos['item_label'] == item) & (pos['time_label'] == time)]
-                        
-                        if len(data) > 0:
-                            # Plot boxplots
-                            ax.boxplot(
-                                [[data.iloc[k]['q_lower'], data.iloc[k]['iqr_lower'],
-                                  data.iloc[k]['median'], data.iloc[k]['iqr_upper'],
-                                  data.iloc[k]['q_upper']] for k in range(len(data))],
-                                positions=range(len(data)),
-                                widths=0.6
-                            )
-                            
-                            # Plot actual values
-                            colors = ['#1f77b4' if x else '#d62728' for x in data['in_ppi']]
-                            ax.scatter(range(len(data)), data['y_stan'], c=colors, zorder=3)
-                            
-                            ax.set_title(f"{item} - {time}", fontsize=8)
-                            ax.tick_params(axis='x', rotation=45)
-                
-                plt.tight_layout()
-                plt.savefig(f"{output_file_prefix}_ppcheck.png", dpi=150, bbox_inches='tight')
-                plt.close()
-            
-            # 3. Compute ordinal Brier scores
-            print("Computing ordinal Brier scores by question...")
-            
-            if 'ordinal_brier_score' in idata.posterior.data_vars:
-                brier_data = idata.posterior['ordinal_brier_score'].values  # shape: (chain, draw, c, q)
-                n_chains, n_draws, n_cat, n_q = brier_data.shape
-                
-                # Reshape to (draw, c, q)
-                brier_flat = brier_data.reshape(-1, n_cat, n_q)
-                
-                # Compute statistics
-                brier_summary = []
-                for c in range(n_cat):
-                    for q in range(n_q):
-                        brier_vals = brier_flat[:, c, q]
-                        brier_summary.append({
-                            'item_type_id': c + 1,
-                            'item_time_id': q + 1,
-                            'median_brier_score': np.median(brier_vals),
-                            'mean_brier_score': np.mean(brier_vals),
-                            'q025_brier_score': np.percentile(brier_vals, 2.5),
-                            'q975_brier_score': np.percentile(brier_vals, 97.5)
-                        })
-                
-                brier_summary = pd.DataFrame(brier_summary)
-                
-                # Merge with item metadata
-                tmp = dcati[['item_type_id', 'item_time_id', 'item_type', 
-                            'item_label', 'time_label']].drop_duplicates()
-                brier_summary = brier_summary.merge(tmp, on=['item_type_id', 'item_time_id'])
-                brier_summary = brier_summary.sort_values(['item_type_id', 'item_time_id'])
-                
-                brier_file = f"{output_file_prefix}_ordered_brierscore.csv"
-                brier_summary.to_csv(brier_file, index=False)
-                print(f"Ordinal Brier scores saved to {brier_file}")
+        # 1. Generate parameter intervals plot
+        print("Generating parameter plots...")
+        key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
+                                    'skill_thresholds_1', 'skill_thresholds_incs', 
+                                    'loadings_questions_m1'])
         
-        # Core probability analyses
-        if with_core_analyses:
-            print("\nGenerating probability plots...")
-            
-            # Extract ordered_prob_by_cat_qu_fit
-            if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
-                prob_data = idata.posterior['ordered_prob_by_cat_qu_fit'].values
-                # shape: (chain, draw, cq_id)
-                n_chains, n_draws, n_cq = prob_data.shape
-                
-                # Reshape to (draw, cq_id)
-                prob_flat = prob_data.reshape(-1, n_cq)
-                
-                # Compute quantiles
-                q_lower = np.percentile(prob_flat, 2.5, axis=0)
-                iqr_lower = np.percentile(prob_flat, 25, axis=0)
-                median = np.percentile(prob_flat, 50, axis=0)
-                iqr_upper = np.percentile(prob_flat, 75, axis=0)
-                q_upper = np.percentile(prob_flat, 97.5, axis=0)
-                
-                pos = pd.DataFrame({
-                    'cq_id': range(1, n_cq + 1),
-                    'q_lower': q_lower,
-                    'iqr_lower': iqr_lower,
-                    'median': median,
-                    'iqr_upper': iqr_upper,
-                    'q_upper': q_upper
-                })
-                
-                # Map cq_id back to (item_type_id, item_time_id, y_stan)
-                tmp = dcati[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
-                tmp = tmp.merge(
-                    dit[['item_type_id', 'item_label', 'cat_length']], 
-                    on=['item_type_id', 'item_label']
-                )
-                tmp = tmp.sort_values(['item_type_id', 'item_time_id']).reset_index(drop=True)
-                tmp['cq_id'] = tmp['cat_length'].cumsum() - tmp['cat_length'] + 1
-                
-                # Expand to get one row per category
-                expanded = []
-                for _, row in tmp.iterrows():
-                    for k in range(int(row['cat_length'])):
-                        expanded.append({
-                            'cq_id': int(row['cq_id']) + k,
-                            'item_type_id': row['item_type_id'],
-                            'item_time_id': row['item_time_id'],
-                            'y': k
-                        })
-                
-                expanded_df = pd.DataFrame(expanded)
-                
-                # Merge with dcati to get labels
-                tmp2 = dcati[['item_type_id', 'item_time_id', 'y', 'y_label', 
-                             'item_label', 'time_label']].drop_duplicates()
-                expanded_df = expanded_df.merge(tmp2, on=['item_type_id', 'item_time_id', 'y'])
-                
-                pos = pos.merge(expanded_df, on='cq_id')
-                
-                # Compute empirical probabilities
-                tmp = dcati.groupby(['time_label', 'item_label', 'y_label']).size().reset_index(name='n')
-                tmp2 = dcati.groupby(['time_label', 'item_label']).size().reset_index(name='total')
-                tmp = tmp.merge(tmp2, on=['time_label', 'item_label'])
-                tmp['p_emp'] = tmp['n'] / tmp['total']
-                
-                pos = pos.merge(
-                    tmp[['time_label', 'item_label', 'y_label', 'p_emp']],
-                    on=['time_label', 'item_label', 'y_label'],
-                    how='left'
-                )
-                pos['p_emp'] = pos['p_emp'].fillna(0)
-                
-                # Merge with dit for plotting
-                pos = pos.merge(dit, on=['item_type_id', 'item_label'])
-                pos['item_label_long'] = pos['group_label_long'] + ' --- ' + pos['item_label_short'].fillna('')
-                
-                # Save posterior probabilities
-                prob_file = f"{output_file_prefix}_posterior_probabilities_fit.csv"
-                pos.to_csv(prob_file, index=False)
-                print(f"Saving posterior probabilities to {prob_file}")
-                
-                # Create probability plots using plotnine (ggplot2 for Python)
-                # This mirrors the R code structure for consistent aesthetics
-                
-                # Create named color palette (matching R's ggsci::pal_futurama)
-                all_items = sorted(pos['item_label_long'].unique())
-                from matplotlib.colors import rgb2hex
-                # Use a colormap similar to futurama palette
-                n_colors = len(all_items)
-                color_values = plt.cm.Set3(np.linspace(0, 1, min(12, n_colors)))
-                if n_colors > 12:
-                    # Extend with additional colors if needed
-                    color_values = np.vstack([
-                        plt.cm.Set3(np.linspace(0, 1, 12)),
-                        plt.cm.Pastel1(np.linspace(0, 1, n_colors - 12))
-                    ])
-                pal = [rgb2hex(c) for c in color_values[:n_colors]]
-                color_dict = dict(zip(all_items, pal))
-                
-                # Create the plot using plotnine
-                p = (
-                    ggplot(pos, aes(x='y_label', group='factor(item_label_long):factor(y_label)')) +
-                    geom_col(
-                        aes(fill='item_label_long', y='p_emp'),
-                        position=position_dodge(width=0.9, preserve='single'),
-                        alpha=0.8,
-                        width=0.8
-                    ) +
-                    geom_boxplot(
-                        aes(
-                            ymin='q_lower',
-                            lower='iqr_lower',
-                            middle='median',
-                            upper='iqr_upper',
-                            ymax='q_upper'
-                        ),
-                        position=position_dodge(width=0.9, preserve='single'),
-                        stat='identity',
-                        alpha=0,
-                        width=0.3
-                    ) +
-                    scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l]) +
-                    scale_fill_manual(values=color_dict, limits=all_items, drop=False) +
-                    facet_grid('group_label_long ~ time_label') +
-                    theme_bw() +
-                    theme(
-                        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-                        legend_position='bottom',
-                        plot_title=element_text(size=10),
-                        figure_size=(24, 30)
-                    ) +
-                    guides(fill=guide_legend(ncol=3, title='survey items')) +
-                    labs(x='', y='proportion of outcomes', fill='survey items')
-                )
-                
-                # Save the plot
-                p.save(f"{output_file_prefix}_probs_barplot_v2_fit.png", dpi=150, verbose=False)
-                p.save(f"{output_file_prefix}_probs_barplot_v2_fit.pdf", verbose=False)
+        # Use ArviZ plot_forest for parameter intervals
+        var_names = [v for v in idata.posterior.data_vars 
+                    if any(pat in v for pat in key_vars_pattern.split('|'))]
         
-        return {
-            'fit': fit,
-            'draws': idata,
-            'timing': timing_data,
-            'good_chains': good_chains
-        }
+        if var_names:
+            p = az.plot_forest(
+                idata,
+                var_names=var_names,
+                combined=True,
+                hdi_prob=0.95,
+                textsize=8,
+                figsize=(18, min(160, max(30, len(var_names) * 1.1)))
+            )
+
+            # Increase label area and reduce y-label size for long parameter names.
+            for ax in np.ravel(np.atleast_1d(p)):
+                ax.tick_params(axis='y', labelsize=6)
+
+            plt.subplots_adjust(left=0.42, right=0.98, top=0.98, bottom=0.02)
+            plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
+            plt.close()
+    #%%    
+    # 2. Posterior predictive checks
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+        print("Generating posterior predictive checks...")
+        
+        if 'ypred' in idata.posterior.data_vars:
+            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")
+    #%%    
+    # 3. Compute ordinal Brier scores
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
+        print("Computing ordinal Brier scores by question...")
+        
+        if 'ordinal_brier_score' in idata.posterior.data_vars:
+            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore")
+    #%%    
+    # Core probability analyses
+    if with_core_analyses and not os.path.exists(f"{output_file_prefix}_prob_by_question_fit.pdf"):
+        print("\nGenerating fitted probability plots...")        
+        if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
+            _plot_prob_barplots(
+                idata.posterior['ordered_prob_by_cat_qu_fit'].values,
+                dcati,
+                dit,
+                f"{output_file_prefix}_prob_by_question_fit",
+            )
+                
+    #%%
+    if with_core_analyses and x_formula_ignore_regex is not None and not os.path.exists(f"{output_file_prefix}_prob_by_question_pr.pdf"):
+        print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")        
+        if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
+            _plot_prob_barplots(
+                idata.posterior['ordered_prob_by_cat_qu_pr'].values,
+                dcati,
+                dit,
+                f"{output_file_prefix}_prob_by_question_pr",
+            )
+        
+    #%% 
+    return {
+        'fit': fit,
+        'draws': idata,
+        'timing': timing_data,
+        'good_chains': good_chains
+    }

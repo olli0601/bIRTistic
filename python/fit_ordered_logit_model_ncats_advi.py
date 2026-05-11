@@ -15,10 +15,16 @@ import time
 import pandas as pd
 import numpy as np
 import patsy
+import ggsci
+import cowpatch as cow
+import matplotlib.colors as mcolors
+import arviz as az
 import matplotlib.pyplot as plt
 from cmdstanpy import CmdStanModel
 from plotnine import *
-import arviz as az
+from plotnine import options as p9_options
+
+from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _fit_ordered_logit_make_stan_data, _make_idata_from_advi_fit
 
 def fit_ordered_logit_model_ncats_advi(
     dit: pd.DataFrame,
@@ -135,63 +141,12 @@ def fit_ordered_logit_model_ncats_advi(
     
     # Prepare data in ncats format (same as HMC version)
     print("Preparing Stan data in ncats format...")
-    
-    # Ensure dcati is sorted by item_type_id and oidt
-    dcati_sorted = dcati.sort_values(['item_type_id', 'oidt']).reset_index(drop=True)
-    
-    # Verify oid is sequential
-    assert (dcati_sorted['oid'] == dcati_sorted.index + 1).all(), \
-        "oid must be sequential 1:N after sorting by item_type_id, oidt"
-    
-    # Build stan_data dictionary
-    stan_data = {}
-    stan_data['C'] = int(dcati_sorted['item_type_id'].max())
-    stan_data['U'] = int(dcati_sorted['pid'].max())
-    
-    # Arrays for each category type
-    category_stats = dcati.groupby('item_type_id').agg({
-        'oid': 'count',
-        'item_time_id': 'max',
-        'y_stan': lambda x: len(x.unique())
-    }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
-    
-    stan_data['N'] = category_stats['N'].astype(int).tolist()
-    stan_data['Q'] = category_stats['Q'].astype(int).tolist()
-    stan_data['K'] = category_stats['K'].astype(int).tolist()
-    
-    # Total counts
-    stan_data['N_total'] = int(sum(stan_data['N']))
-    stan_data['Q_total'] = int(sum(stan_data['Q']))
-    
-    # Concatenated observation data
-    stan_data['y'] = dcati['y_stan'].astype(int).tolist()
-    stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
-    stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
-    stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
-    
-    # Create design matrix using patsy
-    design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')
-    
-    # Determine which columns to use for predictive probabilities
-    if x_formula_ignore_regex is not None:
-        xpr_id = [i + 1 for i, col in enumerate(design_matrix.columns) 
-                  if not re.search(x_formula_ignore_regex, col)]
-    else:
-        xpr_id = list(range(1, len(design_matrix.columns) + 1))
-    
-    stan_data['X'] = design_matrix.values.tolist()
-    stan_data['Xpr_id'] = xpr_id
-    stan_data['P'] = len(design_matrix.columns)
-    stan_data['P_pr'] = len(xpr_id)
-    
-    print(f"Design matrix number of predictors: P = {stan_data['P']}")
-    print(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
-    print(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
-    print(f"Number of category types: C = {stan_data['C']}")
-    print(f"Category type labels: {', '.join(dit['item_type'].unique())}")
-    print(f"N per category: {', '.join(map(str, stan_data['N']))}")
-    print(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
-    print(f"K per category: {', '.join(map(str, stan_data['K']))}")
+    stan_data = _fit_ordered_logit_make_stan_data(
+        dit=dit,
+        dcati=dcati,
+        x_formula=x_formula,
+        x_formula_ignore_regex=x_formula_ignore_regex,
+    )
     
     # Check if resuming from existing outputs
     if can_resume:
@@ -199,17 +154,15 @@ def fit_ordered_logit_model_ncats_advi(
         print("RESUMING from existing outputs")
         print("=" * 40)
         
+        print(f"Loading fit from: {output_file}")        
+        fit = pd.read_pickle(output_file)
+        
         print(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
         
         print(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
-        print("=" * 40 + "\n")
-        
-        return {
-            'draws': idata,
-            'timing': timing_data
-        }
+        print("=" * 40 + "\n")                
     else:
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
@@ -253,72 +206,83 @@ def fit_ordered_logit_model_ncats_advi(
         
         # Convert to ArviZ InferenceData and save
         print("Converting to ArviZ format...")
-        # For ADVI, we need to manually extract draws since az.from_cmdstanpy() 
-        # doesn't support variational fits (no chain structure)
-        # Get the variational sample as a DataFrame
-        try:
-            draws_df = fit.variational_sample
-            if isinstance(draws_df, np.ndarray):
-                # If it's a numpy array, convert to DataFrame
-                column_names = fit.column_names
-                draws_df = pd.DataFrame(draws_df, columns=column_names)
-        except Exception as e:
-            # Fallback: extract as DataFrame directly
-            draws_df = fit.draws_pd()
-        
-        # Create InferenceData from ADVI draws while preserving Stan parameter structure.
-        # CmdStan variational draws flatten array parameters into columns like var[1], var[2], ...
-        # Reconstruct those into a single variable with explicit dimensions for ArviZ.
-        n_draws = len(draws_df)
-        col_pattern = re.compile(r"^(?P<name>[^\[]+)(?:\[(?P<idx>[0-9,]+)\])?$")
-
-        grouped_cols = {}
-        for col in draws_df.columns:
-            match = col_pattern.match(col)
-            if match is None:
-                raise ValueError(f"Unrecognized draw column format: {col}")
-
-            base_name = match.group("name")
-            idx_str = match.group("idx")
-            idx_tuple = None if idx_str is None else tuple(int(i) for i in idx_str.split(","))
-            grouped_cols.setdefault(base_name, []).append((idx_tuple, col))
-
-        posterior_dict = {}
-        dims = {}
-
-        for base_name, entries in grouped_cols.items():
-            first_idx = entries[0][0]
-
-            if first_idx is None:
-                # Scalar parameter, shape -> (chain, draw)
-                posterior_dict[base_name] = draws_df[entries[0][1]].to_numpy().reshape(1, n_draws)
-                continue
-
-            ndim = len(first_idx)
-            if any(idx is None for idx, _ in entries):
-                raise ValueError(f"Mixed scalar/indexed columns for parameter '{base_name}'")
-            if any(len(idx) != ndim for idx, _ in entries):
-                raise ValueError(f"Inconsistent index dimensionality for parameter '{base_name}'")
-
-            shape = tuple(max(idx[d] for idx, _ in entries) for d in range(ndim))
-            arr = np.full((n_draws, *shape), np.nan, dtype=float)
-
-            for idx, col in entries:
-                arr[(slice(None),) + tuple(i - 1 for i in idx)] = draws_df[col].to_numpy()
-
-            if np.isnan(arr).any():
-                raise ValueError(f"Incomplete indexed draws for parameter '{base_name}'")
-
-            posterior_dict[base_name] = arr[np.newaxis, ...]
-            dims[base_name] = [f"{base_name}_dim_{i}" for i in range(ndim)]
-
-        idata = az.from_dict(posterior=posterior_dict, dims=dims)
+        idata = _make_idata_from_advi_fit(fit)
         
         print(f"Saving draws to: {draws_file}")
         idata.to_zarr(draws_file)
+
+    #%%    
+    # Additional diagnostic analyses
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
+        print("\nRunning additional diagnostic analyses...")
         
-        return {
-            'fit': fit,
-            'draws': idata,
-            'timing': timing_data
-        }
+        # 1. Generate parameter intervals plot
+        print("Generating parameter plots...")
+        key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
+                                    'skill_thresholds_1', 'skill_thresholds_incs', 
+                                    'loadings_questions_m1'])
+        
+        # Use ArviZ plot_forest for parameter intervals
+        var_names = [v for v in idata.posterior.data_vars 
+                    if any(pat in v for pat in key_vars_pattern.split('|'))]
+        
+        if var_names:
+            p = az.plot_forest(
+                idata,
+                var_names=var_names,
+                combined=True,
+                hdi_prob=0.95,
+                textsize=8,
+                figsize=(18, min(160, max(30, len(var_names) * 1.1)))
+            )
+
+            # Increase label area and reduce y-label size for long parameter names.
+            for ax in np.ravel(np.atleast_1d(p)):
+                ax.tick_params(axis='y', labelsize=6)
+
+            plt.subplots_adjust(left=0.42, right=0.98, top=0.98, bottom=0.02)
+            plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
+            plt.close()
+    #%%    
+    # 2. Posterior predictive checks
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+        print("Generating posterior predictive checks...")
+        
+        if 'ypred' in idata.posterior.data_vars:
+            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")
+    #%%    
+    # 3. Compute ordinal Brier scores
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
+        print("Computing ordinal Brier scores by question...")
+        
+        if 'ordinal_brier_score' in idata.posterior.data_vars:
+            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore")
+    #%%    
+    # Core probability analyses
+    if with_core_analyses and not os.path.exists(f"{output_file_prefix}_prob_by_question_fit.pdf"):
+        print("\nGenerating fitted probability plots...")        
+        if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
+            _plot_prob_barplots(
+                idata.posterior['ordered_prob_by_cat_qu_fit'].values,
+                dcati,
+                dit,
+                f"{output_file_prefix}_prob_by_question_fit",
+            )
+                
+    #%%
+    if with_core_analyses and x_formula_ignore_regex is not None and not os.path.exists(f"{output_file_prefix}_prob_by_question_pr.pdf"):
+        print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")        
+        if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
+            _plot_prob_barplots(
+                idata.posterior['ordered_prob_by_cat_qu_pr'].values,
+                dcati,
+                dit,
+                f"{output_file_prefix}_prob_by_question_pr",
+            )
+        
+    #%% 
+    return {
+        'fit': fit,
+        'draws': idata,
+        'timing': timing_data
+    }

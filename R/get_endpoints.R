@@ -103,15 +103,13 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
         stop("param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'")
     }
     
-    # Load draws
-    poa <- readRDS(draws_file)
-    
     # =========================================================================
     # Part 1: Categorical items - aggregate probabilities for high categories
     # =========================================================================
     
     # Extract ordered probability parameters
-    po <- poa[,, grepl(param_name, dimnames(poa)[[3]]), drop = FALSE]
+    po <- readRDS(draws_file)
+    po <- po[,, grepl(param_name, dimnames(po)[[3]]), drop = FALSE]
     po <- posterior::as_draws_df(po)
     po <- data.table::as.data.table(po)
     po <- data.table::melt(po,
@@ -238,7 +236,8 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # =========================================================================
     
     # Extract ordered probability parameters again
-    po <- poa[,, grepl(param_name, dimnames(poa)[[3]]), drop = FALSE]
+    po <- readRDS(draws_file)
+    po <- po[,, grepl(param_name, dimnames(po)[[3]]), drop = FALSE]
     po <- posterior::as_draws_df(po)
     po <- data.table::as.data.table(po)
     po <- data.table::melt(po,

@@ -11,6 +11,8 @@ import pandas as pd
 import numpy as np
 import arviz as az
 
+from utils import _map_cq_id_to_item_structure
+
 def get_endpoints(
     dp1: pd.DataFrame,
     dit: pd.DataFrame,
@@ -90,7 +92,7 @@ def get_endpoints(
     
     if param_name not in ["ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"]:
         raise ValueError("param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'")
-    
+    # %%
     # Load draws
     print(f"Loading draws from: {draws_file}")
     
@@ -109,21 +111,13 @@ def get_endpoints(
     po = po.melt(var_name='cq_id', value_name='prob', ignore_index=False).reset_index().rename(columns={"index":".draw"})	
 
     # Map cq_id back to item structure
-    tmp = dp1[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
-    tmp = tmp.merge(dit[['item_type_id', 'item_label', 'cat_length']], 
-                   on=['item_type_id', 'item_label'])
-    tmp = tmp.sort_values(['item_type_id', 'item_time_id']).reset_index(drop=True)
-    tmp['cq_id'] = tmp['cat_length'].cumsum() - tmp['cat_length']
-    tmp = tmp.assign(y=tmp['cat_length'].map(lambda n: np.arange(n))).explode('y', ignore_index=True)
-    tmp['y'] = tmp['y'].astype(int)
-    tmp['cq_id'] = tmp['cq_id'] + tmp['y']
-    tmp.drop(columns=['cat_length','item_label'], inplace=True)
+    tmp = _map_cq_id_to_item_structure(dp1, dit)
     po = po.merge(tmp, on='cq_id')
 
     # =========================================================================
     # Part 1: Categorical items - aggregate probabilities for high categories
     # =========================================================================
-    
+     
     print("Processing categorical items...")
     
     # Filter for categorical items and aggregate high categories
@@ -189,7 +183,7 @@ def get_endpoints(
     else:
         tmp = dit[['item_type', 'item_label', 'item_label_short', 'group_label', 
                   'group_label_long', 'item_high_label']].drop_duplicates()
-        pos = pos.merge(tmp, on=['item_type', 'item_label'])
+        pos = pos.merge(tmp, on=['item_type', 'item_label', 'group_label'])
     
     pos_cat1 = pos.copy()
     # %%                                
@@ -206,15 +200,7 @@ def get_endpoints(
     po = po.melt(var_name='cq_id', value_name='prob', ignore_index=False).reset_index().rename(columns={"index":".draw"})	
 
     # Map cq_id back to item structure
-    tmp = dp1[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
-    tmp = tmp.merge(dit[['item_type_id', 'item_label', 'cat_length']], 
-                   on=['item_type_id', 'item_label'])
-    tmp = tmp.sort_values(['item_type_id', 'item_time_id']).reset_index(drop=True)
-    tmp['cq_id'] = tmp['cat_length'].cumsum() - tmp['cat_length']
-    tmp = tmp.assign(y=tmp['cat_length'].map(lambda n: np.arange(n))).explode('y', ignore_index=True)
-    tmp['y'] = tmp['y'].astype(int)
-    tmp['cq_id'] = tmp['cq_id'] + tmp['y']
-    tmp.drop(columns=['cat_length','item_label'], inplace=True)
+    tmp = _map_cq_id_to_item_structure(dp1, dit)
     po = po.merge(tmp, on='cq_id')
 
     print("Processing out-of-7 items...")
@@ -286,7 +272,7 @@ def get_endpoints(
     else:
         tmp = dit[['item_type', 'item_label', 'item_label_short', 'group_label', 
                   'group_label_long', 'item_high_label']].drop_duplicates()
-        pos = pos.merge(tmp, on=['item_type', 'item_label'])
+        pos = pos.merge(tmp, on=['item_type', 'item_label', 'group_label'])
 
     # %%                                
     # Combine categorical and out-of-7 results

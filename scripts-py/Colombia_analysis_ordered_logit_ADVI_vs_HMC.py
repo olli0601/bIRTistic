@@ -52,10 +52,11 @@ import numpy as np
 import arviz as az
 import xarray as xr
 from plotnine import (
-    ggplot, aes, geom_col, geom_errorbar, geom_density, facet_wrap,
+    ggplot, aes, geom_col, geom_errorbar, geom_density, facet_wrap, facet_grid,
     scale_fill_manual, scale_color_manual, theme_minimal, theme_bw, theme, element_text,
     element_blank, labs, position_dodge, coord_flip, ggsave, scale_y_continuous
 )
+from ggsci import scale_fill_futurama
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from PIL import Image
@@ -66,6 +67,7 @@ from data_loading import read_data_colombia
 from fit_ordered_logit_model_ncats_advi import fit_ordered_logit_model_ncats_advi
 from fit_ordered_logit_model_ncats import fit_ordered_logit_model_ncats
 from get_endpoints import get_endpoints
+from utils import _summarize_ordered_prob_quantiles
 
 print("✓ Imports successful")
 
@@ -157,8 +159,6 @@ print(f"  Participants: {dp1_col['pid'].nunique()}")
 print(f"  Items: {dp1_col['item_label'].nunique()}")
 print(f"  Item types: {sorted(dp1_col['item_type'].unique())}")
 
-# %%
-
 # Save data for model fitting
 tmp = os.path.join(dir_out_ol, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
@@ -185,7 +185,7 @@ result_hmc = fit_ordered_logit_model_ncats(
     resume=True,
     with_core_analyses=False,
     with_additional_analyses=False,
-    show_messages=True
+    show_messages=False
 )
 
 print(f"\n✓ HMC fitting complete")
@@ -210,6 +210,8 @@ result_advi = fit_ordered_logit_model_ncats_advi(
     seed=seed,
     x_formula="~ time - 1",
     resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
     show_messages=True
 )
 
@@ -261,52 +263,28 @@ print(f"  ADVI: {len(endpoints_advi)} rows")
 # Create Comparison Table
 # =============================================================================
 
-print("\n" + "="*70)
-print("CREATING COMPARISON TABLE")
-print("="*70)
-
 # Combine HMC and ADVI results
-endpoints_combined = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
-
-# Create merge ID for comparison
-if 'item_time_id' in endpoints_combined.columns:
-    endpoints_combined['merge_id'] = (
-        endpoints_combined['item_type'] + '___' + 
-        endpoints_combined['item_label'] + '___' + 
-        endpoints_combined['item_time_id'].fillna('NA').astype(str) + '___' + 
-        endpoints_combined['variable']
-    )
-else:
-    endpoints_combined['merge_id'] = (
-        endpoints_combined['item_type'] + '___' + 
-        endpoints_combined['item_label'] + '___' + 
-        endpoints_combined['variable']
-    )
+pos = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
 
 # Pivot to wide format for comparison
-endpoints_wide = endpoints_combined.pivot_table(
-    index='merge_id',
+pos = pos.pivot_table(
+    index=['item_type_id','item_type','item_label','item_label_short','group_label','group_label_long','item_high_label','variable'],
     columns='method',
     values=['median', 'q_lower', 'iqr_lower', 'iqr_upper', 'q_upper']
 ).reset_index()
 
 # Flatten column names from multi-index
-endpoints_wide.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col 
-                          for col in endpoints_wide.columns]
+pos.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col 
+                          for col in pos.columns]
 
 # Calculate median difference
-endpoints_wide['median_diff'] = endpoints_wide['median_HMC'] - endpoints_wide['median_ADVI']
-endpoints_wide['abs_median_diff'] = endpoints_wide['median_diff'].abs()
+pos['median_diff'] = pos['median_HMC'] - pos['median_ADVI']
+pos['abs_median_diff'] = pos['median_diff'].abs()
 
 # Save comparison
-comparison_file = os.path.join(dir_out_ol, "endpoints_comparison_hmc_vs_advi.csv")
-endpoints_wide.to_csv(comparison_file, index=False)
-print(f"\nSaved comparison to: {comparison_file}")
-
-# Show top differences
-print("\nTop 10 endpoints with largest median differences:")
-display_cols = ['merge_id', 'median_HMC', 'median_ADVI', 'median_diff']
-print(endpoints_wide.nlargest(10, 'abs_median_diff')[display_cols])
+tmp = os.path.join(dir_out_ol, "endpoints_comparison_hmc_vs_advi.csv")
+pos.to_csv(tmp, index=False)
+print(f"\nSaved comparison to: {tmp}")
 
 # %%
 
@@ -314,28 +292,26 @@ print(endpoints_wide.nlargest(10, 'abs_median_diff')[display_cols])
 # Visualization: Endpoint Comparison by Item
 # =============================================================================
 
-print("\n" + "="*70)
-print("CREATING ENDPOINT VISUALIZATIONS")
-print("="*70)
-
 # Filter for difference variable and add item_label_short
 # Merge with dit to get item_label_short for better labels
-endpoints_plot = endpoints_combined[endpoints_combined['variable'] == 'diff'].copy()
-endpoints_plot = endpoints_plot.merge(
-    dit[['item_label', 'item_label_short']].drop_duplicates(),
-    on='item_label',
-    how='left'
-)
+pos = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
+endpoints_plot = pos[pos['variable'] == 'diff'].copy()
 
 # Create composite label for facets
 endpoints_plot['facet_label'] = (
-    endpoints_plot['item_label_short'] + '\n' +
-    'Difference in mean days per week\n(Baseline - Endline)'
+    endpoints_plot['group_label_long'] + 
+    np.where(endpoints_plot['item_label_short'].notna(), 
+             '---' + endpoints_plot['item_label_short'] , 
+             ''
+             ) + '\n' +
+    np.where(endpoints_plot['item_type'] == 'categorical', 
+             'Difference in probability per week\n(Baseline - Endline)', 
+             'Difference in mean days per week\n(Baseline - Endline)'
+             )
 )
 
 # Create plot with individual items as facets (matching R version)
 print("\nCreating endpoint difference plot...")
-from plotnine import facet_wrap, theme_bw
 
 p_diff = (
     ggplot(endpoints_plot, aes(x='method', y='median', fill='method')) +
@@ -347,8 +323,9 @@ p_diff = (
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
         axis_title_x=element_blank(),
-        strip_text=element_text(size=7),
-        legend_position='bottom',
+        strip_text=element_text(size=7, weight='bold'),
+        strip_background=element_blank(),
+        legend_position='top',
         figure_size=(14, 18)
     ) +
     labs(
@@ -359,25 +336,33 @@ p_diff = (
 )
 
 # Save plot
-plot_file = os.path.join(dir_out_ol, 'effect_size_difference_comparison.pdf')
-ggsave(p_diff, filename=plot_file, width=14, height=18)
-print(f"Saved plot to: {plot_file}")
+tmp = os.path.join(dir_out_ol, 'effect_size_difference_comparison.pdf')
+ggsave(p_diff, filename=tmp, width=14, height=18)
+print(f"Saved plot to: {tmp}")
+
+# %%
 
 # Create ratio plot
 print("Creating endpoint ratio plot...")
-endpoints_ratio = endpoints_combined[endpoints_combined['variable'] == 'ratio'].copy()
-endpoints_ratio = endpoints_ratio.merge(
-    dit[['item_label', 'item_label_short']].drop_duplicates(),
-    on='item_label',
-    how='left'
-)
-endpoints_ratio['facet_label'] = (
-    endpoints_ratio['item_label_short'] + '\n' +
-    'Ratio: 1 - (Endline/Baseline)'
+endpoints_plot = pos[pos['variable'] == 'ratio'].copy()
+
+endpoints_plot['facet_label'] = (
+    endpoints_plot['group_label_long'] + 
+    np.where(endpoints_plot['item_label_short'].notna(), 
+             '---' + endpoints_plot['item_label_short'] , 
+             ''
+             ) + '\n' +
+    np.where(endpoints_plot['item_type'] == 'categorical', 
+             'Ratio in probability per week\n(1- Baseline/Endline)', 
+             'Ratio in mean days per week\n(1- Baseline/Endline)'
+             )
 )
 
+# Create plot with individual items as facets (matching R version)
+print("\nCreating endpoint ratio plot...")
+
 p_ratio = (
-    ggplot(endpoints_ratio, aes(x='method', y='median', fill='method')) +
+    ggplot(endpoints_plot, aes(x='method', y='median', fill='method')) +
     geom_col(alpha=0.8, width=0.7) +
     geom_errorbar(aes(ymin='iqr_lower', ymax='iqr_upper'), width=0.3) +
     facet_wrap('~facet_label', scales='free', ncol=3) +
@@ -386,8 +371,9 @@ p_ratio = (
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
         axis_title_x=element_blank(),
-        strip_text=element_text(size=7),
-        legend_position='bottom',
+        strip_text=element_text(size=7, weight='bold'),
+        strip_background=element_blank(),
+        legend_position='top',
         figure_size=(14, 18)
     ) +
     labs(
@@ -397,41 +383,9 @@ p_ratio = (
     )
 )
 
-plot_file_ratio = os.path.join(dir_out_ol, 'effect_size_ratio_comparison.pdf')
-ggsave(p_ratio, filename=plot_file_ratio, width=14, height=18)
-print(f"Saved plot to: {plot_file_ratio}")
-
-# %%
-
-# =============================================================================
-# Compare HMC vs ADVI (Load from pickle files for speed)
-# =============================================================================
-
-print("\n" + "="*70)
-print("COMPARING HMC VS ADVI")
-print("="*70)
-
-# Load draws from Stan pickle files (much faster than NetCDF!)
-# Following R script approach: load .rds -> convert to DataFrame -> compute
-print("\nLoading HMC and ADVI fit objects from pickle files...")
-import time
-t0 = time.time()
-
-with open(f"{output_file_prefix_hmc}_stan.pkl", 'rb') as f:
-    fit_hmc = pickle.load(f)
-with open(f"{output_file_prefix_advi}_stan.pkl", 'rb') as f:
-    fit_advi = pickle.load(f)
-
-print(f"Loaded pickle files in {time.time() - t0:.2f} seconds")
-
-# Convert to DataFrames (fast: ~0.15s each)
-print("Converting to DataFrames...")
-t0 = time.time()
-df_hmc = fit_hmc.draws_pd()
-df_advi = fit_advi.variational_sample if hasattr(fit_advi, 'variational_sample') else fit_advi.draws_pd()
-print(f"Converted in {time.time() - t0:.2f} seconds")
-print(f"HMC draws: {df_hmc.shape[0]} samples x {df_hmc.shape[1]} parameters")
-print(f"ADVI draws: {df_advi.shape[0]} samples x {df_advi.shape[1]} parameters")
+tmp = os.path.join(dir_out_ol, 'effect_size_ratio_comparison.pdf')
+ggsave(p_ratio, filename=tmp, width=14, height=18)
+print(f"Saved plot to: {tmp}")
 
 # %%
 
@@ -443,55 +397,111 @@ print("\n" + "="*70)
 print("COMPARING ORDERED PROBABILITIES")
 print("="*70)
 
-# Get list of ordered_prob parameters
-prob_params = [c for c in df_hmc.columns if c.startswith('ordered_prob_by_cat_qu_fit')]
-print(f"Found {len(prob_params)} ordered_prob_by_cat_qu_fit parameters")
+po_hmc = result_hmc['draws'].posterior['ordered_prob_by_cat_qu_fit'].values
+po_advi = result_advi['draws'].posterior['ordered_prob_by_cat_qu_fit'].values
 
-if len(prob_vars) > 0:
-    # Compute quantiles directly on xarray (much faster than pandas)
-    print("Computing quantiles using xarray (efficient)...")
-    
-    # Select only ordered_prob parameters
-    prob_hmc = idata_hmc.posterior[prob_vars]
-    prob_advi = idata_advi.posterior[prob_vars]
-    
-    # Compute quantiles across chains and draws
-    quantiles = [0.05, 0.25, 0.5, 0.75, 0.975]
-    prob_hmc_q = prob_hmc.quantile(quantiles, dim=['chain', 'draw'])
-    prob_advi_q = prob_advi.quantile(quantiles, dim=['chain', 'draw'])
-    
-    # Convert to DataFrame for comparison (only summary stats, not full draws)
-    results = []
-    for var in prob_vars:
-        results.append({
-            'parameter': var,
-            'median_hmc': float(prob_hmc_q[var].sel(quantile=0.5).values),
-            'median_advi': float(prob_advi_q[var].sel(quantile=0.5).values),
-            'q_05_hmc': float(prob_hmc_q[var].sel(quantile=0.05).values),
-            'q_05_advi': float(prob_advi_q[var].sel(quantile=0.05).values),
-            'q_25_hmc': float(prob_hmc_q[var].sel(quantile=0.25).values),
-            'q_25_advi': float(prob_advi_q[var].sel(quantile=0.25).values),
-            'q_75_hmc': float(prob_hmc_q[var].sel(quantile=0.75).values),
-            'q_75_advi': float(prob_advi_q[var].sel(quantile=0.75).values),
-            'q_975_hmc': float(prob_hmc_q[var].sel(quantile=0.975).values),
-            'q_975_advi': float(prob_advi_q[var].sel(quantile=0.975).values),
-        })
-    
-    probs_combined = pd.DataFrame(results)
-    probs_combined['median_diff'] = probs_combined['median_hmc'] - probs_combined['median_advi']
-    probs_combined['abs_median_diff'] = probs_combined['median_diff'].abs()
-    probs_combined = probs_combined.sort_values('abs_median_diff', ascending=False)
-    
-    print(f"\nTop 10 ordered_prob with largest median differences:")
-    print(probs_combined.head(10)[['parameter', 'median_hmc', 'median_advi', 'median_diff']])
-    
-    # Save results
-    probs_file = os.path.join(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv")
-    probs_combined.to_csv(probs_file, index=False)
-    print(f"\nSaved ordered_prob comparison to: {probs_file}")
-else:
-    print("No ordered_prob_by_cat_qu_fit parameters found")
+# Summarize both methods
+pos_hmc = _summarize_ordered_prob_quantiles(po_hmc, dp1_col, dit_col)
+pos_hmc['method'] = 'HMC'
+pos_advi = _summarize_ordered_prob_quantiles(po_advi, dp1_col, dit_col)
+pos_advi['method'] = 'ADVI'
+pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
 
+pos = pos.pivot_table(
+    index=['cq_id', 'item_type_id', 'item_time_id', 'y', 'item_label', 'time_label',
+           'group_label_long', 'item_label_short', 'endpoint_measure'],
+    columns='method',
+    values='median',
+    aggfunc='first'
+).reset_index()
+
+pos['median_diff'] = pos['HMC'] - pos['ADVI']
+pos['abs_median_diff'] = pos['median_diff'].abs()
+pos = pos.sort_values('abs_median_diff', ascending=False)
+        
+print(f"\nTop 10 items with largest median probability differences (HMC vs ADVI):")
+print(pos.head(10)[['item_label', 'time_label', 'y', 'HMC', 'ADVI', 'median_diff']])
+    
+# Save combined results
+tmp = os.path.join(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv")
+pos.to_csv(tmp, index=False)
+print(f"\nSaved ordered_prob comparison to: {tmp}")
+
+# %%
+
+# =============================================================================
+# Generate Ordered Probability Comparison Plots (Integrated)
+# =============================================================================
+
+print("\n" + "="*70)
+print("GENERATING ORDERED PROBABILITY COMPARISON PLOTS")
+print("="*70)
+
+pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
+
+tmp_emp = dp1_col.groupby(
+    ['time_label', 'item_label', 'y_label', 'item_type_id', 'item_time_id', 'y']
+).size().reset_index(name='n')
+tmp_emp_totals = dp1_col.groupby(
+    ['time_label', 'item_label', 'item_type_id', 'item_time_id']
+).size().reset_index(name='total')
+tmp_emp = tmp_emp.merge(
+    tmp_emp_totals,
+    on=['time_label', 'item_label', 'item_type_id', 'item_time_id'],
+)
+tmp_emp['median'] = tmp_emp['n'] / tmp_emp['total']
+tmp_emp['iqr_lower'] = np.nan
+tmp_emp['iqr_upper'] = np.nan
+tmp_emp['method'] = 'Empirical'
+tmp_emp = tmp_emp.merge(
+    dit_col[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']],
+    on=['item_type_id', 'item_label'],
+    how='left',
+)
+
+plot_cols = [
+    'item_type_id', 'item_time_id', 'item_label', 'time_label', 'y', 'y_label',
+    'group_label_long', 'item_label_short', 'median', 'iqr_lower', 'iqr_upper', 'method'
+]
+pos_plot = pd.concat([pos[plot_cols], tmp_emp[plot_cols]], ignore_index=True)
+pos_plot['item_label_long'] = pos_plot['group_label_long'] + np.where(
+    pos_plot['item_label_short'].notna(), '\n' + pos_plot['item_label_short'], ''
+)
+pos_plot['method'] = pd.Categorical(
+    pos_plot['method'],
+    categories=['Empirical', 'HMC', 'ADVI'],
+    ordered=True,
+)
+pos_plot = pos_plot.dropna(subset=['item_label_long', 'time_label'])
+
+p = (
+    ggplot(pos_plot, aes(x='y_label', y='median', fill='method'))
+    + geom_col(position=position_dodge(width=0.9), alpha=0.75, width=0.8)
+    + geom_errorbar(
+        aes(ymin='iqr_lower', ymax='iqr_upper'),
+        position=position_dodge(width=0.9),
+        width=0.25,
+        na_rm=True,
+    )
+    + facet_wrap('~ item_label_long +time_label', ncol = 3, scales='free')
+    + scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l], limits=[0, None])
+    + scale_fill_futurama()
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, va='top', ha='right', size=7),
+        strip_text=element_text(weight='bold'),
+        strip_background=element_blank(),
+        legend_position='top',
+        figure_size=(14, max(8, 2.5 * pos_plot['item_label_long'].nunique())),
+    )
+    + labs(x='', y='probability', fill='Method')
+)
+
+tmp = os.path.join(dir_out_ol, "ordered_prob_comparison_by_item.pdf")
+print(f"Printed combined plot: {tmp}")
+p.save(tmp, width=14, height=max(8, 2.5 * pos_plot['item_label_long'].nunique()), units='in', limitsize=False)
+
+    
 # %%
 
 # =============================================================================
@@ -785,250 +795,7 @@ if len(ypred_vars) > 0:
     print(f"   - Disagreement rate: {100 * len(disagreements) / len(ypred_combined):.2f}%")
     print(f"   - Max absolute median difference: {ypred_combined['median_diff'].abs().max():.4f}")
 
-# %%
 
-# =============================================================================
-# Generate Ordered Probability Comparison Plots (Integrated)
-# =============================================================================
-
-print("\n" + "="*70)
-print("GENERATING ORDERED PROBABILITY COMPARISON PLOTS")
-print("="*70)
-
-# Load InferenceData objects for ordered_prob extraction
-print("\n[1/7] Loading InferenceData files...")
-hmc_draws_file = os.path.join(dir_out_ol, "ol_1_hmc_draws.nc")
-advi_draws_file = os.path.join(dir_out_ol, "ol_1_advi_draws.nc")
-
-if not os.path.exists(hmc_draws_file):
-    print(f"  ⚠ Warning: HMC draws file not found: {hmc_draws_file}")
-    print("  Skipping ordered_prob plots")
-elif not os.path.exists(advi_draws_file):
-    print(f"  ⚠ Warning: ADVI draws file not found: {advi_draws_file}")
-    print("  Skipping ordered_prob plots")
-else:
-    idata_hmc = az.from_zarr(hmc_draws_file)
-    idata_advi = az.from_zarr(advi_draws_file)
-    print(f"  ✓ Loaded HMC and ADVI draws")
-
-    # ========================================================================
-    # Extract ordered_prob parameters
-    # ========================================================================
-
-    print("\n[2/7] Extracting ordered_prob parameters from HMC...")
-    ordered_prob_hmc = idata_hmc.posterior['ordered_prob_by_cat_qu_fit']
-    print(f"  Shape: {ordered_prob_hmc.shape}")
-    
-    # Compute quantiles
-    q25_hmc = ordered_prob_hmc.quantile(0.25, dim=['chain', 'draw']).values
-    median_hmc = ordered_prob_hmc.quantile(0.50, dim=['chain', 'draw']).values
-    q75_hmc = ordered_prob_hmc.quantile(0.75, dim=['chain', 'draw']).values
-    print(f"  ✓ Extracted {len(median_hmc)} parameters")
-
-    print("\n[3/7] Extracting ordered_prob parameters from ADVI...")
-    try:
-        ordered_prob_advi = idata_advi.posterior['ordered_prob_by_cat_qu_fit']
-        print(f"  Shape: {ordered_prob_advi.shape}")
-    except KeyError:
-        # ADVI format (individual variables) - reconstruct array
-        print("  Detected ADVI format (individual variables)")
-        ordered_prob_vars = sorted(
-            [v for v in idata_advi.posterior.data_vars if 'ordered_prob_by_cat_qu_fit[' in v],
-            key=lambda x: int(x.split('[')[1].split(']')[0])
-        )
-        print(f"  Found {len(ordered_prob_vars)} variables")
-        arrays = [idata_advi.posterior[v] for v in ordered_prob_vars]
-        ordered_prob_advi = xr.concat(arrays, dim='ordered_prob_by_cat_qu_fit_dim_0')
-        ordered_prob_advi = ordered_prob_advi.assign_coords(
-            ordered_prob_by_cat_qu_fit_dim_0=np.arange(len(ordered_prob_vars))
-        )
-        print(f"  Reconstructed shape: {ordered_prob_advi.shape}")
-    
-    q25_advi = ordered_prob_advi.quantile(0.25, dim=['chain', 'draw']).values
-    median_advi = ordered_prob_advi.quantile(0.50, dim=['chain', 'draw']).values
-    q75_advi = ordered_prob_advi.quantile(0.75, dim=['chain', 'draw']).values
-    print(f"  ✓ Extracted {len(median_advi)} parameters")
-
-    # ========================================================================
-    # Map cq_id to items and response categories
-    # ========================================================================
-
-    print("\n[4/7] Mapping cq_id to items and response categories...")
-    
-    tmp_map = dp1_col[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
-    tmp_map = tmp_map.merge(
-        dit_col[['item_type_id', 'item_label', 'cat_length']],
-        on=['item_type_id', 'item_label']
-    )
-    tmp_map = tmp_map.sort_values(['item_type_id', 'item_time_id'])
-    tmp_map['cq_id'] = tmp_map['cat_length'].cumsum() - tmp_map['cat_length']
-    
-    map_rows = []
-    for _, row in tmp_map.iterrows():
-        for y in range(row['cat_length']):
-            map_rows.append({
-                'cq_id': row['cq_id'] + y,
-                'item_type_id': row['item_type_id'],
-                'item_time_id': row['item_time_id'],
-                'y': y
-            })
-    tmp_map_expanded = pd.DataFrame(map_rows)
-    
-    tmp_map_expanded = tmp_map_expanded.merge(
-        dp1_col[['item_type_id', 'item_time_id', 'y', 'y_label', 'item_label', 'time_label']].drop_duplicates(),
-        on=['item_type_id', 'item_time_id', 'y'],
-        how='left'
-    )
-    
-    print(f"  ✓ Created mapping for {len(tmp_map_expanded)} combinations")
-    
-    # Create pos DataFrames
-    pos_hmc = tmp_map_expanded.copy()
-    pos_hmc['median'] = pos_hmc['cq_id'].map(lambda x: median_hmc[x] if x < len(median_hmc) else np.nan)
-    pos_hmc['q25'] = pos_hmc['cq_id'].map(lambda x: q25_hmc[x] if x < len(q25_hmc) else np.nan)
-    pos_hmc['q75'] = pos_hmc['cq_id'].map(lambda x: q75_hmc[x] if x < len(q75_hmc) else np.nan)
-    pos_hmc['method'] = 'HMC'
-    
-    pos_advi = tmp_map_expanded.copy()
-    pos_advi['median'] = pos_advi['cq_id'].map(lambda x: median_advi[x] if x < len(median_advi) else np.nan)
-    pos_advi['q25'] = pos_advi['cq_id'].map(lambda x: q25_advi[x] if x < len(q25_advi) else np.nan)
-    pos_advi['q75'] = pos_advi['cq_id'].map(lambda x: q75_advi[x] if x < len(q75_advi) else np.nan)
-    pos_advi['method'] = 'ADVI'
-    
-    pos_df = pd.concat([pos_hmc, pos_advi], ignore_index=True)
-    pos_df = pos_df.merge(dit_col[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']], 
-                          on=['item_type_id', 'item_label'], how='left')
-    pos_df['item_label_long'] = pos_df['group_label_long'] + ' --- ' + pos_df['item_label_short']
-    
-    print(f"  ✓ Merged with item metadata")
-
-    # ========================================================================
-    # Compute empirical probabilities
-    # ========================================================================
-
-    print("\n[5/7] Computing empirical probabilities...")
-    
-    tmp_emp = dp1_col.groupby(['time_label', 'item_label', 'y_label', 'item_type_id', 'item_time_id', 'y']).size().reset_index(name='n')
-    tmp2 = dp1_col.groupby(['time_label', 'item_label', 'item_type_id', 'item_time_id']).size().reset_index(name='total')
-    tmp_emp = tmp_emp.merge(tmp2, on=['time_label', 'item_label', 'item_type_id', 'item_time_id'])
-    tmp_emp['median'] = tmp_emp['n'] / tmp_emp['total']
-    tmp_emp['q25'] = np.nan
-    tmp_emp['q75'] = np.nan
-    tmp_emp['method'] = 'Empirical'
-    tmp_emp = tmp_emp.drop(columns=['n', 'total'])
-    
-    tmp_emp = tmp_emp.merge(dit_col[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']], 
-                            on=['item_type_id', 'item_label'], how='left')
-    tmp_emp['item_label_long'] = tmp_emp['group_label_long'] + ' --- ' + tmp_emp['item_label_short']
-    
-    print(f"  ✓ Computed empirical probabilities for {len(tmp_emp)} combinations")
-
-    # ========================================================================
-    # Combine and create plots
-    # ========================================================================
-
-    common_cols = ['item_label_long', 'time_label', 'y_label', 'median', 'q25', 'q75', 'method']
-    pos_combined = pd.concat([
-        pos_df[common_cols],
-        tmp_emp[common_cols]
-    ], ignore_index=True)
-    
-    pos_combined['method'] = pd.Categorical(
-        pos_combined['method'], 
-        categories=['Empirical', 'HMC', 'ADVI'], 
-        ordered=True
-    )
-    
-    print(f"  ✓ Combined all methods: {len(pos_combined)} rows")
-
-    print("\n[6/7] Creating individual subplots...")
-    
-    pos_combined = pos_combined.dropna(subset=['item_label_long', 'time_label'])
-    items = sorted(pos_combined['item_label_long'].unique())
-    times = sorted(pos_combined['time_label'].unique())
-    
-    print(f"  Items: {len(items)}, Times: {len(times)}")
-    
-    plot_files = []
-    for item in items:
-        for time in times:
-            plot_data = pos_combined[
-                (pos_combined['item_label_long'] == item) & 
-                (pos_combined['time_label'] == time)
-            ].copy()
-            
-            if len(plot_data) == 0:
-                continue
-                
-            p = (
-                ggplot(plot_data, aes(x='y_label', y='median', fill='method', group='method'))
-                + geom_col(position=position_dodge(width=0.9), alpha=0.7, width=0.8)
-                + geom_errorbar(
-                    aes(ymin='q25', ymax='q75'),
-                    position=position_dodge(width=0.9),
-                    width=0.25
-                )
-                + scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l], limits=[0, None])
-                + scale_fill_manual(values={'Empirical': '#B4C8A8', 'HMC': '#008080', 'ADVI': '#CA562C'})
-                + ggtitle(f"{item} - {time}")
-                + theme_bw()
-                + theme(
-                    axis_text_x=element_text(angle=45, va='top', ha='right', size=7),
-                    legend_position='none',
-                    plot_title=element_text(size=8),
-                    figure_size=(6, 4)
-                )
-                + labs(x='', y='probability', fill='Method')
-            )
-            
-            subplot_file = os.path.join(dir_out_ol, f"_subplot_{item.replace('/', '_').replace(' ', '_')}_{time}.png")
-            p.save(subplot_file, dpi=150, width=6, height=4)
-            plot_files.append(subplot_file)
-    
-    print(f"  ✓ Created {len(plot_files)} individual subplots")
-
-    print("\n[7/7] Combining subplots into multi-panel grid...")
-    
-    n_items = len(items)
-    n_cols = 2
-    n_rows = n_items
-    
-    fig = plt.figure(figsize=(12, 4 * n_items))
-    gs = gridspec.GridSpec(n_rows + 1, n_cols, figure=fig, height_ratios=[0.3] + [1]*n_rows, hspace=0.3, wspace=0.2)
-    
-    ax_legend = fig.add_subplot(gs[0, :])
-    ax_legend.axis('off')
-    
-    from matplotlib.patches import Rectangle
-    legend_colors = {'Empirical': '#B4C8A8', 'HMC': '#008080', 'ADVI': '#CA562C'}
-    legend_handles = [Rectangle((0, 0), 1, 1, fc=color, alpha=0.7) for color in legend_colors.values()]
-    ax_legend.legend(legend_handles, legend_colors.keys(), loc='center', ncol=3, frameon=False, fontsize=12)
-    
-    for i, item in enumerate(items):
-        for j, time in enumerate(times):
-            subplot_file = os.path.join(dir_out_ol, f"_subplot_{item.replace('/', '_').replace(' ', '_')}_{time}.png")
-            if os.path.exists(subplot_file):
-                ax = fig.add_subplot(gs[i+1, j])
-                img = Image.open(subplot_file)
-                ax.imshow(img)
-                ax.axis('off')
-    
-    combined_file = os.path.join(dir_out_ol, "ordered_prob_comparison_by_item.pdf")
-    plt.savefig(combined_file, bbox_inches='tight')
-    plt.close()
-    
-    print(f"  ✓ Saved combined plot: {combined_file}")
-    
-    # Clean up temporary files
-    print("\n  Cleaning up temporary subplot files...")
-    for f in plot_files:
-        if os.path.exists(f):
-            os.remove(f)
-    print(f"  ✓ Removed {len(plot_files)} temporary files")
-    
-    print("\n" + "="*70)
-    print("ORDERED PROBABILITY COMPARISON PLOT COMPLETED")
-    print("="*70)
 
 # %%
 
