@@ -52,7 +52,7 @@ import numpy as np
 import arviz as az
 import xarray as xr
 from plotnine import (
-    ggplot, aes, geom_col, geom_errorbar, geom_density, facet_wrap, facet_grid,
+    ggplot, aes, geom_col, geom_errorbar, geom_density, geom_boxplot, facet_wrap, facet_grid,
     scale_fill_manual, scale_color_manual, theme_minimal, theme_bw, theme, element_text,
     element_blank, labs, position_dodge, coord_flip, ggsave, scale_y_continuous
 )
@@ -282,7 +282,7 @@ pos['median_diff'] = pos['median_HMC'] - pos['median_ADVI']
 pos['abs_median_diff'] = pos['median_diff'].abs()
 
 # Save comparison
-tmp = os.path.join(dir_out_ol, "endpoints_comparison_hmc_vs_advi.csv")
+tmp = os.path.join(dir_out_ol, "comparison_endpoints_hmc_vs_advi.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved comparison to: {tmp}")
 
@@ -336,7 +336,7 @@ p_diff = (
 )
 
 # Save plot
-tmp = os.path.join(dir_out_ol, 'effect_size_difference_comparison.pdf')
+tmp = os.path.join(dir_out_ol, 'comparison_effect_size_difference.pdf')
 ggsave(p_diff, filename=tmp, width=14, height=18)
 print(f"Saved plot to: {tmp}")
 
@@ -383,7 +383,7 @@ p_ratio = (
     )
 )
 
-tmp = os.path.join(dir_out_ol, 'effect_size_ratio_comparison.pdf')
+tmp = os.path.join(dir_out_ol, 'comparison_effect_size_ratio.pdf')
 ggsave(p_ratio, filename=tmp, width=14, height=18)
 print(f"Saved plot to: {tmp}")
 
@@ -423,7 +423,7 @@ print(f"\nTop 10 items with largest median probability differences (HMC vs ADVI)
 print(pos.head(10)[['item_label', 'time_label', 'y', 'HMC', 'ADVI', 'median_diff']])
     
 # Save combined results
-tmp = os.path.join(dir_out_ol, "ordered_prob_comparison_hmc_vs_advi.csv")
+tmp = os.path.join(dir_out_ol, "comparison_ordered_prob_hmc_vs_advi.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved ordered_prob comparison to: {tmp}")
 
@@ -497,7 +497,7 @@ p = (
     + labs(x='', y='probability', fill='Method')
 )
 
-tmp = os.path.join(dir_out_ol, "ordered_prob_comparison_by_item.pdf")
+tmp = os.path.join(dir_out_ol, "comparison_ordered_prob_by_item.pdf")
 print(f"Printed combined plot: {tmp}")
 p.save(tmp, width=14, height=max(8, 2.5 * pos_plot['item_label_long'].nunique()), units='in', limitsize=False)
 
@@ -505,7 +505,7 @@ p.save(tmp, width=14, height=max(8, 2.5 * pos_plot['item_label_long'].nunique())
 # %%
 
 # =============================================================================
-# Compare Model Parameters (using efficient xarray slicing)
+# Compare Model Parameters 
 # =============================================================================
 
 print("\n" + "="*70)
@@ -513,133 +513,100 @@ print("COMPARING MODEL PARAMETERS")
 print("="*70)
 
 # Define parameter groups to extract
-param_patterns = {
-    'latent_factor_unit': 'latent_factor_unit',
-    'skill_thresholds_1': 'skill_thresholds_1',
-    'skill_thresholds_incs': 'skill_thresholds_incs',
-    'loadings_questions_m1': 'loadings_questions_m1'
-}
+model_pars = [
+    'latent_factor_unit',
+    'skill_thresholds_1',
+    'skill_thresholds_incs',
+    'loadings_questions_m1',
+]
 
-print("\nParameter counts:")
-param_groups = {}
-for group, pattern in param_patterns.items():
-    vars_in_group = [v for v in idata_hmc.posterior.data_vars if v.startswith(pattern)]
-    param_groups[group] = vars_in_group
-    print(f"  {group}: {len(vars_in_group)}")
+# Use posterior draws from fit results
+po_hmc = result_hmc['draws'].posterior
+po_advi = result_advi['draws'].posterior
 
-# Compute quantiles for all model parameters
-all_model_params = []
-for params in param_groups.values():
-    all_model_params.extend(params)
+# compute quantiles
+q_levels = np.array([0.025, 0.25, 0.5, 0.75, 0.975], dtype=float)
+q_hmc = np.quantile(np.concatenate([po_hmc[p].values for p in model_pars], axis=2), 
+                    q_levels, 
+                    axis=(0, 1)
+                    )
+q_advi = np.quantile(np.concatenate([po_advi[p].values for p in model_pars], axis=2), 
+                     q_levels, 
+                     axis=(0, 1)
+                     )
 
-if len(all_model_params) > 0:
-    print(f"\nComputing quantiles for {len(all_model_params)} model parameters...")
+# make data frame
+tmp = [
+    f"{p}[{i+1}]"
+    for p in model_pars
+    for i in range(po_hmc[p].shape[2])
+]
+pos = pd.DataFrame({
+    'model_par': tmp,
+    'q_lower_hmc': q_hmc[0],
+    'iqr_lower_hmc': q_hmc[1],
+    'median_hmc': q_hmc[2],
+    'iqr_upper_hmc': q_hmc[3],
+    'q_upper_hmc': q_hmc[4],
+    'q_lower_advi': q_advi[0],
+    'iqr_lower_advi': q_advi[1],
+    'median_advi': q_advi[2],
+    'iqr_upper_advi': q_advi[3],
+    'q_upper_advi': q_advi[4],
+    })
+pos['abs_median_diff'] = abs(pos['median_hmc'] - pos['median_advi'])
+pos = pos.sort_values('abs_median_diff', ascending=True)
+
+tmp = os.path.join(dir_out_ol, "comparison_model_params_hmc_vs_advi.csv")
+print(f"\nSaved model params comparison to: {tmp}")
+pos.to_csv(tmp, index=False)
     
-    # Select parameters and compute quantiles
-    model_hmc = idata_hmc.posterior[all_model_params]
-    model_advi = idata_advi.posterior[all_model_params]
-    
-    model_hmc_q = model_hmc.quantile(quantiles, dim=['chain', 'draw'])
-    model_advi_q = model_advi.quantile(quantiles, dim=['chain', 'draw'])
-    
-    # Convert to DataFrame
-    results = []
-    for var in all_model_params:
-        results.append({
-            'parameter': var,
-            'median_hmc': float(model_hmc_q[var].sel(quantile=0.5).values),
-            'median_advi': float(model_advi_q[var].sel(quantile=0.5).values),
-            'q_05_hmc': float(model_hmc_q[var].sel(quantile=0.05).values),
-            'q_05_advi': float(model_advi_q[var].sel(quantile=0.05).values),
-            'q_25_hmc': float(model_hmc_q[var].sel(quantile=0.25).values),
-            'q_25_advi': float(model_advi_q[var].sel(quantile=0.25).values),
-            'q_75_hmc': float(model_hmc_q[var].sel(quantile=0.75).values),
-            'q_75_advi': float(model_advi_q[var].sel(quantile=0.75).values),
-            'q_975_hmc': float(model_hmc_q[var].sel(quantile=0.975).values),
-            'q_975_advi': float(model_advi_q[var].sel(quantile=0.975).values),
-        })
-    
-    model_params_combined = pd.DataFrame(results)
-    model_params_combined['median_diff'] = model_params_combined['median_hmc'] - model_params_combined['median_advi']
-    model_params_combined['abs_median_diff'] = model_params_combined['median_diff'].abs()
-    
-    # Add parameter group
-    model_params_combined['param_group'] = ''
-    for group, params in param_groups.items():
-        model_params_combined.loc[model_params_combined['parameter'].isin(params), 'param_group'] = group
-    
-    # Sort by group and absolute difference
-    model_params_combined = model_params_combined.sort_values(['param_group', 'abs_median_diff'], ascending=[True, False])
-    
-    print("\nTop 5 parameters per group with largest median differences:")
-    for group in param_groups.keys():
-        if len(param_groups[group]) > 0:
-            group_data = model_params_combined[model_params_combined['param_group'] == group]
-            print(f"\n{group}:")
-            print(group_data.head(5)[['parameter', 'median_hmc', 'median_advi', 'median_diff']])
-    
-    # Save results
-    model_params_file = os.path.join(dir_out_ol, "model_params_comparison_hmc_vs_advi.csv")
-    model_params_combined.to_csv(model_params_file, index=False)
-    print(f"\nSaved model params comparison to: {model_params_file}")
-    
-    # Create density plot for top parameters from each group (sample efficiently)
-    print("\nCreating model parameter density plots...")
-    top_per_group = 8
-    top_params = []
-    for group in param_groups.keys():
-        if len(param_groups[group]) > 0:
-            group_data = model_params_combined[model_params_combined['param_group'] == group]
-            top_params.extend(group_data.head(top_per_group)['parameter'].tolist())
-    
-    if len(top_params) > 0:
-        # Sample draws for plotting (convert to DataFrame only for selected params)
-        plot_data_model = []
-        for param in top_params:
-            # Stack chains and draws, then convert to numpy
-            hmc_vals = idata_hmc.posterior[param].stack(sample=('chain', 'draw')).values
-            advi_vals = idata_advi.posterior[param].stack(sample=('chain', 'draw')).values
-            plot_data_model.extend([
-                {'parameter': param, 'value': v, 'method': 'HMC'} for v in hmc_vals
-            ])
-            plot_data_model.extend([
-                {'parameter': param, 'value': v, 'method': 'ADVI'} for v in advi_vals
-            ])
-        
-        plot_data_model = pd.DataFrame(plot_data_model)
-        
-        # Add parameter group
-        plot_data_model['param_group'] = ''
-        for group, params in param_groups.items():
-            plot_data_model.loc[plot_data_model['parameter'].isin(params), 'param_group'] = group
-        
-        p_model = (
-            ggplot(plot_data_model, aes(x='value', color='method')) +
-            geom_density(size=1.0, alpha=0.8) +
-            facet_wrap('~parameter', scales='free', ncol=4) +
-            scale_color_manual(values={'HMC': '#008080', 'ADVI': '#CA562C'}) +
-            theme_bw() +
-            theme(
-                legend_position='top',
-                strip_text=element_text(size=7),
-                axis_text=element_text(size=6),
-                axis_title=element_text(size=9),
-                figure_size=(16, 12)
-            ) +
-            labs(
-                title='Comparison of Posterior Densities: Model Parameters',
-                subtitle=f'Top {top_per_group} parameters per group ordered by largest difference',
-                x='Parameter value',
-                y='Density',
-                color='Method'
-            )
-        )
-        
-        model_plot_file = os.path.join(dir_out_ol, 'model_params_comparison_densities.pdf')
-        ggsave(p_model, filename=model_plot_file, width=16, height=12)
-        print(f"Saved model parameter density plot to: {model_plot_file}")
-else:
-    print("No model parameters found")
+# =============================================================================
+# Plot Comparisong of Model Parameters for top 8 worst parameters
+# =============================================================================
+
+print("\nCreating model parameter boxplots for worst 8 parameters...")
+pos = pos.tail(8)
+pos = pd.wide_to_long(
+    pos.drop('abs_median_diff', axis=1),
+    stubnames=['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper'],
+    i='model_par',
+    j='method',
+    sep='_',
+    suffix='(hmc|advi)'
+).reset_index()
+pos['method'] = pos['method'].str.upper()
+
+p = (
+    ggplot(
+        pos,
+        aes(x='model_par', fill='method',
+            ymin='q_lower', lower='iqr_lower',
+            middle='median', upper='iqr_upper',
+            ymax='q_upper'
+        ),
+    )
+    + geom_boxplot(stat='identity', position=position_dodge(width=0.8), width=0.7)
+    + scale_fill_futurama()
+    + coord_flip()
+    + theme_bw()
+    + theme(
+        legend_position='top',
+        axis_text_y=element_text(size=7),
+        axis_text_x=element_text(size=8),
+        axis_title=element_text(size=9),
+        figure_size=(12, 8),
+    )
+    + labs(        
+        x='Worst 8 model parameters',
+        y='Posterior quantiles',
+        fill='Method',
+    )
+)
+
+tmp = os.path.join(dir_out_ol, 'comparison_model_params_boxplots.pdf')
+ggsave(p, filename=tmp, width=12, height=6)
+print(f"Saved model parameter boxplot to: {tmp}")
 
 # %%
 
@@ -651,177 +618,84 @@ print("\n" + "="*70)
 print("COMPARING YPRED (POSTERIOR PREDICTIONS)")
 print("="*70)
 
-# Extract ypred parameters
-ypred_vars = [v for v in idata_hmc.posterior.data_vars if v.startswith('ypred')]
-print(f"Found {len(ypred_vars)} ypred parameters")
+print("Computing quantiles for ypred parameters...")
+    
+# Use posterior draws from fit results
+po_hmc = result_hmc['draws'].posterior['ypred']
+po_advi = result_advi['draws'].posterior['ypred']
 
-if len(ypred_vars) > 0:
-    print("Computing quantiles for ypred parameters...")
+# Compute quantiles 
+q_levels = np.array([0.025, 0.25, 0.5, 0.75, 0.975], dtype=float)
+q_hmc = np.quantile(po_hmc, q_levels, axis=(0, 1))
+q_advi = np.quantile(po_advi, q_levels, axis=(0, 1))
     
-    # Select ypred parameters
-    ypred_hmc = idata_hmc.posterior[ypred_vars]
-    ypred_advi = idata_advi.posterior[ypred_vars]
+# make data frame
+tmp = [ f"{'ypred'}[{i+1}]" for i in range(po_hmc.shape[2]) ]
+pos = pd.DataFrame({
+    'parameter': tmp,
+    'q_lower_hmc': q_hmc[0],
+    'iqr_lower_hmc': q_hmc[1],
+    'median_hmc': q_hmc[2],
+    'iqr_upper_hmc': q_hmc[3],
+    'q_upper_hmc': q_hmc[4],
+    'q_lower_advi': q_advi[0],
+    'iqr_lower_advi': q_advi[1],
+    'median_advi': q_advi[2],
+    'iqr_upper_advi': q_advi[3],
+    'q_upper_advi': q_advi[4],
+})
+pos['abs_median_diff'] = abs(pos['median_hmc'] - pos['median_advi'])
+pos = pos.sort_values('abs_median_diff', ascending=False)
     
-    # Compute mean, median, and quantiles
-    ypred_hmc_mean = ypred_hmc.mean(dim=['chain', 'draw'])
-    ypred_advi_mean = ypred_advi.mean(dim=['chain', 'draw'])
+# Save comparison
+tmp = os.path.join(dir_out_ol, "comparison_ypred_hmc_vs_advi.csv")
+pos.to_csv(tmp, index=False)
+print(f"Saved ypred comparison to: {tmp}")    
     
-    ypred_hmc_q = ypred_hmc.quantile([0.25, 0.5, 0.75], dim=['chain', 'draw'])
-    ypred_advi_q = ypred_advi.quantile([0.25, 0.5, 0.75], dim=['chain', 'draw'])
+# =============================================================================
+# Plot Comparison of ypred for top 8 worst y predictions
+# =============================================================================
+
+print("\nCreating ypred comparison plot...")
+
+pos = pos.head(8)
+pos = pd.wide_to_long(
+    pos.drop('abs_median_diff', axis=1),
+    stubnames=['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper'],
+    i='parameter',
+    j='method',
+    sep='_',
+    suffix='(hmc|advi)'
+).reset_index()
+pos['method'] = pos['method'].str.upper()
     
-    # Convert to DataFrame
-    results = []
-    for var in ypred_vars:
-        results.append({
-            'parameter': var,
-            'mean_hmc': float(ypred_hmc_mean[var].values),
-            'mean_advi': float(ypred_advi_mean[var].values),
-            'median_hmc': float(ypred_hmc_q[var].sel(quantile=0.5).values),
-            'median_advi': float(ypred_advi_q[var].sel(quantile=0.5).values),
-            'q25_hmc': float(ypred_hmc_q[var].sel(quantile=0.25).values),
-            'q25_advi': float(ypred_advi_q[var].sel(quantile=0.25).values),
-            'q75_hmc': float(ypred_hmc_q[var].sel(quantile=0.75).values),
-            'q75_advi': float(ypred_advi_q[var].sel(quantile=0.75).values),
-        })
-    
-    ypred_combined = pd.DataFrame(results)
-    ypred_combined['median_diff'] = ypred_combined['median_hmc'] - ypred_combined['median_advi']
-    ypred_combined['mean_diff'] = ypred_combined['mean_hmc'] - ypred_combined['mean_advi']
-    ypred_combined['abs_median_diff'] = ypred_combined['median_diff'].abs()
-    ypred_combined = ypred_combined.sort_values('abs_median_diff', ascending=False)
-    
-    print(f"\nTop 10 ypred with largest median differences:")
-    print(ypred_combined.head(10)[['parameter', 'median_hmc', 'median_advi', 'median_diff', 'mean_hmc', 'mean_advi']])
-    
-    # Find disagreements (different rounded medians)
-    disagreements = ypred_combined[ypred_combined['median_hmc'].round() != ypred_combined['median_advi'].round()]
-    print(f"\nYpred parameters with different rounded medians: {len(disagreements)} out of {len(ypred_combined)}")
-    print(f"Disagreement rate: {100 * len(disagreements) / len(ypred_combined):.2f}%")
-    
-    # Create bar plot for top 30 ypred
-    print("\nCreating ypred comparison plot...")
-    top_n_ypred = 30
-    top_ypred = ypred_combined.head(top_n_ypred)
-    
-    plot_data_ypred = pd.concat([
-        pd.DataFrame({
-            'parameter': top_ypred['parameter'],
-            'method': 'HMC',
-            'mean': top_ypred['mean_hmc'],
-            'q25': top_ypred['q25_hmc'],
-            'q75': top_ypred['q75_hmc']
-        }),
-        pd.DataFrame({
-            'parameter': top_ypred['parameter'],
-            'method': 'ADVI',
-            'mean': top_ypred['mean_advi'],
-            'q25': top_ypred['q25_advi'],
-            'q75': top_ypred['q75_advi']
-        })
-    ])
-    
-    # Reverse order for better visualization
-    plot_data_ypred['parameter'] = pd.Categorical(
-        plot_data_ypred['parameter'],
-        categories=top_ypred['parameter'].tolist()[::-1],
-        ordered=True
+p = (
+    ggplot(
+        pos,
+        aes(x='parameter', fill='method',
+            ymin='q_lower', lower='iqr_lower',
+            middle='median', upper='iqr_upper',
+            ymax='q_upper'
+        ),
     )
-    
-    p_ypred = (
-        ggplot(plot_data_ypred, aes(x='parameter', y='mean', fill='method')) +
-        geom_col(position=position_dodge(width=0.9), alpha=0.7, width=0.8) +
-        geom_errorbar(
-            aes(ymin='q25', ymax='q75'),
-            position=position_dodge(width=0.9),
-            width=0.3
-        ) +
-        scale_fill_manual(values={'HMC': '#008080', 'ADVI': '#CA562C'}) +
-        coord_flip() +
-        theme_bw() +
-        theme(
-            legend_position='top',
-            axis_text_y=element_text(size=6),
-            axis_text_x=element_text(size=8),
-            axis_title=element_text(size=10),
-            figure_size=(14, 10)
-        ) +
-        labs(
-            title='Comparison of Posterior Means: ypred',
-            subtitle=f'Top {top_n_ypred} parameters ordered by largest median difference\nError bars show 25%-75% quantiles',
-            x='Parameter',
-            y='Posterior Mean',
-            fill='Method'
+    + geom_boxplot(stat='identity', position=position_dodge(width=0.8), width=0.7)
+    + scale_fill_futurama()
+    + coord_flip()
+    + theme_bw()
+    + theme(
+        legend_position='top',
+        axis_text_y=element_text(size=6),
+        axis_text_x=element_text(size=8),
+        axis_title=element_text(size=9),
+        figure_size=(12, 6)
         )
+    + labs(            
+        x='Worst 8 y predictions',
+        y='Posterior quantiles',
+        fill='Method'
     )
+)
     
-    ypred_plot_file = os.path.join(dir_out_ol, 'ypred_comparison_geom_col.pdf')
-    ggsave(p_ypred, filename=ypred_plot_file, width=14, height=10)
-    print(f"Saved ypred comparison plot to: {ypred_plot_file}")
-else:
-    print("No ypred parameters found")
-
-# %%
-
-# =============================================================================
-# Summary
-# =============================================================================
-
-print("\n" + "="*70)
-print("=== SUMMARY OF HMC VS ADVI COMPARISON ===")
-print("="*70)
-
-if len(prob_vars) > 0:
-    print("\n1. ordered_prob_by_cat_qu_fit:")
-    print(f"   - Total parameters: {len(probs_combined)}")
-    print(f"   - Max absolute median difference: {probs_combined['abs_median_diff'].max():.6f}")
-    print(f"   - Mean absolute median difference: {probs_combined['abs_median_diff'].mean():.6f}")
-    print(f"   - Results saved to: ordered_prob_comparison_hmc_vs_advi.csv")
-
-if len(all_model_params) > 0:
-    print("\n2. Model parameters:")
-    for group in param_groups.keys():
-        if len(param_groups[group]) > 0:
-            group_data = model_params_combined[model_params_combined['param_group'] == group]
-            print(f"   {group}:")
-            print(f"     - Parameters: {len(group_data)}")
-            print(f"     - Max abs diff: {group_data['abs_median_diff'].max():.6f}")
-            print(f"     - Mean abs diff: {group_data['abs_median_diff'].mean():.6f}")
-    print(f"   - Results saved to: model_params_comparison_hmc_vs_advi.csv")
-
-if len(ypred_vars) > 0:
-    print("\n3. ypred:")
-    print(f"   - Total parameters: {len(ypred_combined)}")
-    print(f"   - Disagreements (different rounded medians): {len(disagreements)}")
-    print(f"   - Disagreement rate: {100 * len(disagreements) / len(ypred_combined):.2f}%")
-    print(f"   - Max absolute median difference: {ypred_combined['median_diff'].abs().max():.4f}")
-
-
-
-# %%
-
-# =============================================================================
-# Generate Endpoint Comparison Plots
-# =============================================================================
-
-print("\n[2/2] Generating endpoint comparison bar plots...")
-try:
-    result = subprocess.run(
-        [sys.executable, str(project_root / 'scripts-py' / 'Colombia_endpoints_plots.py')],
-        capture_output=True,
-        text=True,
-        timeout=120
-    )
-    if result.returncode == 0:
-        print("  ✓ Endpoint comparison plots generated successfully")
-    else:
-        print(f"  ⚠ Warning: Endpoint plots failed with code {result.returncode}")
-        if result.stderr:
-            print(f"    {result.stderr[:500]}")
-except Exception as e:
-    print(f"  ⚠ Warning: Could not generate endpoint plots: {e}")
-
-print("\n" + "="*70)
-print("ANALYSIS COMPLETE")
-print("="*70)
-print(f"\n✓ All outputs saved to: {dir_out_ol}")
-print("\n✨ Done!")
+tmp = os.path.join(dir_out_ol, 'comparison_ypred_boxplots.pdf')
+ggsave(p, filename=tmp, width=12, height=6)
+print(f"Saved ypred comparison plot to: {tmp}")
