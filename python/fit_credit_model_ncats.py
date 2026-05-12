@@ -1,7 +1,7 @@
 """
 Model fitting functions for Bayesian IRT analysis.
 
-This module provides functions for fitting partial credit models
+This module provides functions for fitting credit models
 using Stan HMC via cmdstanpy.
 """
 
@@ -24,9 +24,9 @@ from cmdstanpy import CmdStanModel
 from plotnine import *
 from plotnine import options as p9_options
 
-from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _plot_worst_chain_traces, _fit_partial_credit_make_stan_data
+from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _plot_worst_chain_traces, _fit_credit_make_stan_data
 
-def fit_partial_credit_model_ncats(
+def fit_credit_model_ncats(
     dit: pd.DataFrame,
     dcati: pd.DataFrame,
     output_file_prefix: str,
@@ -46,9 +46,9 @@ def fit_partial_credit_model_ncats(
     with_additional_analyses: bool = False,
 ) -> Dict:
     """
-    Run partial credit model analysis (ncats version) on pre-processed data using HMC.
+    Run credit model analysis (ncats version) on pre-processed data using HMC.
     
-    This function performs Bayesian IRT analysis using the flexible ncats partial credit model
+    This function performs Bayesian IRT analysis using the flexible ncats credit model
     on pre-processed data. It compiles the Stan model, runs MCMC sampling, generates convergence
     diagnostics, and optionally creates detailed diagnostic plots.
     
@@ -62,7 +62,7 @@ def fit_partial_credit_model_ncats(
     output_file_prefix : str
         Full path prefix for output files (without extension).
     stan_file : str, optional
-        Path to Stan model file (.stan). If None, uses default partial_credit_model_ncats_v260413.stan
+        Path to Stan model file (.stan). If None, uses default credit_model_ncats_v260413.stan
     x_formula : str, default "~ time - 1"
         Patsy formula string specifying predictors for the design matrix.
     x_formula_ignore_regex : str, optional
@@ -103,11 +103,11 @@ def fit_partial_credit_model_ncats(
     # Set default stan_file if not provided  
     if stan_file is None:
         # Assume we're running from the bIRTistic root directory
-        stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "partial_credit_model_ncats_v260413.stan")
+        stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "credit_model_ncats_v260413.stan")
     
     # Print configuration
     print("\n" + "=" * 40)
-    print("Partial Credit Model (ncats) Analysis Configuration")
+    print("Credit Model (ncats) Analysis Configuration")
     print("=" * 40)
     print(f"Stan file: {stan_file}")
     print(f"Stan include dir: {os.path.dirname(stan_file)}")
@@ -151,7 +151,7 @@ def fit_partial_credit_model_ncats(
     
     # Prepare data in ncats format (using helper function)
     print("Preparing Stan data in ncats format...")
-    stan_data = _fit_partial_credit_make_stan_data(
+    stan_data = _fit_credit_make_stan_data(
         dit=dit,
         dcati=dcati,
         x_formula=x_formula,

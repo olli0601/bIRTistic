@@ -123,6 +123,176 @@ def _fit_ordered_logit_make_stan_data(
     return stan_data
 
 
+def _fit_partial_credit_make_stan_data(
+    dit: pd.DataFrame,
+    dcati: pd.DataFrame,
+    x_formula: str,
+    x_formula_ignore_regex: str | None = None,
+) -> dict:
+    """
+    Build stan_data and design-matrix metadata for partial credit ncats models.
+
+    Parameters
+    ----------
+    dit : pd.DataFrame
+        Item metadata table with item types and labels.
+    dcati : pd.DataFrame
+        Pre-processed data frame used for fitting.
+    x_formula : str
+        Patsy formula string specifying predictors for the design matrix.
+    x_formula_ignore_regex : str | None, optional
+        Regex pattern for columns to exclude from predictive probabilities.
+
+    Returns
+    -------
+    dict
+        Stan input dictionary for partial credit ncats models.
+    """
+    import re
+    import patsy
+
+    # Ensure dcati is sorted by item_type_id and oidt.
+    dcati_sorted = dcati.sort_values(['item_type_id', 'oidt']).reset_index(drop=True)
+
+    # Verify oid is sequential.
+    assert (dcati_sorted['oid'] == dcati_sorted.index + 1).all(), \
+        "oid must be sequential 1:N after sorting by item_type_id, oidt"
+
+    stan_data = {}
+    stan_data['C'] = int(dcati_sorted['item_type_id'].max())
+    stan_data['U'] = int(dcati_sorted['pid'].max())
+
+    category_stats = dcati.groupby('item_type_id').agg({
+        'oid': 'count',
+        'item_time_id': 'max',
+        'y_stan': lambda x: len(x.unique()),
+    }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
+
+    stan_data['N'] = category_stats['N'].astype(int).tolist()
+    stan_data['Q'] = category_stats['Q'].astype(int).tolist()
+    stan_data['K'] = category_stats['K'].astype(int).tolist()
+
+    stan_data['N_total'] = int(sum(stan_data['N']))
+    stan_data['Q_total'] = int(sum(stan_data['Q']))
+
+    stan_data['y'] = dcati['y_stan'].astype(int).tolist()
+    stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
+    stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
+    stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
+
+    design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')
+
+    if x_formula_ignore_regex is not None:
+        xpr_id = [
+            i + 1
+            for i, col in enumerate(design_matrix.columns)
+            if not re.search(x_formula_ignore_regex, col)
+        ]
+    else:
+        xpr_id = list(range(1, len(design_matrix.columns) + 1))
+
+    stan_data['X'] = design_matrix.values.tolist()
+    stan_data['Xpr_id'] = xpr_id
+    stan_data['P'] = len(design_matrix.columns)
+    stan_data['P_pr'] = len(xpr_id)
+
+    print(f"Design matrix number of predictors: P = {stan_data['P']}")
+    print(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
+    print(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
+    print(f"Number of category types: C = {stan_data['C']}")
+    print(f"Category type labels: {', '.join(dit['item_type'].unique())}")
+    print(f"N per category: {', '.join(map(str, stan_data['N']))}")
+    print(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
+    print(f"K per category: {', '.join(map(str, stan_data['K']))}")
+
+    return stan_data
+
+
+def _fit_credit_make_stan_data(
+    dit: pd.DataFrame,
+    dcati: pd.DataFrame,
+    x_formula: str,
+    x_formula_ignore_regex: str | None = None,
+) -> dict:
+    """
+    Build stan_data and design-matrix metadata for credit model ncats models.
+
+    Parameters
+    ----------
+    dit : pd.DataFrame
+        Item metadata table with item types and labels.
+    dcati : pd.DataFrame
+        Pre-processed data frame used for fitting.
+    x_formula : str
+        Patsy formula string specifying predictors for the design matrix.
+    x_formula_ignore_regex : str | None, optional
+        Regex pattern for columns to exclude from predictive probabilities.
+
+    Returns
+    -------
+    dict
+        Stan input dictionary for credit model ncats models.
+    """
+    import re
+    import patsy
+
+    # Ensure dcati is sorted by item_type_id and oidt.
+    dcati_sorted = dcati.sort_values(['item_type_id', 'oidt']).reset_index(drop=True)
+
+    # Verify oid is sequential.
+    assert (dcati_sorted['oid'] == dcati_sorted.index + 1).all(), \
+        "oid must be sequential 1:N after sorting by item_type_id, oidt"
+
+    stan_data = {}
+    stan_data['C'] = int(dcati_sorted['item_type_id'].max())
+    stan_data['U'] = int(dcati_sorted['pid'].max())
+
+    category_stats = dcati.groupby('item_type_id').agg({
+        'oid': 'count',
+        'item_time_id': 'max',
+        'y_stan': lambda x: len(x.unique()),
+    }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
+
+    stan_data['N'] = category_stats['N'].astype(int).tolist()
+    stan_data['Q'] = category_stats['Q'].astype(int).tolist()
+    stan_data['K'] = category_stats['K'].astype(int).tolist()
+
+    stan_data['N_total'] = int(sum(stan_data['N']))
+    stan_data['Q_total'] = int(sum(stan_data['Q']))
+
+    stan_data['y'] = dcati['y_stan'].astype(int).tolist()
+    stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
+    stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
+    stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
+
+    design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')
+
+    if x_formula_ignore_regex is not None:
+        xpr_id = [
+            i + 1
+            for i, col in enumerate(design_matrix.columns)
+            if not re.search(x_formula_ignore_regex, col)
+        ]
+    else:
+        xpr_id = list(range(1, len(design_matrix.columns) + 1))
+
+    stan_data['X'] = design_matrix.values.tolist()
+    stan_data['Xpr_id'] = xpr_id
+    stan_data['P'] = len(design_matrix.columns)
+    stan_data['P_pr'] = len(xpr_id)
+
+    print(f"Design matrix number of predictors: P = {stan_data['P']}")
+    print(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
+    print(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
+    print(f"Number of category types: C = {stan_data['C']}")
+    print(f"Category type labels: {', '.join(dit['item_type'].unique())}")
+    print(f"N per category: {', '.join(map(str, stan_data['N']))}")
+    print(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
+    print(f"K per category: {', '.join(map(str, stan_data['K']))}")
+
+    return stan_data
+
+
 def _make_idata_from_advi_fit(fit) -> object:
     """
     Build an ArviZ InferenceData object from a CmdStan ADVI fit.
