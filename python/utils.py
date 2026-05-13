@@ -313,7 +313,24 @@ def _make_idata_from_advi_fit(fit) -> object:
     import pandas as pd
     import arviz as az
 
-    draws_df = fit.draws_pd()
+    # CmdStanVB API differs across cmdstanpy versions.
+    if hasattr(fit, "draws_pd"):
+        draws_df = fit.draws_pd()
+    elif hasattr(fit, "variational_sample_pd"):
+        draws_df = fit.variational_sample_pd
+        if callable(draws_df):
+            draws_df = draws_df()
+    elif hasattr(fit, "variational_sample") and hasattr(fit, "column_names"):
+        draws_df = pd.DataFrame(fit.variational_sample, columns=list(fit.column_names))
+    else:
+        raise AttributeError(
+            "Cannot extract ADVI draws from CmdStanVB fit: expected one of "
+            "draws_pd, variational_sample_pd, or variational_sample+column_names."
+        )
+
+    if not isinstance(draws_df, pd.DataFrame):
+        draws_df = pd.DataFrame(draws_df)
+
     draws_df = draws_df.drop(columns=["chain__", "iter__", "draw__"], errors="ignore")
 
     n_draws = len(draws_df)

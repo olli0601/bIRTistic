@@ -66,6 +66,7 @@ warnings.filterwarnings('ignore')
 from data_loading import read_data_colombia
 from fit_partial_credit_model_ncats_advi import fit_partial_credit_model_ncats_advi
 from fit_partial_credit_model_ncats import fit_partial_credit_model_ncats
+from fit_partial_credit_model_ncats_svi import fit_partial_credit_model_ncats_svi
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -86,7 +87,7 @@ dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_
 file_data = os.path.join(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
 
 # Output directories
-dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-colombia-partial_credit-260430-vanilla-advi-vs-hmc"
+dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-colombia-partial_credit-260430-vanilla-advi-hmc-pyro"
 dir_logs_pcm = os.path.join(dir_out_pcm, "logs")
 
 # Create output directories
@@ -96,6 +97,8 @@ os.makedirs(dir_logs_pcm, exist_ok=True)
 output_file_prefix = os.path.join(dir_out_pcm, "pcm_1")
 output_file_prefix_hmc = os.path.join(dir_out_pcm, "pcm_1_hmc")
 output_file_prefix_advi = os.path.join(dir_out_pcm, "pcm_1_advi")
+svi_algorithm_autodiagnormal = "AutoDiagonalNormal"
+output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autodiagnormal")
 
 print(f"Data file: {file_data}")
 print(f"Output directory: {dir_out_pcm}")
@@ -221,6 +224,33 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # %%
 
 # =============================================================================
+# Model Fitting - SVI AutoDiagonalNormal
+# =============================================================================
+
+result_svi_autodiagnormal = fit_partial_credit_model_ncats_svi(
+    dit_col,
+    dp1_col,
+    output_file_prefix=output_file_svi_autodiagnormal,
+    algorithm=svi_algorithm_autodiagnormal,
+    lr=0.01,
+    num_steps=10000,
+    output_samples=4000,
+    seed=seed,
+    x_formula="~ time - 1",
+    resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
+)
+
+print(f"\n✓ SVI fitting complete")
+print(f"  Algorithm: {result_svi_autodiagnormal['algorithm']}")
+print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
+
+
+
+# %%
+
+# =============================================================================
 # Compare HMC vs ADVI Results - Compute Endpoints
 # =============================================================================
 
@@ -253,9 +283,22 @@ endpoints_advi = get_endpoints(
 )
 endpoints_advi['method'] = 'ADVI'
 
+# Get endpoints for SVI
+print("Computing SVI endpoints...")
+endpoints_svi_autodiagnormal = get_endpoints(
+    dp1=dp1_col,
+    dit=dit_col,
+    draws_file=f"{output_file_svi_autodiagnormal}_draws.zarr",
+    param_name="ordered_prob_by_cat_qu_pr",
+    categorical_threshold=3,
+    endpoint_type="items"
+)
+endpoints_svi_autodiagnormal['method'] = 'SVI_AutoDiagonalNormal'
+
 print(f"\n✓ Computed endpoints")
 print(f"  HMC: {len(endpoints_hmc)} rows")
 print(f"  ADVI: {len(endpoints_advi)} rows")
+print(f"  SVI (AutoDiagonalNormal): {len(endpoints_svi_autodiagnormal)} rows")
 
 # %%
 

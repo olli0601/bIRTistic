@@ -124,7 +124,7 @@ def _ordered_brier_by_question(prob_obs, y_obs, q_obs_0, Qc, Kc):
     return out
 
 
-def partial_credit_model_ncats(data):
+def partial_credit_model_ncats(data, sample_ypred=True):
     """
     NumPyro partial credit model with arbitrary category types.
 
@@ -255,8 +255,9 @@ def partial_credit_model_ncats(data):
 
         numpyro.factor(f'cat_{c + 1}_likelihood', jnp.sum(log_lik_c))
 
-    ypred_raw = numpyro.sample('ypred_raw', dist.Categorical(logits=logits_padded))
-    ypred = numpyro.deterministic('ypred', ypred_raw + 1)
+    if sample_ypred:
+        ypred_raw = numpyro.sample('ypred_raw', dist.Categorical(logits=logits_padded))
+        ypred = numpyro.deterministic('ypred', ypred_raw + 1)
 
     # Predictive quantities using Xpr only, matching Stan generated quantities behavior.
     if P_pr == P:
