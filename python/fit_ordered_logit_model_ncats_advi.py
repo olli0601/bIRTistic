@@ -16,7 +16,6 @@ import pandas as pd
 import numpy as np
 import patsy
 import ggsci
-import cowpatch as cow
 import matplotlib.colors as mcolors
 import arviz as az
 import matplotlib.pyplot as plt
@@ -245,7 +244,7 @@ def fit_ordered_logit_model_ncats_advi(
             plt.close()
     #%%    
     # 2. Posterior predictive checks
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
         print("Generating posterior predictive checks...")
         
         if 'ypred' in idata.posterior.data_vars:

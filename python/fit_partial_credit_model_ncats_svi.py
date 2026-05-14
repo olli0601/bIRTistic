@@ -37,42 +37,6 @@ from utils import (
 )
 
 
-def _ensure_numpyro_prng_compatibility() -> None:
-    """Patch NumPyro PRNG key checks for environments with older JAX dtypes API."""
-    import numpy as _np
-    import jax
-    import numpyro.util as _npu
-    import numpyro.handlers as _nph
-    import numpyro.distributions.util as _ndu
-    import numpyro.distributions.discrete as _ndd
-    import numpyro.distributions.continuous as _ndc
-    import numpyro.infer.util as _niu
-
-    def _is_prng_key_compat(key):
-        try:
-            dtype = key.dtype
-            shape = key.shape
-        except AttributeError:
-            return False
-
-        prng_key_dtype = getattr(jax.dtypes, "prng_key", None)
-        if prng_key_dtype is not None:
-            try:
-                if jax.dtypes.issubdtype(dtype, prng_key_dtype):
-                    return shape == ()
-            except TypeError:
-                pass
-
-        return shape == (2,) and dtype == _np.uint32
-
-    _npu.is_prng_key = _is_prng_key_compat
-    _nph.is_prng_key = _is_prng_key_compat
-    _ndu.is_prng_key = _is_prng_key_compat
-    _ndd.is_prng_key = _is_prng_key_compat
-    _ndc.is_prng_key = _is_prng_key_compat
-    _niu.is_prng_key = _is_prng_key_compat
-
-
 def _get_autoguide_factory(algorithm: str) -> Callable:
     """
     Get the autoguide factory for the specified algorithm.
@@ -284,8 +248,6 @@ def fit_partial_credit_model_ncats_svi(
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
 
-        _ensure_numpyro_prng_compatibility()
-
         # Import model from .pyro source file.
         print("Loading NumPyro model...")
         numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "partial_credit_model_ncats_v260413.pyro"
@@ -347,10 +309,20 @@ def fit_partial_credit_model_ncats_svi(
         # Extract posterior samples from learned guide
         print(f"Sampling {output_samples} draws from the learned approximate posterior...")
         rng_key, subkey = jax.random.split(rng_key)
-        posterior_samples = svi.get_posterior(svi_state).sample(
-            subkey,
-            sample_shape=(output_samples,),
-        )
+        params = svi.get_params(svi_state)
+        if hasattr(svi, "get_posterior"):
+            posterior_samples = svi.get_posterior(svi_state).sample(
+                subkey,
+                sample_shape=(output_samples,),
+            )
+        else:
+            posterior_samples = guide.sample_posterior(
+                subkey,
+                params,
+                stan_data,
+                sample_shape=(output_samples,),
+            )
+        posterior_samples_dict = {k: np.asarray(v) for k, v in posterior_samples.items()}
 
         print("Extracting timing information...")
         timing_data = pd.DataFrame({
@@ -415,7 +387,7 @@ def fit_partial_credit_model_ncats_svi(
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
         print("Generating posterior predictive checks...")
         if 'ypred' in idata.posterior.data_vars:
             _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")

@@ -16,7 +16,6 @@ import pandas as pd
 import numpy as np
 import patsy
 import ggsci
-import cowpatch as cow
 import matplotlib.colors as mcolors
 import arviz as az
 import matplotlib.pyplot as plt

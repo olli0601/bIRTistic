@@ -230,7 +230,7 @@ def fit_partial_credit_model_ncats_advi(
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
         print("Generating posterior predictive checks...")
         if 'ypred' in idata.posterior.data_vars:
             _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")

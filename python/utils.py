@@ -590,7 +590,10 @@ def _plot_prob_barplots(
     import numpy as np
     import pandas as pd
     import ggsci
-    import cowpatch as cow
+    try:
+        import cowpatch as cow
+    except ImportError:
+        cow = None
     import matplotlib.colors as mcolors
 
     from plotnine import (
@@ -704,6 +707,27 @@ def _plot_prob_barplots(
         subplot_heights.append(subplot_height)
 
     if not subplot_plots:
+        return
+
+    if cow is None:
+        print(
+            "cowpatch is not installed; saving separate plot files with _partN suffix instead of a combined panel."
+        )
+        for idx, p_i in enumerate(subplot_plots, start=1):
+            p_i.save(
+                f"{output_file_stem}_part{idx}.png",
+                width=subplot_widths[idx - 1],
+                height=subplot_heights[idx - 1],
+                units='in',
+                limitsize=False,
+            )
+            p_i.save(
+                f"{output_file_stem}_part{idx}.pdf",
+                width=subplot_widths[idx - 1],
+                height=subplot_heights[idx - 1],
+                units='in',
+                limitsize=False,
+            )
         return
 
     n_plots = len(subplot_plots)
