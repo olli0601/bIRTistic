@@ -1,6 +1,6 @@
-#' Run credit model analysis (ncats version) on pre-processed data
+#' Run partial credit model analysis (ncats version) on pre-processed data
 #'
-#' This function performs Bayesian IRT analysis using the flexible ncats credit model
+#' This function performs Bayesian IRT analysis using the flexible ncats partial credit model
 #' on pre-processed data. It compiles the Stan model, runs MCMC sampling, generates convergence
 #' diagnostics, and optionally creates detailed diagnostic plots and posterior predictive checks.
 #'
@@ -8,7 +8,7 @@
 #' @param dcati data.table. Pre-processed data with observations for analysis. Must include
 #'   item_type, y_stan, item_time_id, pid, and oidt columns.
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
-#' @param stan_file Character. Path to Stan model file (.stan). Default: credit_model_ncats_v260413.stan
+#' @param stan_file Character. Path to Stan model file (.stan). Default: partial_credit_model_ncats_v260413.stan
 #' @param x_formula Formula. Formula specifying predictors for the design matrix
 #' @param x_formula_ignore_regex Character. Regular expression pattern to identify X columns to exclude 
 #'   from posterior predictive probability calculations (ordered_prob_by_cat_qu_pr). Columns matching this 
@@ -32,11 +32,11 @@
 #' @import cmdstanr
 #'
 #' @export
-fit_credit_model_ncats <- function(
+fit_partial_credit_model_ncats_stanhmc <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
+  stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
   x_formula = ~ time - 1,
   x_formula_ignore_regex = NA_character_,
   chains = 2L,
@@ -67,7 +67,7 @@ fit_credit_model_ncats <- function(
 
     # Print configuration
     cat("\n========================================\n")
-    cat("Credit Model (ncats) Analysis Configuration\n")
+    cat("Partial Credit Model (ncats) Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
@@ -102,11 +102,10 @@ fit_credit_model_ncats <- function(
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    cm_compiled <- cmdstanr::cmdstan_model(
+    pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE),
-        force_recompile = TRUE
+        cpp_options = list(stan_threads = TRUE)
     )
 
     # Prepare data in ncats format
@@ -175,8 +174,8 @@ fit_credit_model_ncats <- function(
         
         cat("Loading timing data from:", timing_file, "\n")
         timing_data <- read.csv(timing_file)
-        cm_fit_good_chains <- timing_data$chain
-        cat("Identified good HMC chains:", paste(cm_fit_good_chains, collapse = ", "), "\n")
+        pcm_fit_good_chains <- timing_data$chain
+        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
         cat("========================================\n\n")
     } else {
         if (resume) {
@@ -186,7 +185,7 @@ fit_credit_model_ncats <- function(
         # Sample from the model
         cat("Running MCMC sampling...\n")
         flush.console()
-        cm_fit <- cm_compiled$sample(
+        pcm_fit <- pcm_compiled$sample(
             data = stan_data,
             seed = seed,
             chains = chains,
@@ -202,7 +201,7 @@ fit_credit_model_ncats <- function(
         
         # Remove any trajectories that did not converge
         cat("Checking for divergent transitions and removing non-converged chains...\n")
-        tmp <- as.data.table(cm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
+        tmp <- as.data.table(pcm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
         tmp <- tmp[, .(
             mean_lp = mean(lp__),
             sd_lp = sd(lp__),
@@ -210,17 +209,17 @@ fit_credit_model_ncats <- function(
         ), by = .chain]
         
         threshold <- tmp[which.max(mean_lp), mean_lp - 2 * sd_lp]
-        cm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
-        cat("Identified good HMC chains:", paste(cm_fit_good_chains, collapse = ", "), "\n")
+        pcm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
+        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
 
         # Extract chain timing information
         cat("\nExtracting timing information...\n")
-        chain_times <- cm_fit$time()
+        chain_times <- pcm_fit$time()
         timing_data <- data.table(
-            chain = cm_fit_good_chains,
-            warmup_minutes = chain_times$chains$warmup[cm_fit_good_chains] / 60,
-            sampling_minutes = chain_times$chains$sampling[cm_fit_good_chains] / 60,
-            total_chain_minutes = chain_times$chains$total[cm_fit_good_chains] / 60
+            chain = pcm_fit_good_chains,
+            warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
+            sampling_minutes = chain_times$chains$sampling[pcm_fit_good_chains] / 60,
+            total_chain_minutes = chain_times$chains$total[pcm_fit_good_chains] / 60
         )
         
         write.csv(timing_data, file = timing_file, row.names = FALSE)
@@ -228,11 +227,11 @@ fit_credit_model_ncats <- function(
 
         # Save output to RDS
         cat("Saving model fit to:", output_file, "\n")
-        cm_fit$save_object(file = output_file)
+        pcm_fit$save_object(file = output_file)
 
         # Check convergence and mixing
         cat("Generating convergence diagnostics...\n")
-        tmp <- cm_fit$summary(
+        tmp <- pcm_fit$summary(
             variables = c(
                 "latent_factor_unit", "latent_factor_beta",
                 "skill_thresholds", "loadings_questions_m1"
@@ -251,12 +250,12 @@ fit_credit_model_ncats <- function(
 
         # Make worst trace plot
         cat("Generating trace plots...\n")        
-        po <- cm_fit$draws(
+        po <- pcm_fit$draws(
             variables = c("lp__", worst_var),
             inc_warmup = TRUE,
             format = "draws_array"
         )
-        po <- po[, cm_fit_good_chains, , drop = FALSE]
+        po <- po[, pcm_fit_good_chains, , drop = FALSE]
         
         lp_range <- range(po[(iter_warmup + 1):(iter_warmup + iter_sampling), , "lp__"])
         lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
@@ -287,12 +286,12 @@ fit_credit_model_ncats <- function(
 
         # Extract and save draws
         cat("Extracting draws...\n")
-        poa <- cm_fit$draws(format = "draws_array")
-        poa <- poa[, cm_fit_good_chains, , drop = FALSE]
+        poa <- pcm_fit$draws(format = "draws_array")
+        poa <- poa[, pcm_fit_good_chains, , drop = FALSE]
         saveRDS(poa, file = draws_file)
         cat("Saved draws to:", draws_file, "\n")
 
-        cm_fit <- NULL
+        pcm_fit <- NULL
         gc()
 
     }

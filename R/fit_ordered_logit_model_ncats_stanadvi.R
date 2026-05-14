@@ -1,27 +1,25 @@
-#' Run partial credit model analysis (ncats version) on pre-processed data
+#' Run ordered logit model analysis (ncats version) using ADVI
 #'
-#' This function performs Bayesian IRT analysis using the flexible ncats partial credit model
-#' on pre-processed data. It compiles the Stan model, runs MCMC sampling, generates convergence
-#' diagnostics, and optionally creates detailed diagnostic plots and posterior predictive checks.
+#' This function performs Bayesian IRT analysis using the flexible ncats ordered logit model
+#' with ADVI (Automatic Differentiation Variational Inference) instead of HMC.
 #'
 #' @param dit data.table. Item metadata table with item types and labels
 #' @param dcati data.table. Pre-processed data with observations for analysis. Must include
 #'   item_type, y_stan, item_time_id, pid, and oidt columns.
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
-#' @param stan_file Character. Path to Stan model file (.stan). Default: partial_credit_model_ncats_v260413.stan
+#' @param stan_file Character. Path to Stan model file (.stan). Default: ordered_logit_ncats_v260413.stan
 #' @param x_formula Formula. Formula specifying predictors for the design matrix
 #' @param x_formula_ignore_regex Character. Regular expression pattern to identify X columns to exclude 
 #'   from posterior predictive probability calculations (ordered_prob_by_cat_qu_pr). Columns matching this 
 #'   pattern will be excluded. If NA (default), all X columns are used for both fitted and predictive probabilities.
-#' @param chains Integer. Number of MCMC chains to run (default: 2)
-#' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
-#' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
-#' @param iter_warmup Integer. Number of warmup iterations per chain (default: 500)
-#' @param iter_sampling Integer. Number of sampling iterations per chain (default: 1500)
+#' @param iter Integer. Number of ADVI iterations (default: 10000)
+#' @param grad_samples Integer. Number of samples for ELBO gradient estimation (default: 1)
+#' @param elbo_samples Integer. Number of samples for ELBO evaluation (default: 100)
+#' @param output_samples Integer. Number of samples to draw from the approximate posterior (default: 4000)
 #' @param seed Integer. Random seed for reproducibility (default: 123)
 #' @param show_messages Logical. If TRUE, show all Stan informational messages during sampling (default: FALSE)
 #' @param show_exceptions Logical. If TRUE, show detailed Stan exception messages when errors occur (default: FALSE)
-#' @param resume Logical. If TRUE and all output files exist, skip MCMC sampling and load existing results (default: FALSE)
+#' @param resume Logical. If TRUE and all output files exist, skip ADVI and load existing results (default: FALSE)
 #' @param with_core_analyses Logical. If TRUE, generate core probability plots (default: TRUE)
 #' @param with_additional_analyses Logical. If TRUE, generate additional diagnostic plots (default: FALSE)
 #'
@@ -32,18 +30,17 @@
 #' @import cmdstanr
 #'
 #' @export
-fit_partial_credit_model_ncats <- function(
+fit_ordered_logit_model_ncats_stanadvi <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+  stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
   x_formula = ~ time - 1,
   x_formula_ignore_regex = NA_character_,
-  chains = 2L,
-  parallel_chains = 2L,
-  threads_per_chain = 1L,
-  iter_warmup = 500L,
-  iter_sampling = 1500L,
+  iter = 10000L,
+  grad_samples = 1L,
+  elbo_samples = 100L,
+  output_samples = 4000L,
   seed = 123L,
   show_messages = FALSE,
   show_exceptions = FALSE,
@@ -56,7 +53,10 @@ fit_partial_credit_model_ncats <- function(
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- NULL
+        iqr_upper <- prob <- item_type_id <- stat <- brier_score <-
+        median_brier_score <- mean_brier_score <- q025_brier_score <-
+        q975_brier_score <- cq_id <- cat_length <- summary_value <-
+        summary_name <- NULL
 
     require(data.table)
     require(ggplot2)
@@ -67,17 +67,16 @@ fit_partial_credit_model_ncats <- function(
 
     # Print configuration
     cat("\n========================================\n")
-    cat("Partial Credit Model (ncats) Analysis Configuration\n")
+    cat("Ordered Logit Model (ncats) ADVI Analysis Configuration\n")
     cat("========================================\n")
     cat("Stan file:", stan_file, "\n")
     cat("Stan include dir:", dirname(stan_file), "\n")
     cat("Data: dit with", nrow(dit), "items, dcati with", nrow(dcati), "observations\n")
     cat("Output prefix:", output_file_prefix, "\n")
-    cat("Chains:", chains, "\n")
-    cat("Parallel chains:", parallel_chains, "\n")
-    cat("Threads per chain:", threads_per_chain, "\n")
-    cat("Warmup iterations:", iter_warmup, "\n")
-    cat("Sampling iterations:", iter_sampling, "\n")
+    cat("ADVI iterations:", iter, "\n")
+    cat("Gradient samples:", grad_samples, "\n")
+    cat("ELBO samples:", elbo_samples, "\n")
+    cat("Output samples:", output_samples, "\n")
     cat("Seed:", seed, "\n")
     cat("Resume:", resume, "\n")
     cat("Core analyses:", with_core_analyses, "\n")
@@ -91,21 +90,19 @@ fit_partial_credit_model_ncats <- function(
     timing_file <- paste0(output_file_prefix, "_timing.csv")
     draws_file <- paste0(output_file_prefix, "_draws.rds")
     output_file <- paste0(output_file_prefix, "_stan.rds")
-    mixing_file <- paste0(output_file_prefix, "_convergence_mixing.csv")
     
     # Check if we should resume from existing outputs
     can_resume <- resume && 
                   file.exists(timing_file) && 
                   file.exists(draws_file) && 
-                  file.exists(output_file) && 
-                  file.exists(mixing_file)
+                  file.exists(output_file)
 
     # Compile Stan model
     cat("Compiling Stan model...\n")
-    pcm_compiled <- cmdstanr::cmdstan_model(
+    ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
-        cpp_options = list(stan_threads = TRUE)
+        force_recompile = TRUE
     )
 
     # Prepare data in ncats format
@@ -174,52 +171,36 @@ fit_partial_credit_model_ncats <- function(
         
         cat("Loading timing data from:", timing_file, "\n")
         timing_data <- read.csv(timing_file)
-        pcm_fit_good_chains <- timing_data$chain
-        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
         cat("========================================\n\n")
     } else {
         if (resume) {
             cat("\nNote: Resume requested but not all output files exist. Running full analysis.\n\n")
         }
         
-        # Sample from the model
-        cat("Running MCMC sampling...\n")
+        # Run ADVI
+        cat("Running ADVI...\n")
         flush.console()
-        pcm_fit <- pcm_compiled$sample(
+        start_time <- Sys.time()
+        ol_fit <- ol_compiled$variational(
             data = stan_data,
             seed = seed,
-            chains = chains,
-            parallel_chains = parallel_chains,
-            threads_per_chain = threads_per_chain,
-            iter_warmup = iter_warmup,
-            iter_sampling = iter_sampling,
-            refresh = 500,
-            save_warmup = TRUE,
+            algorithm = "meanfield",
+            iter = iter,
+            grad_samples = grad_samples,
+            elbo_samples = elbo_samples,
+            output_samples = output_samples,
             show_messages = show_messages,
             show_exceptions = show_exceptions
         )
+        end_time <- Sys.time()
         
-        # Remove any trajectories that did not converge
-        cat("Checking for divergent transitions and removing non-converged chains...\n")
-        tmp <- as.data.table(pcm_fit$draws(variables = "lp__", inc_warmup = FALSE, format = "draws_df"))
-        tmp <- tmp[, .(
-            mean_lp = mean(lp__),
-            sd_lp = sd(lp__),
-            n = .N
-        ), by = .chain]
-        
-        threshold <- tmp[which.max(mean_lp), mean_lp - 2 * sd_lp]
-        pcm_fit_good_chains <- tmp[mean_lp > threshold, .chain]
-        cat("Identified good HMC chains:", paste(pcm_fit_good_chains, collapse = ", "), "\n")
-
-        # Extract chain timing information
+        # Extract timing information
         cat("\nExtracting timing information...\n")
-        chain_times <- pcm_fit$time()
+        total_minutes <- as.numeric(difftime(end_time, start_time, units = "mins"))
         timing_data <- data.table(
-            chain = pcm_fit_good_chains,
-            warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
-            sampling_minutes = chain_times$chains$sampling[pcm_fit_good_chains] / 60,
-            total_chain_minutes = chain_times$chains$total[pcm_fit_good_chains] / 60
+            method = "ADVI",
+            iterations = iter,
+            total_minutes = total_minutes
         )
         
         write.csv(timing_data, file = timing_file, row.names = FALSE)
@@ -227,74 +208,20 @@ fit_partial_credit_model_ncats <- function(
 
         # Save output to RDS
         cat("Saving model fit to:", output_file, "\n")
-        pcm_fit$save_object(file = output_file)
-
-        # Check convergence and mixing
-        cat("Generating convergence diagnostics...\n")
-        tmp <- pcm_fit$summary(
-            variables = c(
-                "latent_factor_unit", "latent_factor_beta",
-                "skill_thresholds", "loadings_questions_m1"
-            )
-        )
-        tmp <- as.data.table(tmp)
-        tmp <- tmp[order(ess_bulk), ]
-        write.csv(
-            tmp,
-            file = mixing_file,
-            row.names = FALSE
-        )
-
-        # Worst parameters with lowest ess_bulk
-        worst_var <- tmp$variable[1:9]
-
-        # Make worst trace plot
-        cat("Generating trace plots...\n")        
-        po <- pcm_fit$draws(
-            variables = c("lp__", worst_var),
-            inc_warmup = TRUE,
-            format = "draws_array"
-        )
-        po <- po[, pcm_fit_good_chains, , drop = FALSE]
-        
-        lp_range <- range(po[(iter_warmup + 1):(iter_warmup + iter_sampling), , "lp__"])
-        lp_ylim <- c(lp_range[1] - 0.05 * diff(lp_range), 
-                     lp_range[2] + 0.05 * diff(lp_range))
-        
-        p_lp <- bayesplot:::mcmc_trace(po[,, "lp__", drop = FALSE],
-            pars = "lp__",
-            n_warmup = iter_warmup
-        ) + 
-        coord_cartesian(ylim = lp_ylim) +
-        theme_bw()
-        
-        p_other <- bayesplot:::mcmc_trace(po[,, worst_var, drop = FALSE],
-            pars = worst_var,
-            n_warmup = iter_warmup,
-            facet_args = list(ncol = 2)
-        ) + 
-        theme_bw()
-        
-        p <- patchwork::wrap_plots(p_lp, p_other, ncol = 1, heights = c(1, 4))
-        
-        ggsave(
-            file = paste0(output_file_prefix, "_worsttrace.png"),
-            plot = p,
-            h = 10,
-            w = 20
-        )
+        ol_fit$save_object(file = output_file)
 
         # Extract and save draws
         cat("Extracting draws...\n")
-        poa <- pcm_fit$draws(format = "draws_array")
-        poa <- poa[, pcm_fit_good_chains, , drop = FALSE]
+        poa <- ol_fit$draws(format = "draws_array")
         saveRDS(poa, file = draws_file)
         cat("Saved draws to:", draws_file, "\n")
 
-        pcm_fit <- NULL
+        ol_fit <- NULL
         gc()
-
     }
+
+    cat("\nADVI analysis complete!\n")
+    cat("========================================\n\n")
 
     # Additional diagnostic analyses (optional)
     if (with_additional_analyses) {
@@ -302,7 +229,7 @@ fit_partial_credit_model_ncats <- function(
 
         # Make intervals plot
         cat("Generating parameter plots...\n")
-        tmp <- c("latent_factor_unit", "latent_factor_beta","skill_thresholds", "loadings_questions_m1")                
+        tmp <- c("latent_factor_unit", "latent_factor_beta","skill_thresholds_1", "skill_thresholds_incs", "loadings_questions_m1")                
         po <- poa[,, grepl(paste(tmp, collapse = "|"), dimnames(poa)[[3]]), drop = FALSE]
         color_scheme_set("teal")
         p <- bayesplot::mcmc_intervals(
@@ -768,4 +695,6 @@ fit_partial_credit_model_ncats <- function(
             )
         }
     }
+    
+    invisible(poa)
 }

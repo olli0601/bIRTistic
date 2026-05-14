@@ -122,7 +122,7 @@ def _make_idata_from_svi_posterior(stan_data: Dict, posterior_samples: Dict, pre
     return az.from_dict(posterior=posterior_dict, dims=dims)
 
 
-def fit_partial_credit_model_ncats_svi(
+def fit_partial_credit_model_ncats_pyrosvi(
     dit: pd.DataFrame,
     dcati: pd.DataFrame,
     output_file_prefix: str,
@@ -261,9 +261,14 @@ def fit_partial_credit_model_ncats_svi(
             )
         partial_credit_model_ncats = model_ns["partial_credit_model_ncats"]
 
-        # Use a no-ypred variant during SVI optimization to avoid funsor dependency
-        # from discrete latent sampling in generated quantities.
-        model_for_svi = partial(partial_credit_model_ncats, sample_ypred=False)
+        # Use a lean variant during SVI optimization:
+        # - sample_ypred=False avoids discrete-latent funsor dependency
+        # - compute_generated=False skips expensive generated-quantity tracing
+        model_for_svi = partial(
+            partial_credit_model_ncats,
+            sample_ypred=False,
+            compute_generated=False,
+        )
 
         # Get autoguide factory
         guide_factory = _get_autoguide_factory(algorithm)
@@ -286,28 +291,39 @@ def fit_partial_credit_model_ncats_svi(
         )
 
         # Initialize SVI state
+        print("Initializing SVI state...")
+        t_init0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
-        init_params = svi.init(subkey, stan_data)
+        init_state = svi.init(subkey, stan_data)
+        init_minutes = (time.time() - t_init0) / 60.0
+        print(f"  SVI init completed in {init_minutes:.2f} minutes")
 
-        # Run SVI optimization
-        start_time = time.time()
+        # Run SVI optimization using the compiled run loop.
+        print(f"Optimizing variational parameters for {num_steps} steps...")
+        t_opt0 = time.time()
+        rng_key, subkey = jax.random.split(rng_key)
+        run_result = svi.run(
+            subkey,
+            num_steps,
+            stan_data,
+            init_state=init_state,
+            progress_bar=False,
+        )
+        opt_minutes = (time.time() - t_opt0) / 60.0
+        svi_state = run_result.state
+        losses = np.asarray(run_result.losses)
 
-        def print_loss(loss_val, i):
-            if (i + 1) % 1000 == 0:
-                print(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-loss_val:,.1f}", flush=True)
+        for i in range(999, len(losses), 1000):
+            print(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
+        if len(losses) and (len(losses) % 1000) != 0:
+            i = len(losses) - 1
+            print(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
 
-        svi_state = init_params
-        for step in range(num_steps):
-            rng_key, subkey = jax.random.split(rng_key)
-            svi_state, loss = svi.update(svi_state, stan_data)
-            print_loss(loss, step)
-
-        elapsed_time = time.time() - start_time
-
-        print(f"\nSVI completed in {elapsed_time / 60:.2f} minutes")
+        print(f"\nSVI optimization completed in {opt_minutes:.2f} minutes (after {init_minutes:.2f} min init)")
 
         # Extract posterior samples from learned guide
         print(f"Sampling {output_samples} draws from the learned approximate posterior...")
+        t_post0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
         params = svi.get_params(svi_state)
         if hasattr(svi, "get_posterior"):
@@ -323,14 +339,8 @@ def fit_partial_credit_model_ncats_svi(
                 sample_shape=(output_samples,),
             )
         posterior_samples_dict = {k: np.asarray(v) for k, v in posterior_samples.items()}
-
-        print("Extracting timing information...")
-        timing_data = pd.DataFrame({
-            'total_minutes': [elapsed_time / 60],
-            'algorithm': [algorithm],
-        })
-        timing_data.to_csv(timing_file, index=False)
-        print(f"Saved timing information to: {timing_file}")
+        post_minutes = (time.time() - t_post0) / 60.0
+        print(f"  Posterior sampling completed in {post_minutes:.2f} minutes")
 
         # Re-run model with posterior samples to get generated quantities
         print("Generating posterior predictive samples...")
@@ -345,11 +355,34 @@ def fit_partial_credit_model_ncats_svi(
                          'ordered_prob_by_cat_qu_pr', 'ordinal_brier_score'],
         )
 
+        t_pred0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
         predictions = predictive(subkey, stan_data)
+        pred_minutes = (time.time() - t_pred0) / 60.0
+        print(f"  Posterior predictive generation completed in {pred_minutes:.2f} minutes")
 
         print("Converting to ArviZ format...")
+        t_idata0 = time.time()
         idata = _make_idata_from_svi_posterior(stan_data, posterior_samples_dict, predictions)
+        idata_minutes = (time.time() - t_idata0) / 60.0
+        print(f"  ArviZ conversion completed in {idata_minutes:.2f} minutes")
+
+        print("Extracting timing information...")
+        mins_generate_samples = post_minutes + pred_minutes + idata_minutes
+        mins_total = init_minutes + opt_minutes + mins_generate_samples
+        timing_data = pd.DataFrame({
+            'chain_id': [1],
+            'n_warmup': [0],
+            'n_sample': [output_samples],
+            'mins_init': [init_minutes],
+            'mins_sample': [opt_minutes],
+            'mins_generate_samples': [mins_generate_samples],
+            'mins_total': [mins_total],
+        })
+        timing_cols = ['mins_init', 'mins_sample', 'mins_generate_samples', 'mins_total']
+        timing_data[timing_cols] = timing_data[timing_cols].round(3)
+        timing_data.to_csv(timing_file, index=False)
+        print(f"Saved timing information to: {timing_file}")
 
         print(f"Saving draws to: {draws_file}")
         idata.to_zarr(draws_file)

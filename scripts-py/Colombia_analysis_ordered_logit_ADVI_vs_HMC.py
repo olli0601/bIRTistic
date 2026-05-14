@@ -64,8 +64,8 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
-from fit_ordered_logit_model_ncats_advi import fit_ordered_logit_model_ncats_advi
-from fit_ordered_logit_model_ncats import fit_ordered_logit_model_ncats
+from fit_ordered_logit_model_ncats_stanadvi import fit_ordered_logit_model_ncats_stanadvi
+from fit_ordered_logit_model_ncats_stanhmc import fit_ordered_logit_model_ncats_stanhmc
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -170,7 +170,7 @@ pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_ordered_logit_model_ncats(
+result_hmc = fit_ordered_logit_model_ncats_stanhmc(
     dit_col,
     dp1_col,
     output_file_prefix=output_file_prefix_hmc,
@@ -198,7 +198,7 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_ordered_logit_model_ncats_advi(
+result_advi = fit_ordered_logit_model_ncats_stanadvi(
     dit_col,
     dp1_col,
     output_file_prefix=output_file_prefix_advi,

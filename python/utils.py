@@ -714,17 +714,22 @@ def _plot_prob_barplots(
             "cowpatch is not installed; saving separate plot files with _partN suffix instead of a combined panel."
         )
         for idx, p_i in enumerate(subplot_plots, start=1):
+            part_height = subplot_heights[idx - 1]
+            if idx == 1:
+                part_height *= 0.5
+            elif idx == 2:
+                part_height *= 1.4
             p_i.save(
                 f"{output_file_stem}_part{idx}.png",
                 width=subplot_widths[idx - 1],
-                height=subplot_heights[idx - 1],
+                height=part_height,
                 units='in',
                 limitsize=False,
             )
             p_i.save(
                 f"{output_file_stem}_part{idx}.pdf",
                 width=subplot_widths[idx - 1],
-                height=subplot_heights[idx - 1],
+                height=part_height,
                 units='in',
                 limitsize=False,
             )

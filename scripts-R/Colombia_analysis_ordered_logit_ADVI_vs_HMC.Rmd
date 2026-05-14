@@ -74,8 +74,8 @@ invisible(lapply(packages, function(pkg) {
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "read_data_ukraine.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "fit_ordered_logit_model_ncats.R"))
-source(here::here("R", "fit_ordered_logit_model_ncats_advi.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats_stanhmc.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats_stanadvi.R"))
 source(here::here("R", "get_endpoints.R"))
 ```
 
@@ -173,7 +173,7 @@ ol_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r ol-fit-colombia-data-vanilla-hmc, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_ordered_logit_model_ncats(
+fit_ordered_logit_model_ncats_stanhmc(
             dit_col,
             dp1_col,
             output_file_prefix = output_file_prefix_hmc,
@@ -197,7 +197,7 @@ gc()
 ## Run ordered logit model v260413 on Colombia data using ADVI
 
 ```{r ol-fit-colombia-data-vanilla-advi, include=TRUE, eval=FALSE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_ordered_logit_model_ncats_advi(
+fit_ordered_logit_model_ncats_stanadvi(
             dit_col,
             dp1_col,
             output_file_prefix = output_file_prefix_advi,

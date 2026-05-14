@@ -73,7 +73,7 @@ invisible(lapply(packages, function(pkg) {
 source(here::here("R", "read_data_colombia.R"))
 source(here::here("R", "read_data_ukraine.R"))
 source(here::here("R", "train_test_split_data.R"))
-source(here::here("R", "fit_partial_credit_model_ncats.R"))
+source(here::here("R", "fit_partial_credit_model_ncats_stanhmc.R"))
 source(here::here("R", "get_endpoints.R"))
 ```
 
@@ -163,7 +163,7 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r pcm-fit-colombia-data-vanilla-v260413-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_partial_credit_model_ncats(
+fit_partial_credit_model_ncats_stanhmc(
             dit_col,
             dp1_col,
             output_file_prefix = paste0(output_file_prefix, "_fit_vanilla"),
@@ -282,7 +282,7 @@ saveRDS(list(dp1 = dp1_col, dit = dit_col), paste0(output_file_prefix, "_ps_tsd_
 ```
 
 ```{r pcm-fit-colombia-propensity-scores-v260413, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_partial_credit_model_ncats(
+fit_partial_credit_model_ncats_stanhmc(
         dit_col,
         dp1_col,
         output_file_prefix = paste0(output_file_prefix, "_fit_ps_tsd"),
@@ -455,7 +455,7 @@ saveRDS(list(dp1 = dp1_col, dit = dit_col), paste0(output_file_prefix, "_matched
 ```
 
 ```{r pcm-fit-on-data-v260413-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_partial_credit_model_ncats(
+fit_partial_credit_model_ncats_stanhmc(
         dit_col,
         dp1_col,
         output_file_prefix = paste0(output_file_prefix, "_fit_matched_ps_tsd"),
@@ -544,7 +544,7 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r pcm-fit-on-training-data-v260413-ukraine, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-fit_partial_credit_model_ncats(
+fit_partial_credit_model_ncats_stanhmc(
         dit_ukr,
         dp1_ukr,
         output_file_prefix = paste0(output_file_prefix, "_fit_vanilla"),

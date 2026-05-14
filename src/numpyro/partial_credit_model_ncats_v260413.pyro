@@ -124,7 +124,7 @@ def _ordered_brier_by_question(prob_obs, y_obs, q_obs_0, Qc, Kc):
     return out
 
 
-def partial_credit_model_ncats(data, sample_ypred=True):
+def partial_credit_model_ncats(data, sample_ypred=True, compute_generated=True):
     """
     NumPyro partial credit model with arbitrary category types.
 
@@ -197,11 +197,13 @@ def partial_credit_model_ncats(data, sample_ypred=True):
     loadings_questions_m1 = jnp.abs(loadings_questions_m1_raw)
 
     log_lik = jnp.zeros((N_total,))
-    ordered_prob_by_cat_qu_fit = jnp.zeros((ordered_prob_length,))
-    ordered_prob_by_cat_qu_pr = jnp.zeros((ordered_prob_length,))
-    ordinal_brier_score = jnp.zeros((C, Q_max))
+    if compute_generated:
+        ordered_prob_by_cat_qu_fit = jnp.zeros((ordered_prob_length,))
+        ordered_prob_by_cat_qu_pr = jnp.zeros((ordered_prob_length,))
+        ordinal_brier_score = jnp.zeros((C, Q_max))
 
-    logits_padded = jnp.full((N_total, K_max), -1e30)
+    if sample_ypred:
+        logits_padded = jnp.full((N_total, K_max), -1e30)
 
     # Fitted quantities.
     for c in range(C):
@@ -231,27 +233,25 @@ def partial_credit_model_ncats(data, sample_ypred=True):
         eta_c = pcm_get_etas(load_c, skill_c, latent_obs_c, q_c0, cumsum_c)
 
         log_lik_c = categorical_logit_lpmf(y_c, eta_c)
-        prob_c = jax.nn.softmax(eta_c, axis=1)
+        if sample_ypred or compute_generated:
+            prob_c = jax.nn.softmax(eta_c, axis=1)
 
-        logits_padded = logits_padded.at[s_obs:e_obs, :Kc].set(eta_c)
+        if sample_ypred:
+            logits_padded = logits_padded.at[s_obs:e_obs, :Kc].set(eta_c)
         log_lik = log_lik.at[s_obs:e_obs].set(log_lik_c)
 
-        by_q = jnp.zeros((Qc, Kc))
-        cnt_q = jnp.zeros((Qc,))
-        for n in range(Nc):
-            qn = q_c0[n]
-            by_q = by_q.at[qn, :].add(prob_c[n, :])
-            cnt_q = cnt_q.at[qn].add(1.0)
+        if compute_generated:
+            by_q = jnp.zeros((Qc, Kc)).at[q_c0, :].add(prob_c)
+            cnt_q = jnp.zeros((Qc,)).at[q_c0].add(1.0)
 
-        by_q_mean = by_q / cnt_q[:, None]
-        s_prob = ordered_prob_offset[c]
-        for q in range(Qc):
-            a = s_prob + q * Kc
-            b = a + Kc
-            ordered_prob_by_cat_qu_fit = ordered_prob_by_cat_qu_fit.at[a:b].set(by_q_mean[q, :])
+            by_q_mean = by_q / cnt_q[:, None]
+            s_prob = ordered_prob_offset[c]
+            ordered_prob_by_cat_qu_fit = ordered_prob_by_cat_qu_fit.at[
+                s_prob:s_prob + Qc * Kc
+            ].set(by_q_mean.reshape(-1))
 
-        obs_brier = _ordered_brier_by_question(prob_c, y_c, q_c0, Qc, Kc)
-        ordinal_brier_score = ordinal_brier_score.at[c, :Qc].set(obs_brier)
+            obs_brier = _ordered_brier_by_question(prob_c, y_c, q_c0, Qc, Kc)
+            ordinal_brier_score = ordinal_brier_score.at[c, :Qc].set(obs_brier)
 
         numpyro.factor(f'cat_{c + 1}_likelihood', jnp.sum(log_lik_c))
 
@@ -259,55 +259,51 @@ def partial_credit_model_ncats(data, sample_ypred=True):
         ypred_raw = numpyro.sample('ypred_raw', dist.Categorical(logits=logits_padded))
         ypred = numpyro.deterministic('ypred', ypred_raw + 1)
 
-    # Predictive quantities using Xpr only, matching Stan generated quantities behavior.
-    if P_pr == P:
-        ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit
-    else:
-        beta_pr = latent_factor_beta[jnp.asarray(Xpr_id_0)]
-        X_pr = X[:, jnp.asarray(Xpr_id_0)]
+    if compute_generated:
+        # Predictive quantities using Xpr only, matching Stan generated quantities behavior.
+        if P_pr == P:
+            ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit
+        else:
+            beta_pr = latent_factor_beta[jnp.asarray(Xpr_id_0)]
+            X_pr = X[:, jnp.asarray(Xpr_id_0)]
 
-        for c in range(C):
-            Nc = int(N[c])
-            Qc = int(Q[c])
-            Kc = int(K[c])
-            Km1c = Kc - 1
+            for c in range(C):
+                Nc = int(N[c])
+                Qc = int(Q[c])
+                Kc = int(K[c])
+                Km1c = Kc - 1
 
-            s_obs = cat_starts[c]
-            e_obs = cat_ends[c]
-            q_c0 = question_of_obs_0[s_obs:e_obs]
+                s_obs = cat_starts[c]
+                e_obs = cat_ends[c]
+                q_c0 = question_of_obs_0[s_obs:e_obs]
 
-            s_skill = skill_offset[c]
-            e_skill = s_skill + Qc * Km1c
-            skill_c = jnp.reshape(skill_thresholds[s_skill:e_skill], (Qc, Km1c))
+                s_skill = skill_offset[c]
+                e_skill = s_skill + Qc * Km1c
+                skill_c = jnp.reshape(skill_thresholds[s_skill:e_skill], (Qc, Km1c))
 
-            s_load = loadings_offset[c]
-            e_load = s_load + (Qc - 1)
-            load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
+                s_load = loadings_offset[c]
+                e_load = s_load + (Qc - 1)
+                load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
 
-            cumsum_c = jnp.triu(jnp.ones((Km1c, Km1c)))
+                cumsum_c = jnp.triu(jnp.ones((Km1c, Km1c)))
 
-            latent_obs_pr_c = X_pr[s_obs:e_obs, :] @ beta_pr
-            eta_pr_c = pcm_get_etas(load_c, skill_c, latent_obs_pr_c, q_c0, cumsum_c)
-            prob_pr_c = jax.nn.softmax(eta_pr_c, axis=1)
+                latent_obs_pr_c = X_pr[s_obs:e_obs, :] @ beta_pr
+                eta_pr_c = pcm_get_etas(load_c, skill_c, latent_obs_pr_c, q_c0, cumsum_c)
+                prob_pr_c = jax.nn.softmax(eta_pr_c, axis=1)
 
-            by_q_pr = jnp.zeros((Qc, Kc))
-            cnt_q_pr = jnp.zeros((Qc,))
-            for n in range(Nc):
-                qn = q_c0[n]
-                by_q_pr = by_q_pr.at[qn, :].add(prob_pr_c[n, :])
-                cnt_q_pr = cnt_q_pr.at[qn].add(1.0)
+                by_q_pr = jnp.zeros((Qc, Kc)).at[q_c0, :].add(prob_pr_c)
+                cnt_q_pr = jnp.zeros((Qc,)).at[q_c0].add(1.0)
 
-            by_q_pr_mean = by_q_pr / cnt_q_pr[:, None]
-            s_prob = ordered_prob_offset[c]
-            for q in range(Qc):
-                a = s_prob + q * Kc
-                b = a + Kc
-                ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_pr.at[a:b].set(by_q_pr_mean[q, :])
+                by_q_pr_mean = by_q_pr / cnt_q_pr[:, None]
+                s_prob = ordered_prob_offset[c]
+                ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_pr.at[
+                    s_prob:s_prob + Qc * Kc
+                ].set(by_q_pr_mean.reshape(-1))
 
-    numpyro.deterministic('ordered_prob_by_cat_qu_fit', ordered_prob_by_cat_qu_fit)
-    numpyro.deterministic('ordered_prob_by_cat_qu_pr', ordered_prob_by_cat_qu_pr)
-    numpyro.deterministic('log_lik', log_lik)
-    numpyro.deterministic('ordinal_brier_score', ordinal_brier_score)
+        numpyro.deterministic('ordered_prob_by_cat_qu_fit', ordered_prob_by_cat_qu_fit)
+        numpyro.deterministic('ordered_prob_by_cat_qu_pr', ordered_prob_by_cat_qu_pr)
+        numpyro.deterministic('log_lik', log_lik)
+        numpyro.deterministic('ordinal_brier_score', ordinal_brier_score)
 
 
 def get_log_likelihood_ncats(data, params):

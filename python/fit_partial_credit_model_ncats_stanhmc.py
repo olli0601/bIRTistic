@@ -1,7 +1,7 @@
 """
 Model fitting functions for Bayesian IRT analysis.
 
-This module provides functions for fitting ordered logit models
+This module provides functions for fitting partial credit models
 using Stan HMC via cmdstanpy.
 """
 
@@ -23,9 +23,9 @@ from cmdstanpy import CmdStanModel
 from plotnine import *
 from plotnine import options as p9_options
 
-from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _plot_worst_chain_traces, _fit_ordered_logit_make_stan_data
+from utils import _plot_ppcheck, _compute_ordinal_brier_scores, _plot_prob_barplots, _plot_worst_chain_traces, _fit_partial_credit_make_stan_data
 
-def fit_ordered_logit_model_ncats(
+def fit_partial_credit_model_ncats_stanhmc(
     dit: pd.DataFrame,
     dcati: pd.DataFrame,
     output_file_prefix: str,
@@ -45,9 +45,9 @@ def fit_ordered_logit_model_ncats(
     with_additional_analyses: bool = False,
 ) -> Dict:
     """
-    Run ordered logit model analysis (ncats version) on pre-processed data using HMC.
+    Run partial credit model analysis (ncats version) on pre-processed data using HMC.
     
-    This function performs Bayesian IRT analysis using the flexible ncats ordered logit model
+    This function performs Bayesian IRT analysis using the flexible ncats partial credit model
     on pre-processed data. It compiles the Stan model, runs MCMC sampling, generates convergence
     diagnostics, and optionally creates detailed diagnostic plots.
     
@@ -61,7 +61,7 @@ def fit_ordered_logit_model_ncats(
     output_file_prefix : str
         Full path prefix for output files (without extension).
     stan_file : str, optional
-        Path to Stan model file (.stan). If None, uses default ordered_logit_ncats_v260413.stan
+        Path to Stan model file (.stan). If None, uses default partial_credit_model_ncats_v260413.stan
     x_formula : str, default "~ time - 1"
         Patsy formula string specifying predictors for the design matrix.
     x_formula_ignore_regex : str, optional
@@ -102,11 +102,11 @@ def fit_ordered_logit_model_ncats(
     # Set default stan_file if not provided  
     if stan_file is None:
         # Assume we're running from the bIRTistic root directory
-        stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "ordered_logit_ncats_v260413.stan")
+        stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "partial_credit_model_ncats_v260413.stan")
     
     # Print configuration
     print("\n" + "=" * 40)
-    print("Ordered Logit Model (ncats) Analysis Configuration")
+    print("Partial Credit Model (ncats) Analysis Configuration")
     print("=" * 40)
     print(f"Stan file: {stan_file}")
     print(f"Stan include dir: {os.path.dirname(stan_file)}")
@@ -148,9 +148,9 @@ def fit_ordered_logit_model_ncats(
                   os.path.exists(data_file.replace('.csv', '_dp1.csv')) and
                   os.path.exists(data_file.replace('.csv', '_dit.csv')))
     
-    # Prepare data in ncats format (same as fit_partial_credit_model_ncats)
+    # Prepare data in ncats format (using helper function)
     print("Preparing Stan data in ncats format...")
-    stan_data = _fit_ordered_logit_make_stan_data(
+    stan_data = _fit_partial_credit_make_stan_data(
         dit=dit,
         dcati=dcati,
         x_formula=x_formula,
@@ -171,7 +171,8 @@ def fit_ordered_logit_model_ncats(
         
         print(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
-        good_chains = timing_data['chain'].tolist()
+        chain_col = 'chain_id' if 'chain_id' in timing_data.columns else 'chain'
+        good_chains = timing_data[chain_col].astype(int).tolist()
         print(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
         print("=" * 40 + "\n")
         
@@ -241,17 +242,23 @@ def fit_ordered_logit_model_ncats(
         # Identify good chains
         best_idx = chain_stats['mean_lp'].idxmax()
         threshold = chain_stats.loc[best_idx, 'mean_lp'] - 2 * chain_stats.loc[best_idx, 'sd_lp']
-        good_chains = chain_stats[chain_stats['mean_lp'] > threshold]['chain'].tolist()
+        good_chains = chain_stats[chain_stats['mean_lp'] > threshold]['chain'].astype(int).tolist()
         print(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
         
         # Extract chain timing information
         print("\nExtracting timing information...")
+        chain_times = fit.time
         timing_data = pd.DataFrame({
-            'chain': good_chains,
-            'warmup_minutes': [0.0 for _ in good_chains],
-            'sampling_minutes': [0.0 for _ in good_chains],
-            'total_chain_minutes': [0.0 for _ in good_chains]
+            'chain_id': good_chains,
+            'n_warmup': [iter_warmup for _ in good_chains],
+            'n_sample': [iter_sampling for _ in good_chains],
+            'mins_init': [chain_times[int(chain_id) - 1]['warmup'] / 60.0 for chain_id in good_chains],
+            'mins_sample': [chain_times[int(chain_id) - 1]['sampling'] / 60.0 for chain_id in good_chains],
+            'mins_generate_samples': [0.0 for _ in good_chains],
+            'mins_total': [chain_times[int(chain_id) - 1]['total'] / 60.0 for chain_id in good_chains],
         })
+        timing_cols = ['mins_init', 'mins_sample', 'mins_generate_samples', 'mins_total']
+        timing_data[timing_cols] = timing_data[timing_cols].round(3)
         
         timing_data.to_csv(timing_file, index=False)
         print(f"Saved timing information to: {timing_file}")
@@ -275,7 +282,7 @@ def fit_ordered_logit_model_ncats(
         # Check convergence and mixing
         print("Generating convergence diagnostics...")
         key_vars = ['latent_factor_unit', 'latent_factor_beta', 
-               'skill_thresholds_1', 'skill_thresholds_incs', 'loadings_questions_m1']
+                   'skill_thresholds', 'loadings_questions_m1']
         summary_df = az.summary(idata, var_names=key_vars)
         summary_df = summary_df.sort_values('ess_bulk')        
                 
@@ -286,7 +293,7 @@ def fit_ordered_logit_model_ncats(
             print("Generating worst-chain trace plot...")
 
             worst_vars = summary_df.head(9).index.tolist()
-            worst_vars = [sub(r"\[(\d+)\]", lambda match: f"[{int(match.group(1)) + 1}]", v)
+            worst_vars = [re.sub(r"\[(\d+)\]", lambda match: f"[{int(match.group(1)) + 1}]", v)
                           for v in worst_vars]
             po = fit.draws_pd(inc_warmup=True)            
             assert all(v in po.columns for v in worst_vars), \
@@ -306,8 +313,7 @@ def fit_ordered_logit_model_ncats(
         # 1. Generate parameter intervals plot
         print("Generating parameter plots...")
         key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
-                                    'skill_thresholds_1', 'skill_thresholds_incs', 
-                                    'loadings_questions_m1'])
+                                    'skill_thresholds', 'loadings_questions_m1'])
         
         # Use ArviZ plot_forest for parameter intervals
         var_names = [v for v in idata.posterior.data_vars 

@@ -117,9 +117,9 @@ packages <- c(
 invisible(lapply(packages, library, character.only = TRUE))
 
 # Source functions
-source(here::here("R", "fit_credit_model_ncats.R"))
-source(here::here("R", "fit_ordered_logit_model_ncats.R"))
-source(here::here("R", "fit_partial_credit_model_ncats.R"))
+source(here::here("R", "fit_credit_model_ncats_stanhmc.R"))
+source(here::here("R", "fit_ordered_logit_model_ncats_stanhmc.R"))
+source(here::here("R", "fit_partial_credit_model_ncats_stanhmc.R"))
 
 cat("\nConfiguration:\n")
 cat(sprintf("  chains: %s\n", chains))
@@ -190,7 +190,7 @@ for (split_idx in split_idcs) {
     # Fit model based on model name
     cat("Fitting model...\n")
     if (model_name == "ordered_logit") {
-        fit_ordered_logit_model_ncats(
+        fit_ordered_logit_model_ncats_stanhmc(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
@@ -209,7 +209,7 @@ for (split_idx in split_idcs) {
             show_exceptions = show_exceptions
         )
     } else if (model_name == "credit_model") {
-        fit_credit_model_ncats(
+        fit_credit_model_ncats_stanhmc(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),
@@ -228,7 +228,7 @@ for (split_idx in split_idcs) {
             show_exceptions = show_exceptions
         )
     } else if (model_name == "partial_credit_model") {
-        fit_partial_credit_model_ncats(
+        fit_partial_credit_model_ncats_stanhmc(
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix, "_fit_alldata"),

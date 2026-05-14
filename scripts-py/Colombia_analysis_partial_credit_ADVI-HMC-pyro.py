@@ -64,9 +64,9 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
-from fit_partial_credit_model_ncats_advi import fit_partial_credit_model_ncats_advi
-from fit_partial_credit_model_ncats import fit_partial_credit_model_ncats
-from fit_partial_credit_model_ncats_svi import fit_partial_credit_model_ncats_svi
+from fit_partial_credit_model_ncats_stanadvi import fit_partial_credit_model_ncats_stanadvi
+from fit_partial_credit_model_ncats_stanhmc import fit_partial_credit_model_ncats_stanhmc
+from fit_partial_credit_model_ncats_pyrosvi import fit_partial_credit_model_ncats_pyrosvi
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -98,7 +98,13 @@ output_file_prefix = os.path.join(dir_out_pcm, "pcm_1")
 output_file_prefix_hmc = os.path.join(dir_out_pcm, "pcm_1_hmc")
 output_file_prefix_advi = os.path.join(dir_out_pcm, "pcm_1_advi")
 svi_algorithm_autodiagnormal = "AutoDiagonalNormal"
+svi_algorithm_autolaplaceapproximation = 'AutoLaplaceApproximation'
+svi_algorithm_automultivariatenormal = 'AutoMultivariateNormal'
+svi_algorithm_autoiafnormal = 'AutoIAFNormal'
 output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autodiagnormal")
+output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "pcm_1_svi_autolaplaceapproximation")
+output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_automultivariatenormal")
+output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autoiafnormal")
 
 print(f"Data file: {file_data}")
 print(f"Output directory: {dir_out_pcm}")
@@ -173,7 +179,7 @@ pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_partial_credit_model_ncats(
+result_hmc = fit_partial_credit_model_ncats_stanhmc(
     dit_col,
     dp1_col,
     output_file_prefix=output_file_prefix_hmc,
@@ -186,9 +192,9 @@ result_hmc = fit_partial_credit_model_ncats(
     seed=seed,
     x_formula="~ time - 1",
     resume=True,
-    with_core_analyses=False,
-    with_additional_analyses=False,
-    show_messages=False
+    with_core_analyses=True,
+    with_additional_analyses=True,
+    show_messages=True
 )
 
 print(f"\n✓ HMC fitting complete")
@@ -201,7 +207,7 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_partial_credit_model_ncats_advi(
+result_advi = fit_partial_credit_model_ncats_stanadvi(
     dit_col,
     dp1_col,
     output_file_prefix=output_file_prefix_advi,
@@ -227,7 +233,7 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # Model Fitting - SVI AutoDiagonalNormal
 # =============================================================================
 
-result_svi_autodiagnormal = fit_partial_credit_model_ncats_svi(
+result_svi_autodiagnormal = fit_partial_credit_model_ncats_pyrosvi(
     dit_col,
     dp1_col,
     output_file_prefix=output_file_svi_autodiagnormal,
@@ -246,6 +252,80 @@ print(f"\n✓ SVI fitting complete")
 print(f"  Algorithm: {result_svi_autodiagnormal['algorithm']}")
 print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
 
+# %%
+
+# =============================================================================
+# Model Fitting - SVI AutoLaplaceApproximation
+# =============================================================================
+
+result_svi_autolaplaceapproximation = fit_partial_credit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
+    output_file_prefix=output_file_svi_autolaplaceapproximation,
+    algorithm=svi_algorithm_autolaplaceapproximation,
+    lr=0.01,
+    num_steps=10000,
+    output_samples=4000,
+    seed=seed,
+    x_formula="~ time - 1",
+    resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
+)
+
+print(f"\n✓ SVI fitting complete")
+print(f"  Algorithm: {result_svi_autolaplaceapproximation['algorithm']}")
+print(f"  Draws file: {output_file_svi_autolaplaceapproximation}_draws.zarr")
+
+# %%
+
+# =============================================================================
+# Model Fitting - SVI AutoMultivariateNormal
+# =============================================================================
+
+result_svi_automultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
+    output_file_prefix=output_file_svi_automultivariatenormal,
+    algorithm=svi_algorithm_automultivariatenormal,
+    lr=0.01,
+    num_steps=10000,
+    output_samples=4000,
+    seed=seed,
+    x_formula="~ time - 1",
+    resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
+)
+
+print(f"\n✓ SVI fitting complete")
+print(f"  Algorithm: {result_svi_automultivariatenormal['algorithm']}")
+print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
+
+# %%
+
+# =============================================================================
+# Model Fitting - SVI Auto IAF Normal
+# =============================================================================
+
+result_svi_autoiafnormal = fit_partial_credit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
+    output_file_prefix=output_file_svi_autoiafnormal,
+    algorithm=svi_algorithm_autoiafnormal,
+    lr=0.01,
+    num_steps=10000,
+    output_samples=4000,
+    seed=seed,
+    x_formula="~ time - 1",
+    resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
+)
+
+print(f"\n✓ SVI fitting complete")
+print(f"  Algorithm: {result_svi_autoiafnormal['algorithm']}")
+print(f"  Draws file: {output_file_svi_autoiafnormal}_draws.zarr")
 
 
 # %%

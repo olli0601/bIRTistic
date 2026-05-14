@@ -28,10 +28,10 @@ if numpyro_path not in sys.path:
     sys.path.insert(0, numpyro_path)
 
 pyro_file = project_root / 'src' / 'numpyro' / 'partial_credit_model_ncats_v260413.pyro'
-loader = SourceFileLoader("pcm_ncats", str(pyro_file))
-spec = importlib.util.spec_from_loader("pcm_ncats", loader)
-pcm_ncats = importlib.util.module_from_spec(spec)
-loader.exec_module(pcm_ncats)
+loader = SourceFileLoader("pcm_ncats_stanhmc", str(pyro_file))
+spec = importlib.util.spec_from_loader("pcm_ncats_stanhmc", loader)
+pcm_ncats_stanhmc = importlib.util.module_from_spec(spec)
+loader.exec_module(pcm_ncats_stanhmc)
 
 
 def _squeeze_draw(x):
@@ -162,7 +162,7 @@ def _build_test_case():
 
 
 @pytest.mark.integration
-def test_numpyro_pcm_ncats_parity_with_stan_generated_quantities():
+def test_numpyro_pcm_ncats_stanhmc_parity_with_stan_generated_quantities():
     """Parity for deterministic generated quantities and schema-compatible outputs."""
     np.random.seed(123)
     jax.config.update('jax_platform_name', 'cpu')
@@ -192,7 +192,7 @@ def test_numpyro_pcm_ncats_parity_with_stan_generated_quantities():
     stan_ypred = _squeeze_draw(stan_fit.stan_variable('ypred'))
 
     # Run NumPyro model once under substituted parameters and capture deterministic values.
-    tr = trace(substitute(pcm_ncats.partial_credit_model_ncats, data=numpyro_sub)).get_trace(stan_data)
+    tr = trace(substitute(pcm_ncats_stanhmc.partial_credit_model_ncats, data=numpyro_sub)).get_trace(stan_data)
 
     npy_log_lik = np.asarray(tr['log_lik']['value'])
     npy_fit_prob = np.asarray(tr['ordered_prob_by_cat_qu_fit']['value'])
