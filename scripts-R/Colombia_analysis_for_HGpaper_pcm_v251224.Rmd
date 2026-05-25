@@ -1095,7 +1095,7 @@ cat("  PDF: ", paste0(output_file_prefix, "_supp_table_1.pdf"), "\n")
 
 ## Supplementary Table 2 of primary endpoints in Colombia, by items, quasi-experimental
 
-```{r make-supp-table-1, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
+```{r make-supp-table-2, include=TRUE, eval=TRUE, echo=TRUE, message=FALSE, tidy=FALSE, fig.width=12, fig.height=10}
 dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-matched-ps-tsd")
 pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_matched_ps_tsd_primary_endpoints_detailed.rds"))
 pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
