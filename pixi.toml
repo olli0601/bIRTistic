@@ -1,12 +1,12 @@
 [workspace]
 name = "birtistic"
 version = "0.1.0"
-description = "Making Bayesian Item Response Theory models faster with amortised inference"
+description = "Making Bayesian Item Response Theory models faster with amortised inference (R + Stan only)"
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
 # ============================================================================
-# Base R dependencies (shared by all environments)
+# R + Stan dependencies
 # ============================================================================
 [dependencies]
 # R and compiler toolchain
@@ -54,99 +54,15 @@ cmdstan = "==2.37.0"
 "r-sf" = "*"
 "r-s2" = "*"
 "r-units" = "*"
-zarr = ">=2.5,<3"
-h5netcdf = ">=1.8.1,<2"
 
 # cmdstanr needs to be installed from R-universe (see tasks below)
 # ggpattern may need special handling
 
 # ============================================================================
-# Python feature (optional - only in 'default' environment)
-# ============================================================================
-[feature.python.dependencies]
-# Python and packages
-python = ">=3.13,<3.14"
-pip = "*"
-
-# Python core scientific stack (pinning scipy for JAX compatibility)
-numpy = "*"
-scipy = ">=1.12"
-pandas = "*"
-matplotlib = "*"
-
-# JAX/Flax ecosystem
-
-# Probabilistic programming
-cmdstanpy = "*"
-
-# Plotting
-plotnine = "*"
-
-# Testing and development
-pytest = "*"
-pytest-cov = "*"
-jupyterlab = "*"
-ipykernel = "*"
-arviz = ">=0.23.4,<0.24"
-
-[feature.python.pypi-dependencies]
-ggsci = ">=2.0.0, <3"
-jax = "==0.10.0"
-jaxlib = "==0.10.0"
-numpyro = "==0.21.0"
-flax = ">=0.10"
-optax = ">=0.2.4"
-
-# ============================================================================
-# Experimental Python feature (JAX MPS stack)
-# ============================================================================
-[feature.python-mps.dependencies]
-python = ">=3.13,<3.14"
-pip = "*"
-numpy = "*"
-scipy = ">=1.12"
-pandas = "*"
-matplotlib = "*"
-cmdstanpy = "*"
-plotnine = "*"
-pytest = "*"
-pytest-cov = "*"
-jupyterlab = "*"
-ipykernel = "*"
-arviz = ">=0.23.4,<0.24"
-
-[feature.python-mps.pypi-dependencies]
-ggsci = ">=2.0.0, <3"
-jax = "==0.10.0"
-jaxlib = "==0.10.0"
-numpyro = "==0.21.0"
-flax = ">=0.10"
-optax = ">=0.2.4"
-
-# ============================================================================
-# Environment definitions
-# ============================================================================
-[environments]
-# Default environment: Full Python + R stack
-default = { features = ["python"], solve-group = "default" }
-
-# Experimental environment: Python + R stack with JAX MPS backend
-mps-experimental = { features = ["python-mps"], solve-group = "mps-experimental" }
-
-# R-only environment: Just R and CmdStan (inherits base dependencies)
-r-only = { solve-group = "r-only" }
-
-# ============================================================================
 # Tasks
 # ============================================================================
-# Note: Use '-e <environment>' to run tasks in specific environments:
-#   - pixi run <task>              # Runs in default (Python + R) environment
-#   - pixi run -e r-only <task>    # Runs in R-only environment
 
 [tasks]
-# --------------------------------------------------------------------------
-# R environment setup tasks (available in both environments)
-# --------------------------------------------------------------------------
 
 # Post-installation task to install cmdstanr from R-universe
 install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'))" """
@@ -154,29 +70,8 @@ install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https:
 # Install any remaining packages not in conda-forge
 install-extra = """Rscript -e "packages <- c('ggpattern'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')" """
 
-# Verify R/CmdStan installation with 8 schools example
-verify-r = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing 8 schools model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
+# Verify R/CmdStan installation with bernoulli example
+verify-r = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing bernoulli model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
 
 # Complete R setup (run all R post-install tasks)
 setup = { depends-on = ["install-cmdstanr", "install-extra", "verify-r"] }
-
-# --------------------------------------------------------------------------
-# Python environment tasks (only available in default environment)
-# --------------------------------------------------------------------------
-
-# Verify Python environment with CmdStan and 8 schools example
-verify-python = """python test/python/test_environment.py"""
-
-# Complete Python setup
-setup-python = { depends-on = ["verify-python"] }
-
-# Install JAX MPS plugin in the mps-experimental environment.
-# Run with: pixi run -e mps-experimental install-jax-mps
-install-jax-mps = """python -m pip install jax-mps==0.10.1"""
-
-# Verify that JAX sees the MPS backend.
-# Run with: pixi run -e mps-experimental verify-mps
-verify-mps = """python -c 'import jax; print("default_backend:", jax.default_backend()); print("devices:", jax.devices())'"""
-
-# Convenience task for mps-experimental environment.
-mps-setup = { depends-on = ["install-jax-mps", "verify-mps"] }
