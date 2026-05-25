@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout *)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(pixi install *)",
+      "Bash(pixi run *)",
+      "Bash(mkdir -p /tmp/birtistic-render)",
+      "Bash(echo \"EXIT $?\")",
+      "Bash(tail -40 /tmp/birtistic-render/render.log)",
+      "Read(//private/tmp/birtistic-render/**)",
+      "Bash(grep -nE '^```\\\\{r make-supp-table-1' scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd)"
+    ]
+  }
+}
