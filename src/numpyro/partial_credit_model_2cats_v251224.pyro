@@ -15,11 +15,6 @@ from numpyro.contrib.control_flow import scan
 from jax.scipy.special import logsumexp
 
 
-def sum_to_zero_constraint(x):
-    """Constrain vector to sum to zero."""
-    return x - jnp.mean(x)
-
-
 def pcm_get_etas(loadings_questions, skill_thresholds, latent_factor_obs,
                  question_of_obs, cumsum_matrix):
     """
@@ -123,30 +118,36 @@ def partial_credit_model_2cats(data):
     cumsum_matrix_cat2 = jnp.triu(jnp.ones((Kcat2 - 1, Kcat2 - 1)))
     
     # Sample parameters
-    # Latent factors (sum-to-zero constraint)
-    latent_factor_unit_raw = numpyro.sample('latent_factor_unit_raw', 
-                                            dist.Normal(0, s2z_sd_unit).expand([U]))
-    latent_factor_unit = numpyro.deterministic('latent_factor_unit',
-                                               sum_to_zero_constraint(latent_factor_unit_raw))
-    
-    latent_factor_beta = numpyro.sample('latent_factor_beta', 
+    # Match Stan's `sum_to_zero_vector[U]` with `normal(0, s2z_sd_unit)` prior:
+    # ZeroSumNormal samples on the U-dim sum-zero subspace using U-1 free
+    # parameters internally, so the all-ones direction is not redundant.
+    # Marginal sd of each element = scale * sqrt(1 - 1/U) = 1.
+    latent_factor_unit = numpyro.sample(
+        'latent_factor_unit',
+        dist.ZeroSumNormal(scale=s2z_sd_unit, event_shape=(U,)),
+    )
+
+    latent_factor_beta = numpyro.sample('latent_factor_beta',
                                         dist.Normal(0, 1).expand([P]))
-    
+
     # Skill thresholds
     cat1_skill_thresholds = numpyro.sample('cat1_skill_thresholds',
                                            dist.Normal(0, 3.5).expand([Qcat1, Kcat1 - 1]))
     cat2_skill_thresholds = numpyro.sample('cat2_skill_thresholds',
                                            dist.Normal(0, 3.5).expand([Qcat2, Kcat2 - 1]))
-    
-    # Loadings (Student-t prior with positive constraint)
-    cat1_loadings_questions_m1 = numpyro.sample('cat1_loadings_questions_m1',
-                                                dist.StudentT(3, 0, 1).expand([Qcat1 - 1]))
-    cat2_loadings_questions_m1 = numpyro.sample('cat2_loadings_questions_m1',
-                                                dist.StudentT(3, 0, 1).expand([Qcat2 - 1]))
-    
-    # Constrain loadings to be positive
-    cat1_loadings_questions_m1 = jnp.abs(cat1_loadings_questions_m1)
-    cat2_loadings_questions_m1 = jnp.abs(cat2_loadings_questions_m1)
+
+    # Match Stan's `vector<lower=0>[...]` + `student_t(3, 0, 1)` prior:
+    # FoldedDistribution has support on [0, inf) with single mode (vs the
+    # 2^(Q-1) sign-flip modes of the previous abs(StudentT) parametrization).
+    # Equivalent to Stan's prior up to a normalizing constant.
+    cat1_loadings_questions_m1 = numpyro.sample(
+        'cat1_loadings_questions_m1',
+        dist.FoldedDistribution(dist.StudentT(df=3.0, loc=0.0, scale=1.0)).expand([Qcat1 - 1]),
+    )
+    cat2_loadings_questions_m1 = numpyro.sample(
+        'cat2_loadings_questions_m1',
+        dist.FoldedDistribution(dist.StudentT(df=3.0, loc=0.0, scale=1.0)).expand([Qcat2 - 1]),
+    )
     
     # Prepend 1.0 to loadings (first question has loading=1.0)
     cat1_loadings_questions = jnp.concatenate([jnp.array([1.0]), cat1_loadings_questions_m1])

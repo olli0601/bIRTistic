@@ -52,7 +52,7 @@ import numpy as np
 import arviz as az
 import xarray as xr
 from plotnine import (
-    ggplot, aes, geom_col, geom_errorbar, geom_density, geom_boxplot, facet_wrap, facet_grid,
+    ggplot, aes, geom_col, geom_errorbar, geom_density, geom_boxplot, geom_text, facet_wrap, facet_grid,
     scale_fill_manual, scale_color_manual, theme_minimal, theme_bw, theme, element_text,
     element_blank, labs, position_dodge, coord_flip, ggsave, scale_y_continuous
 )
@@ -340,45 +340,70 @@ dp1_col = tmp['dp1']
 dit_col = tmp['dit']
 dmeta_col = tmp['dmeta']
 
-# Get endpoints for HMC
-print("\nComputing HMC endpoints...")
-endpoints_hmc = get_endpoints(
-    dp1=dp1_col,
-    dit=dit_col,
-    draws_file=f"{output_file_prefix_hmc}_draws.zarr",
-    categorical_threshold=3,
-    endpoint_type="items"
-)
-endpoints_hmc['method'] = 'HMC'
+# Collect all fitted methods in one place and compute endpoints uniformly.
+method_cfg = {
+    'stan_hmc': {
+        'draws_file': f"{output_file_prefix_hmc}_draws.zarr",
+        'param_name': None,
+    },
+    'stan_advi': {
+        'draws_file': f"{output_file_prefix_advi}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
+    'numpyro_svi_autodiagnormal': {
+        'draws_file': f"{output_file_svi_autodiagnormal}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
+    'numpyro_svi_autolaplaceapproximation': {
+        'draws_file': f"{output_file_svi_autolaplaceapproximation}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
+    'numpyro_svi_automultivariatenormal': {
+        'draws_file': f"{output_file_svi_automultivariatenormal}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
+    'numpyro_svi_autoiafnormal': {
+        'draws_file': f"{output_file_svi_autoiafnormal}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
+}
 
-# Get endpoints for ADVI
-print("Computing ADVI endpoints...")
-endpoints_advi = get_endpoints(
-    dp1=dp1_col,
-    dit=dit_col,
-    draws_file=f"{output_file_prefix_advi}_draws.zarr",
-    param_name="ordered_prob_by_cat_qu_pr",
-    categorical_threshold=3,
-    endpoint_type="items"
-)
-endpoints_advi['method'] = 'ADVI'
+endpoints_by_method = {}
+for method, cfg in method_cfg.items():
+    print(f"\nComputing {method} endpoints...")
+    ep_kwargs = {
+        'dp1': dp1_col,
+        'dit': dit_col,
+        'draws_file': cfg['draws_file'],
+        'categorical_threshold': 3,
+        'endpoint_type': 'items',
+    }
+    if cfg['param_name'] is not None:
+        ep_kwargs['param_name'] = cfg['param_name']
 
-# Get endpoints for SVI
-print("Computing SVI endpoints...")
-endpoints_svi_autodiagnormal = get_endpoints(
-    dp1=dp1_col,
-    dit=dit_col,
-    draws_file=f"{output_file_svi_autodiagnormal}_draws.zarr",
-    param_name="ordered_prob_by_cat_qu_pr",
-    categorical_threshold=3,
-    endpoint_type="items"
-)
-endpoints_svi_autodiagnormal['method'] = 'SVI_AutoDiagonalNormal'
+    pos = get_endpoints(**ep_kwargs)
+    pos['method'] = method
+    endpoints_by_method[method] = pos
+
+# Keep legacy variable names used later in the script.
+endpoints_hmc = endpoints_by_method['stan_hmc']
+endpoints_advi = endpoints_by_method['stan_advi']
+endpoints_svi_autodiagnormal = endpoints_by_method['numpyro_svi_autodiagnormal']
 
 print(f"\n✓ Computed endpoints")
-print(f"  HMC: {len(endpoints_hmc)} rows")
-print(f"  ADVI: {len(endpoints_advi)} rows")
-print(f"  SVI (AutoDiagonalNormal): {len(endpoints_svi_autodiagnormal)} rows")
+for method, pos in endpoints_by_method.items():
+    print(f"  {method}: {len(pos)} rows")
+
+# Reuse posterior draws for all downstream comparisons.
+method_order = list(method_cfg.keys())
+posterior_by_method = {
+    'stan_hmc': result_hmc['draws'].posterior,
+    'stan_advi': result_advi['draws'].posterior,
+    'numpyro_svi_autodiagnormal': result_svi_autodiagnormal['draws'].posterior,
+    'numpyro_svi_autolaplaceapproximation': result_svi_autolaplaceapproximation['draws'].posterior,
+    'numpyro_svi_automultivariatenormal': result_svi_automultivariatenormal['draws'].posterior,
+    'numpyro_svi_autoiafnormal': result_svi_autoiafnormal['draws'].posterior,
+}
 
 # %%
 
@@ -386,8 +411,8 @@ print(f"  SVI (AutoDiagonalNormal): {len(endpoints_svi_autodiagnormal)} rows")
 # Create Comparison Table
 # =============================================================================
 
-# Combine HMC and ADVI results
-pos = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
+# Combine all methods
+pos = pd.concat(endpoints_by_method.values(), ignore_index=True)
 
 # Pivot to wide format for comparison
 pos = pos.pivot_table(
@@ -400,12 +425,24 @@ pos = pos.pivot_table(
 pos.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col 
                           for col in pos.columns]
 
-# Calculate median difference
-pos['median_diff'] = pos['median_HMC'] - pos['median_ADVI']
-pos['abs_median_diff'] = pos['median_diff'].abs()
+# Difference in medians vs stan_hmc reference, sort by largest absolute gap.
+ref_col = 'median_stan_hmc'
+diff_cols = []
+if ref_col in pos.columns:
+    for m in method_order:
+        if m == 'stan_hmc':
+            continue
+        col = f'median_{m}'
+        if col in pos.columns:
+            dcol = f'median_diff_vs_hmc_{m}'
+            pos[dcol] = pos[col] - pos[ref_col]
+            diff_cols.append(dcol)
+    if diff_cols:
+        pos['max_abs_median_diff_vs_hmc'] = pos[diff_cols].abs().max(axis=1)
+        pos = pos.sort_values('max_abs_median_diff_vs_hmc', ascending=False)
 
 # Save comparison
-tmp = os.path.join(dir_out_pcm, "comparison_endpoints_hmc_vs_advi.csv")
+tmp = os.path.join(dir_out_pcm, "comparison_endpoints_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved comparison to: {tmp}")
 
@@ -417,19 +454,40 @@ print(f"\nSaved comparison to: {tmp}")
 
 # Filter for difference variable and add item_label_short
 # Merge with dit to get item_label_short for better labels
-pos = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
+pos = pd.concat(endpoints_by_method.values(), ignore_index=True)
 endpoints_plot = pos[pos['variable'] == 'diff'].copy()
+
+# Shift estimates relative to stan_hmc median per unique (item, group, high-label, variable).
+tmp = ['item_type_id', 'item_type', 'item_label', 'item_label_short',
+       'group_label', 'group_label_long', 'item_high_label', 'variable']
+# Fill NaN to allow merge equality on item_label_short.
+for k in tmp:
+    if endpoints_plot[k].isna().any():
+        endpoints_plot[k] = endpoints_plot[k].fillna('__NA__')
+hmc_ref = (
+    endpoints_plot.loc[endpoints_plot['method'] == 'stan_hmc', tmp + ['median']]
+    .rename(columns={'median': 'median_hmc'})
+)
+assert not hmc_ref.duplicated(subset=tmp).any(), \
+    "stan_hmc rows not unique on merge keys — check get_endpoints output"
+endpoints_plot = endpoints_plot.merge(hmc_ref, on=tmp, how='left', validate='many_to_one')
+endpoints_plot['median'] = endpoints_plot['median'] - endpoints_plot['median_hmc']
+endpoints_plot['iqr_lower'] = endpoints_plot['iqr_lower'] - endpoints_plot['median_hmc']
+endpoints_plot['iqr_upper'] = endpoints_plot['iqr_upper'] - endpoints_plot['median_hmc']
+
+# Drop stan_hmc itself — it's the reference, always zero.
+endpoints_plot = endpoints_plot[endpoints_plot['method'] != 'stan_hmc'].copy()
 
 # Create composite label for facets
 endpoints_plot['facet_label'] = (
-    endpoints_plot['group_label_long'] + 
-    np.where(endpoints_plot['item_label_short'].notna(), 
-             '---' + endpoints_plot['item_label_short'] , 
+    endpoints_plot['group_label_long'] +
+    np.where(endpoints_plot['item_label_short'] != '__NA__',
+             '---' + endpoints_plot['item_label_short'] ,
              ''
              ) + '\n' +
-    np.where(endpoints_plot['item_type'] == 'categorical', 
-             'Difference in probability per week\n(Baseline - Endline)', 
-             'Difference in mean days per week\n(Baseline - Endline)'
+    np.where(endpoints_plot['item_type'] == 'categorical',
+             'Diff in probability per week vs stan_hmc\n(Baseline - Endline)',
+             'Diff in mean days per week vs stan_hmc\n(Baseline - Endline)'
              )
 )
 
@@ -441,7 +499,7 @@ p_diff = (
     geom_col(alpha=0.8, width=0.7) +
     geom_errorbar(aes(ymin='iqr_lower', ymax='iqr_upper'), width=0.3) +
     facet_wrap('~facet_label', scales='free', ncol=3) +
-    scale_fill_manual(values={'HMC': '#008080', 'ADVI': '#CA562C'}) +
+    scale_fill_futurama() +
     theme_bw() +
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
@@ -452,15 +510,15 @@ p_diff = (
         figure_size=(14, 18)
     ) +
     labs(
-        title='Endpoint Comparison: Difference',
-        y='Estimate',
+        title='Endpoint Comparison: Difference vs stan_hmc',
+        y='Estimate − stan_hmc median',
         fill='Method'
     )
 )
 
 # Save plot
 tmp = os.path.join(dir_out_pcm, 'comparison_effect_size_difference.pdf')
-ggsave(p_diff, filename=tmp, width=14, height=18)
+ggsave(p_diff, filename=tmp, width=14, height=30, limitsize=False)
 print(f"Saved plot to: {tmp}")
 
 # %%
@@ -469,15 +527,35 @@ print(f"Saved plot to: {tmp}")
 print("Creating endpoint ratio plot...")
 endpoints_plot = pos[pos['variable'] == 'ratio'].copy()
 
+# Shift estimates relative to stan_hmc median per unique (item, group, high-label, variable).
+tmp = ['item_type_id', 'item_type', 'item_label', 'item_label_short',
+       'group_label', 'group_label_long', 'item_high_label', 'variable']
+for k in tmp:
+    if endpoints_plot[k].isna().any():
+        endpoints_plot[k] = endpoints_plot[k].fillna('__NA__')
+hmc_ref = (
+    endpoints_plot.loc[endpoints_plot['method'] == 'stan_hmc', tmp + ['median']]
+    .rename(columns={'median': 'median_hmc'})
+)
+assert not hmc_ref.duplicated(subset=tmp).any(), \
+    "stan_hmc rows not unique on merge keys — check get_endpoints output"
+endpoints_plot = endpoints_plot.merge(hmc_ref, on=tmp, how='left', validate='many_to_one')
+endpoints_plot['median'] = endpoints_plot['median'] - endpoints_plot['median_hmc']
+endpoints_plot['iqr_lower'] = endpoints_plot['iqr_lower'] - endpoints_plot['median_hmc']
+endpoints_plot['iqr_upper'] = endpoints_plot['iqr_upper'] - endpoints_plot['median_hmc']
+
+# Drop stan_hmc itself — it's the reference, always zero.
+endpoints_plot = endpoints_plot[endpoints_plot['method'] != 'stan_hmc'].copy()
+
 endpoints_plot['facet_label'] = (
-    endpoints_plot['group_label_long'] + 
-    np.where(endpoints_plot['item_label_short'].notna(), 
-             '---' + endpoints_plot['item_label_short'] , 
+    endpoints_plot['group_label_long'] +
+    np.where(endpoints_plot['item_label_short'] != '__NA__',
+             '---' + endpoints_plot['item_label_short'] ,
              ''
              ) + '\n' +
-    np.where(endpoints_plot['item_type'] == 'categorical', 
-             'Ratio in probability per week\n(1- Baseline/Endline)', 
-             'Ratio in mean days per week\n(1- Baseline/Endline)'
+    np.where(endpoints_plot['item_type'] == 'categorical',
+             'Ratio in probability per week vs stan_hmc\n(1- Baseline/Endline)',
+             'Ratio in mean days per week vs stan_hmc\n(1- Baseline/Endline)'
              )
 )
 
@@ -489,7 +567,7 @@ p_ratio = (
     geom_col(alpha=0.8, width=0.7) +
     geom_errorbar(aes(ymin='iqr_lower', ymax='iqr_upper'), width=0.3) +
     facet_wrap('~facet_label', scales='free', ncol=3) +
-    scale_fill_manual(values={'HMC': '#008080', 'ADVI': '#CA562C'}) +
+    scale_fill_futurama() +
     theme_bw() +
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
@@ -500,14 +578,14 @@ p_ratio = (
         figure_size=(14, 18)
     ) +
     labs(
-        title='Endpoint Comparison: Ratio',
-        y='Estimate',
+        title='Endpoint Comparison: Ratio vs stan_hmc',
+        y='Estimate − stan_hmc median',
         fill='Method'
     )
 )
 
 tmp = os.path.join(dir_out_pcm, 'comparison_effect_size_ratio.pdf')
-ggsave(p_ratio, filename=tmp, width=14, height=18)
+ggsave(p_ratio, filename=tmp, width=14, height=30, limitsize=False)
 print(f"Saved plot to: {tmp}")
 
 # %%
@@ -520,15 +598,16 @@ print("\n" + "="*70)
 print("COMPARING PARTIAL CREDIT PROBABILITIES")
 print("="*70)
 
-po_hmc = result_hmc['draws'].posterior['ordered_prob_by_cat_qu_fit'].values
-po_advi = result_advi['draws'].posterior['ordered_prob_by_cat_qu_fit'].values
-
-# Summarize both methods
-pos_hmc = _summarize_ordered_prob_quantiles(po_hmc, dp1_col, dit_col)
-pos_hmc['method'] = 'HMC'
-pos_advi = _summarize_ordered_prob_quantiles(po_advi, dp1_col, dit_col)
-pos_advi['method'] = 'ADVI'
-pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
+pos = []
+for method in method_order:
+    po = posterior_by_method[method]
+    tmp = 'ordered_prob_by_cat_qu_fit'
+    if tmp not in po:
+        tmp = 'ordered_prob_by_cat_qu_pr'
+    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_col, dit_col)
+    tmp2['method'] = method
+    pos.append(tmp2)
+pos = pd.concat(pos, ignore_index=True)
 
 pos = pos.pivot_table(
     index=['cq_id', 'item_type_id', 'item_time_id', 'y', 'item_label', 'time_label',
@@ -538,15 +617,15 @@ pos = pos.pivot_table(
     aggfunc='first'
 ).reset_index()
 
-pos['median_diff'] = pos['HMC'] - pos['ADVI']
-pos['abs_median_diff'] = pos['median_diff'].abs()
-pos = pos.sort_values('abs_median_diff', ascending=False)
+tmp = [m for m in method_order if m in pos.columns]
+pos['abs_median_range'] = pos[tmp].max(axis=1) - pos[tmp].min(axis=1)
+pos = pos.sort_values('abs_median_range', ascending=False)
         
-print(f"\nTop 10 items with largest median probability differences (HMC vs ADVI):")
-print(pos.head(10)[['item_label', 'time_label', 'y', 'HMC', 'ADVI', 'median_diff']])
+print(f"\nTop 10 items with largest median probability differences across all methods:")
+print(pos.head(10)[['item_label', 'time_label', 'y'] + tmp + ['abs_median_range']])
     
 # Save combined results
-tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_hmc_vs_advi.csv")
+tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved ordered_prob comparison to: {tmp}")
 
@@ -560,7 +639,16 @@ print("\n" + "="*70)
 print("GENERATING ORDERED PROBABILITY COMPARISON PLOTS")
 print("="*70)
 
-pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
+pos = []
+for method in method_order:
+    po = posterior_by_method[method]
+    tmp = 'ordered_prob_by_cat_qu_fit'
+    if tmp not in po:
+        tmp = 'ordered_prob_by_cat_qu_pr'
+    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_col, dit_col)
+    tmp2['method'] = method
+    pos.append(tmp2)
+pos = pd.concat(pos, ignore_index=True)
 
 tmp_emp = dp1_col.groupby(
     ['time_label', 'item_label', 'y_label', 'item_type_id', 'item_time_id', 'y']
@@ -592,7 +680,7 @@ pos_plot['item_label_long'] = pos_plot['group_label_long'] + np.where(
 )
 pos_plot['method'] = pd.Categorical(
     pos_plot['method'],
-    categories=['Empirical', 'HMC', 'ADVI'],
+    categories=['Empirical'] + method_order,
     ordered=True,
 )
 pos_plot = pos_plot.dropna(subset=['item_label_long', 'time_label'])
@@ -643,19 +731,18 @@ model_pars = [
 ]
 
 # Use posterior draws from fit results
-po_hmc = result_hmc['draws'].posterior
-po_advi = result_advi['draws'].posterior
+po_hmc = posterior_by_method['stan_hmc']
 
 # compute quantiles
 q_levels = np.array([0.025, 0.25, 0.5, 0.75, 0.975], dtype=float)
-q_hmc = np.quantile(np.concatenate([po_hmc[p].values for p in model_pars], axis=2), 
-                    q_levels, 
-                    axis=(0, 1)
-                    )
-q_advi = np.quantile(np.concatenate([po_advi[p].values for p in model_pars], axis=2), 
-                     q_levels, 
-                     axis=(0, 1)
-                     )
+tmp2 = {
+    m: np.quantile(
+        np.concatenate([posterior_by_method[m][p].values for p in model_pars], axis=2),
+        q_levels,
+        axis=(0, 1)
+    )
+    for m in method_order
+}
 
 # make data frame
 tmp = [
@@ -665,21 +752,19 @@ tmp = [
 ]
 pos = pd.DataFrame({
     'model_par': tmp,
-    'q_lower_hmc': q_hmc[0],
-    'iqr_lower_hmc': q_hmc[1],
-    'median_hmc': q_hmc[2],
-    'iqr_upper_hmc': q_hmc[3],
-    'q_upper_hmc': q_hmc[4],
-    'q_lower_advi': q_advi[0],
-    'iqr_lower_advi': q_advi[1],
-    'median_advi': q_advi[2],
-    'iqr_upper_advi': q_advi[3],
-    'q_upper_advi': q_advi[4],
     })
-pos['abs_median_diff'] = abs(pos['median_hmc'] - pos['median_advi'])
-pos = pos.sort_values('abs_median_diff', ascending=True)
+for method in method_order:
+    pos[f'q_lower_{method}'] = tmp2[method][0]
+    pos[f'iqr_lower_{method}'] = tmp2[method][1]
+    pos[f'median_{method}'] = tmp2[method][2]
+    pos[f'iqr_upper_{method}'] = tmp2[method][3]
+    pos[f'q_upper_{method}'] = tmp2[method][4]
 
-tmp = os.path.join(dir_out_pcm, "comparison_model_params_hmc_vs_advi.csv")
+tmp2 = [f'median_{m}' for m in method_order]
+pos['abs_median_range'] = pos[tmp2].max(axis=1) - pos[tmp2].min(axis=1)
+pos = pos.sort_values('abs_median_range', ascending=True)
+
+tmp = os.path.join(dir_out_pcm, "comparison_model_params_all_methods.csv")
 print(f"\nSaved model params comparison to: {tmp}")
 pos.to_csv(tmp, index=False)
     
@@ -689,15 +774,16 @@ pos.to_csv(tmp, index=False)
 
 print("\nCreating model parameter boxplots for worst 8 parameters...")
 pos = pos.tail(8)
+tmp = '|'.join(method_order)
 pos = pd.wide_to_long(
-    pos.drop('abs_median_diff', axis=1),
+    pos.drop('abs_median_range', axis=1),
     stubnames=['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper'],
     i='model_par',
     j='method',
     sep='_',
-    suffix='(hmc|advi)'
+    suffix=f'({tmp})'
 ).reset_index()
-pos['method'] = pos['method'].str.upper()
+pos['method'] = pd.Categorical(pos['method'], categories=method_order, ordered=True)
 
 p = (
     ggplot(
@@ -743,34 +829,33 @@ print("="*70)
 print("Computing quantiles for ypred parameters...")
     
 # Use posterior draws from fit results
-po_hmc = result_hmc['draws'].posterior['ypred']
-po_advi = result_advi['draws'].posterior['ypred']
+po_hmc = posterior_by_method['stan_hmc']['ypred']
 
 # Compute quantiles 
 q_levels = np.array([0.025, 0.25, 0.5, 0.75, 0.975], dtype=float)
-q_hmc = np.quantile(po_hmc, q_levels, axis=(0, 1))
-q_advi = np.quantile(po_advi, q_levels, axis=(0, 1))
+tmp2 = {
+    m: np.quantile(posterior_by_method[m]['ypred'], q_levels, axis=(0, 1))
+    for m in method_order
+}
     
 # make data frame
 tmp = [ f"{'ypred'}[{i+1}]" for i in range(po_hmc.shape[2]) ]
 pos = pd.DataFrame({
     'parameter': tmp,
-    'q_lower_hmc': q_hmc[0],
-    'iqr_lower_hmc': q_hmc[1],
-    'median_hmc': q_hmc[2],
-    'iqr_upper_hmc': q_hmc[3],
-    'q_upper_hmc': q_hmc[4],
-    'q_lower_advi': q_advi[0],
-    'iqr_lower_advi': q_advi[1],
-    'median_advi': q_advi[2],
-    'iqr_upper_advi': q_advi[3],
-    'q_upper_advi': q_advi[4],
 })
-pos['abs_median_diff'] = abs(pos['median_hmc'] - pos['median_advi'])
-pos = pos.sort_values('abs_median_diff', ascending=False)
+for method in method_order:
+    pos[f'q_lower_{method}'] = tmp2[method][0]
+    pos[f'iqr_lower_{method}'] = tmp2[method][1]
+    pos[f'median_{method}'] = tmp2[method][2]
+    pos[f'iqr_upper_{method}'] = tmp2[method][3]
+    pos[f'q_upper_{method}'] = tmp2[method][4]
+
+tmp2 = [f'median_{m}' for m in method_order]
+pos['abs_median_range'] = pos[tmp2].max(axis=1) - pos[tmp2].min(axis=1)
+pos = pos.sort_values('abs_median_range', ascending=False)
     
 # Save comparison
-tmp = os.path.join(dir_out_pcm, "comparison_ypred_hmc_vs_advi.csv")
+tmp = os.path.join(dir_out_pcm, "comparison_ypred_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"Saved ypred comparison to: {tmp}")    
     
@@ -781,15 +866,16 @@ print(f"Saved ypred comparison to: {tmp}")
 print("\nCreating ypred comparison plot...")
 
 pos = pos.head(8)
+tmp = '|'.join(method_order)
 pos = pd.wide_to_long(
-    pos.drop('abs_median_diff', axis=1),
+    pos.drop('abs_median_range', axis=1),
     stubnames=['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper'],
     i='parameter',
     j='method',
     sep='_',
-    suffix='(hmc|advi)'
+    suffix=f'({tmp})'
 ).reset_index()
-pos['method'] = pos['method'].str.upper()
+pos['method'] = pd.Categorical(pos['method'], categories=method_order, ordered=True)
     
 p = (
     ggplot(
@@ -821,3 +907,64 @@ p = (
 tmp = os.path.join(dir_out_pcm, 'comparison_ypred_boxplots.pdf')
 ggsave(p, filename=tmp, width=12, height=6)
 print(f"Saved ypred comparison plot to: {tmp}")
+
+# %%
+
+# =============================================================================
+# Compare Computation Time Across Methods
+# =============================================================================
+
+print("\n" + "="*70)
+print("COMPARING COMPUTATION TIME")
+print("="*70)
+
+timing_files = {
+    'stan_hmc':                          f"{output_file_prefix_hmc}_timing.csv",
+    'stan_advi':                         f"{output_file_prefix_advi}_timing.csv",
+    'numpyro_svi_autodiagnormal':        f"{output_file_svi_autodiagnormal}_timing.csv",
+    'numpyro_svi_autolaplaceapproximation': f"{output_file_svi_autolaplaceapproximation}_timing.csv",
+    'numpyro_svi_automultivariatenormal':f"{output_file_svi_automultivariatenormal}_timing.csv",
+    'numpyro_svi_autoiafnormal':         f"{output_file_svi_autoiafnormal}_timing.csv",
+}
+
+pos = []
+for method, fpath in timing_files.items():
+    if os.path.exists(fpath):
+        tmp2 = pd.read_csv(fpath)
+        pos.append({'method': method, 'mins_total': tmp2['mins_total'].sum()})
+    else:
+        print(f"  WARNING: timing file not found for {method}: {fpath}")
+pos = pd.DataFrame(pos)
+pos['method'] = pd.Categorical(pos['method'], categories=method_order, ordered=True)
+pos = pos.sort_values('method')
+
+print("\nTotal mins_total summed across chains (n_sample = 4000):")
+print(pos.to_string(index=False))
+
+tmp = os.path.join(dir_out_pcm, "comparison_timing_all_methods.csv")
+pos.to_csv(tmp, index=False)
+print(f"\nSaved timing comparison to: {tmp}")
+
+p = (
+    ggplot(pos, aes(x='method', y='mins_total', fill='method')) +
+    geom_col(alpha=0.9, width=0.7) +
+    geom_text(aes(label='mins_total.round(1).astype(str)'), va='bottom', size=9, nudge_y=0.02 * pos['mins_total'].max()) +
+    scale_fill_futurama() +
+    theme_bw() +
+    theme(
+        axis_text_x=element_text(angle=45, hjust=1, size=9),
+        axis_title_x=element_blank(),
+        strip_background=element_blank(),
+        legend_position='top',
+        figure_size=(10, 6),
+    ) +
+    labs(
+        title='Total computation time by method (n_sample = 4000)',
+        y='Total minutes (summed across chains)',
+        fill='Method',
+    )
+)
+
+tmp = os.path.join(dir_out_pcm, 'comparison_timing_all_methods.pdf')
+ggsave(p, filename=tmp, width=10, height=6)
+print(f"Saved timing plot to: {tmp}")
