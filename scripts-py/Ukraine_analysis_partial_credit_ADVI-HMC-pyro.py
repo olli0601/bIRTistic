@@ -88,7 +88,7 @@ dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
 
 # Output directories
-dir_out_pcm = "/Users/or105/sandbox/py-ukraine-partial_credit-260430-vanilla-advi-hmc-pyro"
+dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-ukraine-partial_credit-260430-vanilla-advi-hmc-pyro"
 dir_logs_pcm = os.path.join(dir_out_pcm, "logs")
 
 # Create output directories

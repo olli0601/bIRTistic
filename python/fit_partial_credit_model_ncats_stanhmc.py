@@ -269,11 +269,12 @@ def fit_partial_credit_model_ncats_stanhmc(
         
         # Convert to ArviZ InferenceData
         print("Converting to ArviZ format...")
-        idata = az.from_cmdstanpy(
-            fit,
-            coords={'chain': good_chains},
-            dims={}
-        )
+        # Convert with all chains first; arviz refuses a chain coord shorter
+        # than the data. Then drop chains that failed the lp threshold above.
+        idata = az.from_cmdstanpy(fit, dims={})
+        good_chain_idx = [list(fit.chain_ids).index(int(c)) for c in good_chains]
+        if len(good_chain_idx) < len(fit.chain_ids):
+            idata = idata.isel(chain=good_chain_idx)
         
         # Save draws
         print(f"Saving draws to: {draws_file}")
