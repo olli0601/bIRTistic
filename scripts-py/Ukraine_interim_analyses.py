@@ -508,4 +508,124 @@ p = (
 ggsave(p, os.path.join(dir_out, f"{file_prefix}_relativeimprovement_over_time.pdf"),
        width=14, height=12, limitsize=False)
 
+# %%
+
+# =============================================================================
+# Predictive probability of success (PPS) at interim 1
+# =============================================================================
+#
+# Numerical approximation of PPS per item_label, evaluated at the first interim.
+# Strategy follows dev/amortised_decision_making.md §2 Target 2.
+#
+# H_1 (per item_label): the directional ratio endpoint > 0 (i.e. an improvement
+# in outcomes vs Baseline, where direction respects ``item_high_label``).
+#
+# Procedure:
+#   1. Get ypred draws from the interim-1 fit; sample S = 10 hypothetical
+#      future data sets z by selecting S draws from ``ypred``.
+#   2. For each s, augment the interim-1 dcati with z and refit the PCM via
+#      ``fit_partial_credit_model_ncats_pyrosvi`` with
+#      ``algorithm='AutoLowRankMultivariateNormal'``, no extra analyses.
+#   3. Compute p(H_1 | x, z) per item from per-draw ratios on the refit.
+#   4. Save raw p(H_1 | x, z) samples to a pickle.
+#   5. Approximate PPS as the fraction of s with p(H_1 | x, z) > eta and save
+#      to a CSV/DataFrame.
+
+import arviz as az  # local import to keep top of file lean
+
+S = 10
+eta_pps = 0.89  # decision threshold from the doc
+pps_interim_id = 1
+
+pps_zarr = interim_zarr.get(pps_interim_id)
+pps_dcati = interim_dcati.get(pps_interim_id)
+if pps_zarr is None or pps_dcati is None or pps_dcati.empty:
+    print(f"\n[PPS] Skipping: no fit available for interim {pps_interim_id}.")
+else:
+    print(f"\n{'='*70}\nPPS for interim {pps_interim_id}\n{'='*70}")
+
+    # Current P(H_1 | x) per item using the interim-1 posterior.
+    ratio_x = _per_draw_ratio(pps_zarr, pps_dcati, dit, categorical_threshold=2)
+    p_h1_x = (
+        ratio_x.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
+        .apply(lambda r: float((r > 0).mean()))
+        .reset_index(name='p_h1_x')
+    )
+    print(f"  P(H_1 | x) computed for {len(p_h1_x)} items")
+
+    # Pull ypred draws (1-indexed integers) from the interim-1 fit and pick
+    # S equally-spaced draws to use as hypothetical z.
+    _idata = az.from_zarr(pps_zarr)
+    if 'ypred' not in _idata.posterior.data_vars:
+        raise RuntimeError("ypred not found in interim-1 posterior; cannot draw z.")
+    _ypred = _idata.posterior['ypred'].values  # (chain, draw, N_total)
+    _n_draw = _ypred.shape[1]
+    _draw_idx = np.linspace(0, _n_draw - 1, S, dtype=int)
+
+    # For each s, augment the dataset with one ypred draw (one extra "shadow"
+    # participant per existing pid using the ypred outcomes) and refit.
+    _pid_offset = int(pps_dcati['pid'].max())
+    p_h1_xz_rows = []
+
+    for s_idx, draw_i in enumerate(_draw_idx):
+        s_label = s_idx + 1
+        print(f"\n--- PPS sample {s_label}/{S} (ypred draw {draw_i}) ---")
+        yz = np.asarray(_ypred[0, draw_i, :]).astype(int)  # (N_total,)
+
+        z_dcati = pps_dcati.copy()
+        z_dcati['y_stan'] = yz
+        z_dcati['y'] = yz - 1
+        z_dcati['pid'] = z_dcati['pid'] + _pid_offset * s_label  # fresh pid block per s
+
+        aug = pd.concat([pps_dcati, z_dcati], ignore_index=True)
+        aug = aug.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+        aug['oid'] = range(1, len(aug) + 1)
+        aug['oidt'] = aug.groupby('item_type').cumcount() + 1
+
+        aug_prefix = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}_s{s_label}")
+        fit_partial_credit_model_ncats_pyrosvi(
+            dit,
+            aug,
+            output_file_prefix=aug_prefix,
+            algorithm=svi_algorithm,
+            lr=0.01,
+            num_steps=10000,
+            output_samples=4000,
+            seed=seed + s_label,
+            x_formula="~ time - 1",
+            resume=True,
+            with_core_analyses=False,
+            with_additional_analyses=False,
+        )
+
+        aug_zarr = f"{aug_prefix}_draws.zarr"
+        ratio_xz = _per_draw_ratio(aug_zarr, aug, dit, categorical_threshold=2)
+        sample_p = (
+            ratio_xz.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
+            .apply(lambda r: float((r > 0).mean()))
+            .reset_index(name='p_h1_xz')
+        )
+        sample_p['s'] = s_label
+        p_h1_xz_rows.append(sample_p)
+
+    p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
+    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}_p_h1_xz.pkl")
+    p_h1_xz.to_pickle(pkl_path)
+    print(f"\nSaved P(H_1 | x, z) samples to: {pkl_path}")
+
+    pps_df = (
+        p_h1_xz.groupby(['item_label', 'item_type', 'item_high_label'])['p_h1_xz']
+        .apply(lambda p: float((p > eta_pps).mean()))
+        .reset_index(name='pps')
+    )
+    pps_df = pps_df.merge(p_h1_x, on=['item_label', 'item_type', 'item_high_label'], how='left')
+    pps_df['eta'] = eta_pps
+    pps_df['S'] = S
+    pps_df['interim_id'] = pps_interim_id
+
+    csv_path = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}.csv")
+    pps_df.to_csv(csv_path, index=False)
+    print(f"Saved PPS table to: {csv_path}")
+    print(pps_df.head(10).to_string(index=False))
+
 print("\n✓ Interim analyses complete")
