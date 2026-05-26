@@ -122,20 +122,20 @@ def fit_credit_model_ncats_pyrosvi(
 
     timing_file = f"{output_file_prefix}_timing.csv"
     draws_file = f"{output_file_prefix}_draws.zarr"
-    posterior_samples_file = f"{output_file_prefix}_posterior_samples.pkl"
     data_file = f"{output_file_prefix}_data.csv"
 
     dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
     dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
     print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
 
+    # Resume only needs the two artifacts that capture the fit itself: the
+    # zarr-serialised draws and the timing CSV. posterior_samples is rebuilt
+    # from the zarr below; auxiliary plots gated on `with_*_analyses` are
+    # recomputed if their PDFs are missing, but never block resume.
     can_resume = (
         resume
         and os.path.exists(timing_file)
         and os.path.exists(draws_file)
-        and os.path.exists(posterior_samples_file)
-        and os.path.exists(data_file.replace('.csv', '_dp1.csv'))
-        and os.path.exists(data_file.replace('.csv', '_dit.csv'))
     )
 
     print("Preparing Stan data in ncats format...")
@@ -150,10 +150,14 @@ def fit_credit_model_ncats_pyrosvi(
         print("\n" + "=" * 40)
         print("RESUMING from existing outputs")
         print("=" * 40)
-        print(f"Loading posterior samples from: {posterior_samples_file}")
-        posterior_samples = pd.read_pickle(posterior_samples_file)
         print(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
+        # Reconstruct (n_draws, *shape) posterior_samples dict from idata so the
+        # return contract matches a fresh fit.
+        posterior_samples = {}
+        for var_name in idata.posterior.data_vars:
+            arr = np.asarray(idata.posterior[var_name])
+            posterior_samples[var_name] = arr.reshape((-1,) + arr.shape[2:])
         print(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
         print("=" * 40 + "\n")

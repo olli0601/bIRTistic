@@ -862,3 +862,133 @@ def _plot_worst_chain_traces(
 
     fig.savefig(f"{output_file_stem}.pdf", bbox_inches='tight')
     plt.close(fig)
+
+
+def _futurama_palette(n: int) -> list[str]:
+    """Return n hex colours interpolating the 12-colour ggsci futurama palette."""
+    from ggsci import pal_futurama
+    from matplotlib.colors import LinearSegmentedColormap, to_hex
+
+    base = list(pal_futurama()(12))
+    if n <= 12:
+        return base[:n]
+    cmap = LinearSegmentedColormap.from_list('futurama_x', base, N=n)
+    return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+
+def _build_interim_dcati(dp1: pd.DataFrame, interim_date) -> pd.DataFrame:
+    """
+    Subset dp1 to participants who have both baseline + endline observations
+    on/before ``interim_date``, then re-index pids / oids / oidt.
+
+    Used by the interim-analysis scripts to slice the longitudinal panel into
+    monthly cohorts ready to be passed to the ncats fit helpers.
+    """
+    import pandas as pd
+
+    dcati = dp1[dp1['submission_date'] <= interim_date].copy()
+    if dcati.empty:
+        return dcati
+
+    n_per_pid_item = (
+        dcati.groupby(['pid', 'item_label'])['time']
+        .nunique().reset_index(name='n_times')
+    )
+    complete = (
+        n_per_pid_item.groupby('pid')['n_times']
+        .apply(lambda x: bool((x == 2).all())).reset_index(name='complete')
+    )
+    keep_pids = complete.loc[complete['complete'], 'pid'].tolist()
+    dcati = dcati[dcati['pid'].isin(keep_pids)].copy()
+    if dcati.empty:
+        return dcati
+
+    pid_map = pd.DataFrame({'pid_orig': sorted(dcati['pid'].unique())})
+    pid_map['pid_new'] = range(1, len(pid_map) + 1)
+    dcati = dcati.merge(pid_map, left_on='pid', right_on='pid_orig')
+    dcati['pid'] = dcati['pid_new']
+    dcati = dcati.drop(columns=['pid_orig', 'pid_new'])
+
+    dcati = dcati.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+    dcati['oid'] = range(1, len(dcati) + 1)
+    dcati['oidt'] = dcati.groupby('item_type').cumcount() + 1
+    return dcati
+
+
+def _per_draw_ratio(zarr_path: str, dcati: pd.DataFrame, dit: pd.DataFrame,
+                    categorical_threshold: int = 3) -> pd.DataFrame:
+    """
+    Per-draw ratio (Endline-Baseline-style improvement) per item.
+
+    Loads ``ordered_prob_by_cat_qu_fit`` from the zarr (falling back to
+    ``ordered_prob_by_cat_qu_pr``), reshapes to ``(n_draws, cq_id)``, maps each
+    cq_id back to its (item_label, time_label, y) cell via
+    ``_map_cq_id_to_item_structure`` + ``dcati``, then aggregates per-draw to
+    either P(y >= categorical_threshold) for categorical items or expected
+    outcome (sum of y * P) for out-of-7 items. Pivots to Baseline / Endline
+    columns and computes the directional ratio.
+
+    Returns one row per (draw, item_label, item_type) holding the raw ratio.
+    """
+    import arviz as az
+    import numpy as np
+    import pandas as pd
+
+    idata = az.from_zarr(zarr_path)
+    pos = idata.posterior
+    var_name = (
+        'ordered_prob_by_cat_qu_fit'
+        if 'ordered_prob_by_cat_qu_fit' in pos
+        else 'ordered_prob_by_cat_qu_pr'
+    )
+    arr = pos[var_name].values  # (chain, draw, cq_id)
+    po = arr.reshape(-1, arr.shape[-1])  # (n_draws, cq_id)
+
+    cq_map = _map_cq_id_to_item_structure(dcati, dit)
+    # Recover (item_type, item_label, time_label) from (item_type_id, item_time_id)
+    # via dcati. _map_cq_id_to_item_structure drops item_label, so cannot pull it
+    # from dit (one item_type_id maps to many items).
+    item_time_lookup = (
+        dcati[['item_type_id', 'item_time_id', 'item_type', 'item_label', 'time_label']]
+        .drop_duplicates()
+    )
+    cq_map = cq_map.merge(item_time_lookup, on=['item_type_id', 'item_time_id'], how='left')
+    cq_map = cq_map.merge(
+        dit[['item_label', 'item_high_label']].drop_duplicates('item_label'),
+        on='item_label', how='left',
+    )
+    cq_map = cq_map.dropna(subset=['item_label', 'time_label']).reset_index(drop=True)
+
+    grouped = []
+    for (item_label, time_label), sub in cq_map.groupby(['item_label', 'time_label']):
+        item_type = sub['item_type'].iloc[0]
+        item_high = sub['item_high_label'].iloc[0]
+        if item_type == 'categorical':
+            w = (sub['y'].values >= categorical_threshold).astype(float)
+        else:
+            w = sub['y'].values.astype(float)
+        cols = sub['cq_id'].astype(int).values
+        agg_per_draw = po[:, cols] @ w
+        grouped.append(pd.DataFrame({
+            'draw': np.arange(po.shape[0]),
+            'item_label': item_label,
+            'time_label': time_label,
+            'item_type': item_type,
+            'item_high_label': item_high,
+            'value': agg_per_draw,
+        }))
+    df = pd.concat(grouped, ignore_index=True)
+
+    wide = df.pivot_table(
+        index=['draw', 'item_label', 'item_type', 'item_high_label'],
+        columns='time_label', values='value', aggfunc='first',
+    ).reset_index()
+    wide = wide.dropna(subset=['Baseline', 'Endline'])
+
+    def _ratio_row(r):
+        if r['item_type'] == 'categorical' or r['item_high_label'] == 'lower_is_better':
+            return 1 - r['Endline'] / r['Baseline'] if r['Baseline'] != 0 else np.nan
+        return r['Endline'] / r['Baseline'] - 1 if r['Baseline'] != 0 else np.nan
+
+    wide['ratio'] = wide.apply(_ratio_row, axis=1)
+    return wide[['draw', 'item_label', 'item_type', 'item_high_label', 'ratio']].dropna(subset=['ratio'])
