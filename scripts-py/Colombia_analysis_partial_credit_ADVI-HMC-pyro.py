@@ -927,11 +927,13 @@ timing_files = {
     'numpyro_svi_autoiafnormal':         f"{output_file_svi_autoiafnormal}_timing.csv",
 }
 
+# use mean mins_total across chains for each method,
+# since computations are done in parallel for all chains.
 pos = []
 for method, fpath in timing_files.items():
     if os.path.exists(fpath):
         tmp2 = pd.read_csv(fpath)
-        pos.append({'method': method, 'mins_total': tmp2['mins_total'].sum()})
+        pos.append({'method': method, 'mins_total': tmp2['mins_total'].mean()})
     else:
         print(f"  WARNING: timing file not found for {method}: {fpath}")
 pos = pd.DataFrame(pos)

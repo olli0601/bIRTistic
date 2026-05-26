@@ -186,8 +186,7 @@ def partial_credit_model_ncats(data, sample_ypred=True, compute_generated=True):
         dist.Normal(0, 3.5).expand([skill_threshold_total_length]),
     )
     # Match Stan's `vector<lower=0>[...]` + `student_t(3, 0, 1)` prior:
-    # FoldedDistribution has support on [0, inf) with single mode (vs the
-    # 2^(Q_total-C) sign-flip modes of the previous abs(StudentT)
+    # FoldedDistribution has support on [0, inf) with single mode 
     # parametrization). Equivalent to Stan's prior up to a normalizing constant.
     loadings_questions_m1 = numpyro.sample(
         'loadings_questions_m1',
