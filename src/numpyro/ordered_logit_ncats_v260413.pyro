@@ -1,0 +1,442 @@
+"""
+NumPyro implementation of ordered_logit_ncats_v260413.stan.
+
+This model supports an arbitrary number of category types (C >= 1).
+Generated quantities are emitted with the same dimensions and flattened formats as Stan:
+- ordered_prob_by_cat_qu_fit: vector[ordered_prob_length]
+- ordered_prob_by_cat_qu_pr: vector[ordered_prob_length]
+- ypred: array[N_total] int (1-indexed categories)
+- log_lik: array[N_total] real
+- ordinal_brier_score: array[C] vector[Q_max]
+- cutpoints: vector[cutpoint_total_length] (flattened, matches Stan)
+
+Differs from the partial credit / credit models in three places:
+1. Parameters use a (first threshold, positive increments) parametrization that
+   matches Stan's `skill_thresholds_1` + `skill_thresholds_incs<lower=0>`.
+2. eta is scalar per observation: loading[q] * (latent_unit + X @ beta).
+3. Likelihood is ordered_logistic via per-question cutpoints.
+"""
+
+import numpy as np
+import jax
+import jax.numpy as jnp
+import numpyro
+import numpyro.distributions as dist
+
+
+def cm_get_cutpoints_noncentered(skill_thresholds_1, skill_thresholds_incs, loadings_questions):
+    """
+    Build per-question cutpoints from first threshold + non-negative increments.
+
+    Parameters
+    ----------
+    skill_thresholds_1 : jnp.ndarray
+        Shape (Qc,). First cutpoint per question.
+    skill_thresholds_incs : jnp.ndarray
+        Shape (Qc, Kc-2). Non-negative increments. Empty (Kc-2 = 0) when Kc == 3.
+    loadings_questions : jnp.ndarray
+        Shape (Qc,). Per-question loadings.
+
+    Returns
+    -------
+    jnp.ndarray
+        Cutpoints matrix shape (Qc, Kc-1).
+    """
+    Qc = skill_thresholds_1.shape[0]
+    if skill_thresholds_incs.shape[1] == 0:
+        # K=3 case: single cutpoint per question.
+        cutpoints = skill_thresholds_1[:, None]
+    else:
+        cumsum_inc = jnp.cumsum(skill_thresholds_incs, axis=1)
+        rest = skill_thresholds_1[:, None] + cumsum_inc
+        cutpoints = jnp.concatenate([skill_thresholds_1[:, None], rest], axis=1)
+    return cutpoints * loadings_questions[:, None]
+
+
+def ol_get_etas(loadings_questions, latent_factor_obs, question_of_obs):
+    """eta per observation = loading[q_obs] * latent_factor_obs."""
+    return loadings_questions[question_of_obs] * latent_factor_obs
+
+
+def ordered_logistic_lpmf(y, eta, cutpoints_per_obs):
+    """
+    Stan-style ordered_logistic log pmf, vectorized.
+
+    Parameters
+    ----------
+    y : jnp.ndarray
+        Observed categories, 1-indexed, shape (N,).
+    eta : jnp.ndarray
+        Linear predictor per obs, shape (N,).
+    cutpoints_per_obs : jnp.ndarray
+        Per-observation cutpoints, shape (N, K-1). Must be increasing along last axis.
+
+    Returns
+    -------
+    jnp.ndarray
+        Log probability per observation, shape (N,).
+    """
+    N, Km1 = cutpoints_per_obs.shape
+    diff = eta[:, None] - cutpoints_per_obs  # (N, K-1)
+    p_ge = jax.nn.sigmoid(diff)  # P(Y >= k+1)
+    # P(Y=1) = 1 - P(Y>=2), P(Y=K) = P(Y>=K), middle = P(Y>=k) - P(Y>=k+1).
+    p_low = 1.0 - p_ge[:, :1]
+    p_high = p_ge[:, -1:]
+    if Km1 == 1:
+        probs = jnp.concatenate([p_low, p_high], axis=1)
+    else:
+        p_mid = p_ge[:, :-1] - p_ge[:, 1:]
+        probs = jnp.concatenate([p_low, p_mid, p_high], axis=1)
+    # Clamp for numerical safety before log.
+    probs = jnp.clip(probs, min=1e-30)
+    log_probs = jnp.log(probs)
+    return log_probs[jnp.arange(N), y - 1]
+
+
+def _per_obs_ordered_probs(eta, cutpoints_per_obs):
+    """Per-obs probabilities matching Stan generated quantities."""
+    N, Km1 = cutpoints_per_obs.shape
+    diff = eta[:, None] - cutpoints_per_obs
+    p_ge = jax.nn.sigmoid(diff)
+    p_low = 1.0 - p_ge[:, :1]
+    p_high = p_ge[:, -1:]
+    if Km1 == 1:
+        return jnp.concatenate([p_low, p_high], axis=1)
+    p_mid = p_ge[:, :-1] - p_ge[:, 1:]
+    return jnp.concatenate([p_low, p_mid, p_high], axis=1)
+
+
+def _cat_ranges(cat_type):
+    """Build 0-indexed [start, end) ranges per category from ordered cat_type."""
+    cat_type_np = np.asarray(cat_type, dtype=int)
+    if cat_type_np.ndim != 1:
+        raise ValueError("cat_type must be a 1D array")
+    if np.any(cat_type_np[1:] < cat_type_np[:-1]):
+        raise ValueError("cat_type must be ordered by category type")
+
+    starts = []
+    ends = []
+    s = 0
+    for i in range(1, len(cat_type_np)):
+        if cat_type_np[i] != cat_type_np[i - 1]:
+            starts.append(s)
+            ends.append(i)
+            s = i
+    starts.append(s)
+    ends.append(len(cat_type_np))
+    return starts, ends
+
+
+def _ordered_brier_by_question(prob_obs, y_obs, q_obs_0, Qc, Kc):
+    """Compute ordinal Brier score by question for one category type."""
+    Km1 = Kc - 1
+    out = jnp.zeros((Qc,))
+
+    if Km1 <= 0:
+        return out
+
+    cumsum_brier = jnp.triu(jnp.ones((Kc, Km1)))
+    cum_pred = prob_obs @ cumsum_brier
+
+    y_obs_1 = y_obs.astype(jnp.int32)
+    ks = jnp.arange(1, Km1 + 1)
+    cum_obs = (y_obs_1[:, None] <= ks[None, :]).astype(prob_obs.dtype)
+
+    score_obs = jnp.sum((cum_pred - cum_obs) ** 2, axis=1) / Km1
+
+    for q in range(Qc):
+        mask = q_obs_0 == q
+        count = jnp.sum(mask)
+        mean_q = jnp.where(count > 0, jnp.sum(jnp.where(mask, score_obs, 0.0)) / count, 0.0)
+        out = out.at[q].set(mean_q)
+
+    return out
+
+
+def ordered_logit_ncats(data, sample_ypred=True, compute_generated=True):
+    """
+    NumPyro ordered logit model with arbitrary category types.
+
+    Expected data keys match Stan data block names:
+    C, P, U, P_pr, N, Q, K, N_total, Q_total,
+    y, unit_of_obs, question_of_obs, cat_type, X, Xpr_id.
+
+    Indexing conventions in input data follow Stan (1-indexed where applicable).
+    """
+    C = int(data['C'])
+    P = int(data['P'])
+    U = int(data['U'])
+    P_pr = int(data['P_pr'])
+
+    N = np.asarray(data['N'], dtype=int)
+    Q = np.asarray(data['Q'], dtype=int)
+    K = np.asarray(data['K'], dtype=int)
+
+    N_total = int(data['N_total'])
+    Q_total = int(data['Q_total'])
+    Q_max = int(np.max(Q))
+    K_max = int(np.max(K))
+
+    y = jnp.asarray(data['y']).astype(jnp.int32)
+    unit_of_obs_0 = jnp.asarray(data['unit_of_obs']).astype(jnp.int32) - 1
+    question_of_obs_0 = jnp.asarray(data['question_of_obs']).astype(jnp.int32) - 1
+    cat_type = np.asarray(data['cat_type'], dtype=int)
+    X = jnp.asarray(data['X'])
+    Xpr_id_0 = np.asarray(data['Xpr_id'], dtype=int) - 1
+
+    if N_total != int(np.sum(N)):
+        raise ValueError("N_total must equal sum(N)")
+    if Q_total != int(np.sum(Q)):
+        raise ValueError("Q_total must equal sum(Q)")
+
+    cat_starts, cat_ends = _cat_ranges(cat_type)
+
+    # Offsets per category type.
+    skill_inc_offset = np.zeros((C,), dtype=int)  # for skill_thresholds_incs
+    cutpoint_offset = np.zeros((C,), dtype=int)  # for cutpoints output
+    ordered_prob_offset = np.zeros((C,), dtype=int)
+    loadings_offset = np.zeros((C,), dtype=int)
+    q_offset = np.zeros((C,), dtype=int)  # for skill_thresholds_1 (Q_total-long)
+
+    for c in range(1, C):
+        skill_inc_offset[c] = skill_inc_offset[c - 1] + Q[c - 1] * (K[c - 1] - 2)
+        cutpoint_offset[c] = cutpoint_offset[c - 1] + Q[c - 1] * (K[c - 1] - 1)
+        ordered_prob_offset[c] = ordered_prob_offset[c - 1] + Q[c - 1] * K[c - 1]
+        loadings_offset[c] = loadings_offset[c - 1] + (Q[c - 1] - 1)
+        q_offset[c] = q_offset[c - 1] + Q[c - 1]
+
+    skill_threshold_total_length = int(np.sum(Q * (K - 2)))
+    cutpoint_total_length = int(np.sum(Q * (K - 1)))
+    ordered_prob_length = int(np.sum(Q * K))
+
+    s2z_sd_unit = 1.0 / jnp.sqrt(1.0 - 1.0 / U)
+
+    latent_factor_unit = numpyro.sample(
+        'latent_factor_unit',
+        dist.ZeroSumNormal(scale=s2z_sd_unit, event_shape=(U,)),
+    )
+    latent_factor_beta = numpyro.sample('latent_factor_beta', dist.Normal(0, 1).expand([P]))
+
+    skill_thresholds_1 = numpyro.sample(
+        'skill_thresholds_1',
+        dist.Normal(0, 3.5).expand([Q_total]),
+    )
+    # Stan: vector<lower=0>[skill_threshold_total_length] skill_thresholds_incs ~ normal(0, 2.5).
+    # FoldedDistribution(Normal(0, 2.5)) gives the matching half-normal on [0, inf).
+    if skill_threshold_total_length > 0:
+        skill_thresholds_incs = numpyro.sample(
+            'skill_thresholds_incs',
+            dist.FoldedDistribution(dist.Normal(0.0, 2.5)).expand([skill_threshold_total_length]),
+        )
+    else:
+        skill_thresholds_incs = jnp.zeros((0,))
+
+    # Stan: vector<lower=0>[Q_total - C] loadings_questions_m1 ~ student_t(3, 0, 1).
+    loadings_questions_m1 = numpyro.sample(
+        'loadings_questions_m1',
+        dist.FoldedDistribution(dist.StudentT(df=3.0, loc=0.0, scale=1.0)).expand([Q_total - C]),
+    )
+
+    cutpoints_flat = jnp.zeros((cutpoint_total_length,))
+    log_lik = jnp.zeros((N_total,))
+    if compute_generated:
+        ordered_prob_by_cat_qu_fit = jnp.zeros((ordered_prob_length,))
+        ordered_prob_by_cat_qu_pr = jnp.zeros((ordered_prob_length,))
+        ordinal_brier_score = jnp.zeros((C, Q_max))
+
+    if sample_ypred:
+        # ypred drawn via an equivalent multi-class Categorical on per-obs cell probabilities.
+        prob_padded = jnp.full((N_total, K_max), 0.0)
+
+    for c in range(C):
+        Nc = int(N[c])
+        Qc = int(Q[c])
+        Kc = int(K[c])
+        Km1c = Kc - 1
+        Km2c = Kc - 2
+
+        s_obs = cat_starts[c]
+        e_obs = cat_ends[c]
+
+        y_c = y[s_obs:e_obs]
+        u_c = unit_of_obs_0[s_obs:e_obs]
+        q_c0 = question_of_obs_0[s_obs:e_obs]
+
+        q_off = q_offset[c]
+        skill_1_c = skill_thresholds_1[q_off:q_off + Qc]
+
+        if Km2c > 0:
+            s_incs = skill_inc_offset[c]
+            e_incs = s_incs + Qc * Km2c
+            skill_incs_c = jnp.reshape(skill_thresholds_incs[s_incs:e_incs], (Qc, Km2c))
+        else:
+            skill_incs_c = jnp.zeros((Qc, 0))
+
+        s_load = loadings_offset[c]
+        e_load = s_load + (Qc - 1)
+        load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
+
+        cutpoints_c = cm_get_cutpoints_noncentered(skill_1_c, skill_incs_c, load_c)
+        # Flatten row-major to match Stan's `to_vector(cutpoints_c')` (since transpose then vectorize
+        # in Stan column-major effectively walks row by row).
+        cp_start = cutpoint_offset[c]
+        cp_end = cp_start + Qc * Km1c
+        cutpoints_flat = cutpoints_flat.at[cp_start:cp_end].set(cutpoints_c.reshape(-1))
+
+        latent_obs_c = latent_factor_unit[u_c] + X[s_obs:e_obs, :] @ latent_factor_beta
+        eta_c = ol_get_etas(load_c, latent_obs_c, q_c0)
+
+        cutpoints_per_obs_c = cutpoints_c[q_c0, :]  # (Nc, Kc-1)
+
+        log_lik_c = ordered_logistic_lpmf(y_c, eta_c, cutpoints_per_obs_c)
+        log_lik = log_lik.at[s_obs:e_obs].set(log_lik_c)
+
+        if sample_ypred or compute_generated:
+            prob_c = _per_obs_ordered_probs(eta_c, cutpoints_per_obs_c)
+
+        if sample_ypred:
+            prob_padded = prob_padded.at[s_obs:e_obs, :Kc].set(prob_c)
+
+        if compute_generated:
+            by_q = jnp.zeros((Qc, Kc)).at[q_c0, :].add(prob_c)
+            cnt_q = jnp.zeros((Qc,)).at[q_c0].add(1.0)
+
+            by_q_mean = by_q / cnt_q[:, None]
+            s_prob = ordered_prob_offset[c]
+            ordered_prob_by_cat_qu_fit = ordered_prob_by_cat_qu_fit.at[
+                s_prob:s_prob + Qc * Kc
+            ].set(by_q_mean.reshape(-1))
+
+            obs_brier = _ordered_brier_by_question(prob_c, y_c, q_c0, Qc, Kc)
+            ordinal_brier_score = ordinal_brier_score.at[c, :Qc].set(obs_brier)
+
+        numpyro.factor(f'cat_{c + 1}_likelihood', jnp.sum(log_lik_c))
+
+    if sample_ypred:
+        # Sample ypred via Categorical on per-obs probs; Stan ordered_logistic_rng is equivalent.
+        ypred_raw = numpyro.sample('ypred_raw', dist.Categorical(probs=prob_padded))
+        ypred = numpyro.deterministic('ypred', ypred_raw + 1)
+
+    if compute_generated:
+        if P_pr == P:
+            ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit
+        else:
+            beta_pr = latent_factor_beta[jnp.asarray(Xpr_id_0)]
+            X_pr = X[:, jnp.asarray(Xpr_id_0)]
+
+            for c in range(C):
+                Nc = int(N[c])
+                Qc = int(Q[c])
+                Kc = int(K[c])
+                Km1c = Kc - 1
+                Km2c = Kc - 2
+
+                s_obs = cat_starts[c]
+                e_obs = cat_ends[c]
+                q_c0 = question_of_obs_0[s_obs:e_obs]
+
+                q_off = q_offset[c]
+                skill_1_c = skill_thresholds_1[q_off:q_off + Qc]
+
+                if Km2c > 0:
+                    s_incs = skill_inc_offset[c]
+                    e_incs = s_incs + Qc * Km2c
+                    skill_incs_c = jnp.reshape(skill_thresholds_incs[s_incs:e_incs], (Qc, Km2c))
+                else:
+                    skill_incs_c = jnp.zeros((Qc, 0))
+
+                s_load = loadings_offset[c]
+                e_load = s_load + (Qc - 1)
+                load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
+
+                cutpoints_c = cm_get_cutpoints_noncentered(skill_1_c, skill_incs_c, load_c)
+
+                latent_obs_pr_c = X_pr[s_obs:e_obs, :] @ beta_pr
+                eta_pr_c = ol_get_etas(load_c, latent_obs_pr_c, q_c0)
+                cutpoints_per_obs_pr_c = cutpoints_c[q_c0, :]
+                prob_pr_c = _per_obs_ordered_probs(eta_pr_c, cutpoints_per_obs_pr_c)
+
+                by_q_pr = jnp.zeros((Qc, Kc)).at[q_c0, :].add(prob_pr_c)
+                cnt_q_pr = jnp.zeros((Qc,)).at[q_c0].add(1.0)
+
+                by_q_pr_mean = by_q_pr / cnt_q_pr[:, None]
+                s_prob = ordered_prob_offset[c]
+                ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_pr.at[
+                    s_prob:s_prob + Qc * Kc
+                ].set(by_q_pr_mean.reshape(-1))
+
+        numpyro.deterministic('cutpoints', cutpoints_flat)
+        numpyro.deterministic('ordered_prob_by_cat_qu_fit', ordered_prob_by_cat_qu_fit)
+        numpyro.deterministic('ordered_prob_by_cat_qu_pr', ordered_prob_by_cat_qu_pr)
+        numpyro.deterministic('log_lik', log_lik)
+        numpyro.deterministic('ordinal_brier_score', ordinal_brier_score)
+
+
+def get_log_likelihood_ncats(data, params):
+    """Compute pointwise log likelihood for a fitted parameter set."""
+    C = int(data['C'])
+    N = np.asarray(data['N'], dtype=int)
+    Q = np.asarray(data['Q'], dtype=int)
+    K = np.asarray(data['K'], dtype=int)
+    N_total = int(data['N_total'])
+
+    y = jnp.asarray(data['y']).astype(jnp.int32)
+    unit_of_obs_0 = jnp.asarray(data['unit_of_obs']).astype(jnp.int32) - 1
+    question_of_obs_0 = jnp.asarray(data['question_of_obs']).astype(jnp.int32) - 1
+    cat_type = np.asarray(data['cat_type'], dtype=int)
+    X = jnp.asarray(data['X'])
+
+    latent_factor_unit = params['latent_factor_unit']
+    latent_factor_beta = params['latent_factor_beta']
+    skill_thresholds_1 = params['skill_thresholds_1']
+    skill_thresholds_incs = params['skill_thresholds_incs']
+    loadings_questions_m1 = params['loadings_questions_m1']
+
+    cat_starts, cat_ends = _cat_ranges(cat_type)
+
+    skill_inc_offset = np.zeros((C,), dtype=int)
+    loadings_offset = np.zeros((C,), dtype=int)
+    q_offset = np.zeros((C,), dtype=int)
+    for c in range(1, C):
+        skill_inc_offset[c] = skill_inc_offset[c - 1] + Q[c - 1] * (K[c - 1] - 2)
+        loadings_offset[c] = loadings_offset[c - 1] + (Q[c - 1] - 1)
+        q_offset[c] = q_offset[c - 1] + Q[c - 1]
+
+    out = jnp.zeros((N_total,))
+
+    for c in range(C):
+        Qc = int(Q[c])
+        Kc = int(K[c])
+        Km1c = Kc - 1
+        Km2c = Kc - 2
+
+        s_obs = cat_starts[c]
+        e_obs = cat_ends[c]
+
+        y_c = y[s_obs:e_obs]
+        u_c = unit_of_obs_0[s_obs:e_obs]
+        q_c0 = question_of_obs_0[s_obs:e_obs]
+
+        q_off = q_offset[c]
+        skill_1_c = skill_thresholds_1[q_off:q_off + Qc]
+
+        if Km2c > 0:
+            s_incs = skill_inc_offset[c]
+            e_incs = s_incs + Qc * Km2c
+            skill_incs_c = jnp.reshape(skill_thresholds_incs[s_incs:e_incs], (Qc, Km2c))
+        else:
+            skill_incs_c = jnp.zeros((Qc, 0))
+
+        s_load = loadings_offset[c]
+        e_load = s_load + (Qc - 1)
+        load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
+
+        cutpoints_c = cm_get_cutpoints_noncentered(skill_1_c, skill_incs_c, load_c)
+
+        latent_obs_c = latent_factor_unit[u_c] + X[s_obs:e_obs, :] @ latent_factor_beta
+        eta_c = ol_get_etas(load_c, latent_obs_c, q_c0)
+        cutpoints_per_obs_c = cutpoints_c[q_c0, :]
+
+        out = out.at[s_obs:e_obs].set(ordered_logistic_lpmf(y_c, eta_c, cutpoints_per_obs_c))
+
+    return out

@@ -1,7 +1,7 @@
 """
 Model fitting functions for Bayesian IRT analysis.
 
-This module provides functions for fitting partial credit models
+This module provides functions for fitting ordered logit models (ncats)
 using Stochastic Variational Inference (SVI) with NumPyro.
 """
 
@@ -34,30 +34,12 @@ from utils import (
     _plot_ppcheck,
     _compute_ordinal_brier_scores,
     _plot_prob_barplots,
-    _fit_partial_credit_make_stan_data,
+    _fit_ordered_logit_make_stan_data,
 )
 
 
 def _get_autoguide_factory(algorithm: str) -> Callable:
-    """
-    Get the autoguide factory for the specified algorithm.
-
-    Parameters
-    ----------
-    algorithm : str
-        One of 'AutoLaplaceApproximation', 'AutoMultivariateNormal',
-        'AutoDiagonalNormal', 'AutoIAFNormal'.
-
-    Returns
-    -------
-    Callable
-        Autoguide factory class.
-
-    Raises
-    ------
-    ValueError
-        If algorithm is not recognized.
-    """
+    """Get the autoguide factory for the specified algorithm."""
     factories = {
         'AutoLaplaceApproximation': AutoLaplaceApproximation,
         'AutoMultivariateNormal': AutoMultivariateNormal,
@@ -73,45 +55,22 @@ def _get_autoguide_factory(algorithm: str) -> Callable:
 
 
 def _make_idata_from_svi_posterior(stan_data: Dict, posterior_samples: Dict, predictions: Dict) -> object:
-    """
-    Build an ArviZ InferenceData object from SVI posterior samples.
-
-    Parameters
-    ----------
-    stan_data : dict
-        Stan data dict used for the model.
-    posterior_samples : dict
-        Dictionary of posterior samples from numpyro model, with shape (n_draws, *param_shape).
-    predictions : dict
-        Dictionary of generated quantity samples, with shape (n_draws, *var_shape).
-
-    Returns
-    -------
-    arviz.InferenceData
-        InferenceData containing posterior draws in standard Stan format.
-    """
-    # Keep a reference for future schema checks (expected by caller contract).
+    """Build an ArviZ InferenceData object from SVI posterior samples."""
     _ = stan_data
-
-    # Reshape all samples to (1, n_draws, *shape) for chain/draw dims
     posterior_dict = {}
     dims = {}
 
     for var_name, samples in posterior_samples.items():
         if var_name.startswith('_'):
             continue
-
         samples_arr = np.asarray(samples)
         if samples_arr.ndim == 1:
-            # Scalar parameter
             posterior_dict[var_name] = samples_arr.reshape(1, -1)
         else:
-            # Multi-dimensional parameter: (n_draws, *shape) -> (1, n_draws, *shape)
             posterior_dict[var_name] = samples_arr[np.newaxis, ...]
             ndim = samples_arr.ndim - 1
             dims[var_name] = [f"{var_name}_dim_{i}" for i in range(ndim)]
 
-    # Include generated quantities in posterior to match existing ADVI/HMC zarr layout.
     for var_name, samples in predictions.items():
         samples_arr = np.asarray(samples)
         if samples_arr.ndim == 1:
@@ -124,7 +83,7 @@ def _make_idata_from_svi_posterior(stan_data: Dict, posterior_samples: Dict, pre
     return az.from_dict(posterior=posterior_dict, dims=dims)
 
 
-def fit_partial_credit_model_ncats_pyrosvi(
+def fit_ordered_logit_model_ncats_pyrosvi(
     dit: pd.DataFrame,
     dcati: pd.DataFrame,
     output_file_prefix: str,
@@ -140,57 +99,14 @@ def fit_partial_credit_model_ncats_pyrosvi(
     with_additional_analyses: bool = False,
 ) -> Dict:
     """
-    Run partial credit model analysis (ncats version) using SVI with NumPyro.
+    Run ordered logit model analysis (ncats version) using SVI with NumPyro.
 
-    This function performs Bayesian IRT analysis using the flexible ncats partial credit model
-    with Stochastic Variational Inference (SVI) as the approximate inference backend.
-
-    Parameters
-    ----------
-    dit : pd.DataFrame
-        Item metadata table with item types and labels.
-    dcati : pd.DataFrame
-        Pre-processed data with observations for analysis. Must include
-        item_type, y_stan, item_time_id, pid, and oidt columns.
-    output_file_prefix : str
-        Full path prefix for output files (without extension).
-    x_formula : str, default "~ time - 1"
-        Patsy formula string specifying predictors for the design matrix.
-    x_formula_ignore_regex : str, optional
-        Regular expression pattern to identify X columns to exclude from posterior predictive.
-    algorithm : str, default 'AutoDiagonalNormal'
-        Autoguide algorithm to use. One of:
-        - 'AutoLaplaceApproximation': Laplace approximation
-        - 'AutoMultivariateNormal': Full covariance Gaussian
-        - 'AutoDiagonalNormal': Diagonal covariance Gaussian
-        - 'AutoIAFNormal': Inverse autoregressive flow with Gaussian base
-    lr : float, default 0.01
-        Learning rate for the Adam optimizer.
-    num_steps : int, default 10000
-        Number of SVI optimization steps.
-    output_samples : int, default 4000
-        Number of samples to draw from the learned approximate posterior.
-    seed : int, default 123
-        Random seed for reproducibility.
-    resume : bool, default False
-        If True and all output files exist, skip SVI and load existing results.
-    with_core_analyses : bool, default True
-        If True, generate core probability plots.
-    with_additional_analyses : bool, default False
-        If True, generate additional diagnostic plots.
-
-    Returns
-    -------
-    dict
-        Dictionary containing:
-        - 'posterior_samples': Dictionary of posterior samples from SVI
-        - 'draws': InferenceData object with posterior draws
-        - 'timing': DataFrame with timing information
-        - 'algorithm': str, the algorithm name used
+    Mirrors ``fit_partial_credit_model_ncats_pyrosvi`` but loads the ordered
+    logit numpyro model and uses ``_fit_ordered_logit_make_stan_data``.
     """
 
     print("\n" + "=" * 40)
-    print("Partial Credit Model (ncats) SVI Analysis Configuration")
+    print("Ordered Logit Model (ncats) SVI Analysis Configuration")
     print("=" * 40)
     print(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
     print(f"Output prefix: {output_file_prefix}")
@@ -225,7 +141,7 @@ def fit_partial_credit_model_ncats_pyrosvi(
     )
 
     print("Preparing Stan data in ncats format...")
-    stan_data = _fit_partial_credit_make_stan_data(
+    stan_data = _fit_ordered_logit_make_stan_data(
         dit=dit,
         dcati=dcati,
         x_formula=x_formula,
@@ -236,13 +152,10 @@ def fit_partial_credit_model_ncats_pyrosvi(
         print("\n" + "=" * 40)
         print("RESUMING from existing outputs")
         print("=" * 40)
-
         print(f"Loading posterior samples from: {posterior_samples_file}")
         posterior_samples = pd.read_pickle(posterior_samples_file)
-
         print(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
-
         print(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
         print("=" * 40 + "\n")
@@ -250,41 +163,31 @@ def fit_partial_credit_model_ncats_pyrosvi(
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
 
-        # Import model from .pyro source file.
         print("Loading NumPyro model...")
-        numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "partial_credit_model_ncats_v260413.pyro"
+        numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "ordered_logit_ncats_v260413.pyro"
         if not numpyro_model_file.exists():
             raise FileNotFoundError(f"NumPyro model file not found: {numpyro_model_file}")
 
         model_ns = runpy.run_path(str(numpyro_model_file))
-        if "partial_credit_model_ncats" not in model_ns:
+        if "ordered_logit_ncats" not in model_ns:
             raise AttributeError(
-                f"Function 'partial_credit_model_ncats' not found in {numpyro_model_file}"
+                f"Function 'ordered_logit_ncats' not found in {numpyro_model_file}"
             )
-        partial_credit_model_ncats = model_ns["partial_credit_model_ncats"]
+        ordered_logit_ncats = model_ns["ordered_logit_ncats"]
 
-        # Use a lean variant during SVI optimization:
-        # - sample_ypred=False avoids discrete-latent funsor dependency
-        # - compute_generated=False skips expensive generated-quantity tracing
         model_for_svi = partial(
-            partial_credit_model_ncats,
+            ordered_logit_ncats,
             sample_ypred=False,
             compute_generated=False,
         )
 
-        # Get autoguide factory
         guide_factory = _get_autoguide_factory(algorithm)
-
-        # Initialize JAX RNG
         rng_key = jax.random.PRNGKey(seed)
 
         print("Running SVI with Adam optimizer...")
         print(f"  Algorithm: {algorithm}")
 
-        # Create guide
         guide = guide_factory(model_for_svi)
-
-        # Create SVI object
         svi = SVI(
             model_for_svi,
             guide,
@@ -292,7 +195,6 @@ def fit_partial_credit_model_ncats_pyrosvi(
             Trace_ELBO(),
         )
 
-        # Initialize SVI state
         print("Initializing SVI state...")
         t_init0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
@@ -300,7 +202,6 @@ def fit_partial_credit_model_ncats_pyrosvi(
         init_minutes = (time.time() - t_init0) / 60.0
         print(f"  SVI init completed in {init_minutes:.2f} minutes")
 
-        # Run SVI optimization using the compiled run loop.
         print(f"Optimizing variational parameters for {num_steps} steps...")
         t_opt0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
@@ -323,7 +224,6 @@ def fit_partial_credit_model_ncats_pyrosvi(
 
         print(f"\nSVI optimization completed in {opt_minutes:.2f} minutes (after {init_minutes:.2f} min init)")
 
-        # Extract posterior samples from learned guide
         print(f"Sampling {output_samples} draws from the learned approximate posterior...")
         t_post0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
@@ -344,17 +244,15 @@ def fit_partial_credit_model_ncats_pyrosvi(
         post_minutes = (time.time() - t_post0) / 60.0
         print(f"  Posterior sampling completed in {post_minutes:.2f} minutes")
 
-        # Re-run model with posterior samples to get generated quantities
         print("Generating posterior predictive samples...")
-
-        # Use predictive to get generated quantities
         from numpyro.infer import Predictive
 
         predictive = Predictive(
-            partial_credit_model_ncats,
+            ordered_logit_ncats,
             posterior_samples=posterior_samples_dict,
             return_sites=['log_lik', 'ypred', 'ordered_prob_by_cat_qu_fit',
-                         'ordered_prob_by_cat_qu_pr', 'ordinal_brier_score'],
+                         'ordered_prob_by_cat_qu_pr', 'ordinal_brier_score',
+                         'cutpoints'],
         )
 
         t_pred0 = time.time()
@@ -396,7 +294,8 @@ def fit_partial_credit_model_ncats_pyrosvi(
         key_vars_pattern = '|'.join([
             'latent_factor_unit',
             'latent_factor_beta',
-            'skill_thresholds',
+            'skill_thresholds_1',
+            'skill_thresholds_incs',
             'loadings_questions_m1',
         ])
 
@@ -414,10 +313,8 @@ def fit_partial_credit_model_ncats_pyrosvi(
                 textsize=8,
                 figsize=(18, min(160, max(30, len(var_names) * 1.1))),
             )
-
             for ax in np.ravel(np.atleast_1d(p)):
                 ax.tick_params(axis='y', labelsize=6)
-
             plt.subplots_adjust(left=0.42, right=0.98, top=0.98, bottom=0.02)
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()

@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 """
-Investigate ADVI vs HMC for partial credit model on Ukraine data
+Investigate ADVI vs HMC for ordered logit model on Ukraine data
 
-Date: 2026-04-30
+Date: 2026-05-26
 
-This script applies the partial credit model (ncats v260413) to the Ukraine data
-for comparison with other IRT models. It mirrors the Colombia analysis script
-(``scripts-py/Colombia_analysis_partial_credit_ADVI-HMC-pyro.py``).
-
-Ported from: ``scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd``
-            (Ukraine sections starting around line 498).
+This script applies the ordered logit model (ncats v260413) to the Ukraine data
+for comparison with other IRT models. It mirrors
+``scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py`` but swaps the
+partial credit model for the ordered logit model.
 
 Usage:
     # Option 1: Run as script
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py
+    pixi run python scripts-py/Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py
 
     # Option 2: Run interactively line-by-line
     cd /Users/or105/git/bIRTistic
     pixi run python
     >>> exec(open('scripts-py/__init__.py').read())  # Setup paths
-    >>> exec(open('scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py').read())
+    >>> exec(open('scripts-py/Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py').read())
 """
 
 # %%
@@ -64,9 +62,9 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_ukraine
-from fit_partial_credit_model_ncats_stanadvi import fit_partial_credit_model_ncats_stanadvi
-from fit_partial_credit_model_ncats_stanhmc import fit_partial_credit_model_ncats_stanhmc
-from fit_partial_credit_model_ncats_pyrosvi import fit_partial_credit_model_ncats_pyrosvi
+from fit_ordered_logit_model_ncats_stanadvi import fit_ordered_logit_model_ncats_stanadvi
+from fit_ordered_logit_model_ncats_stanhmc import fit_ordered_logit_model_ncats_stanhmc
+from fit_ordered_logit_model_ncats_pyrosvi import fit_ordered_logit_model_ncats_pyrosvi
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -87,26 +85,26 @@ dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
 
 # Output directories
-dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-ukraine-partial_credit-260430-vanilla-advi-hmc-pyro"
+dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-ukraine-ordered_logit-260430-vanilla-advi-hmc-pyro"
 dir_logs_pcm = os.path.join(dir_out_pcm, "logs")
 
 # Create output directories
 os.makedirs(dir_out_pcm, exist_ok=True)
 os.makedirs(dir_logs_pcm, exist_ok=True)
 
-output_file_prefix = os.path.join(dir_out_pcm, "pcm_1")
-output_file_prefix_hmc = os.path.join(dir_out_pcm, "pcm_1_hmc")
-output_file_prefix_advi = os.path.join(dir_out_pcm, "pcm_1_advi")
+output_file_prefix = os.path.join(dir_out_pcm, "ol_1")
+output_file_prefix_hmc = os.path.join(dir_out_pcm, "ol_1_hmc")
+output_file_prefix_advi = os.path.join(dir_out_pcm, "ol_1_advi")
 svi_algorithm_autodiagnormal = "AutoDiagonalNormal"
 svi_algorithm_autolaplaceapproximation = 'AutoLaplaceApproximation'
 svi_algorithm_automultivariatenormal = 'AutoMultivariateNormal'
 svi_algorithm_autolowrankmultivariatenormal = 'AutoLowRankMultivariateNormal'
 svi_algorithm_autoiafnormal = 'AutoIAFNormal'
-output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autodiagnormal")
-output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "pcm_1_svi_autolaplaceapproximation")
-output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_automultivariatenormal")
-output_file_svi_autolowrankmultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_autolowrankmultivariatenormal")
-output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autoiafnormal")
+output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "ol_1_svi_autodiagnormal")
+output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "ol_1_svi_autolaplaceapproximation")
+output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "ol_1_svi_automultivariatenormal")
+output_file_svi_autolowrankmultivariatenormal = os.path.join(dir_out_pcm, "ol_1_svi_autolowrankmultivariatenormal")
+output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "ol_1_svi_autoiafnormal")
 
 # Endpoint summarization: Ukraine uses categorical_threshold=2 (Colombia uses 3)
 categorical_threshold = 2
@@ -174,7 +172,7 @@ print(f"  Items: {dp1_ukr['item_label'].nunique()}")
 print(f"  Item types: {sorted(dp1_ukr['item_type'].unique())}")
 
 # Save data for model fitting
-tmp = os.path.join(dir_out_pcm, "pcm_1_data.pkl")
+tmp = os.path.join(dir_out_pcm, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
 
@@ -184,11 +182,11 @@ pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_partial_credit_model_ncats_stanhmc(
+result_hmc = fit_ordered_logit_model_ncats_stanhmc(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_prefix_hmc,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     chains=4,
     parallel_chains=4,
     threads_per_chain=1,
@@ -212,11 +210,11 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_partial_credit_model_ncats_stanadvi(
+result_advi = fit_ordered_logit_model_ncats_stanadvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_prefix_advi,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
@@ -238,7 +236,7 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # Model Fitting - SVI AutoDiagonalNormal
 # =============================================================================
 
-result_svi_autodiagnormal = fit_partial_credit_model_ncats_pyrosvi(
+result_svi_autodiagnormal = fit_ordered_logit_model_ncats_pyrosvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_svi_autodiagnormal,
@@ -263,7 +261,7 @@ print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
 # Model Fitting - SVI AutoLaplaceApproximation
 # =============================================================================
 
-result_svi_autolaplaceapproximation = fit_partial_credit_model_ncats_pyrosvi(
+result_svi_autolaplaceapproximation = fit_ordered_logit_model_ncats_pyrosvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_svi_autolaplaceapproximation,
@@ -288,7 +286,7 @@ print(f"  Draws file: {output_file_svi_autolaplaceapproximation}_draws.zarr")
 # Model Fitting - SVI AutoMultivariateNormal
 # =============================================================================
 
-result_svi_automultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
+result_svi_automultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_svi_automultivariatenormal,
@@ -313,7 +311,7 @@ print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
 # Model Fitting - SVI AutoLowRankMultivariateNormal
 # =============================================================================
 
-result_svi_autolowrankmultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
+result_svi_autolowrankmultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_svi_autolowrankmultivariatenormal,
@@ -338,7 +336,7 @@ print(f"  Draws file: {output_file_svi_autolowrankmultivariatenormal}_draws.zarr
 # Model Fitting - SVI Auto IAF Normal
 # =============================================================================
 
-result_svi_autoiafnormal = fit_partial_credit_model_ncats_pyrosvi(
+result_svi_autoiafnormal = fit_ordered_logit_model_ncats_pyrosvi(
     dit_ukr,
     dp1_ukr,
     output_file_prefix=output_file_svi_autoiafnormal,
@@ -639,7 +637,7 @@ print(f"Saved plot to: {tmp}")
 # =============================================================================
 
 print("\n" + "="*70)
-print("COMPARING PARTIAL CREDIT PROBABILITIES")
+print("COMPARING ORDERED LOGIT PROBABILITIES")
 print("="*70)
 
 pos = []
@@ -680,7 +678,7 @@ print(f"\nTop 10 items with largest median probability differences across all me
 print(pos.head(10)[['item_label', 'time_label', 'y'] + tmp + ['Empirical', 'abs_median_range']])
 
 # Save combined results
-tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_all_methods.csv")
+tmp = os.path.join(dir_out_pcm, "comparison_ol_prob_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved ordered_prob comparison to: {tmp}")
 
@@ -763,7 +761,7 @@ p = (
     + labs(x='', y='probability', fill='Method')
 )
 
-tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_by_item.pdf")
+tmp = os.path.join(dir_out_pcm, "comparison_ol_prob_by_item.pdf")
 print(f"Printed combined plot: {tmp}")
 p.save(tmp, width=14, height=max(8, 2.5 * pos_plot['item_label_long'].nunique()), units='in', limitsize=False)
 
@@ -781,7 +779,8 @@ print("="*70)
 # Define parameter groups to extract
 model_pars = [
     'latent_factor_unit',
-    'skill_thresholds',
+    'skill_thresholds_1',
+    'skill_thresholds_incs',
     'loadings_questions_m1',
 ]
 

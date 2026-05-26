@@ -56,7 +56,6 @@ from plotnine import (
     scale_fill_manual, scale_color_manual, theme_minimal, theme_bw, theme, element_text,
     element_blank, labs, position_dodge, coord_flip, ggsave, scale_y_continuous
 )
-from ggsci import scale_fill_futurama
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from PIL import Image
@@ -100,10 +99,12 @@ output_file_prefix_advi = os.path.join(dir_out_pcm, "pcm_1_advi")
 svi_algorithm_autodiagnormal = "AutoDiagonalNormal"
 svi_algorithm_autolaplaceapproximation = 'AutoLaplaceApproximation'
 svi_algorithm_automultivariatenormal = 'AutoMultivariateNormal'
+svi_algorithm_autolowrankmultivariatenormal = 'AutoLowRankMultivariateNormal'
 svi_algorithm_autoiafnormal = 'AutoIAFNormal'
 output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autodiagnormal")
 output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "pcm_1_svi_autolaplaceapproximation")
 output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_automultivariatenormal")
+output_file_svi_autolowrankmultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_autolowrankmultivariatenormal")
 output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autoiafnormal")
 
 print(f"Data file: {file_data}")
@@ -305,6 +306,31 @@ print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
 # %%
 
 # =============================================================================
+# Model Fitting - SVI AutoLowRankMultivariateNormal
+# =============================================================================
+
+result_svi_autolowrankmultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
+    output_file_prefix=output_file_svi_autolowrankmultivariatenormal,
+    algorithm=svi_algorithm_autolowrankmultivariatenormal,
+    lr=0.01,
+    num_steps=10000,
+    output_samples=4000,
+    seed=seed,
+    x_formula="~ time - 1",
+    resume=True,
+    with_core_analyses=True,
+    with_additional_analyses=True,
+)
+
+print(f"\n✓ SVI fitting complete")
+print(f"  Algorithm: {result_svi_autolowrankmultivariatenormal['algorithm']}")
+print(f"  Draws file: {output_file_svi_autolowrankmultivariatenormal}_draws.zarr")
+
+# %%
+
+# =============================================================================
 # Model Fitting - SVI Auto IAF Normal
 # =============================================================================
 
@@ -362,6 +388,10 @@ method_cfg = {
         'draws_file': f"{output_file_svi_automultivariatenormal}_draws.zarr",
         'param_name': 'ordered_prob_by_cat_qu_pr',
     },
+    'numpyro_svi_autolowrankmultivariatenormal': {
+        'draws_file': f"{output_file_svi_autolowrankmultivariatenormal}_draws.zarr",
+        'param_name': 'ordered_prob_by_cat_qu_pr',
+    },
     'numpyro_svi_autoiafnormal': {
         'draws_file': f"{output_file_svi_autoiafnormal}_draws.zarr",
         'param_name': 'ordered_prob_by_cat_qu_pr',
@@ -402,8 +432,18 @@ posterior_by_method = {
     'numpyro_svi_autodiagnormal': result_svi_autodiagnormal['draws'].posterior,
     'numpyro_svi_autolaplaceapproximation': result_svi_autolaplaceapproximation['draws'].posterior,
     'numpyro_svi_automultivariatenormal': result_svi_automultivariatenormal['draws'].posterior,
+    'numpyro_svi_autolowrankmultivariatenormal': result_svi_autolowrankmultivariatenormal['draws'].posterior,
     'numpyro_svi_autoiafnormal': result_svi_autoiafnormal['draws'].posterior,
 }
+
+# Stable method -> futurama colour mapping so adding/removing methods does not
+# shift colours of others. Empirical gets its own slot used by the prob plots.
+from ggsci import pal_futurama
+_n_pal = 1 + len(method_order)  # +1 for the Empirical pseudo-method.
+_futurama_hex = list(pal_futurama()(_n_pal))
+method_colors = {'Empirical': _futurama_hex[0]}
+for _i, _m in enumerate(method_order, start=1):
+    method_colors[_m] = _futurama_hex[_i]
 
 # %%
 
@@ -499,7 +539,7 @@ p_diff = (
     geom_col(alpha=0.8, width=0.7) +
     geom_errorbar(aes(ymin='iqr_lower', ymax='iqr_upper'), width=0.3) +
     facet_wrap('~facet_label', scales='free', ncol=3) +
-    scale_fill_futurama() +
+    scale_fill_manual(values=method_colors, name='Method') +
     theme_bw() +
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
@@ -567,7 +607,7 @@ p_ratio = (
     geom_col(alpha=0.8, width=0.7) +
     geom_errorbar(aes(ymin='iqr_lower', ymax='iqr_upper'), width=0.3) +
     facet_wrap('~facet_label', scales='free', ncol=3) +
-    scale_fill_futurama() +
+    scale_fill_manual(values=method_colors, name='Method') +
     theme_bw() +
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=8),
@@ -617,13 +657,24 @@ pos = pos.pivot_table(
     aggfunc='first'
 ).reset_index()
 
+# Empirical frequencies per (time_label, item_label, y) joined as a separate column.
+_emp_n = dp1_col.groupby(['time_label', 'item_label', 'y']).size().reset_index(name='_emp_n')
+_emp_tot = dp1_col.groupby(['time_label', 'item_label']).size().reset_index(name='_emp_total')
+_emp = _emp_n.merge(_emp_tot, on=['time_label', 'item_label'])
+_emp['Empirical'] = _emp['_emp_n'] / _emp['_emp_total']
+pos = pos.merge(
+    _emp[['time_label', 'item_label', 'y', 'Empirical']],
+    on=['time_label', 'item_label', 'y'],
+    how='left',
+)
+
 tmp = [m for m in method_order if m in pos.columns]
 pos['abs_median_range'] = pos[tmp].max(axis=1) - pos[tmp].min(axis=1)
 pos = pos.sort_values('abs_median_range', ascending=False)
-        
+
 print(f"\nTop 10 items with largest median probability differences across all methods:")
-print(pos.head(10)[['item_label', 'time_label', 'y'] + tmp + ['abs_median_range']])
-    
+print(pos.head(10)[['item_label', 'time_label', 'y'] + tmp + ['Empirical', 'abs_median_range']])
+
 # Save combined results
 tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_all_methods.csv")
 pos.to_csv(tmp, index=False)
@@ -696,7 +747,7 @@ p = (
     )
     + facet_wrap('~ item_label_long +time_label', ncol = 3, scales='free')
     + scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l], limits=[0, None])
-    + scale_fill_futurama()
+    + scale_fill_manual(values=method_colors, name='Method')
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, va='top', ha='right', size=7),
@@ -795,7 +846,7 @@ p = (
         ),
     )
     + geom_boxplot(stat='identity', position=position_dodge(width=0.8), width=0.7)
-    + scale_fill_futurama()
+    + scale_fill_manual(values=method_colors, name='Method')
     + coord_flip()
     + theme_bw()
     + theme(
@@ -887,7 +938,7 @@ p = (
         ),
     )
     + geom_boxplot(stat='identity', position=position_dodge(width=0.8), width=0.7)
-    + scale_fill_futurama()
+    + scale_fill_manual(values=method_colors, name='Method')
     + coord_flip()
     + theme_bw()
     + theme(
@@ -924,6 +975,7 @@ timing_files = {
     'numpyro_svi_autodiagnormal':        f"{output_file_svi_autodiagnormal}_timing.csv",
     'numpyro_svi_autolaplaceapproximation': f"{output_file_svi_autolaplaceapproximation}_timing.csv",
     'numpyro_svi_automultivariatenormal':f"{output_file_svi_automultivariatenormal}_timing.csv",
+    'numpyro_svi_autolowrankmultivariatenormal': f"{output_file_svi_autolowrankmultivariatenormal}_timing.csv",
     'numpyro_svi_autoiafnormal':         f"{output_file_svi_autoiafnormal}_timing.csv",
 }
 
@@ -947,11 +999,14 @@ tmp = os.path.join(dir_out_pcm, "comparison_timing_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved timing comparison to: {tmp}")
 
+# Precompute label so geom_text always shows two decimal digits (round.astype(str) drops trailing zeros).
+pos['mins_total_label'] = pos['mins_total'].apply(lambda v: f"{v:.2f}")
+
 p = (
     ggplot(pos, aes(x='method', y='mins_total', fill='method')) +
     geom_col(alpha=0.9, width=0.7) +
-    geom_text(aes(label='mins_total.round(1).astype(str)'), va='bottom', size=9, nudge_y=0.02 * pos['mins_total'].max()) +
-    scale_fill_futurama() +
+    geom_text(aes(label='mins_total_label'), va='bottom', size=9, nudge_y=0.02 * pos['mins_total'].max()) +
+    scale_fill_manual(values=method_colors, name='Method') +
     theme_bw() +
     theme(
         axis_text_x=element_text(angle=45, hjust=1, size=9),

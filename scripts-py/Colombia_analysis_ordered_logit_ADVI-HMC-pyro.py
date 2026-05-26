@@ -1,26 +1,24 @@
 #!/usr/bin/env python3
 """
-Investigate ADVI vs HMC for partial credit model on Ukraine data
+Investigate ADVI vs HMC for ordered logit model on Colombia data
 
-Date: 2026-04-30
+Date: 2026-05-26
 
-This script applies the partial credit model (ncats v260413) to the Ukraine data
-for comparison with other IRT models. It mirrors the Colombia analysis script
-(``scripts-py/Colombia_analysis_partial_credit_ADVI-HMC-pyro.py``).
-
-Ported from: ``scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd``
-            (Ukraine sections starting around line 498).
+This script applies the ordered logit model (ncats v260413) to the Colombia
+data for comparison with other IRT models. It mirrors
+``scripts-py/Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py`` but uses
+the Colombia dataset (categorical_threshold = 3).
 
 Usage:
     # Option 1: Run as script
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py
+    pixi run python scripts-py/Colombia_analysis_ordered_logit_ADVI-HMC-pyro.py
 
     # Option 2: Run interactively line-by-line
     cd /Users/or105/git/bIRTistic
     pixi run python
     >>> exec(open('scripts-py/__init__.py').read())  # Setup paths
-    >>> exec(open('scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py').read())
+    >>> exec(open('scripts-py/Colombia_analysis_ordered_logit_ADVI-HMC-pyro.py').read())
 """
 
 # %%
@@ -63,10 +61,10 @@ from PIL import Image
 import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
-from data_loading import read_data_ukraine
-from fit_partial_credit_model_ncats_stanadvi import fit_partial_credit_model_ncats_stanadvi
-from fit_partial_credit_model_ncats_stanhmc import fit_partial_credit_model_ncats_stanhmc
-from fit_partial_credit_model_ncats_pyrosvi import fit_partial_credit_model_ncats_pyrosvi
+from data_loading import read_data_colombia
+from fit_ordered_logit_model_ncats_stanadvi import fit_ordered_logit_model_ncats_stanadvi
+from fit_ordered_logit_model_ncats_stanhmc import fit_ordered_logit_model_ncats_stanhmc
+from fit_ordered_logit_model_ncats_pyrosvi import fit_ordered_logit_model_ncats_pyrosvi
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -84,32 +82,32 @@ seed = 123
 
 # Define directories
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
-file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
+file_data = os.path.join(dir_data, "Colombia_data_baseline_endline_itemised_250927.csv")
 
 # Output directories
-dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-ukraine-partial_credit-260430-vanilla-advi-hmc-pyro"
+dir_out_pcm = "/Users/or105/sandbox/bIRTistic/py-colombia-ordered_logit-260430-vanilla-advi-hmc-pyro"
 dir_logs_pcm = os.path.join(dir_out_pcm, "logs")
 
 # Create output directories
 os.makedirs(dir_out_pcm, exist_ok=True)
 os.makedirs(dir_logs_pcm, exist_ok=True)
 
-output_file_prefix = os.path.join(dir_out_pcm, "pcm_1")
-output_file_prefix_hmc = os.path.join(dir_out_pcm, "pcm_1_hmc")
-output_file_prefix_advi = os.path.join(dir_out_pcm, "pcm_1_advi")
+output_file_prefix = os.path.join(dir_out_pcm, "ol_1")
+output_file_prefix_hmc = os.path.join(dir_out_pcm, "ol_1_hmc")
+output_file_prefix_advi = os.path.join(dir_out_pcm, "ol_1_advi")
 svi_algorithm_autodiagnormal = "AutoDiagonalNormal"
 svi_algorithm_autolaplaceapproximation = 'AutoLaplaceApproximation'
 svi_algorithm_automultivariatenormal = 'AutoMultivariateNormal'
 svi_algorithm_autolowrankmultivariatenormal = 'AutoLowRankMultivariateNormal'
 svi_algorithm_autoiafnormal = 'AutoIAFNormal'
-output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autodiagnormal")
-output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "pcm_1_svi_autolaplaceapproximation")
-output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_automultivariatenormal")
-output_file_svi_autolowrankmultivariatenormal = os.path.join(dir_out_pcm, "pcm_1_svi_autolowrankmultivariatenormal")
-output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "pcm_1_svi_autoiafnormal")
+output_file_svi_autodiagnormal = os.path.join(dir_out_pcm, "ol_1_svi_autodiagnormal")
+output_file_svi_autolaplaceapproximation = os.path.join(dir_out_pcm, "ol_1_svi_autolaplaceapproximation")
+output_file_svi_automultivariatenormal = os.path.join(dir_out_pcm, "ol_1_svi_automultivariatenormal")
+output_file_svi_autolowrankmultivariatenormal = os.path.join(dir_out_pcm, "ol_1_svi_autolowrankmultivariatenormal")
+output_file_svi_autoiafnormal = os.path.join(dir_out_pcm, "ol_1_svi_autoiafnormal")
 
-# Endpoint summarization: Ukraine uses categorical_threshold=2 (Colombia uses 3)
-categorical_threshold = 2
+# Endpoint summarization: Colombia uses categorical_threshold=3 (Ukraine uses 2).
+categorical_threshold = 3
 
 print(f"Data file: {file_data}")
 print(f"Output directory: {dir_out_pcm}")
@@ -120,29 +118,29 @@ print(f"Output directory: {dir_out_pcm}")
 # Load and Preprocess Data
 # =============================================================================
 
-# Read Ukraine data
-print("\nLoading Ukraine data...")
-result = read_data_ukraine(file_data)
-dp_ukr = result['dp'].copy()
-dit_ukr = result['dit'].copy()
-dmeta_ukr = result['dmeta'].copy()
+# Read Colombia data
+print("\nLoading Colombia data...")
+result = read_data_colombia(file_data)
+dp_col = result['dp'].copy()
+dit_col = result['dit'].copy()
+dmeta_col = result['dmeta'].copy()
 
 print(f"\nLoaded data:")
-print(f"  dp: {len(dp_ukr):,} rows")
-print(f"  dit: {len(dit_ukr):,} rows")
-print(f"  dmeta: {len(dmeta_ukr):,} rows")
+print(f"  dp: {len(dp_col):,} rows")
+print(f"  dit: {len(dit_col):,} rows")
+print(f"  dmeta: {len(dmeta_col):,} rows")
 
 # Preprocess data
 print("\nPreprocessing data...")
-dp1_ukr = dp_ukr[~dp_ukr['item_label'].str.contains('agg')].copy()
-dp1_ukr['y_stan'] = dp1_ukr['y'] + 1
+dp1_col = dp_col[~dp_col['item_label'].str.contains('agg')].copy()
+dp1_col['y_stan'] = dp1_col['y'] + 1
 
 # Merge item_type to avoid indexing issues
-dp1_ukr = dp1_ukr.merge(dit_ukr[['item_label', 'item_type']], on='item_label', how='left')
+dp1_col = dp1_col.merge(dit_col[['item_label', 'item_type']], on='item_label', how='left')
 
 # Create item_time mapping
 item_time_df = (
-    dp1_ukr[['item_type', 'item_label', 'time']]
+    dp1_col[['item_type', 'item_label', 'time']]
     .drop_duplicates()
     .sort_values(['item_type', 'time', 'item_label'])
     .reset_index(drop=True)
@@ -151,32 +149,32 @@ item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
 
 
 # Merge item_time_id
-dp1_ukr = dp1_ukr.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+dp1_col = dp1_col.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
 
 # Add item_type_id
-dp1_ukr = dp1_ukr.merge(
-    dit_ukr[['item_type', 'item_type_id']].drop_duplicates(),
+dp1_col = dp1_col.merge(
+    dit_col[['item_type', 'item_type_id']].drop_duplicates(),
     on='item_type',
     how='left'
 )
 
 # Sort and create oid
-dp1_ukr = dp1_ukr.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
-dp1_ukr['oid'] = range(1, len(dp1_ukr) + 1)
+dp1_col = dp1_col.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1_col['oid'] = range(1, len(dp1_col) + 1)
 
 # Create oidt (observation id within item type)
-dp1_ukr['oidt'] = dp1_ukr.groupby('item_type').cumcount() + 1
+dp1_col['oidt'] = dp1_col.groupby('item_type').cumcount() + 1
 
 print(f"\nPreprocessed data:")
-print(f"  Observations: {len(dp1_ukr):,}")
-print(f"  Participants: {dp1_ukr['pid'].nunique()}")
-print(f"  Items: {dp1_ukr['item_label'].nunique()}")
-print(f"  Item types: {sorted(dp1_ukr['item_type'].unique())}")
+print(f"  Observations: {len(dp1_col):,}")
+print(f"  Participants: {dp1_col['pid'].nunique()}")
+print(f"  Items: {dp1_col['item_label'].nunique()}")
+print(f"  Item types: {sorted(dp1_col['item_type'].unique())}")
 
 # Save data for model fitting
-tmp = os.path.join(dir_out_pcm, "pcm_1_data.pkl")
+tmp = os.path.join(dir_out_pcm, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
-pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
+pd.to_pickle({'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 
 # %%
 
@@ -184,11 +182,11 @@ pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_partial_credit_model_ncats_stanhmc(
-    dit_ukr,
-    dp1_ukr,
+result_hmc = fit_ordered_logit_model_ncats_stanhmc(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_prefix_hmc,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     chains=4,
     parallel_chains=4,
     threads_per_chain=1,
@@ -212,11 +210,11 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_partial_credit_model_ncats_stanadvi(
-    dit_ukr,
-    dp1_ukr,
+result_advi = fit_ordered_logit_model_ncats_stanadvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_prefix_advi,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
@@ -238,9 +236,9 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # Model Fitting - SVI AutoDiagonalNormal
 # =============================================================================
 
-result_svi_autodiagnormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autodiagnormal = fit_ordered_logit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_svi_autodiagnormal,
     algorithm=svi_algorithm_autodiagnormal,
     lr=0.01,
@@ -263,9 +261,9 @@ print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
 # Model Fitting - SVI AutoLaplaceApproximation
 # =============================================================================
 
-result_svi_autolaplaceapproximation = fit_partial_credit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autolaplaceapproximation = fit_ordered_logit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_svi_autolaplaceapproximation,
     algorithm=svi_algorithm_autolaplaceapproximation,
     lr=0.01,
@@ -288,9 +286,9 @@ print(f"  Draws file: {output_file_svi_autolaplaceapproximation}_draws.zarr")
 # Model Fitting - SVI AutoMultivariateNormal
 # =============================================================================
 
-result_svi_automultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_automultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_svi_automultivariatenormal,
     algorithm=svi_algorithm_automultivariatenormal,
     lr=0.01,
@@ -313,9 +311,9 @@ print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
 # Model Fitting - SVI AutoLowRankMultivariateNormal
 # =============================================================================
 
-result_svi_autolowrankmultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autolowrankmultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_svi_autolowrankmultivariatenormal,
     algorithm=svi_algorithm_autolowrankmultivariatenormal,
     lr=0.01,
@@ -338,9 +336,9 @@ print(f"  Draws file: {output_file_svi_autolowrankmultivariatenormal}_draws.zarr
 # Model Fitting - SVI Auto IAF Normal
 # =============================================================================
 
-result_svi_autoiafnormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autoiafnormal = fit_ordered_logit_model_ncats_pyrosvi(
+    dit_col,
+    dp1_col,
     output_file_prefix=output_file_svi_autoiafnormal,
     algorithm=svi_algorithm_autoiafnormal,
     lr=0.01,
@@ -366,9 +364,9 @@ print(f"  Draws file: {output_file_svi_autoiafnormal}_draws.zarr")
 
 # Load preprocessed data
 tmp = pd.read_pickle(f"{output_file_prefix}_data.pkl")
-dp1_ukr = tmp['dp1']
-dit_ukr = tmp['dit']
-dmeta_ukr = tmp['dmeta']
+dp1_col = tmp['dp1']
+dit_col = tmp['dit']
+dmeta_col = tmp['dmeta']
 
 # Collect all fitted methods in one place and compute endpoints uniformly.
 method_cfg = {
@@ -406,8 +404,8 @@ endpoints_by_method = {}
 for method, cfg in method_cfg.items():
     print(f"\nComputing {method} endpoints...")
     ep_kwargs = {
-        'dp1': dp1_ukr,
-        'dit': dit_ukr,
+        'dp1': dp1_col,
+        'dit': dit_col,
         'draws_file': cfg['draws_file'],
         'categorical_threshold': categorical_threshold,
         'endpoint_type': 'items',
@@ -639,7 +637,7 @@ print(f"Saved plot to: {tmp}")
 # =============================================================================
 
 print("\n" + "="*70)
-print("COMPARING PARTIAL CREDIT PROBABILITIES")
+print("COMPARING ORDERED LOGIT PROBABILITIES")
 print("="*70)
 
 pos = []
@@ -648,7 +646,7 @@ for method in method_order:
     tmp = 'ordered_prob_by_cat_qu_fit'
     if tmp not in po:
         tmp = 'ordered_prob_by_cat_qu_pr'
-    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_ukr, dit_ukr)
+    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_col, dit_col)
     tmp2['method'] = method
     pos.append(tmp2)
 pos = pd.concat(pos, ignore_index=True)
@@ -662,8 +660,8 @@ pos = pos.pivot_table(
 ).reset_index()
 
 # Empirical frequencies per (time_label, item_label, y) joined as a separate column.
-_emp_n = dp1_ukr.groupby(['time_label', 'item_label', 'y']).size().reset_index(name='_emp_n')
-_emp_tot = dp1_ukr.groupby(['time_label', 'item_label']).size().reset_index(name='_emp_total')
+_emp_n = dp1_col.groupby(['time_label', 'item_label', 'y']).size().reset_index(name='_emp_n')
+_emp_tot = dp1_col.groupby(['time_label', 'item_label']).size().reset_index(name='_emp_total')
 _emp = _emp_n.merge(_emp_tot, on=['time_label', 'item_label'])
 _emp['Empirical'] = _emp['_emp_n'] / _emp['_emp_total']
 pos = pos.merge(
@@ -680,7 +678,7 @@ print(f"\nTop 10 items with largest median probability differences across all me
 print(pos.head(10)[['item_label', 'time_label', 'y'] + tmp + ['Empirical', 'abs_median_range']])
 
 # Save combined results
-tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_all_methods.csv")
+tmp = os.path.join(dir_out_pcm, "comparison_ol_prob_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved ordered_prob comparison to: {tmp}")
 
@@ -700,15 +698,15 @@ for method in method_order:
     tmp = 'ordered_prob_by_cat_qu_fit'
     if tmp not in po:
         tmp = 'ordered_prob_by_cat_qu_pr'
-    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_ukr, dit_ukr)
+    tmp2 = _summarize_ordered_prob_quantiles(po[tmp].values, dp1_col, dit_col)
     tmp2['method'] = method
     pos.append(tmp2)
 pos = pd.concat(pos, ignore_index=True)
 
-tmp_emp = dp1_ukr.groupby(
+tmp_emp = dp1_col.groupby(
     ['time_label', 'item_label', 'y_label', 'item_type_id', 'item_time_id', 'y']
 ).size().reset_index(name='n')
-tmp_emp_totals = dp1_ukr.groupby(
+tmp_emp_totals = dp1_col.groupby(
     ['time_label', 'item_label', 'item_type_id', 'item_time_id']
 ).size().reset_index(name='total')
 tmp_emp = tmp_emp.merge(
@@ -720,7 +718,7 @@ tmp_emp['iqr_lower'] = np.nan
 tmp_emp['iqr_upper'] = np.nan
 tmp_emp['method'] = 'Empirical'
 tmp_emp = tmp_emp.merge(
-    dit_ukr[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']],
+    dit_col[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']],
     on=['item_type_id', 'item_label'],
     how='left',
 )
@@ -763,7 +761,7 @@ p = (
     + labs(x='', y='probability', fill='Method')
 )
 
-tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_by_item.pdf")
+tmp = os.path.join(dir_out_pcm, "comparison_ol_prob_by_item.pdf")
 print(f"Printed combined plot: {tmp}")
 p.save(tmp, width=14, height=max(8, 2.5 * pos_plot['item_label_long'].nunique()), units='in', limitsize=False)
 
@@ -781,7 +779,8 @@ print("="*70)
 # Define parameter groups to extract
 model_pars = [
     'latent_factor_unit',
-    'skill_thresholds',
+    'skill_thresholds_1',
+    'skill_thresholds_incs',
     'loadings_questions_m1',
 ]
 

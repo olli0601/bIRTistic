@@ -1,9 +1,9 @@
 """
-Parity tests for NumPyro ncats partial credit model against Stan.
+Parity tests for NumPyro ncats credit model against Stan.
 
 Compares deterministic generated quantities between:
-- Stan: src/stan/partial_credit_model_ncats_v260413.stan
-- NumPyro: src/numpyro/partial_credit_model_ncats_v260413.pyro
+- Stan: src/stan/credit_model_ncats_v260413.stan
+- NumPyro: src/numpyro/credit_model_ncats_v260413.pyro
 
 The test uses fixed parameters and validates both values and flattened formats.
 """
@@ -27,11 +27,11 @@ numpyro_path = str(project_root / 'src' / 'numpyro')
 if numpyro_path not in sys.path:
     sys.path.insert(0, numpyro_path)
 
-pyro_file = project_root / 'src' / 'numpyro' / 'partial_credit_model_ncats_v260413.pyro'
-loader = SourceFileLoader("pcm_ncats_stanhmc", str(pyro_file))
-spec = importlib.util.spec_from_loader("pcm_ncats_stanhmc", loader)
-pcm_ncats_stanhmc = importlib.util.module_from_spec(spec)
-loader.exec_module(pcm_ncats_stanhmc)
+pyro_file = project_root / 'src' / 'numpyro' / 'credit_model_ncats_v260413.pyro'
+loader = SourceFileLoader("cm_ncats_stanhmc", str(pyro_file))
+spec = importlib.util.spec_from_loader("cm_ncats_stanhmc", loader)
+cm_ncats_stanhmc = importlib.util.module_from_spec(spec)
+loader.exec_module(cm_ncats_stanhmc)
 
 
 def _squeeze_draw(x):
@@ -54,14 +54,12 @@ def _build_test_case():
     N_total = int(N.sum())
     Q_total = int(Q.sum())
 
-    # Ordered cat_type blocks are required by Stan transformed data checks.
     cat_type = np.concatenate([
         np.full(N[0], 1, dtype=np.int32),
         np.full(N[1], 2, dtype=np.int32),
         np.full(N[2], 3, dtype=np.int32),
     ])
 
-    # Local question ids within each category type.
     question_of_obs = np.array([
         1, 2, 1, 2,
         1, 2, 1,
@@ -131,11 +129,8 @@ def _build_test_case():
     ], dtype=float)
 
     loadings_questions_m1 = np.array([
-        # c1: Q-1 = 1
         1.2,
-        # c2: Q-1 = 1
         0.8,
-        # c3: Q-1 = 2
         1.1, 0.9,
     ], dtype=float)
 
@@ -149,8 +144,6 @@ def _build_test_case():
         'loadings_questions_m1': loadings_questions_m1,
     }
 
-    # Pyro file now samples latent_factor_unit / loadings_questions_m1 directly
-    # (ZeroSumNormal / FoldedDistribution) — no `_raw` intermediate sites.
     numpyro_substitute = {
         'latent_factor_unit': latent_factor_unit,
         'latent_factor_beta': latent_factor_beta,
@@ -163,7 +156,7 @@ def _build_test_case():
 
 
 @pytest.mark.integration
-def test_numpyro_pcm_ncats_stanhmc_parity_with_stan_generated_quantities():
+def test_numpyro_credit_ncats_stanhmc_parity_with_stan_generated_quantities():
     """Parity for deterministic generated quantities and schema-compatible outputs."""
     np.random.seed(123)
     jax.config.update('jax_platform_name', 'cpu')
@@ -171,7 +164,7 @@ def test_numpyro_pcm_ncats_stanhmc_parity_with_stan_generated_quantities():
     stan_data, stan_params, numpyro_sub = _build_test_case()
 
     stan_model = CmdStanModel(
-        stan_file=str(project_root / 'src' / 'stan' / 'partial_credit_model_ncats_v260413.stan'),
+        stan_file=str(project_root / 'src' / 'stan' / 'credit_model_ncats_v260413.stan'),
         stanc_options={'include-paths': str(project_root / 'src' / 'stan')},
     )
 
@@ -192,8 +185,7 @@ def test_numpyro_pcm_ncats_stanhmc_parity_with_stan_generated_quantities():
     stan_brier = _squeeze_draw(stan_fit.stan_variable('ordinal_brier_score'))
     stan_ypred = _squeeze_draw(stan_fit.stan_variable('ypred'))
 
-    # Run NumPyro model once under substituted parameters and capture deterministic values.
-    tr = trace(substitute(pcm_ncats_stanhmc.partial_credit_model_ncats, data=numpyro_sub)).get_trace(stan_data)
+    tr = trace(substitute(cm_ncats_stanhmc.credit_model_ncats, data=numpyro_sub)).get_trace(stan_data)
 
     npy_log_lik = np.asarray(tr['log_lik']['value'])
     npy_fit_prob = np.asarray(tr['ordered_prob_by_cat_qu_fit']['value'])
@@ -201,24 +193,20 @@ def test_numpyro_pcm_ncats_stanhmc_parity_with_stan_generated_quantities():
     npy_brier = np.asarray(tr['ordinal_brier_score']['value'])
     npy_ypred = np.asarray(tr['ypred']['value'])
 
-    # Shape parity (same schema contract).
     assert stan_log_lik.shape == npy_log_lik.shape
     assert stan_fit_prob.shape == npy_fit_prob.shape
     assert stan_pr_prob.shape == npy_pr_prob.shape
     assert stan_brier.shape == npy_brier.shape
     assert stan_ypred.shape == npy_ypred.shape
 
-    # Deterministic quantity parity.
     np.testing.assert_allclose(stan_log_lik, npy_log_lik, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(stan_fit_prob, npy_fit_prob, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(stan_pr_prob, npy_pr_prob, rtol=1e-6, atol=1e-6)
     np.testing.assert_allclose(stan_brier, npy_brier, rtol=1e-6, atol=1e-6)
 
-    # ypred is stochastic; validate format/range parity.
     assert np.issubdtype(npy_ypred.dtype, np.integer)
     assert np.all(npy_ypred >= 1)
 
-    # Bounds by category type K[c].
     N = stan_data['N']
     K = stan_data['K']
     start = 0
