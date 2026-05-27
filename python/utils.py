@@ -123,6 +123,20 @@ def _make_idata_from_advi_fit(fit) -> object:
     return az.from_dict(posterior=posterior_dict, dims=dims)
 
 #%%
+def _pdf_or_parts_exist(output_file_stem: str) -> bool:
+    """
+    Return True if a combined ``{stem}.pdf`` exists, or if at least the first
+    split panel ``{stem}_part1.pdf`` exists. Used by the ``_plot_prob_barplots``
+    callers to skip re-rendering when prior output is already on disk under
+    either naming scheme (cowpatch combined vs cowpatch-missing per-panel).
+    """
+    import os
+    return (
+        os.path.exists(f"{output_file_stem}.pdf")
+        or os.path.exists(f"{output_file_stem}_part1.pdf")
+    )
+
+#%%
 def _get_autoguide_factory(algorithm: str):
     """
     Get the NumPyro autoguide factory class for the specified algorithm.

@@ -45,6 +45,7 @@ from utils import (
     _make_idata_from_advi_fit,
     _get_autoguide_factory,
     _make_idata_from_svi_posterior,
+    _pdf_or_parts_exist,
 )
 
 
@@ -171,11 +172,6 @@ def fit_credit_model_ncats_pyrosvi(
 
     timing_file = f"{output_file_prefix}_timing.csv"
     draws_file = f"{output_file_prefix}_draws.zarr"
-    data_file = f"{output_file_prefix}_data.csv"
-
-    dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-    dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-    print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
 
     # Resume only needs the two artifacts that capture the fit itself: the
     # zarr-serialised draws and the timing CSV. posterior_samples is rebuilt
@@ -185,14 +181,6 @@ def fit_credit_model_ncats_pyrosvi(
         resume
         and os.path.exists(timing_file)
         and os.path.exists(draws_file)
-    )
-
-    print("Preparing Stan data in ncats format...")
-    stan_data = _fit_credit_make_stan_data(
-        dit=dit,
-        dcati=dcati,
-        x_formula=x_formula,
-        x_formula_ignore_regex=x_formula_ignore_regex,
     )
 
     if can_resume:
@@ -213,6 +201,19 @@ def fit_credit_model_ncats_pyrosvi(
     else:
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+
+        data_file = f"{output_file_prefix}_data.csv"
+        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+
+        print("Preparing Stan data in ncats format...")
+        stan_data = _fit_credit_make_stan_data(
+            dit=dit,
+            dcati=dcati,
+            x_formula=x_formula,
+            x_formula_ignore_regex=x_formula_ignore_regex,
+        )
 
         print("Loading NumPyro model...")
         numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "credit_model_ncats_v260413.pyro"
@@ -382,7 +383,7 @@ def fit_credit_model_ncats_pyrosvi(
                 f"{output_file_prefix}_ordered_brierscore",
             )
 
-    if with_core_analyses and not os.path.exists(f"{output_file_prefix}_prob_by_question_fit.pdf"):
+    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
         print("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
@@ -395,7 +396,7 @@ def fit_credit_model_ncats_pyrosvi(
     if (
         with_core_analyses
         and x_formula_ignore_regex is not None
-        and not os.path.exists(f"{output_file_prefix}_prob_by_question_pr.pdf")
+        and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr")
     ):
         print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
@@ -465,10 +466,6 @@ def fit_credit_model_ncats_stanadvi(
     output_file = f"{output_file_prefix}_stan.pkl"
     data_file = f"{output_file_prefix}_data.csv"
 
-    dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-    dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-    print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
-
     can_resume = (
         resume
         and os.path.exists(timing_file)
@@ -476,14 +473,6 @@ def fit_credit_model_ncats_stanadvi(
         and os.path.exists(data_file.replace('.csv', '_dp1.csv'))
         and os.path.exists(data_file.replace('.csv', '_dit.csv'))
         and os.path.exists(output_file)
-    )
-
-    print("Preparing Stan data in ncats format...")
-    stan_data = _fit_credit_make_stan_data(
-        dit=dit,
-        dcati=dcati,
-        x_formula=x_formula,
-        x_formula_ignore_regex=x_formula_ignore_regex,
     )
 
     if can_resume:
@@ -503,6 +492,18 @@ def fit_credit_model_ncats_stanadvi(
     else:
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+
+        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+
+        print("Preparing Stan data in ncats format...")
+        stan_data = _fit_credit_make_stan_data(
+            dit=dit,
+            dcati=dcati,
+            x_formula=x_formula,
+            x_formula_ignore_regex=x_formula_ignore_regex,
+        )
 
         print("Compiling Stan model...")
         model = CmdStanModel(
@@ -597,7 +598,7 @@ def fit_credit_model_ncats_stanadvi(
                 f"{output_file_prefix}_ordered_brierscore",
             )
 
-    if with_core_analyses and not os.path.exists(f"{output_file_prefix}_prob_by_question_fit.pdf"):
+    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
         print("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
@@ -610,7 +611,7 @@ def fit_credit_model_ncats_stanadvi(
     if (
         with_core_analyses
         and x_formula_ignore_regex is not None
-        and not os.path.exists(f"{output_file_prefix}_prob_by_question_pr.pdf")
+        and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr")
     ):
         print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
@@ -730,10 +731,6 @@ def fit_credit_model_ncats_stanhmc(
     mixing_file = f"{output_file_prefix}_convergence_mixing.csv"
     data_file = f"{output_file_prefix}_data.csv"
 
-    dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-    dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-    print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
-
     can_resume = (resume and
                   os.path.exists(timing_file) and
                   os.path.exists(draws_file) and
@@ -741,14 +738,6 @@ def fit_credit_model_ncats_stanhmc(
                   os.path.exists(mixing_file) and
                   os.path.exists(data_file.replace('.csv', '_dp1.csv')) and
                   os.path.exists(data_file.replace('.csv', '_dit.csv')))
-
-    print("Preparing Stan data in ncats format...")
-    stan_data = _fit_credit_make_stan_data(
-        dit=dit,
-        dcati=dcati,
-        x_formula=x_formula,
-        x_formula_ignore_regex=x_formula_ignore_regex,
-    )
 
     if can_resume:
         print("\n" + "=" * 40)
@@ -771,6 +760,18 @@ def fit_credit_model_ncats_stanhmc(
     else:
         if resume:
             print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+
+        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+
+        print("Preparing Stan data in ncats format...")
+        stan_data = _fit_credit_make_stan_data(
+            dit=dit,
+            dcati=dcati,
+            x_formula=x_formula,
+            x_formula_ignore_regex=x_formula_ignore_regex,
+        )
 
         print("Compiling Stan model...")
         model = CmdStanModel(
@@ -916,7 +917,7 @@ def fit_credit_model_ncats_stanhmc(
         if 'ordinal_brier_score' in idata.posterior.data_vars:
             _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore")
 
-    if with_core_analyses and not os.path.exists(f"{output_file_prefix}_prob_by_question_fit.pdf"):
+    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
         print("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
@@ -926,7 +927,7 @@ def fit_credit_model_ncats_stanhmc(
                 f"{output_file_prefix}_prob_by_question_fit",
             )
 
-    if with_core_analyses and x_formula_ignore_regex is not None and not os.path.exists(f"{output_file_prefix}_prob_by_question_pr.pdf"):
+    if with_core_analyses and x_formula_ignore_regex is not None and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr"):
         print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
             _plot_prob_barplots(

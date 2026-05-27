@@ -289,18 +289,16 @@ ggsave(p, os.path.join(dir_out, 'ukraine_interim_displacement_status_proportions
 
 print(f"\n{'='*70}\nFitting PCM (AutoLowRankMVN) per interim\n{'='*70}")
 
-interim_xz_dict = {}      # interim_id -> dcati
-interim_xz_draws_dict = {}       # interim_id -> draws_file path
-interim_xz_endpoints_dict = []  # list of get_endpoints DataFrames with interim_id
+interim_x_dict = {}      # interim_id -> dcati
+interim_x_draws_dict = {}       # interim_id -> draws_file path
+interim_x_endpoints_dict = []  # list of get_endpoints DataFrames with interim_id
 
 t0 = time.time() 
 for i in range(len(di)):
-    row = di.iloc[i]
-    interim_id = int(row['interim_id'])
-    tmp = row['interim_date']
-    print(f"\n--- Interim {interim_id}: {tmp.date()} ---")
+    interim_id = int(di.iloc[i]['interim_id'])
+    print(f"\n--- Interim {interim_id}: {di.iloc[i]['interim_date'].date()} ---")
 
-    dcati = _build_interim_x(dp1, tmp)
+    dcati = _build_interim_x(dp1, di.iloc[i]['interim_date'])
     if dcati.empty or dcati['pid'].nunique() < 2:
         print(f"  Skipping (insufficient complete participants)")
         continue
@@ -323,8 +321,8 @@ for i in range(len(di)):
     )
 
     zarr_path = f"{interim_prefix}_draws.zarr"
-    interim_xz_dict[interim_id] = dcati
-    interim_xz_draws_dict[interim_id] = zarr_path
+    interim_x_dict[interim_id] = dcati
+    interim_x_draws_dict[interim_id] = zarr_path
 
     pos = get_endpoints(
         dp1=dcati,
@@ -448,8 +446,8 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_differences_over_time.pdf"),
 
 print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
-for interim_id, zarr_path in interim_xz_draws_dict.items():
-    dcati = interim_xz_dict[interim_id]
+for interim_id, zarr_path in interim_x_draws_dict.items():
+    dcati = interim_x_dict[interim_id]
     per_draw = _per_draw_ratio(zarr_path, dcati, dit, categorical_threshold=2)
     # Normalise to per-draw mean ratio across items.
     mean_per_draw = per_draw.groupby('draw')['ratio'].mean().rename('ratio_avg').reset_index()
@@ -537,8 +535,8 @@ pps_z_total = 10
 pps_thresh = 0.89  # decision threshold from the doc
 pps_interim_id = 1
 
-pps_zarr = interim_xz_draws_dict.get(pps_interim_id)
-pps_dcati = interim_xz_dict.get(pps_interim_id)
+pps_zarr = interim_x_draws_dict.get(pps_interim_id)
+pps_dcati = interim_x_dict.get(pps_interim_id)
 if pps_zarr is None or pps_dcati is None or pps_dcati.empty:
     print(f"\n[PPS] Skipping: no fit available for interim {pps_interim_id}.")
 else:
