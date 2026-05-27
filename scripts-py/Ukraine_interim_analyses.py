@@ -35,6 +35,7 @@ python_path = str(project_root / 'python')
 if python_path not in sys.path:
     sys.path.insert(0, python_path)
 
+import arviz as az  
 import numpy as np
 import pandas as pd
 from plotnine import (
@@ -47,11 +48,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from fit_partial_credit_model_ncats_pyrosvi import (
+from fit_partial_credit_model import (
     fit_partial_credit_model_ncats_pyrosvi,
 )
 from get_endpoints import get_endpoints
-from utils import _futurama_palette, _build_interim_dcati, _per_draw_ratio
+from utils import _futurama_palette, _build_interim_x, _per_draw_ratio
 
 print("✓ Imports successful")
 
@@ -288,17 +289,18 @@ ggsave(p, os.path.join(dir_out, 'ukraine_interim_displacement_status_proportions
 
 print(f"\n{'='*70}\nFitting PCM (AutoLowRankMVN) per interim\n{'='*70}")
 
-interim_dcati = {}      # interim_id -> dcati
-interim_zarr = {}       # interim_id -> draws_file path
-interim_endpoints = []  # list of get_endpoints DataFrames with interim_id
+interim_xz_dict = {}      # interim_id -> dcati
+interim_xz_draws_dict = {}       # interim_id -> draws_file path
+interim_xz_endpoints_dict = []  # list of get_endpoints DataFrames with interim_id
 
 t0 = time.time() 
-for i, row in di.iterrows():
+for i in range(len(di)):
+    row = di.iloc[i]
     interim_id = int(row['interim_id'])
-    interim_date = row['interim_date']
-    print(f"\n--- Interim {interim_id}: {interim_date.date()} ---")
+    tmp = row['interim_date']
+    print(f"\n--- Interim {interim_id}: {tmp.date()} ---")
 
-    dcati = _build_interim_dcati(dp1, interim_date)
+    dcati = _build_interim_x(dp1, tmp)
     if dcati.empty or dcati['pid'].nunique() < 2:
         print(f"  Skipping (insufficient complete participants)")
         continue
@@ -321,8 +323,8 @@ for i, row in di.iterrows():
     )
 
     zarr_path = f"{interim_prefix}_draws.zarr"
-    interim_dcati[interim_id] = dcati
-    interim_zarr[interim_id] = zarr_path
+    interim_xz_dict[interim_id] = dcati
+    interim_xz_draws_dict[interim_id] = zarr_path
 
     pos = get_endpoints(
         dp1=dcati,
@@ -333,9 +335,9 @@ for i, row in di.iterrows():
         param_name='ordered_prob_by_cat_qu_fit',
     )
     pos['interim_id'] = interim_id
-    interim_endpoints.append(pos)
+    interim_xz_endpoints_dict.append(pos)
 
-if not interim_endpoints:
+if not interim_xz_endpoints_dict:
     raise RuntimeError("No interim endpoints computed.")
 
 t1 = time.time() 
@@ -350,7 +352,7 @@ timing_data.to_csv(timing_file, index=False)
 print(f"Saved timing information to: {timing_file}")
 # %%
 
-ipos = pd.concat(interim_endpoints, ignore_index=True)
+ipos = pd.concat(interim_xz_endpoints_dict, ignore_index=True)
 ipos = ipos.merge(di, on='interim_id')
 # get_endpoints output omits endpoint_measure; pull it from dit.
 ipos = ipos.merge(
@@ -446,8 +448,8 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_differences_over_time.pdf"),
 
 print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
-for interim_id, zarr_path in interim_zarr.items():
-    dcati = interim_dcati[interim_id]
+for interim_id, zarr_path in interim_xz_draws_dict.items():
+    dcati = interim_xz_dict[interim_id]
     per_draw = _per_draw_ratio(zarr_path, dcati, dit, categorical_threshold=2)
     # Normalise to per-draw mean ratio across items.
     mean_per_draw = per_draw.groupby('draw')['ratio'].mean().rename('ratio_avg').reset_index()
@@ -531,14 +533,12 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_relativeimprovement_over_time.pd
 #   5. Approximate PPS as the fraction of s with p(H_1 | x, z) > eta and save
 #      to a CSV/DataFrame.
 
-import arviz as az  # local import to keep top of file lean
-
-S = 10
-eta_pps = 0.89  # decision threshold from the doc
+pps_z_total = 10
+pps_thresh = 0.89  # decision threshold from the doc
 pps_interim_id = 1
 
-pps_zarr = interim_zarr.get(pps_interim_id)
-pps_dcati = interim_dcati.get(pps_interim_id)
+pps_zarr = interim_xz_draws_dict.get(pps_interim_id)
+pps_dcati = interim_xz_dict.get(pps_interim_id)
 if pps_zarr is None or pps_dcati is None or pps_dcati.empty:
     print(f"\n[PPS] Skipping: no fit available for interim {pps_interim_id}.")
 else:
@@ -560,7 +560,7 @@ else:
         raise RuntimeError("ypred not found in interim-1 posterior; cannot draw z.")
     _ypred = _idata.posterior['ypred'].values  # (chain, draw, N_total)
     _n_draw = _ypred.shape[1]
-    _draw_idx = np.linspace(0, _n_draw - 1, S, dtype=int)
+    _draw_idx = np.linspace(0, _n_draw - 1, pps_z_total, dtype=int)
 
     # For each s, augment the dataset with one ypred draw (one extra "shadow"
     # participant per existing pid using the ypred outcomes) and refit.
@@ -569,7 +569,7 @@ else:
 
     for s_idx, draw_i in enumerate(_draw_idx):
         s_label = s_idx + 1
-        print(f"\n--- PPS sample {s_label}/{S} (ypred draw {draw_i}) ---")
+        print(f"\n--- PPS sample {s_label}/{pps_z_total} (ypred draw {draw_i}) ---")
         yz = np.asarray(_ypred[0, draw_i, :]).astype(int)  # (N_total,)
 
         z_dcati = pps_dcati.copy()
@@ -615,12 +615,12 @@ else:
 
     pps_df = (
         p_h1_xz.groupby(['item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-        .apply(lambda p: float((p > eta_pps).mean()))
+        .apply(lambda p: float((p > pps_thresh).mean()))
         .reset_index(name='pps')
     )
     pps_df = pps_df.merge(p_h1_x, on=['item_label', 'item_type', 'item_high_label'], how='left')
-    pps_df['eta'] = eta_pps
-    pps_df['S'] = S
+    pps_df['eta'] = pps_thresh
+    pps_df['S'] = pps_z_total
     pps_df['interim_id'] = pps_interim_id
 
     csv_path = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}.csv")

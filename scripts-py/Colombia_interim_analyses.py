@@ -50,7 +50,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_colombia
-from fit_partial_credit_model_ncats_pyrosvi import (
+from fit_partial_credit_model import (
     fit_partial_credit_model_ncats_pyrosvi,
 )
 from get_endpoints import get_endpoints

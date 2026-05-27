@@ -64,9 +64,11 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_ukraine
-from fit_partial_credit_model_ncats_stanadvi import fit_partial_credit_model_ncats_stanadvi
-from fit_partial_credit_model_ncats_stanhmc import fit_partial_credit_model_ncats_stanhmc
-from fit_partial_credit_model_ncats_pyrosvi import fit_partial_credit_model_ncats_pyrosvi
+from fit_partial_credit_model import (
+    fit_partial_credit_model_ncats_stanadvi,
+    fit_partial_credit_model_ncats_stanhmc,
+    fit_partial_credit_model_ncats_pyrosvi,
+)
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 

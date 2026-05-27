@@ -62,9 +62,11 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
-from fit_ordered_logit_model_ncats_stanadvi import fit_ordered_logit_model_ncats_stanadvi
-from fit_ordered_logit_model_ncats_stanhmc import fit_ordered_logit_model_ncats_stanhmc
-from fit_ordered_logit_model_ncats_pyrosvi import fit_ordered_logit_model_ncats_pyrosvi
+from fit_ordered_logit_model import (
+    fit_ordered_logit_model_ncats_stanadvi,
+    fit_ordered_logit_model_ncats_stanhmc,
+    fit_ordered_logit_model_ncats_pyrosvi,
+)
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 

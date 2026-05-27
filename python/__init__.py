@@ -13,10 +13,14 @@ __version__ = "0.1.0"
 __author__ = "bIRTistic Team"
 
 from .data_loading import read_data_colombia, read_data_ukraine
-from .fit_partial_credit_model_ncats_stanhmc import fit_partial_credit_model_ncats_stanhmc
-from .fit_ordered_logit_model_ncats_stanhmc import fit_ordered_logit_model_ncats_stanhmc
-from .fit_ordered_logit_model_ncats_stanadvi import fit_ordered_logit_model_ncats_stanadvi
-from .fit_partial_credit_model_ncats_stanadvi import fit_partial_credit_model_ncats_stanadvi
+from .fit_partial_credit_model import (
+    fit_partial_credit_model_ncats_stanhmc,
+    fit_partial_credit_model_ncats_stanadvi,
+)
+from .fit_ordered_logit_model import (
+    fit_ordered_logit_model_ncats_stanhmc,
+    fit_ordered_logit_model_ncats_stanadvi,
+)
 from .get_endpoints import get_endpoints
 
 __all__ = [
