@@ -53,8 +53,8 @@ from data_loading import read_data_colombia
 from fit_partial_credit_model import (
     fit_partial_credit_model_ncats_pyrosvi,
 )
-from get_endpoints import get_endpoints
-from utils import _futurama_palette, _build_interim_dcati, _per_draw_ratio
+from get_endpoints import get_endpoints, get_endpoints_per_draw
+from utils import _futurama_palette, _build_interim_dcati
 
 print("✓ Imports successful")
 
@@ -365,7 +365,12 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_zarr.items():
     dcati = interim_dcati[interim_id]
-    per_draw = _per_draw_ratio(zarr_path, dcati, dit, categorical_threshold=3)
+    per_draw = get_endpoints_per_draw(
+        zarr_path, dcati, dit,
+        categorical_threshold=3,
+        endpoint_type='items',
+        param_name='ordered_prob_by_cat_qu_fit',
+    )
     # Normalise to per-draw mean ratio across items.
     mean_per_draw = per_draw.groupby('draw')['ratio'].mean().rename('ratio_avg').reset_index()
     per_draw = per_draw.merge(mean_per_draw, on='draw')

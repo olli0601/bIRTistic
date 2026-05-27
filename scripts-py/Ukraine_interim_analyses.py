@@ -51,8 +51,8 @@ from data_loading import read_data_ukraine
 from fit_partial_credit_model import (
     fit_partial_credit_model_ncats_pyrosvi,
 )
-from get_endpoints import get_endpoints
-from utils import _futurama_palette, _build_interim_x, _per_draw_ratio
+from get_endpoints import get_endpoints, get_endpoints_per_draw
+from utils import _futurama_palette, _build_interim_x
 
 print("✓ Imports successful")
 
@@ -333,9 +333,9 @@ for i in range(len(di)):
         param_name='ordered_prob_by_cat_qu_fit',
     )
     pos['interim_id'] = interim_id
-    interim_xz_endpoints_dict.append(pos)
+    interim_x_endpoints_dict.append(pos)
 
-if not interim_xz_endpoints_dict:
+if not interim_x_endpoints_dict:
     raise RuntimeError("No interim endpoints computed.")
 
 t1 = time.time() 
@@ -448,7 +448,12 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_x_draws_dict.items():
     dcati = interim_x_dict[interim_id]
-    per_draw = _per_draw_ratio(zarr_path, dcati, dit, categorical_threshold=2)
+    per_draw = get_endpoints_per_draw(
+        zarr_path, dcati, dit,
+        categorical_threshold=2,
+        endpoint_type='items',
+        param_name='ordered_prob_by_cat_qu_fit',
+    )
     # Normalise to per-draw mean ratio across items.
     mean_per_draw = per_draw.groupby('draw')['ratio'].mean().rename('ratio_avg').reset_index()
     per_draw = per_draw.merge(mean_per_draw, on='draw')
@@ -535,15 +540,20 @@ pps_z_total = 10
 pps_thresh = 0.89  # decision threshold from the doc
 pps_interim_id = 1
 
-pps_zarr = interim_x_draws_dict.get(pps_interim_id)
-pps_dcati = interim_x_dict.get(pps_interim_id)
-if pps_zarr is None or pps_dcati is None or pps_dcati.empty:
+interim_x_draws_file = interim_x_draws_dict.get(pps_interim_id)
+interim_x = interim_x_dict.get(pps_interim_id)
+if interim_x_draws_file is None or interim_x is None or interim_x.empty:
     print(f"\n[PPS] Skipping: no fit available for interim {pps_interim_id}.")
 else:
     print(f"\n{'='*70}\nPPS for interim {pps_interim_id}\n{'='*70}")
 
     # Current P(H_1 | x) per item using the interim-1 posterior.
-    ratio_x = _per_draw_ratio(pps_zarr, pps_dcati, dit, categorical_threshold=2)
+    ratio_x = get_endpoints_per_draw(
+        interim_x_draws_file, interim_x, dit,
+        categorical_threshold=2,
+        endpoint_type='items',
+        param_name='ordered_prob_by_cat_qu_fit',
+    )
     p_h1_x = (
         ratio_x.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
         .apply(lambda r: float((r > 0).mean()))
@@ -553,7 +563,7 @@ else:
 
     # Pull ypred draws (1-indexed integers) from the interim-1 fit and pick
     # S equally-spaced draws to use as hypothetical z.
-    _idata = az.from_zarr(pps_zarr)
+    _idata = az.from_zarr(interim_x_draws_file)
     if 'ypred' not in _idata.posterior.data_vars:
         raise RuntimeError("ypred not found in interim-1 posterior; cannot draw z.")
     _ypred = _idata.posterior['ypred'].values  # (chain, draw, N_total)
@@ -562,7 +572,7 @@ else:
 
     # For each s, augment the dataset with one ypred draw (one extra "shadow"
     # participant per existing pid using the ypred outcomes) and refit.
-    _pid_offset = int(pps_dcati['pid'].max())
+    _pid_offset = int(interim_x['pid'].max())
     p_h1_xz_rows = []
 
     for s_idx, draw_i in enumerate(_draw_idx):
@@ -570,12 +580,12 @@ else:
         print(f"\n--- PPS sample {s_label}/{pps_z_total} (ypred draw {draw_i}) ---")
         yz = np.asarray(_ypred[0, draw_i, :]).astype(int)  # (N_total,)
 
-        z_dcati = pps_dcati.copy()
+        z_dcati = interim_x.copy()
         z_dcati['y_stan'] = yz
         z_dcati['y'] = yz - 1
         z_dcati['pid'] = z_dcati['pid'] + _pid_offset * s_label  # fresh pid block per s
 
-        aug = pd.concat([pps_dcati, z_dcati], ignore_index=True)
+        aug = pd.concat([interim_x, z_dcati], ignore_index=True)
         aug = aug.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
         aug['oid'] = range(1, len(aug) + 1)
         aug['oidt'] = aug.groupby('item_type').cumcount() + 1
@@ -597,7 +607,12 @@ else:
         )
 
         aug_zarr = f"{aug_prefix}_draws.zarr"
-        ratio_xz = _per_draw_ratio(aug_zarr, aug, dit, categorical_threshold=2)
+        ratio_xz = get_endpoints_per_draw(
+            aug_zarr, aug, dit,
+            categorical_threshold=2,
+            endpoint_type='items',
+            param_name='ordered_prob_by_cat_qu_fit',
+        )
         sample_p = (
             ratio_xz.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
             .apply(lambda r: float((r > 0).mean()))

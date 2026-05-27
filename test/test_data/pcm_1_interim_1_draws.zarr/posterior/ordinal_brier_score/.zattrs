@@ -1,0 +1,8 @@
+{
+    "_ARRAY_DIMENSIONS": [
+        "chain",
+        "draw",
+        "ordinal_brier_score_dim_0",
+        "ordinal_brier_score_dim_1"
+    ]
+}
