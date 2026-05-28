@@ -35,12 +35,12 @@ python_path = str(project_root / 'python')
 if python_path not in sys.path:
     sys.path.insert(0, python_path)
 
-import arviz as az  
 import numpy as np
 import pandas as pd
 from plotnine import (
     ggplot, aes, geom_col, geom_line, geom_linerange, geom_hline,
-    geom_rect, geom_vline, facet_wrap, scale_x_datetime, scale_y_continuous,
+    geom_rect, geom_vline, geom_boxplot, facet_wrap, facet_grid,
+    scale_x_datetime, scale_y_continuous,
     scale_color_manual, scale_fill_manual, theme_bw, theme, element_text, labs,
     position_dodge2, position_dodge, guides, guide_legend, ggsave,
 )
@@ -48,11 +48,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_pyrosvi,
-)
+from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
 from get_endpoints import get_endpoints, get_endpoints_per_draw
-from utils import _futurama_palette, _build_interim_x
+from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
+from utils import _futurama_palette
 
 print("✓ Imports successful")
 
@@ -298,14 +297,14 @@ for i in range(len(di)):
     interim_id = int(di.iloc[i]['interim_id'])
     print(f"\n--- Interim {interim_id}: {di.iloc[i]['interim_date'].date()} ---")
 
-    dcati = _build_interim_x(dp1, di.iloc[i]['interim_date'])
+    dcati = get_interim_x(dp1, di.iloc[i]['interim_date'])
     if dcati.empty or dcati['pid'].nunique() < 2:
         print(f"  Skipping (insufficient complete participants)")
         continue
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    result = fit_partial_credit_model_ncats_pyrosvi(
+    fit = fit_partial_credit_model_ncats_pyrosvi(
         dit,
         dcati,
         output_file_prefix=interim_prefix,
@@ -318,6 +317,7 @@ for i in range(len(di)):
         resume=True,
         with_core_analyses=True,
         with_additional_analyses=False,
+        verbose=False,
     )
 
     zarr_path = f"{interim_prefix}_draws.zarr"
@@ -327,10 +327,11 @@ for i in range(len(di)):
     pos = get_endpoints(
         dp1=dcati,
         dit=dit,
-        draws_file=zarr_path,
+        draws=fit['draws'],
         categorical_threshold=2,
         endpoint_type='items',
-        param_name='ordered_prob_by_cat_qu_fit',
+        param_name='ordered_prob_by_cat_qu_pr',
+        verbose=False,
     )
     pos['interim_id'] = interim_id
     interim_x_endpoints_dict.append(pos)
@@ -350,18 +351,18 @@ timing_data.to_csv(timing_file, index=False)
 print(f"Saved timing information to: {timing_file}")
 # %%
 
-ipos = pd.concat(interim_xz_endpoints_dict, ignore_index=True)
-ipos = ipos.merge(di, on='interim_id')
+posx = pd.concat(interim_x_endpoints_dict, ignore_index=True)
+posx = posx.merge(di, on='interim_id')
 # get_endpoints output omits endpoint_measure; pull it from dit.
-ipos = ipos.merge(
+posx = posx.merge(
     dit[['item_label', 'endpoint_measure']].drop_duplicates('item_label'),
     on='item_label', how='left',
 )
-ipos['item_label_long'] = ipos['group_label_long'] + np.where(
-    ipos['item_label_short'].notna(), ' --- ' + ipos['item_label_short'].fillna(''), ''
+posx['item_label_long'] = posx['group_label_long'] + np.where(
+    posx['item_label_short'].notna(), ' --- ' + posx['item_label_short'].fillna(''), ''
 )
-ipos.to_csv(os.path.join(dir_out, f"{file_prefix}_primary_endpoints_b.csv"), index=False)
-print(f"\nSaved primary endpoints to: {file_prefix}_primary_endpoints_b.csv")
+posx.to_csv(os.path.join(dir_out, f"{file_prefix}_interim_endpoints_x.csv"), index=False)
+print(f"\nSaved interim endpoints on data x to: {file_prefix}_interim_endpoints_x.csv")
 
 # %%
 
@@ -370,7 +371,7 @@ print(f"\nSaved primary endpoints to: {file_prefix}_primary_endpoints_b.csv")
 # =============================================================================
 
 print("\nPlotting ratio over interim time...")
-ratio_df = ipos[ipos['variable'] == 'ratio'].copy()
+ratio_df = posx[posx['variable'] == 'ratio'].copy()
 ratio_df['facet'] = ratio_df['group_label_long'] + '\n( ' + ratio_df['endpoint_measure'].fillna('') + ' )'
 ratio_pal = dict(zip(sorted(ratio_df['item_label_long'].unique()),
                      _futurama_palette(ratio_df['item_label_long'].nunique())))
@@ -408,7 +409,7 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_percentchanges_over_time.pdf"),
 # =============================================================================
 
 print("Plotting diff over interim time...")
-diff_df = ipos[ipos['variable'] == 'diff'].copy()
+diff_df = posx[posx['variable'] == 'diff'].copy()
 diff_df['facet'] = diff_df['group_label_long'] + '\n( ' + diff_df['endpoint_measure'].fillna('') + ' )'
 diff_pal = dict(zip(sorted(diff_df['item_label_long'].unique()),
                     _futurama_palette(diff_df['item_label_long'].nunique())))
@@ -449,7 +450,9 @@ rel_rows = []
 for interim_id, zarr_path in interim_x_draws_dict.items():
     dcati = interim_x_dict[interim_id]
     per_draw = get_endpoints_per_draw(
-        zarr_path, dcati, dit,
+        dcati=dcati,
+        dit=dit,
+        draws_file=zarr_path,
         categorical_threshold=2,
         endpoint_type='items',
         param_name='ordered_prob_by_cat_qu_fit',
@@ -516,129 +519,165 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_relativeimprovement_over_time.pd
 # %%
 
 # =============================================================================
-# Predictive probability of success (PPS) at interim 1
+# Predictive probability of success (PPS) at every interim
 # =============================================================================
 #
-# Numerical approximation of PPS per item_label, evaluated at the first interim.
+# Numerical approximation of PPS per item_label, evaluated at each interim.
 # Strategy follows dev/amortised_decision_making.md §2 Target 2.
 #
 # H_1 (per item_label): the directional ratio endpoint > 0 (i.e. an improvement
 # in outcomes vs Baseline, where direction respects ``item_high_label``).
 #
-# Procedure:
-#   1. Get ypred draws from the interim-1 fit; sample S = 10 hypothetical
-#      future data sets z by selecting S draws from ``ypred``.
-#   2. For each s, augment the interim-1 dcati with z and refit the PCM via
+# Procedure (per interim id):
+#   1. Get ypred draws from that interim's fit; sample S hypothetical future
+#      data sets z by selecting S draws from ``ypred``.
+#   2. For each s, augment the interim dcati with z and refit the PCM via
 #      ``fit_partial_credit_model_ncats_pyrosvi`` with
 #      ``algorithm='AutoLowRankMultivariateNormal'``, no extra analyses.
 #   3. Compute p(H_1 | x, z) per item from per-draw ratios on the refit.
-#   4. Save raw p(H_1 | x, z) samples to a pickle.
+#   4. Concatenate across interims (tagged interim_id / interim_date), save pkl.
 #   5. Approximate PPS as the fraction of s with p(H_1 | x, z) > eta and save
 #      to a CSV/DataFrame.
 
-pps_z_total = 10
-pps_thresh = 0.89  # decision threshold from the doc
-pps_interim_id = 1
+pps_z_total = 200
+pps_H1_def = 0.5 # 1 - p1 / p0 > pps_H1_def
+pps_ProbH1_thresh = 0.89  # decision threshold on p(H1 | data)
+pps_cpu_n = 12  # worker processes for the S PPS refits (1 = serial)
 
-interim_x_draws_file = interim_x_draws_dict.get(pps_interim_id)
-interim_x = interim_x_dict.get(pps_interim_id)
-if interim_x_draws_file is None or interim_x is None or interim_x.empty:
-    print(f"\n[PPS] Skipping: no fit available for interim {pps_interim_id}.")
-else:
-    print(f"\n{'='*70}\nPPS for interim {pps_interim_id}\n{'='*70}")
+# Loop over all interim ids. For each: build z (participants missing to reach
+# the full data, resampled from the interim cohort and carrying that interim
+# fit's posterior-predictive outcomes), then Monte-Carlo estimate p(H_1 | x, z)
+# per item. The final cohort (no missing participants) is skipped.
+n_full = dp1['pid'].nunique()
+p_h1_xz_rows = []
+pps_timing_rows = []
+t_all0 = time.time()
+for interim_id in di['interim_id']:
+    interim_id = int(interim_id)
+    xi = interim_x_dict.get(interim_id)
+    draws_file = interim_x_draws_dict.get(interim_id)
+    if xi is None or xi.empty or draws_file is None:
+        raise RuntimeError(f"Missing data for interim_id {interim_id}: "f"xi is None: {xi is None} | xi empty: {xi.empty if xi is not None else 'N/A'} | draws_file is None: {draws_file is None}")
+    interim_m = n_full - xi['pid'].nunique()  # participants missing to reach full data
+    if interim_m <= 0:
+        continue
+    interim_date = pd.to_datetime(di.loc[di['interim_id'] == interim_id, 'interim_date'].iloc[0])
+    print(f"\n{'='*70}\nPPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
 
-    # Current P(H_1 | x) per item using the interim-1 posterior.
-    ratio_x = get_endpoints_per_draw(
-        interim_x_draws_file, interim_x, dit,
+    t0 = time.time()
+    zi = get_interim_z_from_ypredi(xi, draws_file, interim_m, pps_z_total=pps_z_total, seed=seed)
+    tmp = fit_interim_MC_of_posterior_xz(
+        xi=xi,
+        zi=zi,
+        dit=dit,
+        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
+        pps_z_total=pps_z_total,
+        pps_H1_def=pps_H1_def,
+        pps_ProbH1_thresh=pps_ProbH1_thresh,
         categorical_threshold=2,
-        endpoint_type='items',
-        param_name='ordered_prob_by_cat_qu_fit',
+        fitting_method=fit_partial_credit_model_ncats_pyrosvi,
+        fitting_method_args={
+            'algorithm': svi_algorithm,
+            'x_formula': "~ time - 1",
+            'lr': 0.01,
+            'num_steps': 10000,
+            'output_samples': 4000,
+        },
+        seed=seed,
+        save_to_file=False,
+        verbose=False,
+        cpu_n=pps_cpu_n,
     )
-    p_h1_x = (
-        ratio_x.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
-        .apply(lambda r: float((r > 0).mean()))
-        .reset_index(name='p_h1_x')
+    mins_interim_id = (time.time() - t0) / 60.0
+    tmp['interim_id'] = interim_id
+    tmp['interim_date'] = interim_date
+    tmp['interim_mins'] = round(mins_interim_id, 3)
+    p_h1_xz_rows.append(tmp)    
+    print(f"  interim {interim_id} PPS done in {mins_interim_id:.2f} min")
+
+if not p_h1_xz_rows:
+    raise RuntimeError("[PPS] no interims with missing participants to evaluate.")
+
+p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz.pkl")
+p_h1_xz.to_pickle(pkl_path)
+
+# %%
+
+pps_df = (
+    p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
+    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .reset_index(name='pps')
+)
+pps_df['eta'] = pps_ProbH1_thresh
+pps_df['S'] = pps_z_total
+
+csv_path = os.path.join(dir_out, f"{file_prefix}_pps.csv")
+pps_df.to_csv(csv_path, index=False)
+print(f"Saved PPS table to: {csv_path}")
+print(pps_df.head(10).to_string(index=False))
+
+# %%
+
+# =============================================================================
+# Plot: distribution of p(H_1 | x, z) per item across the S Monte-Carlo samples
+# =============================================================================
+
+print("\nPlotting p(H_1 | x, z) distribution...")
+tmp = p_h1_xz.merge(
+    dit[['item_label', 'group_label_long', 'item_label_short']].drop_duplicates(),
+    on='item_label', how='left',
+)
+tmp['item_label_long'] = tmp['group_label_long'] + np.where(
+    tmp['item_label_short'].notna(), '\n' + tmp['item_label_short'], ''
+)
+
+all_items = list(pd.unique(tmp['item_label_long']))
+color_dict = dict(zip(all_items, _futurama_palette(len(all_items))))
+
+# Summarise p_h1_xz per item across the S Monte-Carlo samples. The box spans
+# 25%-75%, the whiskers 2.5%-97.5% (plotted with stat='identity').
+box_stats = (
+    tmp.groupby(['item_label_long', 'interim_date'])['p_h1_xz']
+    .agg(
+        min='min',
+        q025=lambda s: s.quantile(0.025),
+        q25=lambda s: s.quantile(0.25),
+        q50=lambda s: s.quantile(0.50),
+        q75=lambda s: s.quantile(0.75),
+        q975=lambda s: s.quantile(0.975),
+        max='max',
     )
-    print(f"  P(H_1 | x) computed for {len(p_h1_x)} items")
+    .reset_index()
+)
 
-    # Pull ypred draws (1-indexed integers) from the interim-1 fit and pick
-    # S equally-spaced draws to use as hypothetical z.
-    _idata = az.from_zarr(interim_x_draws_file)
-    if 'ypred' not in _idata.posterior.data_vars:
-        raise RuntimeError("ypred not found in interim-1 posterior; cannot draw z.")
-    _ypred = _idata.posterior['ypred'].values  # (chain, draw, N_total)
-    _n_draw = _ypred.shape[1]
-    _draw_idx = np.linspace(0, _n_draw - 1, pps_z_total, dtype=int)
-
-    # For each s, augment the dataset with one ypred draw (one extra "shadow"
-    # participant per existing pid using the ypred outcomes) and refit.
-    _pid_offset = int(interim_x['pid'].max())
-    p_h1_xz_rows = []
-
-    for s_idx, draw_i in enumerate(_draw_idx):
-        s_label = s_idx + 1
-        print(f"\n--- PPS sample {s_label}/{pps_z_total} (ypred draw {draw_i}) ---")
-        yz = np.asarray(_ypred[0, draw_i, :]).astype(int)  # (N_total,)
-
-        z_dcati = interim_x.copy()
-        z_dcati['y_stan'] = yz
-        z_dcati['y'] = yz - 1
-        z_dcati['pid'] = z_dcati['pid'] + _pid_offset * s_label  # fresh pid block per s
-
-        aug = pd.concat([interim_x, z_dcati], ignore_index=True)
-        aug = aug.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
-        aug['oid'] = range(1, len(aug) + 1)
-        aug['oidt'] = aug.groupby('item_type').cumcount() + 1
-
-        aug_prefix = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}_s{s_label}")
-        fit_partial_credit_model_ncats_pyrosvi(
-            dit,
-            aug,
-            output_file_prefix=aug_prefix,
-            algorithm=svi_algorithm,
-            lr=0.01,
-            num_steps=10000,
-            output_samples=4000,
-            seed=seed + s_label,
-            x_formula="~ time - 1",
-            resume=True,
-            with_core_analyses=False,
-            with_additional_analyses=False,
-        )
-
-        aug_zarr = f"{aug_prefix}_draws.zarr"
-        ratio_xz = get_endpoints_per_draw(
-            aug_zarr, aug, dit,
-            categorical_threshold=2,
-            endpoint_type='items',
-            param_name='ordered_prob_by_cat_qu_fit',
-        )
-        sample_p = (
-            ratio_xz.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
-            .apply(lambda r: float((r > 0).mean()))
-            .reset_index(name='p_h1_xz')
-        )
-        sample_p['s'] = s_label
-        p_h1_xz_rows.append(sample_p)
-
-    p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}_p_h1_xz.pkl")
-    p_h1_xz.to_pickle(pkl_path)
-    print(f"\nSaved P(H_1 | x, z) samples to: {pkl_path}")
-
-    pps_df = (
-        p_h1_xz.groupby(['item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-        .apply(lambda p: float((p > pps_thresh).mean()))
-        .reset_index(name='pps')
+p = (
+    ggplot(box_stats, aes(x='interim_date', fill='item_label_long'))
+    + geom_boxplot(
+        aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975',
+            group='interim_date'),
+        stat='identity',
     )
-    pps_df = pps_df.merge(p_h1_x, on=['item_label', 'item_type', 'item_high_label'], how='left')
-    pps_df['eta'] = pps_thresh
-    pps_df['S'] = pps_z_total
-    pps_df['interim_id'] = pps_interim_id
-
-    csv_path = os.path.join(dir_out, f"{file_prefix}_pps_i{pps_interim_id}.csv")
-    pps_df.to_csv(csv_path, index=False)
-    print(f"Saved PPS table to: {csv_path}")
-    print(pps_df.head(10).to_string(index=False))
+    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+    + facet_grid('item_label_long ~ .')
+    + scale_fill_manual(values=color_dict)
+    + scale_x_datetime()
+    + scale_y_continuous(
+        limits=[0, 1],
+        breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+    )
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+        legend_position='none',
+        figure_size=(6, 2.2 * max(1, len(all_items))),
+        strip_text_y=element_text(angle=0),
+    )
+    + labs(x='Interim date', y='p(H_1 | x, z)')
+)
+tmp = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pdf")
+p.save(tmp, verbose=False, limitsize=False)
+print(f"Saved p(H_1 | x, z) boxplot to: {tmp}")
 
 print("\n✓ Interim analyses complete")

@@ -54,6 +54,7 @@ def _fit_ordered_logit_make_stan_data(
     dcati: pd.DataFrame,
     x_formula: str,
     x_formula_ignore_regex: Optional[str] = None,
+    verbose: bool = True,
 ) -> dict:
     """
     Build stan_data and design-matrix metadata for ordered logit ncats models.
@@ -74,6 +75,7 @@ def _fit_ordered_logit_make_stan_data(
     dict
         Stan input dictionary for ordered logit ncats models.
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     # Ensure dcati is sorted by item_type_id and oidt.
     dcati_sorted = dcati.sort_values(['item_type_id', 'oidt']).reset_index(drop=True)
 
@@ -119,14 +121,14 @@ def _fit_ordered_logit_make_stan_data(
     stan_data['P'] = len(design_matrix.columns)
     stan_data['P_pr'] = len(xpr_id)
 
-    print(f"Design matrix number of predictors: P = {stan_data['P']}")
-    print(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
-    print(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
-    print(f"Number of category types: C = {stan_data['C']}")
-    print(f"Category type labels: {', '.join(dit['item_type'].unique())}")
-    print(f"N per category: {', '.join(map(str, stan_data['N']))}")
-    print(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
-    print(f"K per category: {', '.join(map(str, stan_data['K']))}")
+    vprint(f"Design matrix number of predictors: P = {stan_data['P']}")
+    vprint(f"Design matrix column names (for fitting): {', '.join(design_matrix.columns)}")
+    vprint(f"Design matrix column names (for prediction): {', '.join([design_matrix.columns[i-1] for i in xpr_id])}")
+    vprint(f"Number of category types: C = {stan_data['C']}")
+    vprint(f"Category type labels: {', '.join(dit['item_type'].unique())}")
+    vprint(f"N per category: {', '.join(map(str, stan_data['N']))}")
+    vprint(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
+    vprint(f"K per category: {', '.join(map(str, stan_data['K']))}")
 
     return stan_data
 
@@ -145,30 +147,40 @@ def fit_ordered_logit_model_ncats_pyrosvi(
     resume: bool = False,
     with_core_analyses: bool = True,
     with_additional_analyses: bool = False,
+    save_to_file: bool = True,
+    verbose: bool = True,
 ) -> Dict:
     """
     Run ordered logit model analysis (ncats version) using SVI with NumPyro.
 
     Mirrors ``fit_partial_credit_model_ncats_pyrosvi`` but loads the ordered
     logit numpyro model and uses ``_fit_ordered_logit_make_stan_data``.
+
+    When ``save_to_file`` is False the fit runs purely in memory: no data/timing
+    /draws files are written, resume is disabled, and the core/additional
+    analyses (which produce on-disk plots) are skipped. The returned dict still
+    holds the in-memory ``draws`` idata, ``posterior_samples`` and ``timing``.
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
 
-    print("\n" + "=" * 40)
-    print("Ordered Logit Model (ncats) SVI Analysis Configuration")
-    print("=" * 40)
-    print(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
-    print(f"Output prefix: {output_file_prefix}")
-    print(f"Algorithm: {algorithm}")
-    print(f"Learning rate: {lr}")
-    print(f"SVI steps: {num_steps}")
-    print(f"Output samples: {output_samples}")
-    print(f"Seed: {seed}")
-    print(f"Resume: {resume}")
-    print(f"Core analyses: {with_core_analyses}")
-    print(f"Additional analyses: {with_additional_analyses}")
-    print("=" * 40 + "\n")
+    vprint("\n" + "=" * 40)
+    vprint("Ordered Logit Model (ncats) SVI Analysis Configuration")
+    vprint("=" * 40)
+    vprint(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
+    vprint(f"Output prefix: {output_file_prefix}")
+    vprint(f"Algorithm: {algorithm}")
+    vprint(f"Learning rate: {lr}")
+    vprint(f"SVI steps: {num_steps}")
+    vprint(f"Output samples: {output_samples}")
+    vprint(f"Seed: {seed}")
+    vprint(f"Resume: {resume}")
+    vprint(f"Core analyses: {with_core_analyses}")
+    vprint(f"Additional analyses: {with_additional_analyses}")
+    vprint(f"Save to file: {save_to_file}")
+    vprint("=" * 40 + "\n")
 
-    os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
+    if save_to_file:
+        os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
 
     timing_file = f"{output_file_prefix}_timing.csv"
     draws_file = f"{output_file_prefix}_draws.zarr"
@@ -179,15 +191,16 @@ def fit_ordered_logit_model_ncats_pyrosvi(
     # recomputed if their PDFs are missing, but never block resume.
     can_resume = (
         resume
+        and save_to_file
         and os.path.exists(timing_file)
         and os.path.exists(draws_file)
     )
 
     if can_resume:
-        print("\n" + "=" * 40)
-        print("RESUMING from existing outputs")
-        print("=" * 40)
-        print(f"Loading draws from: {draws_file}")
+        vprint("\n" + "=" * 40)
+        vprint("RESUMING from existing outputs")
+        vprint("=" * 40)
+        vprint(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
         # Reconstruct (n_draws, *shape) posterior_samples dict from idata so the
         # return contract matches a fresh fit.
@@ -195,27 +208,29 @@ def fit_ordered_logit_model_ncats_pyrosvi(
         for var_name in idata.posterior.data_vars:
             arr = np.asarray(idata.posterior[var_name])
             posterior_samples[var_name] = arr.reshape((-1,) + arr.shape[2:])
-        print(f"Loading timing data from: {timing_file}")
+        vprint(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
-        print("=" * 40 + "\n")
+        vprint("=" * 40 + "\n")
     else:
         if resume:
-            print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+            vprint("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
 
-        data_file = f"{output_file_prefix}_data.csv"
-        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+        if save_to_file:
+            data_file = f"{output_file_prefix}_data.csv"
+            dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+            dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+            vprint(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
 
-        print("Preparing Stan data in ncats format...")
+        vprint("Preparing Stan data in ncats format...")
         stan_data = _fit_ordered_logit_make_stan_data(
             dit=dit,
             dcati=dcati,
             x_formula=x_formula,
             x_formula_ignore_regex=x_formula_ignore_regex,
+            verbose=verbose,
         )
 
-        print("Loading NumPyro model...")
+        vprint("Loading NumPyro model...")
         numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "ordered_logit_ncats_v260413.pyro"
         if not numpyro_model_file.exists():
             raise FileNotFoundError(f"NumPyro model file not found: {numpyro_model_file}")
@@ -236,8 +251,8 @@ def fit_ordered_logit_model_ncats_pyrosvi(
         guide_factory = _get_autoguide_factory(algorithm)
         rng_key = jax.random.PRNGKey(seed)
 
-        print("Running SVI with Adam optimizer...")
-        print(f"  Algorithm: {algorithm}")
+        vprint("Running SVI with Adam optimizer...")
+        vprint(f"  Algorithm: {algorithm}")
 
         guide = guide_factory(model_for_svi)
         svi = SVI(
@@ -247,14 +262,14 @@ def fit_ordered_logit_model_ncats_pyrosvi(
             Trace_ELBO(),
         )
 
-        print("Initializing SVI state...")
+        vprint("Initializing SVI state...")
         t_init0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
         init_state = svi.init(subkey, stan_data)
         init_minutes = (time.time() - t_init0) / 60.0
-        print(f"  SVI init completed in {init_minutes:.2f} minutes")
+        vprint(f"  SVI init completed in {init_minutes:.2f} minutes")
 
-        print(f"Optimizing variational parameters for {num_steps} steps...")
+        vprint(f"Optimizing variational parameters for {num_steps} steps...")
         t_opt0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
         run_result = svi.run(
@@ -269,14 +284,14 @@ def fit_ordered_logit_model_ncats_pyrosvi(
         losses = np.asarray(run_result.losses)
 
         for i in range(999, len(losses), 1000):
-            print(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
+            vprint(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
         if len(losses) and (len(losses) % 1000) != 0:
             i = len(losses) - 1
-            print(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
+            vprint(f"  Step {i + 1:5d} / {num_steps}: ELBO = {-losses[i]:,.1f}", flush=True)
 
-        print(f"\nSVI optimization completed in {opt_minutes:.2f} minutes (after {init_minutes:.2f} min init)")
+        vprint(f"\nSVI optimization completed in {opt_minutes:.2f} minutes (after {init_minutes:.2f} min init)")
 
-        print(f"Sampling {output_samples} draws from the learned approximate posterior...")
+        vprint(f"Sampling {output_samples} draws from the learned approximate posterior...")
         t_post0 = time.time()
         rng_key, subkey = jax.random.split(rng_key)
         params = svi.get_params(svi_state)
@@ -294,9 +309,9 @@ def fit_ordered_logit_model_ncats_pyrosvi(
             )
         posterior_samples_dict = {k: np.asarray(v) for k, v in posterior_samples.items()}
         post_minutes = (time.time() - t_post0) / 60.0
-        print(f"  Posterior sampling completed in {post_minutes:.2f} minutes")
+        vprint(f"  Posterior sampling completed in {post_minutes:.2f} minutes")
 
-        print("Generating posterior predictive samples...")
+        vprint("Generating posterior predictive samples...")
         from numpyro.infer import Predictive
 
         predictive = Predictive(
@@ -311,15 +326,15 @@ def fit_ordered_logit_model_ncats_pyrosvi(
         rng_key, subkey = jax.random.split(rng_key)
         predictions = predictive(subkey, stan_data)
         pred_minutes = (time.time() - t_pred0) / 60.0
-        print(f"  Posterior predictive generation completed in {pred_minutes:.2f} minutes")
+        vprint(f"  Posterior predictive generation completed in {pred_minutes:.2f} minutes")
 
-        print("Converting to ArviZ format...")
+        vprint("Converting to ArviZ format...")
         t_idata0 = time.time()
         idata = _make_idata_from_svi_posterior(stan_data, posterior_samples_dict, predictions)
         idata_minutes = (time.time() - t_idata0) / 60.0
-        print(f"  ArviZ conversion completed in {idata_minutes:.2f} minutes")
+        vprint(f"  ArviZ conversion completed in {idata_minutes:.2f} minutes")
 
-        print("Extracting timing information...")
+        vprint("Extracting timing information...")
         mins_generate_samples = post_minutes + pred_minutes + idata_minutes
         mins_total = init_minutes + opt_minutes + mins_generate_samples
         timing_data = pd.DataFrame({
@@ -333,15 +348,16 @@ def fit_ordered_logit_model_ncats_pyrosvi(
         })
         timing_cols = ['mins_init', 'mins_sample', 'mins_generate_samples', 'mins_total']
         timing_data[timing_cols] = timing_data[timing_cols].round(3)
-        timing_data.to_csv(timing_file, index=False)
-        print(f"Saved timing information to: {timing_file}")
+        if save_to_file:
+            timing_data.to_csv(timing_file, index=False)
+            vprint(f"Saved timing information to: {timing_file}")
 
-        print(f"Saving draws to: {draws_file}")
-        idata.to_zarr(draws_file)
+            vprint(f"Saving draws to: {draws_file}")
+            idata.to_zarr(draws_file)
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
-        print("\nRunning additional diagnostic analyses...")
-        print("Generating parameter plots...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
+        vprint("\nRunning additional diagnostic analyses...")
+        vprint("Generating parameter plots...")
 
         key_vars_pattern = '|'.join([
             'latent_factor_unit',
@@ -371,42 +387,46 @@ def fit_ordered_logit_model_ncats_pyrosvi(
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
-        print("Generating posterior predictive checks...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
+        vprint("Generating posterior predictive checks...")
         if 'ypred' in idata.posterior.data_vars:
-            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")
+            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck", verbose=verbose)
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
-        print("Computing ordinal Brier scores by question...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
+        vprint("Computing ordinal Brier scores by question...")
         if 'ordinal_brier_score' in idata.posterior.data_vars:
             _compute_ordinal_brier_scores(
                 idata.posterior['ordinal_brier_score'].values,
                 dcati,
                 f"{output_file_prefix}_ordered_brierscore",
+                verbose=verbose,
             )
 
-    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
-        print("\nGenerating fitted probability plots...")
+    if save_to_file and with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
+        vprint("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_fit'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_fit",
+                verbose=verbose,
             )
 
     if (
-        with_core_analyses
+        save_to_file
+        and with_core_analyses
         and x_formula_ignore_regex is not None
         and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr")
     ):
-        print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
+        vprint("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_pr'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_pr",
+                verbose=verbose,
             )
 
     return {
@@ -434,34 +454,43 @@ def fit_ordered_logit_model_ncats_stanadvi(
     resume: bool = False,
     with_core_analyses: bool = True,
     with_additional_analyses: bool = False,
+    save_to_file: bool = True,
+    verbose: bool = True,
 ) -> Dict:
     """
     Run ordered logit model analysis (ncats version) using ADVI.
 
     This function performs Bayesian IRT analysis using the flexible ncats ordered logit model
     with ADVI (Automatic Differentiation Variational Inference) instead of HMC.
+
+    When ``save_to_file`` is False the fit runs purely in memory: no data/timing
+    /draws/pickle files are written, resume is disabled, and the core/additional
+    analyses are skipped.
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     if stan_file is None:
         stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "ordered_logit_ncats_v260413.stan")
 
-    print("\n" + "=" * 40)
-    print("Ordered Logit Model (ncats) ADVI Analysis Configuration")
-    print("=" * 40)
-    print(f"Stan file: {stan_file}")
-    print(f"Stan include dir: {os.path.dirname(stan_file)}")
-    print(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
-    print(f"Output prefix: {output_file_prefix}")
-    print(f"ADVI iterations: {iter}")
-    print(f"Gradient samples: {grad_samples}")
-    print(f"ELBO samples: {elbo_samples}")
-    print(f"Output samples: {output_samples}")
-    print(f"Seed: {seed}")
-    print(f"Resume: {resume}")
-    print(f"Core analyses: {with_core_analyses}")
-    print(f"Additional analyses: {with_additional_analyses}")
-    print("=" * 40 + "\n")
+    vprint("\n" + "=" * 40)
+    vprint("Ordered Logit Model (ncats) ADVI Analysis Configuration")
+    vprint("=" * 40)
+    vprint(f"Stan file: {stan_file}")
+    vprint(f"Stan include dir: {os.path.dirname(stan_file)}")
+    vprint(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
+    vprint(f"Output prefix: {output_file_prefix}")
+    vprint(f"ADVI iterations: {iter}")
+    vprint(f"Gradient samples: {grad_samples}")
+    vprint(f"ELBO samples: {elbo_samples}")
+    vprint(f"Output samples: {output_samples}")
+    vprint(f"Seed: {seed}")
+    vprint(f"Resume: {resume}")
+    vprint(f"Core analyses: {with_core_analyses}")
+    vprint(f"Additional analyses: {with_additional_analyses}")
+    vprint(f"Save to file: {save_to_file}")
+    vprint("=" * 40 + "\n")
 
-    os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
+    if save_to_file:
+        os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
 
     timing_file = f"{output_file_prefix}_timing.csv"
     draws_file = f"{output_file_prefix}_draws.zarr"
@@ -469,6 +498,7 @@ def fit_ordered_logit_model_ncats_stanadvi(
     data_file = f"{output_file_prefix}_data.csv"
 
     can_resume = (resume and
+                  save_to_file and
                   os.path.exists(timing_file) and
                   os.path.exists(draws_file) and
                   os.path.exists(data_file.replace('.csv', '_dp1.csv')) and
@@ -476,42 +506,44 @@ def fit_ordered_logit_model_ncats_stanadvi(
                   os.path.exists(output_file))
 
     if can_resume:
-        print("\n" + "=" * 40)
-        print("RESUMING from existing outputs")
-        print("=" * 40)
+        vprint("\n" + "=" * 40)
+        vprint("RESUMING from existing outputs")
+        vprint("=" * 40)
 
-        print(f"Loading fit from: {output_file}")
+        vprint(f"Loading fit from: {output_file}")
         fit = pd.read_pickle(output_file)
 
-        print(f"Loading draws from: {draws_file}")
+        vprint(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
 
-        print(f"Loading timing data from: {timing_file}")
+        vprint(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
-        print("=" * 40 + "\n")
+        vprint("=" * 40 + "\n")
     else:
         if resume:
-            print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+            vprint("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
 
-        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+        if save_to_file:
+            dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+            dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+            vprint(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
 
-        print("Preparing Stan data in ncats format...")
+        vprint("Preparing Stan data in ncats format...")
         stan_data = _fit_ordered_logit_make_stan_data(
             dit=dit,
             dcati=dcati,
             x_formula=x_formula,
             x_formula_ignore_regex=x_formula_ignore_regex,
+            verbose=verbose,
         )
 
-        print("Compiling Stan model...")
+        vprint("Compiling Stan model...")
         model = CmdStanModel(
             stan_file=stan_file,
             cpp_options={'STAN_THREADS': 'TRUE'}
         )
 
-        print("Running ADVI...")
+        vprint("Running ADVI...")
         start_time = time.time()
 
         fit = model.variational(
@@ -527,7 +559,7 @@ def fit_ordered_logit_model_ncats_stanadvi(
 
         elapsed_time = time.time() - start_time
 
-        print("\nExtracting timing information...")
+        vprint("\nExtracting timing information...")
         timing_data = pd.DataFrame({
             'chain_id': [1],
             'n_warmup': [0],
@@ -540,22 +572,23 @@ def fit_ordered_logit_model_ncats_stanadvi(
         timing_cols = ['mins_init', 'mins_sample', 'mins_generate_samples', 'mins_total']
         timing_data[timing_cols] = timing_data[timing_cols].round(3)
 
-        timing_data.to_csv(timing_file, index=False)
-        print(f"Saved timing information to: {timing_file}")
-
-        print(f"Saving model fit to: {output_file}")
-        pd.to_pickle(fit, output_file)
-
-        print("Converting to ArviZ format...")
+        vprint("Converting to ArviZ format...")
         idata = _make_idata_from_advi_fit(fit)
 
-        print(f"Saving draws to: {draws_file}")
-        idata.to_zarr(draws_file)
+        if save_to_file:
+            timing_data.to_csv(timing_file, index=False)
+            vprint(f"Saved timing information to: {timing_file}")
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
-        print("\nRunning additional diagnostic analyses...")
+            vprint(f"Saving model fit to: {output_file}")
+            pd.to_pickle(fit, output_file)
 
-        print("Generating parameter plots...")
+            vprint(f"Saving draws to: {draws_file}")
+            idata.to_zarr(draws_file)
+
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
+        vprint("\nRunning additional diagnostic analyses...")
+
+        vprint("Generating parameter plots...")
         key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
                                     'skill_thresholds_1', 'skill_thresholds_incs',
                                     'loadings_questions_m1'])
@@ -580,36 +613,38 @@ def fit_ordered_logit_model_ncats_stanadvi(
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
-        print("Generating posterior predictive checks...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.pdf"):
+        vprint("Generating posterior predictive checks...")
 
         if 'ypred' in idata.posterior.data_vars:
-            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")
+            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck", verbose=verbose)
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
-        print("Computing ordinal Brier scores by question...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
+        vprint("Computing ordinal Brier scores by question...")
 
         if 'ordinal_brier_score' in idata.posterior.data_vars:
-            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore")
+            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore", verbose=verbose)
 
-    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
-        print("\nGenerating fitted probability plots...")
+    if save_to_file and with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
+        vprint("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_fit'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_fit",
+                verbose=verbose,
             )
 
-    if with_core_analyses and x_formula_ignore_regex is not None and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr"):
-        print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
+    if save_to_file and with_core_analyses and x_formula_ignore_regex is not None and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr"):
+        vprint("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_pr'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_pr",
+                verbose=verbose,
             )
 
     return {
@@ -637,6 +672,8 @@ def fit_ordered_logit_model_ncats_stanhmc(
     resume: bool = False,
     with_core_analyses: bool = True,
     with_additional_analyses: bool = False,
+    save_to_file: bool = True,
+    verbose: bool = True,
 ) -> Dict:
     """
     Run ordered logit model analysis (ncats version) on pre-processed data using HMC.
@@ -644,29 +681,36 @@ def fit_ordered_logit_model_ncats_stanhmc(
     This function performs Bayesian IRT analysis using the flexible ncats ordered logit model
     on pre-processed data. It compiles the Stan model, runs MCMC sampling, generates convergence
     diagnostics, and optionally creates detailed diagnostic plots.
+
+    When ``save_to_file`` is False the fit runs purely in memory: no data/timing
+    /draws/pickle/convergence files are written, resume is disabled, and the
+    core/additional analyses are skipped.
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     if stan_file is None:
         stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "ordered_logit_ncats_v260413.stan")
 
-    print("\n" + "=" * 40)
-    print("Ordered Logit Model (ncats) Analysis Configuration")
-    print("=" * 40)
-    print(f"Stan file: {stan_file}")
-    print(f"Stan include dir: {os.path.dirname(stan_file)}")
-    print(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
-    print(f"Output prefix: {output_file_prefix}")
-    print(f"Chains: {chains}")
-    print(f"Parallel chains: {parallel_chains}")
-    print(f"Threads per chain: {threads_per_chain}")
-    print(f"Warmup iterations: {iter_warmup}")
-    print(f"Sampling iterations: {iter_sampling}")
-    print(f"Seed: {seed}")
-    print(f"Resume: {resume}")
-    print(f"Core analyses: {with_core_analyses}")
-    print(f"Additional analyses: {with_additional_analyses}")
-    print("=" * 40 + "\n")
+    vprint("\n" + "=" * 40)
+    vprint("Ordered Logit Model (ncats) Analysis Configuration")
+    vprint("=" * 40)
+    vprint(f"Stan file: {stan_file}")
+    vprint(f"Stan include dir: {os.path.dirname(stan_file)}")
+    vprint(f"Data: dit with {len(dit)} items, dcati with {len(dcati)} observations")
+    vprint(f"Output prefix: {output_file_prefix}")
+    vprint(f"Chains: {chains}")
+    vprint(f"Parallel chains: {parallel_chains}")
+    vprint(f"Threads per chain: {threads_per_chain}")
+    vprint(f"Warmup iterations: {iter_warmup}")
+    vprint(f"Sampling iterations: {iter_sampling}")
+    vprint(f"Seed: {seed}")
+    vprint(f"Resume: {resume}")
+    vprint(f"Core analyses: {with_core_analyses}")
+    vprint(f"Additional analyses: {with_additional_analyses}")
+    vprint(f"Save to file: {save_to_file}")
+    vprint("=" * 40 + "\n")
 
-    os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
+    if save_to_file:
+        os.makedirs(os.path.dirname(output_file_prefix), exist_ok=True)
 
     timing_file = f"{output_file_prefix}_timing.csv"
     draws_file = f"{output_file_prefix}_draws.zarr"
@@ -675,6 +719,7 @@ def fit_ordered_logit_model_ncats_stanhmc(
     data_file = f"{output_file_prefix}_data.csv"
 
     can_resume = (resume and
+                  save_to_file and
                   os.path.exists(timing_file) and
                   os.path.exists(draws_file) and
                   os.path.exists(output_file) and
@@ -683,46 +728,48 @@ def fit_ordered_logit_model_ncats_stanhmc(
                   os.path.exists(data_file.replace('.csv', '_dit.csv')))
 
     if can_resume:
-        print("\n" + "=" * 40)
-        print("RESUMING from existing outputs")
-        print("=" * 40)
+        vprint("\n" + "=" * 40)
+        vprint("RESUMING from existing outputs")
+        vprint("=" * 40)
 
-        print(f"Loading fit from: {output_file}")
+        vprint(f"Loading fit from: {output_file}")
         fit = pd.read_pickle(output_file)
 
-        print(f"Loading draws from: {draws_file}")
+        vprint(f"Loading draws from: {draws_file}")
         idata = az.from_zarr(draws_file)
 
-        print(f"Loading timing data from: {timing_file}")
+        vprint(f"Loading timing data from: {timing_file}")
         timing_data = pd.read_csv(timing_file)
         chain_col = 'chain_id' if 'chain_id' in timing_data.columns else 'chain'
         good_chains = timing_data[chain_col].astype(int).tolist()
-        print(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
-        print("=" * 40 + "\n")
+        vprint(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
+        vprint("=" * 40 + "\n")
 
     else:
         if resume:
-            print("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
+            vprint("\nNote: Resume requested but not all output files exist. Running full analysis.\n")
 
-        dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
-        dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
-        print(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
+        if save_to_file:
+            dcati.to_csv(data_file.replace('.csv', '_dp1.csv'), index=False)
+            dit.to_csv(data_file.replace('.csv', '_dit.csv'), index=False)
+            vprint(f"Saved preprocessed data to: {data_file.replace('.csv', '_dp1.csv')} and _dit.csv")
 
-        print("Preparing Stan data in ncats format...")
+        vprint("Preparing Stan data in ncats format...")
         stan_data = _fit_ordered_logit_make_stan_data(
             dit=dit,
             dcati=dcati,
             x_formula=x_formula,
             x_formula_ignore_regex=x_formula_ignore_regex,
+            verbose=verbose,
         )
 
-        print("Compiling Stan model...")
+        vprint("Compiling Stan model...")
         model = CmdStanModel(
             stan_file=stan_file,
             cpp_options={'STAN_THREADS': 'TRUE'}
         )
 
-        print("Running MCMC sampling...")
+        vprint("Running MCMC sampling...")
         fit = model.sample(
             data=stan_data,
             chains=chains,
@@ -736,7 +783,7 @@ def fit_ordered_logit_model_ncats_stanhmc(
             save_warmup=True
         )
 
-        print("Checking for divergent transitions and removing non-converged chains...")
+        vprint("Checking for divergent transitions and removing non-converged chains...")
         try:
             lp_draws = fit.draws_pd(inc_warmup=False)
         except TypeError:
@@ -764,9 +811,9 @@ def fit_ordered_logit_model_ncats_stanhmc(
         best_idx = chain_stats['mean_lp'].idxmax()
         threshold = chain_stats.loc[best_idx, 'mean_lp'] - 2 * chain_stats.loc[best_idx, 'sd_lp']
         good_chains = chain_stats[chain_stats['mean_lp'] > threshold]['chain'].astype(int).tolist()
-        print(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
+        vprint(f"Identified good HMC chains: {', '.join(map(str, good_chains))}")
 
-        print("\nExtracting timing information...")
+        vprint("\nExtracting timing information...")
         chain_times = fit.time
         timing_data = pd.DataFrame({
             'chain_id': good_chains,
@@ -780,33 +827,34 @@ def fit_ordered_logit_model_ncats_stanhmc(
         timing_cols = ['mins_init', 'mins_sample', 'mins_generate_samples', 'mins_total']
         timing_data[timing_cols] = timing_data[timing_cols].round(3)
 
-        timing_data.to_csv(timing_file, index=False)
-        print(f"Saved timing information to: {timing_file}")
-
-        print(f"Saving model fit to: {output_file}")
-        pd.to_pickle(fit, output_file)
-
-        print("Converting to ArviZ format...")
+        vprint("Converting to ArviZ format...")
         idata = az.from_cmdstanpy(
             fit,
             coords={'chain': good_chains},
             dims={}
         )
 
-        print(f"Saving draws to: {draws_file}")
-        idata.to_zarr(draws_file)
+        if save_to_file:
+            timing_data.to_csv(timing_file, index=False)
+            vprint(f"Saved timing information to: {timing_file}")
 
-        print("Generating convergence diagnostics...")
-        key_vars = ['latent_factor_unit', 'latent_factor_beta',
-               'skill_thresholds_1', 'skill_thresholds_incs', 'loadings_questions_m1']
-        summary_df = az.summary(idata, var_names=key_vars)
-        summary_df = summary_df.sort_values('ess_bulk')
+            vprint(f"Saving model fit to: {output_file}")
+            pd.to_pickle(fit, output_file)
 
-        print(f"Saved convergence diagnostics to: {mixing_file}")
-        summary_df.to_csv(mixing_file)
+            vprint(f"Saving draws to: {draws_file}")
+            idata.to_zarr(draws_file)
 
-        if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_worsttrace.pdf"):
-            print("Generating worst-chain trace plot...")
+            vprint("Generating convergence diagnostics...")
+            key_vars = ['latent_factor_unit', 'latent_factor_beta',
+                   'skill_thresholds_1', 'skill_thresholds_incs', 'loadings_questions_m1']
+            summary_df = az.summary(idata, var_names=key_vars)
+            summary_df = summary_df.sort_values('ess_bulk')
+
+            vprint(f"Saved convergence diagnostics to: {mixing_file}")
+            summary_df.to_csv(mixing_file)
+
+        if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_worsttrace.pdf"):
+            vprint("Generating worst-chain trace plot...")
 
             worst_vars = summary_df.head(9).index.tolist()
             worst_vars = [re.sub(r"\[(\d+)\]", lambda match: f"[{int(match.group(1)) + 1}]", v)
@@ -821,10 +869,10 @@ def fit_ordered_logit_model_ncats_stanhmc(
                 output_file_stem=f"{output_file_prefix}_worsttrace",
             )
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
-        print("\nRunning additional diagnostic analyses...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_intervals.pdf"):
+        vprint("\nRunning additional diagnostic analyses...")
 
-        print("Generating parameter plots...")
+        vprint("Generating parameter plots...")
         key_vars_pattern = '|'.join(['latent_factor_unit', 'latent_factor_beta',
                                     'skill_thresholds_1', 'skill_thresholds_incs',
                                     'loadings_questions_m1'])
@@ -849,36 +897,38 @@ def fit_ordered_logit_model_ncats_stanhmc(
             plt.savefig(f"{output_file_prefix}_intervals.pdf", bbox_inches='tight')
             plt.close()
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
-        print("Generating posterior predictive checks...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ppcheck.png"):
+        vprint("Generating posterior predictive checks...")
 
         if 'ypred' in idata.posterior.data_vars:
-            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck")
+            _plot_ppcheck(idata.posterior['ypred'].values, dcati, f"{output_file_prefix}_ppcheck", verbose=verbose)
 
-    if with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
-        print("Computing ordinal Brier scores by question...")
+    if save_to_file and with_additional_analyses and not os.path.exists(f"{output_file_prefix}_ordered_brierscore.csv"):
+        vprint("Computing ordinal Brier scores by question...")
 
         if 'ordinal_brier_score' in idata.posterior.data_vars:
-            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore")
+            _compute_ordinal_brier_scores(idata.posterior['ordinal_brier_score'].values, dcati, f"{output_file_prefix}_ordered_brierscore", verbose=verbose)
 
-    if with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
-        print("\nGenerating fitted probability plots...")
+    if save_to_file and with_core_analyses and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_fit"):
+        vprint("\nGenerating fitted probability plots...")
         if 'ordered_prob_by_cat_qu_fit' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_fit'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_fit",
+                verbose=verbose,
             )
 
-    if with_core_analyses and x_formula_ignore_regex is not None and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr"):
-        print("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
+    if save_to_file and with_core_analyses and x_formula_ignore_regex is not None and not _pdf_or_parts_exist(f"{output_file_prefix}_prob_by_question_pr"):
+        vprint("\nGenerating predictive probability plots with columns matching x_formula_ignore_regex removed from X...")
         if 'ordered_prob_by_cat_qu_pr' in idata.posterior.data_vars:
             _plot_prob_barplots(
                 idata.posterior['ordered_prob_by_cat_qu_pr'].values,
                 dcati,
                 dit,
                 f"{output_file_prefix}_prob_by_question_pr",
+                verbose=verbose,
             )
 
     return {

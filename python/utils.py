@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 #%%
 def _map_cq_id_to_item_structure(dp1: pd.DataFrame, dit: pd.DataFrame) -> pd.DataFrame:
     """
@@ -277,6 +279,7 @@ def _plot_ppcheck(
     ypred_values: np.ndarray,
     dcati: pd.DataFrame,
     output_file_stem: str,
+    verbose: bool = True,
 ) -> None:
     """
     Generate and save a posterior predictive check plot.
@@ -291,6 +294,7 @@ def _plot_ppcheck(
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_ppcheck"``).
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     import numpy as np
     import pandas as pd
 
@@ -319,7 +323,7 @@ def _plot_ppcheck(
     pos['in_ppi'] = (pos['y_stan'] >= pos['q_lower']) & (pos['y_stan'] <= pos['q_upper'])
     pos['in_ppi_label'] = np.where(pos['in_ppi'], 'TRUE', 'FALSE')
 
-    print(f"Proportion in 95% PPI: {pos['in_ppi'].mean():.4f}")
+    vprint(f"Proportion in 95% PPI: {pos['in_ppi'].mean():.4f}")
 
     p = (
         ggplot(pos, aes(x='oid', group='oid')) +
@@ -357,6 +361,7 @@ def _compute_ordinal_brier_scores(
     ordinal_brier_score_values: np.ndarray,
     dcati: pd.DataFrame,
     output_file_stem: str,
+    verbose: bool = True,
 ) -> None:
     """
     Compute ordinal Brier scores by question and save to CSV.
@@ -372,6 +377,7 @@ def _compute_ordinal_brier_scores(
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_ordered_brierscore"``).
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     import numpy as np
     import pandas as pd
 
@@ -400,7 +406,7 @@ def _compute_ordinal_brier_scores(
 
     brier_file = f"{output_file_stem}.csv"
     pos.to_csv(brier_file, index=False)
-    print(f"Ordinal Brier scores saved to {brier_file}")
+    vprint(f"Ordinal Brier scores saved to {brier_file}")
 
 #%%
 def _plot_prob_barplots(
@@ -408,6 +414,7 @@ def _plot_prob_barplots(
     dcati: pd.DataFrame,
     dit: pd.DataFrame,
     output_file_stem: str,
+    verbose: bool = True,
 ) -> None:
     """
     Generate and save posterior probability bar plots per item type.
@@ -426,6 +433,7 @@ def _plot_prob_barplots(
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_prob_by_question"``).
     """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     import numpy as np
     import pandas as pd
     import ggsci
@@ -481,7 +489,7 @@ def _plot_prob_barplots(
 
     csv_out = f"{output_file_stem}.csv"
     pos.to_csv(csv_out, index=False)
-    print(f"Saving posterior probabilities to {csv_out}")
+    vprint(f"Saving posterior probabilities to {csv_out}")
 
     all_items = list(pd.unique(pos['item_label_long']))
     base_pal = ggsci.pal_futurama("planetexpress")(12)
@@ -549,7 +557,7 @@ def _plot_prob_barplots(
         return
 
     if cow is None:
-        print(
+        vprint(
             "cowpatch is not installed; saving separate plot files with _partN suffix instead of a combined panel."
         )
         for idx, p_i in enumerate(subplot_plots, start=1):
@@ -713,43 +721,3 @@ def _futurama_palette(n: int) -> list[str]:
         return base[:n]
     cmap = LinearSegmentedColormap.from_list('futurama_x', base, N=n)
     return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
-
-#%%
-def _build_interim_x(dp1: pd.DataFrame, interim_date) -> pd.DataFrame:
-    """
-    Subset dp1 to participants who have both baseline + endline observations
-    on/before ``interim_date``, then re-index pids / oids / oidt.
-
-    Used by the interim-analysis scripts to slice the longitudinal panel into
-    monthly cohorts ready to be passed to the ncats fit helpers.
-    """
-    import pandas as pd
-
-    dcati = dp1[dp1['submission_date'] <= interim_date].copy()
-    if dcati.empty:
-        return dcati
-
-    n_per_pid_item = (
-        dcati.groupby(['pid', 'item_label'])['time']
-        .nunique().reset_index(name='n_times')
-    )
-    complete = (
-        n_per_pid_item.groupby('pid')['n_times']
-        .apply(lambda x: bool((x == 2).all())).reset_index(name='complete')
-    )
-    keep_pids = complete.loc[complete['complete'], 'pid'].tolist()
-    dcati = dcati[dcati['pid'].isin(keep_pids)].copy()
-    if dcati.empty:
-        return dcati
-
-    pid_map = pd.DataFrame({'pid_orig': sorted(dcati['pid'].unique())})
-    pid_map['pid_new'] = range(1, len(pid_map) + 1)
-    dcati = dcati.merge(pid_map, left_on='pid', right_on='pid_orig')
-    dcati['pid'] = dcati['pid_new']
-    dcati = dcati.drop(columns=['pid_orig', 'pid_new'])
-
-    dcati = dcati.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
-    dcati['oid'] = range(1, len(dcati) + 1)
-    dcati['oidt'] = dcati.groupby('item_type').cumcount() + 1
-    return dcati
-

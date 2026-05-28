@@ -366,7 +366,9 @@ rel_rows = []
 for interim_id, zarr_path in interim_zarr.items():
     dcati = interim_dcati[interim_id]
     per_draw = get_endpoints_per_draw(
-        zarr_path, dcati, dit,
+        dcati=dcati,
+        dit=dit,
+        draws_file=zarr_path,
         categorical_threshold=3,
         endpoint_type='items',
         param_name='ordered_prob_by_cat_qu_fit',

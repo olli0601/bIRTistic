@@ -5,13 +5,34 @@ This module provides functions for analyzing posterior draws from IRT models,
 specifically endpoint extraction and effect size computation.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 import os
 import pandas as pd
 import numpy as np
 import arviz as az
 
 from utils import _map_cq_id_to_item_structure
+
+
+def _resolve_draws(draws, draws_file: Optional[str], param_name: str, verbose: bool = True) -> np.ndarray:
+    """
+    Return the ``(chain, draw, cq_id)`` array for ``param_name`` from either an
+    in-memory ArviZ InferenceData (``draws``) or a zarr path (``draws_file``).
+    Exactly one of the two must be provided.
+    """
+    vprint = print if verbose else (lambda *args, **kwargs: None)
+    if draws is None and draws_file is None:
+        raise ValueError("Provide either draws or draws_file.")
+    if draws is None:
+        if not os.path.exists(draws_file):
+            raise FileNotFoundError(f"Draws file not found: {draws_file}")
+        vprint(f"Loading draws from: {draws_file}")
+        draws = az.from_zarr(draws_file)
+    if param_name not in draws.posterior.data_vars:
+        raise ValueError(
+            f"No data_vars '{param_name}'. Available: {list(draws.posterior.data_vars)}"
+        )
+    return draws.posterior[param_name].values
 
 
 def _make_po(po_arr: np.ndarray, dp1: pd.DataFrame, dit: pd.DataFrame) -> pd.DataFrame:
@@ -128,10 +149,12 @@ def _get_endpoints_per_draw(
 def get_endpoints(
     dp1: pd.DataFrame,
     dit: pd.DataFrame,
-    draws_file: str,
+    draws_file: Optional[str] = None,
+    draws=None,
     categorical_threshold: int = 3,
     endpoint_type: Literal["items", "item_groups"] = "items",
     param_name: str = "ordered_prob_by_cat_qu_pr",
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
     Get endpoints from ordered logit model draws.
@@ -148,8 +171,12 @@ def get_endpoints(
     dit : pd.DataFrame
         Item definitions with columns: item_type_id, item_label, cat_length, item_type,
         group_label, item_label_short, group_label_long, item_high_label.
-    draws_file : str
+    draws_file : str, optional
         Path to zarr directory holding the posterior of an ordered_prob parameter.
+        Provide this or ``draws``.
+    draws : arviz.InferenceData, optional
+        In-memory posterior (e.g. ``fit['draws']``) to use instead of reading
+        ``draws_file``. Provide this or ``draws_file``.
     categorical_threshold : int, default 3
         Threshold for aggregating categorical responses. Categories >= this value
         are summed.
@@ -169,8 +196,7 @@ def get_endpoints(
         - variable: one of Baseline, Endline, diff, ratio
         - q_lower, iqr_lower, median, iqr_upper, q_upper
     """
-    if not os.path.exists(draws_file):
-        raise FileNotFoundError(f"Draws file not found: {draws_file}")
+    vprint = print if verbose else (lambda *args, **kwargs: None)
     if endpoint_type not in ("items", "item_groups"):
         raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
     if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
@@ -178,15 +204,8 @@ def get_endpoints(
             "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
         )
 
-    print(f"Loading draws from: {draws_file}")
-    idata = az.from_zarr(draws_file)
-    if param_name not in idata.posterior.data_vars:
-        raise ValueError(
-            f"No data_vars '{param_name}'. Available: {list(idata.posterior.data_vars)}"
-        )
-
-    print("Computing per-draw endpoints...")
-    po = _make_po(idata.posterior[param_name].values, dp1, dit)
+    vprint("Computing per-draw endpoints...")
+    po = _make_po(_resolve_draws(draws, draws_file, param_name, verbose=verbose), dp1, dit)
     po = _get_endpoints_per_draw(
         po, dp1, dit,
         categorical_threshold=categorical_threshold,
@@ -224,32 +243,35 @@ def get_endpoints(
         ].drop_duplicates()
         pos = pos.merge(tmp, on=['item_type', 'item_label', 'group_label'])
 
-    print(f"Computed endpoints for {len(pos)} item-variable combinations")
+    vprint(f"Computed endpoints for {len(pos)} item-variable combinations")
     return pos
 
 
 def get_endpoints_per_draw(
-    zarr_path: str,
     dcati: pd.DataFrame,
     dit: pd.DataFrame,
+    draws_file: Optional[str] = None,
+    draws=None,
     categorical_threshold: int = 3,
     endpoint_type: Literal["items", "item_groups"] = "items",
     param_name: str = "ordered_prob_by_cat_qu_fit",
+    verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Per-draw directional ``diff`` and ``ratio`` per item or item-group,
-    loaded from a zarr.
+    Per-draw directional ``diff`` and ``ratio`` per item or item-group.
 
-    Thin wrapper around :func:`_get_endpoints_per_draw`: opens the zarr,
-    builds the long-form prob frame via :func:`_make_po`, then delegates
-    aggregation.
+    Thin wrapper around :func:`_get_endpoints_per_draw`: resolves the posterior
+    from ``draws`` or ``draws_file``, builds the long-form prob frame via
+    :func:`_make_po`, then delegates aggregation.
 
     Parameters
     ----------
-    zarr_path : str
-        Path to the zarr holding the posterior.
     dcati, dit : pd.DataFrame
         Pre-processed data and item metadata, same as :func:`get_endpoints`.
+    draws_file : str, optional
+        Path to the zarr holding the posterior. Provide this or ``draws``.
+    draws : arviz.InferenceData, optional
+        In-memory posterior (e.g. ``fit['draws']``). Provide this or ``draws_file``.
     categorical_threshold : int, default 3
     endpoint_type : {"items", "item_groups"}, default "items"
     param_name : {"ordered_prob_by_cat_qu_fit", "ordered_prob_by_cat_qu_pr"},
@@ -270,12 +292,7 @@ def get_endpoints_per_draw(
             "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
         )
 
-    idata = az.from_zarr(zarr_path)
-    if param_name not in idata.posterior.data_vars:
-        raise ValueError(
-            f"No data_vars '{param_name}'. Available: {list(idata.posterior.data_vars)}"
-        )
-    po = _make_po(idata.posterior[param_name].values, dcati, dit)
+    po = _make_po(_resolve_draws(draws, draws_file, param_name, verbose=verbose), dcati, dit)
     po = _get_endpoints_per_draw(
         po, dcati, dit,
         categorical_threshold=categorical_threshold,
