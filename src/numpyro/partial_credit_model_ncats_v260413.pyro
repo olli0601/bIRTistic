@@ -13,6 +13,7 @@ Generated quantities are emitted with the same dimensions and flattened formats 
 import numpy as np
 import jax
 import jax.numpy as jnp
+import jax.scipy.stats as jstats
 import numpyro
 import numpyro.distributions as dist
 from jax.scipy.special import logsumexp
@@ -303,7 +304,7 @@ def partial_credit_model_ncats(data, sample_ypred=True, compute_generated=True):
         numpyro.deterministic('ordinal_brier_score', ordinal_brier_score)
 
 
-def get_log_likelihood_ncats(data, params):
+def get_log_likelihood_of_partial_credit_model_ncats(data, params):
     """Compute pointwise log likelihood for a fitted parameter set."""
     C = int(data['C'])
     N = np.asarray(data['N'], dtype=int)
@@ -359,3 +360,98 @@ def get_log_likelihood_ncats(data, params):
         out = out.at[s_obs:e_obs].set(categorical_logit_lpmf(y_c, eta_c))
 
     return out
+
+
+def get_ordered_prob_of_partial_credit_model_ncats(data, params):
+    """Compute ``ordered_prob_by_cat_qu_fit`` (length ``sum(Q*K)``) for one
+    parameter set: the per-(category, question, response) fitted probabilities
+    averaged over the observations of each question. Standalone twin of the
+    model's in-sample deterministic, exposed so importance-sampling / SMC
+    particles can be turned into the per-item improvement ratio via
+    ``get_endpoints_per_draw`` (param_name='ordered_prob_by_cat_qu_fit')."""
+    C = int(data['C'])
+    Q = np.asarray(data['Q'], dtype=int)
+    K = np.asarray(data['K'], dtype=int)
+
+    unit_of_obs_0 = jnp.asarray(data['unit_of_obs']).astype(jnp.int32) - 1
+    question_of_obs_0 = jnp.asarray(data['question_of_obs']).astype(jnp.int32) - 1
+    cat_type = np.asarray(data['cat_type'], dtype=int)
+    X = jnp.asarray(data['X'])
+
+    latent_factor_unit = params['latent_factor_unit']
+    latent_factor_beta = params['latent_factor_beta']
+    skill_thresholds = params['skill_thresholds']
+    loadings_questions_m1 = params['loadings_questions_m1']
+
+    cat_starts, cat_ends = _cat_ranges(cat_type)
+
+    skill_offset = np.zeros((C,), dtype=int)
+    loadings_offset = np.zeros((C,), dtype=int)
+    ordered_prob_offset = np.zeros((C,), dtype=int)
+    for c in range(1, C):
+        skill_offset[c] = skill_offset[c - 1] + Q[c - 1] * (K[c - 1] - 1)
+        loadings_offset[c] = loadings_offset[c - 1] + (Q[c - 1] - 1)
+        ordered_prob_offset[c] = ordered_prob_offset[c - 1] + Q[c - 1] * K[c - 1]
+
+    ordered_prob_length = int(np.sum(Q * K))
+    out = jnp.zeros((ordered_prob_length,))
+
+    for c in range(C):
+        Qc = int(Q[c])
+        Kc = int(K[c])
+        Km1c = Kc - 1
+
+        s_obs = cat_starts[c]
+        e_obs = cat_ends[c]
+
+        u_c = unit_of_obs_0[s_obs:e_obs]
+        q_c0 = question_of_obs_0[s_obs:e_obs]
+
+        s_skill = skill_offset[c]
+        e_skill = s_skill + Qc * Km1c
+        skill_c = jnp.reshape(skill_thresholds[s_skill:e_skill], (Qc, Km1c))
+
+        s_load = loadings_offset[c]
+        e_load = s_load + (Qc - 1)
+        load_c = jnp.concatenate([jnp.array([1.0]), loadings_questions_m1[s_load:e_load]])
+
+        cumsum_c = jnp.triu(jnp.ones((Km1c, Km1c)))
+        latent_obs_c = latent_factor_unit[u_c] + X[s_obs:e_obs, :] @ latent_factor_beta
+        eta_c = pcm_get_etas(load_c, skill_c, latent_obs_c, q_c0, cumsum_c)
+        prob_c = jax.nn.softmax(eta_c, axis=1)
+
+        by_q = jnp.zeros((Qc, Kc)).at[q_c0, :].add(prob_c)
+        cnt_q = jnp.zeros((Qc,)).at[q_c0].add(1.0)
+        by_q_mean = by_q / cnt_q[:, None]
+
+        s_prob = ordered_prob_offset[c]
+        out = out.at[s_prob:s_prob + Qc * Kc].set(by_q_mean.reshape(-1))
+
+    return out
+
+
+def get_log_likelihood_of_partial_credit_model_ncats_with_annealing(data, params):
+    """Temperature-annealed pointwise log-likelihood.
+
+    Returns ``params['temperature'] *
+    get_log_likelihood_of_partial_credit_model_ncats(data, params)``. Keeping the
+    temperature inside ``params`` (a traced value) lets an SMC move kernel
+    ``pi_beta ∝ p(theta|x) p(z|theta)^beta`` compile once and be reused across the
+    whole annealing schedule, instead of recompiling per temperature.
+    """
+    return params['temperature'] * get_log_likelihood_of_partial_credit_model_ncats(data, params)
+
+
+def get_prior_of_partial_credit_model_ncats(params):
+    """Pointwise log p(theta) for the partial credit ncats model priors:
+    latent_factor_unit ~ N(0, 1/sqrt(1-1/U)) (the ZeroSumNormal marginal),
+    latent_factor_beta ~ N(0,1), skill_thresholds ~ N(0,3.5),
+    loadings_questions_m1 ~ FoldedStudentT(3,0,1). ``U`` is inferred from the
+    ``latent_factor_unit`` length. Operates on a single (1-D) parameter set."""
+    U = params['latent_factor_unit'].shape[-1]
+    s2z = 1.0 / jnp.sqrt(1.0 - 1.0 / U)
+    lp = jstats.norm.logpdf(params['latent_factor_unit'], 0.0, s2z).sum()
+    lp += jstats.norm.logpdf(params['latent_factor_beta'], 0.0, 1.0).sum()
+    lp += jstats.norm.logpdf(params['skill_thresholds'], 0.0, 3.5).sum()
+    lp += (jnp.log(2.0) + jstats.t.logpdf(params['loadings_questions_m1'], 3.0, 0.0, 1.0)).sum()
+    return lp

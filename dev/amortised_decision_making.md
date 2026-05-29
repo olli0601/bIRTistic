@@ -470,11 +470,79 @@ In this simpler setting, we have observed a specific interim dataset \(x_{1:n}\)
    \[
    y^{(s)} := P(H_1 \mid x, z^{(s)}) = \int 1_{\theta \in H_1} \, p(\theta \mid x, z^{(s)}) \, d\theta.
    \]
-   Since we have the posterior \(p(\theta \mid x)\), we can use importance reweighting:
-   \begin{align*}
-   w^{(s)}_k & \propto p(z^{(s)} \mid \theta_k), \quad \theta_k \sim p(\cdot \mid x) \\
-   y^{(s)} & \approx \frac{\sum_k w^{(s)}_k \, 1_{\theta_k \in H_1}}{\sum_k w^{(s)}_k}.
-   \end{align*}
+   Because the proposal \(p(\theta \mid x)\) is available, every estimator below reuses **one** set of base draws \( \theta_k \sim p(\theta \mid x),\ k = 1,\dots,K \); only the future block \(z^{(s)}\) changes between labels. The three estimators trade cost against robustness as the size of the future data \( m = |z^{(s)}| \) grows relative to the current data \( n = |x| \).
+
+#### A.1 Importance sampling (self-normalized)
+
+Since \( p(\theta \mid x, z^{(s)}) \propto p(\theta \mid x)\, p(z^{(s)} \mid \theta) \), the base draws are reweighted by the future-data likelihood. Working in log space for stability,
+\begin{align*}
+\log w_k^{(s)} &= \log p(z^{(s)} \mid \theta_k) = \sum_{i=1}^m \log p\big(z^{(s)}_i \mid \theta_k\big), \\
+\tilde w_k^{(s)} &= \operatorname{softmax}_k\!\big(\log w_k^{(s)}\big) = \frac{\exp\!\big(\log w_k^{(s)} - \ell^{(s)}\big)}{\sum_j \exp\!\big(\log w_j^{(s)} - \ell^{(s)}\big)}, \quad \ell^{(s)} = \log\!\textstyle\sum_j \exp \log w_j^{(s)}, \\
+y^{(s)} &\approx \sum_{k=1}^K \tilde w_k^{(s)} \, 1_{\theta_k \in H_1}.
+\end{align*}
+The log-sum-exp / softmax map is the numerically stable form of \( w / \sum w \): subtracting the maximum log-weight before exponentiating prevents overflow while leaving the normalized weights unchanged.
+
+Reliability is monitored by the effective sample size (Kong, 1992; Liu, 2001)
+\[
+\mathrm{ESS} = \frac{\big(\sum_k w_k\big)^2}{\sum_k w_k^2} = \frac{1}{\sum_k (\tilde w_k)^2}, \qquad \frac{\mathrm{ESS}}{K} \in [1/K,\, 1],
+\]
+equivalently the second-order weight moment \( \mathbb{E}(\tilde w^2) = \tfrac{1}{K}\sum_k \tilde w_k^2 \), with \( \mathrm{ESS}/K = 1/\big(K^2\, \mathbb{E}(\tilde w^2)\big) \). Self-normalized IS is consistent but \(O(1/K)\) biased, and its variance is finite only when \( \mathbb{E}_{p(\theta \mid x)}\!\big[p(z \mid \theta)^2\big] < \infty \); the Pareto-smoothed importance sampling (PSIS) tail index \( \hat k \) (Vehtari, Simpson, Gelman, Yao & Gabry, 2024) both estimates this and stabilizes the largest weights, with \( \hat k > 0.7 \) flagging an unreliable estimate.
+
+**Degeneracy at large \(m\).** The proposal/target mismatch grows with the amount of assimilated future data: \( \mathrm{KL}\big(p(\theta \mid x, z)\,\|\,p(\theta \mid x)\big) \) increases in \(m\), so the weight mass concentrates on a single draw and \( \mathrm{ESS} \to 1 \). Empirically, at the earliest interim of our case study (\( n \approx 48 \) current vs \( m \approx 455 \) future units) the weights collapse to \( \mathrm{ESS} \approx 1 \) after even a *single* future participant, with PSIS \( \hat k = \infty \). Plain IS labels are therefore trustworthy only when \(z\) is small relative to \(x\) (late interims). The two corrections below target this regime.
+
+#### A.2 Moment-matching importance sampling
+
+Moment-matching IS (Paananen, Piironen, Bürkner & Vehtari, 2021, *Implicitly adaptive importance sampling*, Statistics and Computing 31:16) repairs a mild proposal/target mismatch without new model fits, by transforming the draws so the transformed cloud better covers the target and reweighting with the change-of-variables Jacobian. Starting from the IS weights \( \tilde w_k \) of A.1, compute the weighted and proposal moments
+\[
+\hat\mu_w = \sum_k \tilde w_k\, \theta_k, \qquad \hat\mu_q = \tfrac{1}{K}\sum_k \theta_k, \qquad (\text{optionally } \hat\Sigma_w,\ \hat\Sigma_q),
+\]
+and apply an invertible affine map \(T\) that matches them. The mean-match step uses
+\[
+T(\theta) = \theta + (\hat\mu_w - \hat\mu_q), \qquad \theta_k^* = T(\theta_k),
+\]
+(the covariance-match variant uses \( T(\theta) = \hat\mu_w + L_w L_q^{-1}(\theta - \hat\mu_q) \) with \( \hat\Sigma_\bullet = L_\bullet L_\bullet^\top \)). The transformed draws are reweighted against the target with the Jacobian of \(T^{-1}\),
+\[
+w_k^* = \frac{p(\theta_k^* \mid x, z^{(s)})}{q^*(\theta_k^*)}, \qquad q^*(\theta^*) = q\big(T^{-1}\theta^*\big)\,\big|\det \nabla T^{-1}\big|,
+\]
+where \(q\) is the proposal density \(p(\theta \mid x)\) (in practice a diagonal-Gaussian fit to the base draws in an unconstrained reparameterisation, with positive parameters mapped through \(\log\)). One iterates over a small family of transforms and keeps the one maximizing \(\mathrm{ESS}\) (or minimizing \( \hat k \)).
+
+**Limitation under collapse.** When the base \( \mathrm{ESS} \approx 1 \), the weighted mean \( \hat\mu_w \) *equals* the single dominating draw, so the affine shift only relocates the whole cloud onto that point and \(\mathrm{ESS}\) does not recover. Moment matching corrects mild mismatch but cannot manufacture the support the fixed base draws lack — it never moves a particle to a region the proposal failed to sample. In our case study it leaves the early-interim \( \mathrm{ESS}/K \) unchanged at \( \approx 1/K \).
+
+#### A.3 Sequential Monte Carlo with resample-move
+
+To cross an arbitrarily large \( x \to (x, z) \) gap we bridge the proposal to the target through a tempered sequence (annealed importance sampling, Neal, 2001; SMC samplers, Del Moral, Doucet & Jasra, 2006; Chopin, 2002),
+\[
+\pi_t(\theta) \;\propto\; p(\theta \mid x)\; p(z^{(s)} \mid \theta)^{\beta_t}, \qquad 0 = \beta_0 < \beta_1 < \dots < \beta_T = 1,
+\]
+so \( \pi_0 = p(\theta \mid x) \) (the base draws) and \( \pi_T = p(\theta \mid x, z^{(s)}) \) (the target). Initialise particles \( \theta_k \sim p(\theta \mid x) \) with uniform weights; at step \(t\):
+
+1. **Reweight** by the incremental likelihood,
+   \[
+   \tilde w_k = \operatorname{softmax}_k\!\Big( (\beta_t - \beta_{t-1})\, \log p(z^{(s)} \mid \theta_k) \Big).
+   \]
+2. **Adapt** \( \Delta\beta = \beta_t - \beta_{t-1} \) by bisection so the tempering \( \mathrm{ESS}/K \) hits a target (e.g. \( \tfrac12 \)) — an automatic schedule (Jasra, Stephens, Doucet & Tsagaris, 2011; Zhou, Johansen & Aston, 2016).
+3. **Resample** the particles by \( \tilde w_k \) (systematic resampling) and reset weights to \(1/K\).
+4. **Move** each particle with an MCMC kernel \(M_t\) leaving \(\pi_t\) invariant (resample-move; Gilks & Berzuini, 2001). We use Metropolis-adjusted Langevin (MALA; Roberts & Tweedie, 1996) in the unconstrained reparameterisation, adapting the step size toward the optimal acceptance \( \approx 0.574 \) (Roberts & Rosenthal, 1998).
+
+Because the temperature enters only as an exponent, the move kernel's log-density \( \log p(\theta \mid x) + \beta_t \log p(z^{(s)} \mid \theta) \) is compiled **once** with \( \beta_t \) a traced argument and reused across all temperatures. The final particles approximate \( \pi_T \) with uniform weights, giving the label
+\[
+y^{(s)} \approx \frac{1}{K} \sum_{k=1}^K 1_{\theta_k^{(T)} \in H_1}.
+\]
+Unlike IS and moment matching, the move step **relocates** particles into the target's typical set, so SMC crosses an arbitrarily large gap; the cost is \(T\) tempering steps, each a short MCMC sweep. Empirically, at the worst (earliest) interim the adaptive schedule reaches \( \beta = 1 \) in \( \approx 40 \) steps and restores \( \mathrm{ESS}/K \approx 1 \), at a wall-clock cost dominated by the per-step move rather than the one-off compile.
+
+**References.**
+Chopin, N. (2002). A sequential particle filter method for static models. *Biometrika* 89(3), 539–551.
+Del Moral, P., Doucet, A. & Jasra, A. (2006). Sequential Monte Carlo samplers. *JRSS-B* 68(3), 411–436.
+Gilks, W. R. & Berzuini, C. (2001). Following a moving target — Monte Carlo inference for dynamic Bayesian models. *JRSS-B* 63(1), 127–146.
+Jasra, A., Stephens, D. A., Doucet, A. & Tsagaris, T. (2011). Inference for Lévy-driven stochastic volatility models via adaptive sequential Monte Carlo. *Scand. J. Statist.* 38(1), 1–22.
+Kong, A. (1992). A note on importance sampling using standardized weights. *Univ. Chicago Tech. Report 348.*
+Liu, J. S. (2001). *Monte Carlo Strategies in Scientific Computing.* Springer.
+Neal, R. M. (2001). Annealed importance sampling. *Statistics and Computing* 11, 125–139.
+Paananen, T., Piironen, J., Bürkner, P.-C. & Vehtari, A. (2021). Implicitly adaptive importance sampling. *Statistics and Computing* 31:16.
+Roberts, G. O. & Rosenthal, J. S. (1998). Optimal scaling of discrete approximations to Langevin diffusions. *JRSS-B* 60(1), 255–268.
+Roberts, G. O. & Tweedie, R. L. (1996). Exponential convergence of Langevin distributions and their discrete approximations. *Bernoulli* 2(4), 341–363.
+Vehtari, A., Simpson, D., Gelman, A., Yao, Y. & Gabry, J. (2024). Pareto smoothed importance sampling. *JMLR* 25(72), 1–58.
+Zhou, Y., Johansen, A. M. & Aston, J. A. D. (2016). Toward automatic model comparison: an adaptive sequential Monte Carlo approach. *J. Comput. Graph. Statist.* 25(3), 701–726.
 
 ### Case B: Variable \(x\)
 

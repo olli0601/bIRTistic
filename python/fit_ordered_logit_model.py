@@ -69,10 +69,29 @@ def eval_loglik_ordered_logit_ncats(data, params):
     given a stan_data dict ``data`` (as built by ``_fit_ordered_logit_make_stan_data``)
     and ``params`` holding ``latent_factor_unit``, ``latent_factor_beta``,
     ``skill_thresholds_1``, ``skill_thresholds_incs``, ``loadings_questions_m1``.
-    Delegates to the model's ``get_log_likelihood_ncats`` (exposed here for
-    importance-sampling weights).
+    Delegates to the model's ``get_log_likelihood_of_ordered_logit_ncats``
+    (exposed here for importance-sampling weights).
     """
-    return _model_namespace()['get_log_likelihood_ncats'](data, params)
+    return _model_namespace()['get_log_likelihood_of_ordered_logit_ncats'](data, params)
+
+
+def eval_loglik_ordered_logit_ncats_with_annealing(data, params):
+    """
+    Temperature-annealed pointwise log-likelihood
+    ``params['temperature'] * eval_loglik_ordered_logit_ncats(data, params)``.
+    Carrying the temperature inside ``params`` (a traced value) lets an SMC move
+    kernel compile once and be reused across the whole annealing schedule.
+    Delegates to the model's
+    ``get_log_likelihood_of_ordered_logit_ncats_with_annealing``.
+    """
+    return _model_namespace()['get_log_likelihood_of_ordered_logit_ncats_with_annealing'](data, params)
+
+
+def get_prior_of_ordered_logit_ncats(params):
+    """Pointwise log p(theta) for the ordered logit ncats model priors, for a
+    single (1-D) parameter set. Delegates to the model's
+    ``get_prior_of_ordered_logit_ncats``."""
+    return _model_namespace()['get_prior_of_ordered_logit_ncats'](params)
 
 
 def _fit_ordered_logit_make_stan_data(
