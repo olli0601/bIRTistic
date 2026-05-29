@@ -1128,3 +1128,275 @@ def fit_interim_SMC_PPS_of_posterior_xz_from_x(
         smc_summary.to_csv(f"{output_file_prefix}_smc_summary.csv", index=False)
         vprint(f"\nSaved SMC P(H_1 | x, z) samples to: {output_file_prefix}_p_h1_xz_SMC.pkl")
     return p_h1_xz, smc_summary
+
+
+def _interim_make_z_stan_batched(zi: pd.DataFrame, dit: pd.DataFrame, pps_z_total: int, x_formula: str):
+    """One z stan_data (shared design) + a ``(S, N_total)`` matrix ``Y`` of the
+    per-sample outcomes, all in the same observation order. Across future samples
+    s the unit / question / design are identical (same resampled participants and
+    items); only the outcome ``ypred_s`` differs, so the SMC move's per-obs linear
+    predictor ``eta`` is shared and only the categorical target changes with s."""
+    z_dcati = zi.assign(pid=zi['src_pid'])
+    z_dcati = z_dcati.sort_values(
+        ['item_type_id', 'pid', 'time', 'item_label']
+    ).reset_index(drop=True)
+    z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
+    z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
+    z0 = z_dcati.assign(y_stan=z_dcati['ypred_0'].astype(int))
+    z0['y'] = z0['y_stan'] - 1
+    z_stan = _fit_partial_credit_make_stan_data(dit=dit, dcati=z0, x_formula=x_formula, verbose=False)
+    Y = np.stack(
+        [z_dcati[f'ypred_{s}'].astype(int).to_numpy() for s in range(pps_z_total)], axis=0
+    )  # (S, N_total) of y_stan (1-based, matching stan_data['y'])
+    return z_stan, jnp.asarray(Y)
+
+
+def fit_interim_SMC_batched_PPS_of_posterior_xz_from_x(
+    xi: pd.DataFrame,
+    zi: pd.DataFrame,
+    dit: pd.DataFrame,
+    fitting_method_args: dict,
+    draws=None,
+    draws_file: Optional[str] = None,
+    pps_z_total: int = 10,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    Batched SMC resample-move PPS over all S future datasets at once (Case A).
+
+    Vectorised alternative to :func:`fit_interim_SMC_PPS_of_posterior_xz_from_x`:
+    instead of S independent SMC runs (each its own adaptive schedule + JIT
+    compile), all S future samples share **one** tempering schedule and are moved
+    together as a single ``(S, K, D)`` particle tensor under a vmapped MALA kernel
+    that compiles once. The shared schedule advances by the most conservative
+    sample (``min_s`` tempering ESS hits the target), so easy samples are
+    over-tempered slightly; in exchange there is no per-sample recompile and the
+    move is a single fused kernel.
+
+    Particles live in the unconstrained match space
+    ``u = [latent_factor_unit | latent_factor_beta | skill_thresholds | log loadings]``;
+    the move target for sample s is ``log p(theta|x) + beta * log p(z_s|theta)``
+    (prior + full x-likelihood + tempered z-likelihood, with the log-Jacobian).
+    Final per-sample particles are scored for p(H_1 | x, z_s) as the fraction with
+    item improvement ratio > pps_H1_def (uniform post-move weights).
+
+    Parameters
+    ----------
+    fitting_method_args : dict
+        Tuning (defaults applied for missing keys): ``n_particles`` (K, default
+        128), ``ess_frac_target`` (default 0.5), ``n_move_steps`` (MALA steps per
+        temperature, default 20), ``init_step_size`` (default 0.02),
+        ``target_accept`` (default 0.574), ``max_temps`` (default 300),
+        ``x_formula`` (default ``"~ time - 1"``), ``seed`` (default 123).
+
+    Returns
+    -------
+    (p_h1_xz, schedule) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, sample s) with ``p_h1_xz``, ``s`` and the
+          recorded ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
+        - ``schedule``: one row per shared tempering step with ``temp``, ``beta``,
+          ``d_beta``, ``ess_frac_min`` / ``ess_frac_mean`` (across samples),
+          ``accept``, ``step_size`` and ``move_secs``; plus ``n_particles`` and
+          ``mins_total`` columns.
+    """
+    if draws is None and draws_file is None:
+        raise ValueError("Provide either draws or draws_file.")
+    if draws is None:
+        draws = az.from_zarr(draws_file)
+    if 'src_pid' not in zi.columns:
+        raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
+    vprint = print if verbose else (lambda *args, **kwargs: None)
+
+    fma = {
+        'n_particles': 128, 'ess_frac_target': 0.5, 'n_move_steps': 20,
+        'init_step_size': 0.02, 'target_accept': 0.574, 'max_temps': 300,
+        'x_formula': "~ time - 1", 'seed': 123,
+        **fitting_method_args,
+    }
+    K = fma['n_particles']
+    ess_frac_target = fma['ess_frac_target']
+    n_move_steps = fma['n_move_steps']
+    target_accept = fma['target_accept']
+    max_temps = fma['max_temps']
+    x_formula = fma['x_formula']
+    seed = fma['seed']
+    S = pps_z_total
+
+    theta = _stack_posterior_theta(draws)
+    n_draw = int(theta['latent_factor_beta'].shape[0])
+    U = int(theta['latent_factor_unit'].shape[1])
+    P = int(theta['latent_factor_beta'].shape[1])
+    L = int(theta['skill_thresholds'].shape[1])
+    Ld = int(theta['loadings_questions_m1'].shape[1])
+
+    x_stan = _interim_make_x_stan(xi, dit, x_formula)
+    z_stan, Y = _interim_make_z_stan_batched(zi, dit, S, x_formula)
+
+    sl_u, sl_b = slice(0, U), slice(U, U + P)
+    sl_s, sl_l = slice(U + P, U + P + L), slice(U + P + L, U + P + L + Ld)
+
+    def _u_to_params(u):
+        return {
+            'latent_factor_unit': u[sl_u],
+            'latent_factor_beta': u[sl_b],
+            'skill_thresholds': u[sl_s],
+            'loadings_questions_m1': jnp.exp(u[sl_l]),
+        }
+
+    def _logbase(u):
+        pr = _u_to_params(u)
+        return (get_prior_of_partial_credit_model_ncats(pr)
+                + eval_loglik_partial_credit_model_ncats(x_stan, pr).sum()
+                + u[sl_l].sum())          # Jacobian of the log-transform
+
+    def _llz(u, y):
+        pr = _u_to_params(u)
+        return eval_loglik_partial_credit_model_ncats({**z_stan, 'y': y}, pr).sum()
+
+    def _logpost(u, y, beta):
+        return _logbase(u) + beta * _llz(u, y)
+
+    _grad = jax.grad(_logpost, argnums=0)
+
+    # Batched over (S samples, K particles); y is shared within a sample.
+    def _b_llz(u, Y):
+        return jax.vmap(jax.vmap(_llz, (0, None)), (0, 0))(u, Y)            # (S, K)
+
+    def _b_logpost(u, Y, beta):
+        return jax.vmap(jax.vmap(_logpost, (0, None, None)), (0, 0, None))(u, Y, beta)
+
+    def _b_grad(u, Y, beta):
+        return jax.vmap(jax.vmap(_grad, (0, None, None)), (0, 0, None))(u, Y, beta)
+
+    def _mala_sweep(u, Y, beta, eps, key):
+        def step(carry, k):
+            u, n_acc = carry
+            g = _b_grad(u, Y, beta)
+            k1, k2 = random.split(k)
+            prop = u + 0.5 * eps ** 2 * g + eps * random.normal(k1, u.shape)
+            gp = _b_grad(prop, Y, beta)
+            lp_u = _b_logpost(u, Y, beta)
+            lp_p = _b_logpost(prop, Y, beta)
+            logq_fwd = -jnp.sum((prop - u - 0.5 * eps ** 2 * g) ** 2, axis=-1) / (2 * eps ** 2)
+            logq_bwd = -jnp.sum((u - prop - 0.5 * eps ** 2 * gp) ** 2, axis=-1) / (2 * eps ** 2)
+            log_acc = lp_p - lp_u + logq_bwd - logq_fwd
+            accept = jnp.log(random.uniform(k2, lp_u.shape)) < log_acc
+            u = jnp.where(accept[..., None], prop, u)
+            return (u, n_acc + accept.mean()), None
+        (u, n_acc), _ = jax.lax.scan(step, (u, 0.0), random.split(key, n_move_steps))
+        return u, n_acc / n_move_steps
+
+    _mala_jit = jax.jit(_mala_sweep)
+
+    def _systematic_resample(w, key):
+        positions = (random.uniform(key) + np.arange(len(w))) / len(w)
+        return np.searchsorted(np.cumsum(w), positions)
+
+    # Init: same K base draws for every sample, broadcast to (S, K, D).
+    rng = np.random.default_rng(seed)
+    idx0 = rng.choice(n_draw, size=K, replace=False)
+    sub = {k: np.asarray(theta[k])[idx0] for k in
+           ('latent_factor_unit', 'latent_factor_beta', 'skill_thresholds', 'loadings_questions_m1')}
+    u_single = np.concatenate([
+        sub['latent_factor_unit'], sub['latent_factor_beta'],
+        sub['skill_thresholds'], np.log(sub['loadings_questions_m1']),
+    ], axis=1)                                                              # (K, D)
+    u = jnp.asarray(np.broadcast_to(u_single[None], (S, *u_single.shape)).copy())  # (S, K, D)
+    llz = np.asarray(_b_llz(u, Y))                                          # (S, K)
+    llz = np.where(np.isfinite(llz), llz, -1e30)
+
+    key = random.PRNGKey(seed)
+    eps = float(fma['init_step_size'])
+    beta = 0.0
+    rows = []
+    t_all = time.time()
+    vprint(f"[SMC-batched] all S={S} samples, K={K} particles, one shared schedule")
+    for t in range(max_temps):
+        # Shared d_beta: most conservative sample (min ESS) hits the target.
+        def worst_ess(db):
+            wn = softmax(db * llz, axis=1)
+            return float(np.min(1.0 / (K * np.sum(wn ** 2, axis=1))))
+        lo, hi = 0.0, 1.0 - beta
+        if worst_ess(hi) >= ess_frac_target:
+            db = hi
+        else:
+            for _ in range(40):
+                mid = 0.5 * (lo + hi)
+                if worst_ess(mid) >= ess_frac_target:
+                    lo = mid
+                else:
+                    hi = mid
+            db = lo
+        beta_new = beta + db
+        wn = softmax(db * llz, axis=1)                                     # (S, K)
+        ess_s = 1.0 / (K * np.sum(wn ** 2, axis=1))                        # (S,)
+
+        # Per-sample systematic resampling.
+        key, ksub = random.split(key)
+        sub_keys = random.split(ksub, S)
+        anc = np.stack([_systematic_resample(wn[s], sub_keys[s]) for s in range(S)])  # (S, K)
+        u = jnp.asarray(np.asarray(u)[np.arange(S)[:, None], anc])
+
+        t0 = time.time()
+        key, kmove = random.split(key)
+        u, acc = _mala_jit(u, Y, jnp.asarray(beta_new), jnp.asarray(eps), kmove)
+        acc = float(acc)
+        move_secs = time.time() - t0
+        eps = float(np.clip(eps * np.exp(0.5 * (acc - target_accept)), 1e-4, 1.0))
+        llz = np.asarray(_b_llz(u, Y))
+        llz = np.where(np.isfinite(llz), llz, -1e30)
+
+        rows.append({
+            'temp': t + 1, 'beta': round(beta_new, 5), 'd_beta': round(db, 5),
+            'ess_frac_min': round(float(ess_s.min()), 3),
+            'ess_frac_mean': round(float(ess_s.mean()), 3),
+            'accept': round(acc, 3), 'step_size': round(eps, 5),
+            'move_secs': round(move_secs, 2),
+        })
+        vprint(f"  temp {t+1}: beta {beta:.4f}->{beta_new:.4f} (dbeta={db:.4f}) "
+               f"| ESS/K min={ess_s.min():.2f} mean={ess_s.mean():.2f} "
+               f"| accept={acc:.2f} | move {move_secs:.1f}s")
+        beta = beta_new
+        if beta >= 1.0 - 1e-9:
+            break
+
+    mins_total = (time.time() - t_all) / 60.0
+    schedule = pd.DataFrame(rows)
+    schedule['n_particles'] = K
+    schedule['mins_total'] = round(mins_total, 4)
+    vprint(f"\n[SMC-batched] reached beta={beta:.4f} in {len(schedule)} steps, {mins_total:.2f} min total")
+
+    # Per-sample labels from the moved particles (uniform weights).
+    u_np = jnp.asarray(u)
+    p_rows = []
+    for s in range(S):
+        particles = {
+            'latent_factor_unit': u_np[s, :, sl_u],
+            'latent_factor_beta': u_np[s, :, sl_b],
+            'skill_thresholds': u_np[s, :, sl_s],
+            'loadings_questions_m1': jnp.exp(u_np[s, :, sl_l]),
+        }
+        ratio = _ratio_per_draw_from_params(particles, x_stan, xi, dit, categorical_threshold)
+        sample_p = (
+            ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
+            .groupby(['item_label', 'item_type', 'item_high_label'])['ind']
+            .mean().reset_index(name='p_h1_xz')
+        )
+        sample_p['s'] = s + 1
+        p_rows.append(sample_p)
+
+    p_h1_xz = pd.concat(p_rows, ignore_index=True)
+    p_h1_xz['pps_H1_def'] = pps_H1_def
+    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+    p_h1_xz['S'] = S
+
+    if save_to_file and output_file_prefix is not None:
+        p_h1_xz.to_pickle(f"{output_file_prefix}_p_h1_xz_SMCbatched.pkl")
+        schedule.to_csv(f"{output_file_prefix}_smcbatched_schedule.csv", index=False)
+        vprint(f"\nSaved batched-SMC P(H_1 | x, z) to: {output_file_prefix}_p_h1_xz_SMCbatched.pkl")
+    return p_h1_xz, schedule

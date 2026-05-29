@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 """
-Ukraine interim analysis: moment-matching importance sampling (Case A, fixed x).
+Ukraine interim analysis: BATCHED SMC sampler with resample-move (Case A).
 
-Full analysis over every interim round (mirrors
-``scripts-py/Ukraine_interim_analysis_with_IS_from_x.py``): per interim, fit
-(resume) the interim cohort x, build the future block z, then estimate
-p(H_1 | x, z_s) with moment-matching IS (Paananen et al. 2021, mean-match step)
-via ``fit_interim_IS_moment_matching_of_posterior_xz_from_x``. The mean-match
-shift relocates the x-posterior draws toward the target and the improvement
-ratio is re-evaluated on the shifted draws.
+Prototype of the vectorised SMC: instead of S independent SMC runs per interim
+(``Ukraine_interim_analysis_with_SMC_resample.py``), all S future samples share
+ONE tempering schedule and are moved together as a single ``(S, K, D)`` particle
+tensor under a vmapped MALA kernel that compiles once (no per-sample recompile,
+no process pool). The shared schedule advances by the most conservative sample
+(``min_s`` tempering ESS hits the target). Via
+``fit_interim_SMC_batched_PPS_of_posterior_xz_from_x``.
 
-Outputs (same artifacts as the IS-from-x script, ``_MM`` suffixed where it would
-otherwise clash): p_h1_xz pkl, PPS csv, box-stats pkl, p_h1_xz boxplot,
-perf long-form pkl (ESS / ESS-per-particle / E(w^2) / time), timing csv.
+Outputs mirror the other interim scripts (``_SMCbatched`` suffix): p_h1_xz pkl,
+PPS csv, box-stats pkl, p_h1_xz boxplot, perf long-form pkl, timing csv.
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Ukraine_interim_analysis_with_IS_moment_matching.py
+    pixi run python scripts-py/Ukraine_interim_analysis_SMC_batched.py
 """
 
 # %%
@@ -53,7 +52,7 @@ from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
 from fit_interim import (
     get_interim_x,
     get_interim_z_from_ypredi,
-    fit_interim_IS_moment_matching_of_posterior_xz_from_x,
+    fit_interim_SMC_batched_PPS_of_posterior_xz_from_x,
 )
 from utils import _futurama_palette
 
@@ -61,26 +60,33 @@ print("✓ Imports successful")
 
 # %%
 
-# =============================================================================
-# Configuration
-# =============================================================================
-
 np.random.seed(42)
 seed = 123
 
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
-dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-IS-moment-matching-260526"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-SMC-batched-260526"
 os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
 x_formula = "~ time - 1"
 
-pps_z_total = 200          # match the HMC pps_z_total
-pps_H1_def = 0.5           # 1 - p1 / p0 > pps_H1_def
-pps_ProbH1_thresh = 0.89   # decision threshold on p(H1 | data)
+pps_z_total = 12           # PROTOTYPE: bump to 200 once validated
+pps_H1_def = 0.5
+pps_ProbH1_thresh = 0.89
 categorical_threshold = 2
+
+# Batched-SMC fitting-method arguments (one shared schedule across all S).
+fitting_method_args = dict(
+    n_particles=128,
+    ess_frac_target=0.5,
+    n_move_steps=20,
+    init_step_size=0.02,
+    max_temps=300,
+    x_formula=x_formula,
+    seed=seed,
+)
 
 print(f"Output dir: {dir_out}")
 
@@ -142,12 +148,12 @@ print(f"Interim grid: {len(di)} months from {di['month_start'].min().date()} to 
 # %%
 
 # =============================================================================
-# Moment-matching PPS at every interim
+# Batched SMC PPS at every interim
 # =============================================================================
 
 n_full = dp1['pid'].nunique()
 p_h1_xz_rows = []
-mm_rows = []
+sched_rows = []
 pps_timing_rows = []
 t_all0 = time.time()
 for interim_id in di['interim_id']:
@@ -160,12 +166,12 @@ for interim_id in di['interim_id']:
     interim_m = n_full - xi['pid'].nunique()
     if interim_m <= 0:
         continue
-    print(f"\n{'='*70}\nMM-PPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
+    print(f"\n{'='*70}\nbatched-SMC-PPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
     print(f"  n_obs={len(xi):,} | n_pid={xi['pid'].nunique()} | n_items={xi['item_label'].nunique()}")
 
     t0 = time.time()
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    fit = fit_partial_credit_model_ncats_pyrosvi(
+    fit_partial_credit_model_ncats_pyrosvi(
         dit, xi,
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
@@ -176,43 +182,42 @@ for interim_id in di['interim_id']:
     zi = get_interim_z_from_ypredi(
         xi, f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
     )
-    p, mm = fit_interim_IS_moment_matching_of_posterior_xz_from_x(
+    p, schedule = fit_interim_SMC_batched_PPS_of_posterior_xz_from_x(
         xi=xi, zi=zi, dit=dit,
-        draws=fit['draws'],
-        fitting_method_args={'x_formula': x_formula},
+        fitting_method_args=fitting_method_args,
+        draws=None, draws_file=f"{interim_prefix}_draws.zarr",
         pps_z_total=pps_z_total,
         pps_H1_def=pps_H1_def,
         pps_ProbH1_thresh=pps_ProbH1_thresh,
         categorical_threshold=categorical_threshold,
-        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_MM_i{interim_id}"),
         save_to_file=False,
-        verbose=False,
+        verbose=True,
     )
     mins_interim_id = (time.time() - t0) / 60.0
     p['interim_id'] = interim_id
     p['interim_date'] = interim_date
-    mm['interim_id'] = interim_id
-    mm['interim_date'] = interim_date
+    schedule['interim_id'] = interim_id
     p_h1_xz_rows.append(p)
-    mm_rows.append(mm)
-    pps_timing_rows.append({'interim_id': interim_id, 'mins_interim_id': round(mins_interim_id, 3)})
-    print(f"  interim {interim_id} MM-PPS done in {mins_interim_id:.2f} min")
+    sched_rows.append(schedule)
+    pps_timing_rows.append({'interim_id': interim_id, 'mins_interim_id': round(mins_interim_id, 3),
+                            'n_temps': int(len(schedule))})
+    print(f"  interim {interim_id} batched-SMC-PPS done in {mins_interim_id:.2f} min ({len(schedule)} temps)")
 
 if not p_h1_xz_rows:
-    raise RuntimeError("[MM-PPS] no interims with missing participants to evaluate.")
+    raise RuntimeError("[batched-SMC-PPS] no interims with missing participants to evaluate.")
 
 p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-mm_all = pd.concat(mm_rows, ignore_index=True)
+sched_all = pd.concat(sched_rows, ignore_index=True)
 mins_total = (time.time() - t_all0) / 60.0
 pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round(mins_total, 3)
-print(f"\nAll interims MM-PPS done in {mins_total:.2f} min")
+print(f"\nAll interims batched-SMC-PPS done in {mins_total:.2f} min")
 
-mm_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_MM_diag.csv"), index=False)
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_MM_p_h1_xz.pkl")
+sched_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_schedule.csv"), index=False)
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_p_h1_xz.pkl")
 p_h1_xz.to_pickle(pkl_path)
-print(f"Saved MM P(H_1 | x, z) samples to: {pkl_path}")
-pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_MM_timing.csv"), index=False)
+print(f"Saved batched-SMC P(H_1 | x, z) samples to: {pkl_path}")
+pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_timing.csv"), index=False)
 
 # %%
 
@@ -223,9 +228,9 @@ pps_df = (
 )
 pps_df['eta'] = pps_ProbH1_thresh
 pps_df['S'] = pps_z_total
-csv_path = os.path.join(dir_out, f"{file_prefix}_pps_MM.csv")
+csv_path = os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched.csv")
 pps_df.to_csv(csv_path, index=False)
-print(f"Saved MM PPS table to: {csv_path}")
+print(f"Saved batched-SMC PPS table to: {csv_path}")
 print(pps_df.head(10).to_string(index=False))
 
 # %%
@@ -234,7 +239,7 @@ print(pps_df.head(10).to_string(index=False))
 # Plot: distribution of p(H_1 | x, z) per item across the S samples
 # =============================================================================
 
-print("\nPlotting MM p(H_1 | x, z) distribution...")
+print("\nPlotting batched-SMC p(H_1 | x, z) distribution...")
 tmp = p_h1_xz.merge(
     dit[['item_label', 'group_label_long', 'item_label_short']].drop_duplicates(),
     on='item_label', how='left',
@@ -265,9 +270,9 @@ box_stats = (
     )
     .reset_index()
 )
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_MM_p_h1_xz_boxplot.pkl")
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_p_h1_xz_boxplot.pkl")
 box_stats.to_pickle(pkl_path)
-print(f"Saved MM p(H_1 | x, z) box-stats to: {pkl_path}")
+print(f"Saved batched-SMC p(H_1 | x, z) box-stats to: {pkl_path}")
 
 p = (
     ggplot(box_stats, aes(x='interim_month_year', fill='item_label_long'))
@@ -291,32 +296,32 @@ p = (
         figure_size=(15, 15),
         strip_text_y=element_text(angle=0),
     )
-    + labs(x='Interim', y='p(H_1 | x, z)  [MM]')
+    + labs(x='Interim', y='p(H_1 | x, z)  [SMC batched]')
 )
-box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_MM_p_h1_xz_boxplot.pdf")
+box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_p_h1_xz_boxplot.pdf")
 p.save(box_pdf, verbose=False, limitsize=False)
-print(f"Saved MM p(H_1 | x, z) boxplot to: {box_pdf}")
+print(f"Saved batched-SMC p(H_1 | x, z) boxplot to: {box_pdf}")
 
 # %%
 
 # =============================================================================
-# MM performance long-form pkl for the cross-method comparison.
-# Metrics: ESS, ESS / particle, E(w^2), per-interim inference time (min).
-# ESS and E(w^2) derive from the mean-match ESS/particle and N.
+# Performance long-form pkl (post-move particles uniformly weighted:
+# ESS/particle = 1, ESS = K, E(w^2) = 1/K^2; time = per-interim stage).
 # =============================================================================
 
-print("\nBuilding MM performance long-form table...")
-perf = mm_all.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
-perf = perf.merge(pps_timing[['interim_id', 'mins_interim_id']], on='interim_id', how='left')
+print("\nBuilding batched-SMC performance long-form table...")
+K = int(fitting_method_args['n_particles'])
+perf = pps_timing.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
 perf_order = (
     di[di['interim_id'].isin(perf['interim_id'].unique())]
     .sort_values('interim_date')['interim_month_year'].tolist()
 )
 perf['interim_month_year'] = pd.Categorical(perf['interim_month_year'], categories=perf_order, ordered=True)
-perf['ess_per_particle'] = perf['ess_over_n_meanmatch']
-perf['ess'] = perf['ess_per_particle'] * perf['N']
-perf['ew2'] = 1.0 / (perf['N'] ** 2 * perf['ess_per_particle'])
+perf['ess'] = float(K)
+perf['ess_per_particle'] = 1.0
+perf['ew2'] = 1.0 / (K ** 2)
 perf['time_min'] = perf['mins_interim_id']
+perf['s'] = 1  # one shared schedule per interim
 
 metric_labels = {
     'ess': 'ESS',
@@ -333,9 +338,9 @@ perf_long['metric'] = pd.Categorical(
     perf_long['metric'].map(metric_labels),
     categories=list(metric_labels.values()), ordered=True,
 )
-perf_long['method'] = 'IS (moment-match)'
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_MM_perf_long.pkl")
+perf_long['method'] = 'SMC (batched)'
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMCbatched_perf_long.pkl")
 perf_long.to_pickle(pkl_path)
-print(f"Saved MM performance long-form to: {pkl_path}")
+print(f"Saved batched-SMC performance long-form to: {pkl_path}")
 
-print("\n✓ MM interim analysis complete")
+print("\n✓ batched-SMC interim analysis complete")

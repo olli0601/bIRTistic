@@ -8,8 +8,8 @@ x-posterior draws and reweights them by p(z_s | theta_k) — the importance
 sampling scheme of dev/amortised_decision_making.md, Step 7 Case A — via
 ``fit_interim_importance_sampling_of_posterior_xz_from_x``.
 
-For this test only the FIRST interim (interim_id = 1, i.e. di.iloc[0]) is
-evaluated, with pps_z_total = 10.
+Runs over every interim round with pps_z_total = 200 (matching the HMC
+``Ukraine_interim_analyses.py``).
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -76,7 +76,7 @@ os.makedirs(dir_logs, exist_ok=True)
 file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
 
-pps_z_total = 10
+pps_z_total = 200
 pps_H1_def = 0.5            # 1 - p1 / p0 > pps_H1_def
 pps_ProbH1_thresh = 0.89   # decision threshold on p(H1 | data)
 

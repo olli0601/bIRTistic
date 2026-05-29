@@ -75,7 +75,7 @@ file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
 x_formula = "~ time - 1"
 
-pps_z_total = 12           # TEST: match the HMC pps_z_total (=200 in production)
+pps_z_total = 200          # match the HMC pps_z_total
 pps_H1_def = 0.5
 pps_ProbH1_thresh = 0.89
 categorical_threshold = 2
