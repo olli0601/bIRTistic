@@ -635,10 +635,19 @@ tmp['item_label_long'] = tmp['group_label_long'] + np.where(
 all_items = list(pd.unique(tmp['item_label_long']))
 color_dict = dict(zip(all_items, _futurama_palette(len(all_items))))
 
-# Summarise p_h1_xz per item across the S Monte-Carlo samples. The box spans
-# 25%-75%, the whiskers 2.5%-97.5% (plotted with stat='identity').
+# Discrete x-axis: one box per interim, chronologically ordered. (geom_boxplot
+# on a datetime x renders a single over-wide box.)
+tmp = tmp.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
+order = (
+    di[di['interim_id'].isin(tmp['interim_id'].unique())]
+    .sort_values('interim_date')['interim_month_year'].tolist()
+)
+tmp['interim_month_year'] = pd.Categorical(tmp['interim_month_year'], categories=order, ordered=True)
+
+# Summarise p_h1_xz per (item, interim) across the S Monte-Carlo samples. The
+# box spans 25%-75%, the whiskers 2.5%-97.5% (plotted with stat='identity').
 box_stats = (
-    tmp.groupby(['item_label_long', 'interim_date'])['p_h1_xz']
+    tmp.groupby(['item_label_long', 'interim_month_year'], observed=True)['p_h1_xz']
     .agg(
         min='min',
         q025=lambda s: s.quantile(0.025),
@@ -651,17 +660,19 @@ box_stats = (
     .reset_index()
 )
 
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pkl")
+box_stats.to_pickle(pkl_path)
+
 p = (
-    ggplot(box_stats, aes(x='interim_date', fill='item_label_long'))
+    ggplot(box_stats, aes(x='interim_month_year', fill='item_label_long'))
     + geom_boxplot(
         aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975',
-            group='interim_date'),
+            group='interim_month_year'),
         stat='identity',
     )
     + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
-    + facet_grid('item_label_long ~ .')
+    + facet_wrap('~ item_label_long', ncol = 4)
     + scale_fill_manual(values=color_dict)
-    + scale_x_datetime()
     + scale_y_continuous(
         limits=[0, 1],
         breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -671,10 +682,10 @@ p = (
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
         legend_position='none',
-        figure_size=(6, 2.2 * max(1, len(all_items))),
+        figure_size=(15, 15),
         strip_text_y=element_text(angle=0),
     )
-    + labs(x='Interim date', y='p(H_1 | x, z)')
+    + labs(x='Interim', y='p(H_1 | x, z)')
 )
 tmp = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pdf")
 p.save(tmp, verbose=False, limitsize=False)

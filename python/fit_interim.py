@@ -13,9 +13,15 @@ from typing import Optional
 import arviz as az
 import numpy as np
 import pandas as pd
+import jax
+import jax.numpy as jnp
 
 from get_endpoints import get_endpoints_per_draw
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+from fit_partial_credit_model import (
+    fit_partial_credit_model_ncats_pyrosvi,
+    _fit_partial_credit_make_stan_data,
+    eval_loglik_partial_credit_model_ncats,
+)
 
 
 def _load_ypred(draws_file: str, pps_z_total: int, rng) -> np.ndarray:
@@ -169,7 +175,9 @@ def get_interim_z_from_ypredi(xi: pd.DataFrame, draws_file: str, interim_m: int,
         'src_pid': src_pids,
         'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
     })
-    zi = tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid').drop(columns='src_pid')
+    # Keep ``src_pid`` (the original xi unit id) so downstream importance
+    # sampling can index that unit's latent factor in the x-posterior.
+    zi = tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
     zi.sort_values(['pid', 'oid'], inplace=True)
     zi.reset_index(drop=True, inplace=True)
 
@@ -336,5 +344,166 @@ def fit_interim_MC_of_posterior_xz(
         pkl_path = f"{output_file_prefix}_p_h1_xz.pkl"
         p_h1_xz.to_pickle(pkl_path)
         vprint(f"\nSaved P(H_1 | x, z) samples to: {pkl_path}")
-        
+
     return p_h1_xz
+
+
+def fit_interim_importance_sampling_of_posterior_xz_from_x(
+    xi: pd.DataFrame,
+    zi: pd.DataFrame,
+    dit: pd.DataFrame,
+    draws=None,
+    draws_file: Optional[str] = None,
+    pps_z_total: int = 10,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    x_formula: str = "~ time - 1",
+    eval_loglik_loglik=eval_loglik_partial_credit_model_ncats,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    Importance-sampling estimate of p(H_1 | x, z_s) for fixed x (Case A).
+
+    Instead of refitting the model for each future dataset z_s (cf.
+    :func:`fit_interim_MC_of_posterior_xz`), reuse the existing x-posterior
+    draws ``theta_k ~ p(theta | x)`` and reweight them by the likelihood of the
+    future data (dev/amortised_decision_making.md, Step 7 Case A):
+
+        w_k^(s)  ∝ p(z_s | theta_k)
+        p(H_1 | x, z_s)_item ≈ (sum_k w_k^(s) 1[ratio_{k,item} > pps_H1_def])
+                               / (sum_k w_k^(s))
+
+    The per-draw improvement ratio (the H_1 basis) comes from
+    :func:`get_endpoints_per_draw` on the x-fit; the IS weights come from
+    ``eval_loglik_loglik``. Each z_s participant is a resampled x participant
+    (``zi['src_pid']``), so its latent factor exists in ``theta_k``.
+
+    Parameters
+    ----------
+    xi : pd.DataFrame
+        Interim cohort the x-posterior was fit on.
+    zi : pd.DataFrame
+        Future-data block from :func:`get_interim_z_from_ypredi` (must carry the
+        ``src_pid`` column + ``ypred_0 .. ypred_{pps_z_total-1}``).
+    dit : pd.DataFrame
+        Item metadata.
+    draws : arviz.InferenceData, optional
+        In-memory x-fit posterior (``fit['draws']``). Provide this or ``draws_file``.
+    draws_file : str, optional
+        Path to the x-fit zarr. Provide this or ``draws``.
+    pps_z_total, pps_H1_def, pps_ProbH1_thresh, categorical_threshold, x_formula
+        As in :func:`fit_interim_MC_of_posterior_xz`.
+    eval_loglik_loglik : callable, default ``eval_loglik_partial_credit_model_ncats``
+        ``(stan_data, params) -> array[N_total]`` pointwise log-likelihood used
+        for the IS weights (swap for the credit / ordered-logit equivalents).
+    output_file_prefix : str, optional
+        If given and ``save_to_file``, writes ``{prefix}_p_h1_xz_IS.pkl`` and
+        ``{prefix}_is_perf.csv``.
+
+    Returns
+    -------
+    (p_h1_xz, is_perf) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, sample s) with ``p_h1_xz``, ``s`` and
+          the recorded ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
+        - ``is_perf``: one row per sample s with IS diagnostics ``N`` (number of
+          particles), ``ess_over_n`` (effective sample size / N), and
+          ``var_w2`` / ``var_w3`` / ``var_w4`` (empirical variance of the
+          normalised weights raised to powers 2/3/4 — higher-order weight
+          degeneracy diagnostics).
+    """
+    if draws is None and draws_file is None:
+        raise ValueError("Provide either draws or draws_file.")
+    if draws is None:
+        draws = az.from_zarr(draws_file)
+    if 'src_pid' not in zi.columns:
+        raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
+    vprint = print if verbose else (lambda *args, **kwargs: None)
+
+    # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k below
+    # (both flatten the (chain, draw) axes in C order).
+    x_ratio = get_endpoints_per_draw(
+        dcati=xi, dit=dit, draws=draws,
+        categorical_threshold=categorical_threshold,
+        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
+        verbose=verbose,
+    )
+    x_ratio = x_ratio.assign(ind=(x_ratio['ratio'] > pps_H1_def).astype(float))
+
+    # Stack the posterior draws each loglik back-end may consume; include only
+    # the params present so partial-credit/credit (skill_thresholds) and
+    # ordered-logit (skill_thresholds_1 / skill_thresholds_incs) all work.
+    post = draws.posterior
+    theta_names = (
+        'latent_factor_unit', 'latent_factor_beta',
+        'skill_thresholds', 'skill_thresholds_1', 'skill_thresholds_incs',
+        'loadings_questions_m1',
+    )
+    theta = {
+        name: jnp.asarray(np.asarray(post[name].values).reshape(-1, *post[name].shape[2:]))
+        for name in theta_names if name in post
+    }
+    n_draw = int(theta['latent_factor_beta'].shape[0])
+
+    p_h1_xz = []
+    perf_rows = []
+    for s_idx in range(pps_z_total):
+        s_label = s_idx + 1
+        vprint(f"\n--- IS sample {s_label}/{pps_z_total} ---")
+
+        # z_s: resampled x participants (unit = src_pid) carrying this draw's
+        # predicted outcomes; rebuild oid/oidt for the stan_data builder.
+        zcol = f'ypred_{s_idx}'
+        z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
+        z_dcati['y'] = z_dcati['y_stan'] - 1
+        z_dcati = z_dcati.sort_values(
+            ['item_type_id', 'pid', 'time', 'item_label']
+        ).reset_index(drop=True)
+        z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
+        z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
+        z_stan = _fit_partial_credit_make_stan_data(
+            dit=dit, dcati=z_dcati, x_formula=x_formula, verbose=False,
+        )
+
+        # log p(z_s | theta_k) for every draw via vmap over the stacked params.
+        loglik = jax.vmap(lambda p: eval_loglik_loglik(z_stan, p))(theta)  # (K, N_total_z)
+        # Normalised weights via the numerically-stable softmax (= exp(logw -
+        # logsumexp(logw))); keeps the numerator in log-space throughout.
+        w = np.asarray(jax.nn.softmax(loglik.sum(axis=1)))  # (K,) sums to 1
+
+        # IS performance diagnostics for this sample.
+        perf_rows.append({
+            's': s_label,
+            'N': n_draw,
+            'ess_over_n': float(1.0 / (n_draw * np.sum(w ** 2))),
+            'var_w2': float(np.var(w ** 2)),
+            'var_w3': float(np.var(w ** 3)),
+            'var_w4': float(np.var(w ** 4)),
+        })
+
+        # Self-normalised IS estimate of P(H_1 | x, z_s) per item.
+        wdf = pd.DataFrame({'draw': np.arange(n_draw), 'w': w})
+        m = x_ratio.merge(wdf, on='draw')
+        sample_p = (
+            m.groupby(['item_label', 'item_type', 'item_high_label'])
+            .apply(lambda g: float((g['w'] * g['ind']).sum() / g['w'].sum()))
+            .reset_index(name='p_h1_xz')
+        )
+        sample_p['s'] = s_label
+        p_h1_xz.append(sample_p)
+
+    p_h1_xz = pd.concat(p_h1_xz, ignore_index=True)
+    p_h1_xz['pps_H1_def'] = pps_H1_def
+    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+    p_h1_xz['S'] = pps_z_total
+    is_perf = pd.DataFrame(perf_rows)
+
+    if save_to_file and output_file_prefix is not None:
+        pkl_path = f"{output_file_prefix}_p_h1_xz_IS.pkl"
+        p_h1_xz.to_pickle(pkl_path)
+        is_perf.to_csv(f"{output_file_prefix}_is_perf.csv", index=False)
+        vprint(f"\nSaved IS P(H_1 | x, z) samples to: {pkl_path}")
+
+    return p_h1_xz, is_perf

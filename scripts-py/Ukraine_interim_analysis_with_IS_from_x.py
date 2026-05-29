@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+"""
+Ukraine interim analysis: PPS via importance sampling (Case A, fixed x).
+
+Analogue of ``scripts-py/Ukraine_interim_analyses.py`` but, instead of
+refitting the model for each hypothetical future dataset z_s, it reuses the
+x-posterior draws and reweights them by p(z_s | theta_k) — the importance
+sampling scheme of dev/amortised_decision_making.md, Step 7 Case A — via
+``fit_interim_importance_sampling_of_posterior_xz_from_x``.
+
+For this test only the FIRST interim (interim_id = 1, i.e. di.iloc[0]) is
+evaluated, with pps_z_total = 10.
+
+Usage:
+    cd /Users/or105/git/bIRTistic
+    pixi run python scripts-py/Ukraine_interim_analysis_with_IS_from_x.py
+"""
+
+# %%
+
+import os
+import sys
+import time
+from pathlib import Path
+
+try:
+    script_dir = Path(__file__).parent
+    project_root = script_dir.parent
+except NameError:
+    project_root = Path.cwd()
+    if project_root.name == 'scripts-py':
+        project_root = project_root.parent
+
+python_path = str(project_root / 'python')
+if python_path not in sys.path:
+    sys.path.insert(0, python_path)
+
+import numpy as np
+import pandas as pd
+from plotnine import (
+    ggplot, aes, geom_boxplot, geom_hline, facet_grid, facet_wrap,
+    scale_y_continuous, scale_fill_manual, position_dodge,
+    theme_bw, theme, element_text, labs,
+)
+import warnings
+warnings.filterwarnings('ignore')
+
+from data_loading import read_data_ukraine
+from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+from fit_interim import (
+    get_interim_x,
+    get_interim_z_from_ypredi,
+    fit_interim_importance_sampling_of_posterior_xz_from_x,
+)
+from utils import _futurama_palette
+
+print("✓ Imports successful")
+
+# %%
+
+# =============================================================================
+# Configuration
+# =============================================================================
+
+np.random.seed(42)
+seed = 123
+
+dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
+file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
+
+dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-importance-sampling-260526"
+dir_logs = os.path.join(dir_out, "logs")
+os.makedirs(dir_out, exist_ok=True)
+os.makedirs(dir_logs, exist_ok=True)
+
+file_prefix = "pcm_1_interim"
+svi_algorithm = 'AutoLowRankMultivariateNormal'
+
+pps_z_total = 10
+pps_H1_def = 0.5            # 1 - p1 / p0 > pps_H1_def
+pps_ProbH1_thresh = 0.89   # decision threshold on p(H1 | data)
+
+print(f"Output dir: {dir_out}")
+
+# %%
+
+# =============================================================================
+# Load + preprocess full Ukraine data
+# =============================================================================
+
+print("\nLoading Ukraine data...")
+raw = read_data_ukraine(file_data)
+dp = raw['dp'].copy()
+dit = raw['dit'].copy()
+dmeta = raw['dmeta'].copy()
+print(f"  dp: {len(dp):,} rows | dit: {len(dit):,} rows | dmeta: {len(dmeta):,} rows")
+
+# drop participants with unknown displacement status
+tmp = (
+    dmeta[['pid', 'time_label', 'displacement_status']]
+    .drop_duplicates()
+    .rename(columns={'pid': 'pid_label'})
+    .dropna(subset=["displacement_status"], how='all')
+)
+dp = dp.merge(tmp, on=['pid_label', 'time_label'], how='inner', validate='many_to_one')
+
+dp1 = dp[~dp['item_label'].str.contains('agg')].copy()
+dp1['y_stan'] = dp1['y'] + 1
+dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
+
+# item_time_id: sequential id of (item_label, time) within each item_type.
+item_time_df = (
+    dp1[['item_type', 'item_label', 'time']]
+    .drop_duplicates()
+    .sort_values(['item_type', 'time', 'item_label'])
+    .reset_index(drop=True)
+)
+item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+
+dp1 = dp1.merge(
+    dit[['item_type', 'item_type_id']].drop_duplicates(),
+    on='item_type', how='left',
+)
+dp1 = dp1.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1['oid'] = range(1, len(dp1) + 1)
+dp1['oidt'] = dp1.groupby('item_type').cumcount() + 1
+
+print(f"  Pre-processed dp1: {len(dp1):,} observations | participants: {dp1['pid'].nunique()}")
+
+# Auto-detect monthly interim grid from the endline submission dates.
+_endline_dates = pd.to_datetime(
+    dp1.loc[dp1['time_label'] == 'Endline', 'submission_date']
+).dropna()
+_start = _endline_dates.min().replace(day=1)
+_end = (_endline_dates.max() + pd.offsets.MonthEnd(0)).normalize()
+month_starts = pd.date_range(_start, _end, freq='MS')
+di = pd.DataFrame({
+    'interim_id': range(1, len(month_starts) + 1),
+    'month_start': month_starts,
+    'interim_date': month_starts + pd.offsets.MonthEnd(0),
+})
+di['interim_month_year'] = di['month_start'].dt.strftime('%Y-%b')
+print(f"Interim grid: {len(di)} months from {di['month_start'].min().date()} to {di['interim_date'].max().date()}")
+
+# %%
+
+# =============================================================================
+# PPS via importance sampling at every interim
+# =============================================================================
+#
+# Per interim: fit (resume) the interim cohort x, build z (participants missing
+# to reach the full data, resampled from x), then importance-sample
+# p(H_1 | x, z_s) by reweighting the x-posterior. The final cohort (no missing
+# participants) is skipped.
+
+n_full = dp1['pid'].nunique()
+p_h1_xz_rows = []
+is_perf_rows = []
+pps_timing_rows = []
+t_all0 = time.time()
+for interim_id in di['interim_id']:
+    interim_id = int(interim_id)
+    interim_date = pd.to_datetime(di.loc[di['interim_id'] == interim_id, 'interim_date'].iloc[0])
+
+    xi = get_interim_x(dp1, interim_date)
+    if xi.empty or xi['pid'].nunique() < 2:
+        continue
+    interim_m = n_full - xi['pid'].nunique()
+    if interim_m <= 0:
+        continue
+    print(f"\n{'='*70}\nIS-PPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
+    print(f"  n_obs={len(xi):,} | n_pid={xi['pid'].nunique()} | n_items={xi['item_label'].nunique()}")
+
+    t0 = time.time()
+    interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
+    fit = fit_partial_credit_model_ncats_pyrosvi(
+        dit,
+        xi,
+        output_file_prefix=interim_prefix,
+        algorithm=svi_algorithm,
+        lr=0.01,
+        num_steps=10000,
+        output_samples=4000,
+        seed=seed,
+        x_formula="~ time - 1",
+        resume=True,
+        with_core_analyses=True,
+        with_additional_analyses=False,
+        verbose=False,
+    )
+    zi = get_interim_z_from_ypredi(
+        xi, f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
+    )
+    p, is_perf = fit_interim_importance_sampling_of_posterior_xz_from_x(
+        xi=xi,
+        zi=zi,
+        dit=dit,
+        draws=fit['draws'],
+        pps_z_total=pps_z_total,
+        pps_H1_def=pps_H1_def,
+        pps_ProbH1_thresh=pps_ProbH1_thresh,
+        categorical_threshold=2,
+        x_formula="~ time - 1",
+        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_IS_i{interim_id}"),
+        save_to_file=False,
+        verbose=False,
+    )
+    mins_interim_id = (time.time() - t0) / 60.0
+    p['interim_id'] = interim_id
+    p['interim_date'] = interim_date
+    is_perf['interim_id'] = interim_id
+    is_perf['interim_date'] = interim_date
+    p_h1_xz_rows.append(p)
+    is_perf_rows.append(is_perf)
+    pps_timing_rows.append({'interim_id': interim_id, 'mins_interim_id': round(mins_interim_id, 3)})
+    print(f"  interim {interim_id} IS-PPS done in {mins_interim_id:.2f} min")
+
+if not p_h1_xz_rows:
+    raise RuntimeError("[IS-PPS] no interims with missing participants to evaluate.")
+
+p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
+is_perf = pd.concat(is_perf_rows, ignore_index=True)
+mins_total = (time.time() - t_all0) / 60.0
+pps_timing = pd.DataFrame(pps_timing_rows)
+pps_timing['mins_total'] = round(mins_total, 3)
+print(f"\nAll interims IS-PPS done in {mins_total:.2f} min")
+is_perf.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_IS_perf.csv"), index=False)
+
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_IS_p_h1_xz.pkl")
+p_h1_xz.to_pickle(pkl_path)
+print(f"Saved IS P(H_1 | x, z) samples to: {pkl_path}")
+pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_IS_timing.csv"), index=False)
+
+# %%
+
+pps_df = (
+    p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
+    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .reset_index(name='pps')
+)
+pps_df['eta'] = pps_ProbH1_thresh
+pps_df['S'] = pps_z_total
+
+csv_path = os.path.join(dir_out, f"{file_prefix}_pps_IS.csv")
+pps_df.to_csv(csv_path, index=False)
+print(f"Saved IS PPS table to: {csv_path}")
+print(pps_df.head(10).to_string(index=False))
+
+# %%
+
+# =============================================================================
+# Plot: distribution of p(H_1 | x, z) per item across the S samples
+# =============================================================================
+
+print("\nPlotting IS p(H_1 | x, z) distribution...")
+tmp = p_h1_xz.merge(
+    dit[['item_label', 'group_label_long', 'item_label_short']].drop_duplicates(),
+    on='item_label', how='left',
+)
+tmp['item_label_long'] = tmp['group_label_long'] + np.where(
+    tmp['item_label_short'].notna(), '\n' + tmp['item_label_short'], ''
+)
+
+all_items = list(pd.unique(tmp['item_label_long']))
+color_dict = dict(zip(all_items, _futurama_palette(len(all_items))))
+
+# Discrete x-axis: one box per interim, chronologically ordered.
+tmp = tmp.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
+order = (
+    di[di['interim_id'].isin(tmp['interim_id'].unique())]
+    .sort_values('interim_date')['interim_month_year'].tolist()
+)
+tmp['interim_month_year'] = pd.Categorical(tmp['interim_month_year'], categories=order, ordered=True)
+
+box_stats = (
+    tmp.groupby(['item_label_long', 'interim_month_year'], observed=True)['p_h1_xz']
+    .agg(
+        min='min',
+        q025=lambda s: s.quantile(0.025),
+        q25=lambda s: s.quantile(0.25),
+        q50=lambda s: s.quantile(0.50),
+        q75=lambda s: s.quantile(0.75),
+        q975=lambda s: s.quantile(0.975),
+        max='max',
+    )
+    .reset_index()
+)
+
+p = (
+    ggplot(box_stats, aes(x='interim_month_year', fill='item_label_long'))
+    + geom_boxplot(
+        aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975',
+            group='interim_month_year'),
+        stat='identity',
+    )
+    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+    + facet_wrap('~ item_label_long', ncol = 4)
+    + scale_fill_manual(values=color_dict)
+    + scale_y_continuous(
+        limits=[0, 1],
+        breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+    )
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+        legend_position='none',
+        figure_size=(15, 15),
+        strip_text_y=element_text(angle=0),
+    )
+    + labs(x='Interim', y='p(H_1 | x, z)  [IS]')
+)
+box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_IS_p_h1_xz_boxplot.pdf")
+p.save(box_pdf, verbose=False, limitsize=False)
+print(f"Saved IS p(H_1 | x, z) boxplot to: {box_pdf}")
+
+# %%
+
+# =============================================================================
+# Plot: importance-sampling performance measures per interim round
+# =============================================================================
+
+print("\nPlotting IS performance measures...")
+perf = is_perf.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
+perf_order = (
+    di[di['interim_id'].isin(perf['interim_id'].unique())]
+    .sort_values('interim_date')['interim_month_year'].tolist()
+)
+perf['interim_month_year'] = pd.Categorical(perf['interim_month_year'], categories=perf_order, ordered=True)
+
+# Long form: one row per (interim, sample s, metric).
+perf_long = perf.melt(
+    id_vars=['interim_id', 'interim_month_year', 's'],
+    value_vars=['ess_over_n', 'var_w2', 'var_w3', 'var_w4'],
+    var_name='metric', value_name='value',
+)
+metric_labels = {
+    'ess_over_n': 'ESS / N',
+    'var_w2': 'Var(w^2)',
+    'var_w3': 'Var(w^3)',
+    'var_w4': 'Var(w^4)',
+}
+perf_long['metric'] = pd.Categorical(
+    perf_long['metric'].map(metric_labels),
+    categories=list(metric_labels.values()), ordered=True,
+)
+
+p = (
+    ggplot(perf_long, aes(x='interim_month_year', y='value', group='interim_month_year'))
+    + geom_boxplot()
+    + facet_wrap('~ metric', ncol=1, scales='free_y')
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+        figure_size=(8, 10),
+    )
+    + labs(x='Interim', y='value (across S importance-sampling draws)')
+)
+perf_pdf = os.path.join(dir_out, f"{file_prefix}_pps_IS_perf.pdf")
+p.save(perf_pdf, verbose=False, limitsize=False)
+print(f"Saved IS performance plot to: {perf_pdf}")
+
+# %%
+
+# =============================================================================
+# Plot: MC-refit (HMC_of_xz_from_x) vs importance-sampling
+# (importance_sampling_of_xz_from_x) p(H_1 | x, z), dodged side-by-side per item
+# =============================================================================
+#
+# The MC-refit box stats are loaded from the companion full-refit run; the IS
+# box stats are ``box_stats`` computed above. Same per-item facets, two methods
+# dodged next to each other in Futurama colours.
+
+print("\nPlotting MC-refit vs IS p(H_1 | x, z)...")
+mc_box = pd.read_pickle(
+    '/Users/or105/sandbox/bIRTistic/py-ukraine-interim-260526/pcm_1_interim_pps_p_h1_xz_boxplot.pkl'
+)
+mc_box = mc_box.assign(method='HMC_of_xz_from_x')
+is_box = box_stats.assign(method='importance_sampling_of_xz_from_x')
+both = pd.concat([mc_box, is_box], ignore_index=True)
+
+method_order = ['HMC_of_xz_from_x', 'importance_sampling_of_xz_from_x']
+both['method'] = pd.Categorical(both['method'], categories=method_order, ordered=True)
+both['interim_month_year'] = pd.Categorical(both['interim_month_year'], categories=order, ordered=True)
+both['grp'] = both['interim_month_year'].astype(str) + '|' + both['method'].astype(str)
+method_colors = dict(zip(method_order, _futurama_palette(len(method_order))))
+
+p = (
+    ggplot(both, aes(x='interim_month_year', fill='method'))
+    + geom_boxplot(
+        aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975', group='grp'),
+        stat='identity', position=position_dodge(width=0.8),
+    )
+    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+    + facet_wrap('~ item_label_long', ncol=4)
+    + scale_fill_manual(values=method_colors)
+    + scale_y_continuous(
+        limits=[0, 1],
+        breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+    )
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+        legend_position='bottom',
+        figure_size=(15, 15),
+        strip_text_y=element_text(angle=0),
+    )
+    + labs(x='Interim', y='p(H_1 | x, z)', fill='method')
+)
+both_pdf = os.path.join(dir_out, f"{file_prefix}_pps_MC_vs_IS_p_h1_xz_boxplot.pdf")
+p.save(both_pdf, verbose=False, limitsize=False)
+print(f"Saved MC-vs-IS boxplot to: {both_pdf}")
+
+# %%
+
+print("\n✓ IS interim analysis complete")

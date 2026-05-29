@@ -49,6 +49,32 @@ from utils import (
 )
 
 
+_MODEL_NS = None
+
+
+def _model_namespace():
+    """Lazily load + cache the NumPyro model namespace from the .pyro source."""
+    global _MODEL_NS
+    if _MODEL_NS is None:
+        model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "ordered_logit_ncats_v260413.pyro"
+        if not model_file.exists():
+            raise FileNotFoundError(f"NumPyro model file not found: {model_file}")
+        _MODEL_NS = runpy.run_path(str(model_file))
+    return _MODEL_NS
+
+
+def eval_loglik_ordered_logit_ncats(data, params):
+    """
+    Pointwise log-likelihood ``array[N_total]`` for a single parameter set,
+    given a stan_data dict ``data`` (as built by ``_fit_ordered_logit_make_stan_data``)
+    and ``params`` holding ``latent_factor_unit``, ``latent_factor_beta``,
+    ``skill_thresholds_1``, ``skill_thresholds_incs``, ``loadings_questions_m1``.
+    Delegates to the model's ``get_log_likelihood_ncats`` (exposed here for
+    importance-sampling weights).
+    """
+    return _model_namespace()['get_log_likelihood_ncats'](data, params)
+
+
 def _fit_ordered_logit_make_stan_data(
     dit: pd.DataFrame,
     dcati: pd.DataFrame,
