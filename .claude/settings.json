@@ -16,7 +16,10 @@
       "Bash(awk '{print $2}')",
       "Bash(xargs -r kill)",
       "WebFetch(domain:arxiv.org)",
-      "Bash(pip index *)"
+      "Bash(pip index *)",
+      "Bash(ps -o pid,%cpu,rss,etime,state,command -p 8717)",
+      "Bash(kill 8717 8544 8541)",
+      "Bash(caffeinate -i pixi run python scripts-py/Ukraine_interim_analysis_SMC_mlx.py)"
     ]
   }
 }
