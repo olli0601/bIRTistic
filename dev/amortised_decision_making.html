@@ -1,1063 +1,714 @@
 <!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <meta charset="utf-8" />
-  <meta name="generator" content="pandoc" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
-  <title>amortised_decision_making</title>
-  <style>
-    /* Default styles provided by pandoc.
-    ** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
-    */
-    html {
-      color: #1a1a1a;
-      background-color: #fdfdfd;
-    }
-    body {
-      margin: 0 auto;
-      max-width: 36em;
-      padding-left: 50px;
-      padding-right: 50px;
-      padding-top: 50px;
-      padding-bottom: 50px;
-      hyphens: auto;
-      overflow-wrap: break-word;
-      text-rendering: optimizeLegibility;
-      font-kerning: normal;
-    }
-    @media (max-width: 600px) {
-      body {
-        font-size: 0.9em;
-        padding: 12px;
-      }
-      h1 {
-        font-size: 1.8em;
-      }
-    }
-    @media print {
-      html {
-        background-color: white;
-      }
-      body {
-        background-color: transparent;
-        color: black;
-        font-size: 12pt;
-      }
-      p, h2, h3 {
-        orphans: 3;
-        widows: 3;
-      }
-      h2, h3, h4 {
-        page-break-after: avoid;
-      }
-    }
-    p {
-      margin: 1em 0;
-    }
-    a {
-      color: #1a1a1a;
-    }
-    a:visited {
-      color: #1a1a1a;
-    }
-    img {
-      max-width: 100%;
-    }
-    svg {
-      height: auto;
-      max-width: 100%;
-    }
-    h1, h2, h3, h4, h5, h6 {
-      margin-top: 1.4em;
-    }
-    h5, h6 {
-      font-size: 1em;
-      font-style: italic;
-    }
-    h6 {
-      font-weight: normal;
-    }
-    ol, ul {
-      padding-left: 1.7em;
-      margin-top: 1em;
-    }
-    li > ol, li > ul {
-      margin-top: 0;
-    }
-    blockquote {
-      margin: 1em 0 1em 1.7em;
-      padding-left: 1em;
-      border-left: 2px solid #e6e6e6;
-      color: #606060;
-    }
-    code {
-      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
-      font-size: 85%;
-      margin: 0;
-      hyphens: manual;
-    }
-    pre {
-      margin: 1em 0;
-      overflow: auto;
-    }
-    pre code {
-      padding: 0;
-      overflow: visible;
-      overflow-wrap: normal;
-    }
-    .sourceCode {
-     background-color: transparent;
-     overflow: visible;
-    }
-    hr {
-      border: none;
-      border-top: 1px solid #1a1a1a;
-      height: 1px;
-      margin: 1em 0;
-    }
-    table {
-      margin: 1em 0;
-      border-collapse: collapse;
-      width: 100%;
-      overflow-x: auto;
-      display: block;
-      font-variant-numeric: lining-nums tabular-nums;
-    }
-    table caption {
-      margin-bottom: 0.75em;
-    }
-    tbody {
-      margin-top: 0.5em;
-      border-top: 1px solid #1a1a1a;
-      border-bottom: 1px solid #1a1a1a;
-    }
-    th {
-      border-top: 1px solid #1a1a1a;
-      padding: 0.25em 0.5em 0.25em 0.5em;
-    }
-    td {
-      padding: 0.125em 0.5em 0.25em 0.5em;
-    }
-    header {
-      margin-bottom: 4em;
-      text-align: center;
-    }
-    #TOC li {
-      list-style: none;
-    }
-    #TOC ul {
-      padding-left: 1.3em;
-    }
-    #TOC > ul {
-      padding-left: 0;
-    }
-    #TOC a:not(:hover) {
-      text-decoration: none;
-    }
-    code{white-space: pre-wrap;}
-    span.smallcaps{font-variant: small-caps;}
-    div.columns{display: flex; gap: min(4vw, 1.5em);}
-    div.column{flex: auto; overflow-x: auto;}
-    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-    /* The extra [class] is a hack that increases specificity enough to
-       override a similar rule in reveal.js */
-    ul.task-list[class]{list-style: none;}
-    ul.task-list li input[type="checkbox"] {
-      font-size: inherit;
-      width: 0.8em;
-      margin: 0 0.8em 0.2em -1.6em;
-      vertical-align: middle;
-    }
-  </style>
-  <script defer=""
-  src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js"
-  type="text/javascript"></script>
-</head>
-<body>
-<h1
-id="amortized-decision-focussed-learning-for-real-time-interim-analyses-in-crisis-settings">Amortized
-decision-focussed learning for real-time interim analyses in crisis
-settings</h1>
-<h2 id="summary">1. Summary</h2>
-<p>In contrast to neural posterior estimation, the focus of this work is
-on amortization for Bayesian decision making. The key point is that
-decision rules are low-dimensional, so it should be much easier to
-perform amortised learning by focussing on what is relevant to make
-real-life decision in real-time.</p>
-<h2 id="target-objectives">2. Target objectives</h2>
-<p>Perhaps the simplest approach to this is to consider an intervention
-that estimates a treatment effect <span
-class="math inline">\(p\)</span>. The actions are declaring success
-(<span class="math inline">\(A_1\)</span>) or failure (<span
-class="math inline">\(A_0\)</span>) based on the binary decision rule
-<span class="math display">\[
-d(x) = 1\{P(H_1 \mid x) &gt; \eta\},
-\]</span> where <span class="math display">\[
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Amortized decision-focussed learning for real-time interim analyses in crisis settings</title>
+            <style>
+/* From extension vscode.github */
+/*---------------------------------------------------------------------------------------------
+ *  Copyright (c) Microsoft Corporation. All rights reserved.
+ *  Licensed under the MIT License. See License.txt in the project root for license information.
+ *--------------------------------------------------------------------------------------------*/
+
+.vscode-dark img[src$=\#gh-light-mode-only],
+.vscode-light img[src$=\#gh-dark-mode-only],
+.vscode-high-contrast:not(.vscode-high-contrast-light) img[src$=\#gh-light-mode-only],
+.vscode-high-contrast-light img[src$=\#gh-dark-mode-only] {
+	display: none;
+}
+
+</style>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex/dist/katex.min.css">
+<link href="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.css" rel="stylesheet" type="text/css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/markdown.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/Microsoft/vscode/extensions/markdown-language-features/media/highlight.css">
+<style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe WPC', 'Segoe UI', system-ui, 'Ubuntu', 'Droid Sans', sans-serif;
+                font-size: 14px;
+                line-height: 1.6;
+            }
+        </style>
+        <style>
+.task-list-item {
+    list-style-type: none;
+}
+
+.task-list-item-checkbox {
+    margin-left: -20px;
+    vertical-align: middle;
+    pointer-events: none;
+}
+</style>
+<style>
+:root {
+  --color-note: #0969da;
+  --color-tip: #1a7f37;
+  --color-warning: #9a6700;
+  --color-severe: #bc4c00;
+  --color-caution: #d1242f;
+  --color-important: #8250df;
+}
+
+</style>
+<style>
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-note: #2f81f7;
+    --color-tip: #3fb950;
+    --color-warning: #d29922;
+    --color-severe: #db6d28;
+    --color-caution: #f85149;
+    --color-important: #a371f7;
+  }
+}
+
+</style>
+<style>
+.markdown-alert {
+  padding: 0.5rem 1rem;
+  margin-bottom: 16px;
+  color: inherit;
+  border-left: .25em solid #888;
+}
+
+.markdown-alert>:first-child {
+  margin-top: 0
+}
+
+.markdown-alert>:last-child {
+  margin-bottom: 0
+}
+
+.markdown-alert .markdown-alert-title {
+  display: flex;
+  font-weight: 500;
+  align-items: center;
+  line-height: 1
+}
+
+.markdown-alert .markdown-alert-title .octicon {
+  margin-right: 0.5rem;
+  display: inline-block;
+  overflow: visible !important;
+  vertical-align: text-bottom;
+  fill: currentColor;
+}
+
+.markdown-alert.markdown-alert-note {
+  border-left-color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-note .markdown-alert-title {
+  color: var(--color-note);
+}
+
+.markdown-alert.markdown-alert-important {
+  border-left-color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-important .markdown-alert-title {
+  color: var(--color-important);
+}
+
+.markdown-alert.markdown-alert-warning {
+  border-left-color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-warning .markdown-alert-title {
+  color: var(--color-warning);
+}
+
+.markdown-alert.markdown-alert-tip {
+  border-left-color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-tip .markdown-alert-title {
+  color: var(--color-tip);
+}
+
+.markdown-alert.markdown-alert-caution {
+  border-left-color: var(--color-caution);
+}
+
+.markdown-alert.markdown-alert-caution .markdown-alert-title {
+  color: var(--color-caution);
+}
+
+</style>
+        
+        </head>
+        <body class="vscode-body vscode-light">
+            <span id="markdown-mermaid" aria-hidden="true" data-config="{&quot;darkModeTheme&quot;:&quot;dark&quot;,&quot;lightModeTheme&quot;:&quot;default&quot;,&quot;maxTextSize&quot;:50000,&quot;clickDrag&quot;:&quot;alt&quot;,&quot;showControls&quot;:&quot;onHoverOrFocus&quot;,&quot;resizable&quot;:true,&quot;maxHeight&quot;:&quot;&quot;}"></span>
+				<h1 id="amortized-decision-focussed-learning-for-real-time-interim-analyses-in-crisis-settings">Amortized decision-focussed learning for real-time interim analyses in crisis settings</h1>
+<h2 id="1-summary">1. Summary</h2>
+<p>In contrast to neural posterior estimation, the focus of this work is on amortization for Bayesian decision making. The key point is that decision rules are low-dimensional, so it should be much easier to perform amortised learning by focussing on what is relevant to make real-life decision in real-time.</p>
+<h2 id="2-target-objectives">2. Target objectives</h2>
+<p>Perhaps the simplest approach to this is to consider an intervention that estimates a treatment effect (p). The actions are declaring success ((A_1)) or failure ((A_0)) based on the binary decision rule
+[
+d(x) = 1{P(H_1 \mid x) &gt; \eta},
+]
+where
+[
 H_1 : p &gt; p_0.
-\]</span></p>
-<p>In practice, the interventions can be Cholera vaccination, our Hope
-group interventions in Jordan, alternative medical procedures, or
-similar. As generative models I am interested in various versions of
-item-response models such as the ordered categorical or partial credit
-model, but many other generative models are possible. The baseline
-treatment effect is without loss of generality <span
-class="math inline">\(p_0 = 0\)</span>, for example <span
-class="math inline">\(p\)</span> can be coded as a contrast between the
-intervention and standard-of-care arm. The decision threshold <span
-class="math inline">\(\eta\)</span> can be set to <span
-class="math inline">\(0.89\)</span> in defiance to <span
-class="math inline">\(0.95\)</span>, but can also be derived as the
-Bayes optimal threshold given false positive and false negative loss
-functions.</p>
+]</p>
+<p>In practice, the interventions can be Cholera vaccination, our Hope group interventions in Jordan, alternative medical procedures, or similar. As generative models I am interested in various versions of item-response models such as the ordered categorical or partial credit model, but many other generative models are possible. The baseline treatment effect is without loss of generality (p_0 = 0), for example (p) can be coded as a contrast between the intervention and standard-of-care arm. The decision threshold (\eta) can be set to (0.89) in defiance to (0.95), but can also be derived as the Bayes optimal threshold given false positive and false negative loss functions.</p>
 <p>There are two distinct targets.</p>
-<h3 id="target-1-current-decision-have-we-already-won">Target 1, current
-decision: “Have we already won?”</h3>
-<p>We evaluate the posterior success probability of <span
-class="math inline">\(H_1\)</span>, <span class="math inline">\(P(H_1
-\mid x)\)</span>, and evaluate the binary decision rule</p>
-<p><span class="math display">\[
-d(x) = 1\{P(H_1 \mid x) &gt; \eta\} \in \{ 0, 1 \},
-\]</span></p>
-<p>which declares success or failure. This answers the question: Have we
-already accumulated enough evidence to declare success now?</p>
-<h3
-id="target-2-predictive-probability-of-success-pps-how-likely-will-we-win-in-the-future">Target
-2, predictive probability of success (PPS): “How likely will we win in
-the future?”</h3>
-<p>We are interested in real-time decision-making, typically referred to
-as interim analyses to stop for efficacy or to stop for futility. This
-reframes the problem.</p>
-<p>The new questions are: If the current data <span
-class="math inline">\(x\)</span> declare failure, how likely is it that
-future data collection could overturn this result, or should we stop for
-failure and safety reasons now? The other way round, if the current data
-<span class="math inline">\(x\)</span> declare success, how likely is it
-that future data collection could overturn this result, or can we stop
-for efficacy early now?</p>
-<p>Suppose <span class="math inline">\(m\)</span> additional
-observations <span class="math inline">\(z\)</span> will be collected
-before the final analysis. Let the final decision rule be</p>
-<p><span class="math display">\[
-d(x,z) = 1\{P(H_1 \mid x,z) &gt; \eta\}.
-\]</span></p>
+<h3 id="target-1-current-decision-have-we-already-won">Target 1, current decision: “Have we already won?”</h3>
+<p>We evaluate the posterior success probability of (H_1), ( P(H_1 \mid x) ), and evaluate the binary decision rule</p>
+<p>[
+d(x) = 1{P(H_1 \mid x) &gt; \eta} \in { 0, 1 },
+]</p>
+<p>which declares success or failure. This answers the question: Have we already accumulated enough evidence to declare success now?</p>
+<h3 id="target-2-predictive-probability-of-success-pps-how-likely-will-we-win-in-the-future">Target 2, predictive probability of success (PPS): &quot;How likely will we win in the future?&quot;</h3>
+<p>We are interested in real-time decision-making, typically referred to as interim analyses to stop for efficacy or to stop for futility. This reframes the problem.</p>
+<p>The new questions are: If the current data (x) declare failure, how likely is it that future data collection could overturn this result, or should we stop for failure and safety reasons now? The other way round, if the current data (x) declare success, how likely is it that future data collection could overturn this result, or can we stop for efficacy early now?</p>
+<p>Suppose (m) additional observations (z) will be collected before the final analysis. Let the final decision rule be</p>
+<p>[
+d(x,z) = 1{P(H_1 \mid x,z) &gt; \eta}.
+]</p>
 <p>The predictive probability of success (PPS) is</p>
-<p><span class="math display">\[
+<p>[
 PPS(x) =
 \mathbb{E}_{z \sim p(z\mid x)}
 [
-1\{P(H_1 \mid x,z) &gt; \eta\}
+1{P(H_1 \mid x,z) &gt; \eta}
 ] \in [ 0, 1],
-\]</span> where the posterior predictive data generating distribution is
-<span class="math display">\[
-    p(z|x) = \int p(z|\theta)p(\theta|x)d\theta.
-\]</span></p>
-<p>The PPS quantifies the probability that the intervention will declare
-success in the future after <span class="math inline">\(m\)</span>
-further hypothetical data points <span class="math inline">\(z\)</span>,
-given the current data <span class="math inline">\(x\)</span>.</p>
-<p>Thus PPS thus answers: How likely are we to win in the future if the
-intervention continues?</p>
-<hr />
-<h1 id="examples">3. Examples</h1>
-<h2 id="binomial-model">3.1 Binomial Model</h2>
+]
+where the posterior predictive data generating distribution is [
+p(z|x) = \int p(z|\theta)p(\theta|x)d\theta.
+]</p>
+<p>The PPS quantifies the probability that the intervention will declare success in the future after (m) further hypothetical data points (z), given the current data (x).</p>
+<p>Thus PPS thus answers: How likely are we to win in the future if the intervention continues?</p>
+<hr>
+<h1 id="3-examples">3. Examples</h1>
+<h2 id="31-binomial-model">3.1 Binomial Model</h2>
 <p>Let</p>
-<p><span class="math display">\[
+<p>[
 X_i \sim \text{Bernoulli}(p)
-\]</span></p>
+]</p>
 <p>with prior</p>
-<p><span class="math display">\[
+<p>[
 p \sim \text{Beta}(a,b).
-\]</span></p>
-<p>The Bernoulli distribution belongs to the exponential family: <span
-class="math display">\[\begin{align*}
+]</p>
+<p>The Bernoulli distribution belongs to the exponential family:
+\begin{align*}
 p(x_i \mid p) &amp;
-= p^{x_i}(1-p)^{1-x_i} = \exp\{x_i \log p + (1-x_i)\log(1-p)\}
-\\
+= p^{x_i}(1-p)^{1-x_i} = \exp{x_i \log p + (1-x_i)\log(1-p)}
+\
 &amp;
-= \exp\{\log\left(\frac{p}{1-p}\right) x_i + \log(1-p)\},
-\end{align*}\]</span> with natural parameter <span
-class="math inline">\(\eta(p) = \log(p/(1-p))\)</span>, sufficient
-statistics <span class="math inline">\(T(x_i) = x_i\)</span>, and
-log-partition function <span class="math inline">\(A(p) =
--\log(1-p)\)</span>. For <span class="math inline">\(n\)</span>
-observations, the likelihood depends only on the sufficient statistic
-<span class="math inline">\(T(x_{1:n}) = \sum_{i=1}^n x_i =
-k^n\)</span>, the total number of successes. After observing <span
-class="math inline">\(x_{1:n}\)</span> data points with <span
-class="math inline">\(k^n\)</span> successes the posterior is</p>
-<p><span class="math display">\[
+= \exp{\log\left(\frac{p}{1-p}\right) x_i + \log(1-p)},
+\end{align*}
+with natural parameter (\eta(p) = \log(p/(1-p))), sufficient statistics (T(x_i) = x_i), and log-partition function (A(p) = -\log(1-p)). For (n) observations, the likelihood depends only on the sufficient statistic (T(x_{1:n}) = \sum_{i=1}^n x_i = k^n), the total number of successes. After observing (x_{1:n}) data points with <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>k</mi><mi>n</mi></msup></mrow><annotation encoding="application/x-tex">k^n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6644em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">n</span></span></span></span></span></span></span></span></span></span></span> successes the posterior is</p>
+<p>[
 p \mid x \sim \text{Beta}(a+k^n, b+n-k^n).
-\]</span></p>
-<p>Suppose the future, remaining data <span
-class="math inline">\(z\)</span> comprise <span
-class="math inline">\(m\)</span> additional data points. Then the
-posterior predictive distribution of <span
-class="math inline">\(k^m\)</span> future successes is</p>
-<p><span class="math display">\[\begin{align*}
-k^m &amp; \sim \int \text{Binomial}(m,p) \text{Beta}(p; a+k^n, b+n-k^n)
-\\
+]</p>
+<p>Suppose the future, remaining data (z) comprise (m) additional data points. Then the posterior predictive distribution of <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msup><mi>k</mi><mi>m</mi></msup></mrow><annotation encoding="application/x-tex">k^m</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height:0.6644em;"><span style="top:-3.063em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mathnormal mtight">m</span></span></span></span></span></span></span></span></span></span></span> future successes is</p>
+<p>\begin{align*}
+k^m &amp; \sim \int \text{Binomial}(m,p) \text{Beta}(p; a+k^n, b+n-k^n) \
 &amp; = \text{Beta-Binomial}(m,a+k^n,b+n-k^n).
-\end{align*}\]</span></p>
-<p>If <span class="math inline">\(k^m\)</span> additional successes
-occur:</p>
-<p><span class="math display">\[
+\end{align*}</p>
+<p>If (k^m) additional successes occur:</p>
+<p>[
 p \mid x,z \sim
 \text{Beta}(a+k^n+k^m, b+n+m-k^n-k^m).
-\]</span></p>
+]</p>
 <p>The final posterior success probability is</p>
-<p><span class="math display">\[
-P(H_1 \mid x,z)
-=
-1 - F_{Beta}(p_0; a+k^n+k^m, b+n+m-k^n-k^m).
-\]</span></p>
-<p>In the future, with <span class="math inline">\(z\)</span> additional
-data, success occurs when</p>
-<p><span class="math display">\[
+<h1 id="ph_1-mid-xz">[
+P(H_1 \mid x,z)</h1>
+<p>1 - F_{Beta}(p_0; a+k^n+k^m, b+n+m-k^n-k^m).
+]</p>
+<p>In the future, with (z) additional data, success occurs when</p>
+<p>[
 P(H_1 \mid x,z) &gt; \eta.
-\]</span></p>
-<p>Since the posterior depends only on the sufficient statistic <span
-class="math inline">\(k^m\)</span> (the number of successes in the
-future data), and <span class="math inline">\(P(H_1 \mid x,
-k^m)\)</span> is monotonically increasing in <span
-class="math inline">\(k^m\)</span>, we can find the threshold</p>
-<p><span class="math display">\[
-k^m_\star = \min\{k^m \in \{0, 1, \ldots, m\} : P(H_1 \mid x, k^m) &gt;
-\eta\}.
-\]</span></p>
+]</p>
+<p>Since the posterior depends only on the sufficient statistic (k^m) (the number of successes in the future data), and (P(H_1 \mid x, k^m)) is monotonically increasing in (k^m), we can find the threshold</p>
+<p>[
+k^m_\star = \min{k^m \in {0, 1, \ldots, m} : P(H_1 \mid x, k^m) &gt; \eta}.
+]</p>
 <p>Then the PPS becomes a simple tail sum:</p>
-<p><span class="math display">\[
-PPS(x)
-=
-\sum_{k^m = k^m_\star}^m
+<h1 id="ppsx">[
+PPS(x)</h1>
+<p>\sum_{k^m = k^m_\star}^m
 p(k^m \mid x),
-\]</span></p>
-<p>where <span class="math inline">\(p(k^m \mid x)\)</span> is the
-Beta–Binomial predictive distribution. Explicitly,</p>
-<p><span class="math display">\[
-PPS(x)
-=
-\sum_{k^m = k^m_\star}^m
+]</p>
+<p>where (p(k^m \mid x)) is the Beta–Binomial predictive distribution. Explicitly,</p>
+<h1 id="ppsx-1">[
+PPS(x)</h1>
+<p>\sum_{k^m = k^m_\star}^m
 {m \choose k^m}
 \frac{B(a+k^n+k^m,b+n+m-k^n-k^m)}{B(a+k^n,b+n-k^n)}.
-\]</span></p>
-<hr />
-<h2 id="categorical-model">3.2 Categorical model</h2>
+]</p>
+<hr>
+<h2 id="32-categorical-model">3.2 Categorical model</h2>
 <p>Let</p>
-<p><span class="math display">\[
+<p>[
 x_i \sim \text{Categorical}(p)
-\]</span></p>
-<p>with parameter vector <span class="math inline">\(p = (p_1, \ldots,
-p_K)\)</span> where <span class="math inline">\(\sum_{k=1}^K p_k =
-1\)</span>, and prior</p>
-<p><span class="math display">\[
+]</p>
+<p>with parameter vector (p = (p_1, \ldots, p_K)) where (\sum_{k=1}^K p_k = 1), and prior</p>
+<p>[
 p \sim \text{Dirichlet}(\alpha),
-\]</span></p>
-<p>where <span class="math inline">\(\alpha = (\alpha_1, \ldots,
-\alpha_K)\)</span>.</p>
-<p>The Categorical distribution belongs to the exponential family: <span
-class="math display">\[\begin{align*}
+]</p>
+<p>where (\alpha = (\alpha_1, \ldots, \alpha_K)).</p>
+<p>The Categorical distribution belongs to the exponential family:
+\begin{align*}
 p(x_i \mid p) &amp;
 = \prod_{k=1}^K p_k^{1_{x_i = k}}
-= \exp\left\{\sum_{k=1}^K 1_{x_i = k} \log p_k\right\}
-\\
+= \exp\left{\sum_{k=1}^K 1_{x_i = k} \log p_k\right}
+\
 &amp;
-= \exp\left\{\sum_{k=1}^{K-1} \log\left(\frac{p_k}{p_K}\right) 1_{x_i =
-k} + \log p_K\right\},
-\end{align*}\]</span> with natural parameters <span
-class="math inline">\(\eta_k(p) = \log(p_k/p_K)\)</span> for <span
-class="math inline">\(k = 1, \ldots, K-1\)</span>, sufficient statistics
-<span class="math inline">\(T_k(x_i) = 1_{x_i = k}\)</span> for <span
-class="math inline">\(k = 1, \ldots, K-1\)</span>, and log-partition
-function <span class="math inline">\(A(p) = -\log p_K\)</span>. For
-<span class="math inline">\(n\)</span> observations, the likelihood
-depends only on the sufficient statistic <span
-class="math inline">\(T(x_{1:n}) = (k_1^n, \ldots, k_K^n)\)</span>, the
-count vector where <span class="math inline">\(k_k^n = \sum_{i=1}^n
-1_{x_i = k}\)</span> is the number of observations in category <span
-class="math inline">\(k\)</span>. After observing <span
-class="math inline">\(x_{1:n}\)</span> data points with counts <span
-class="math inline">\(k_k^n\)</span> the posterior is</p>
-<p><span class="math display">\[
-p \mid x \sim \text{Dirichlet}(\alpha_1 + k_1^n, \ldots, \alpha_K +
-k_K^n).
-\]</span></p>
-<p>Suppose the future, remaining data <span
-class="math inline">\(z\)</span> comprise <span
-class="math inline">\(m\)</span> additional data points. Then the
-posterior predictive distribution of the future count vector <span
-class="math inline">\((k_1^m, \ldots, k_K^m)\)</span> is</p>
-<p><span class="math display">\[\begin{align*}
-(k_1^m, \ldots, k_K^m) &amp; \sim \int \text{Multinomial}(m, p) \,
-\text{Dirichlet}(p; \alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n) \, dp \\
-&amp; = \text{Dirichlet-Multinomial}(m, \alpha_1 + k_1^n, \ldots,
-\alpha_K + k_K^n).
-\end{align*}\]</span></p>
-<p>If future counts <span class="math inline">\((k_1^m, \ldots,
-k_K^m)\)</span> occur:</p>
-<p><span class="math display">\[
-p \mid x,z \sim \text{Dirichlet}(\alpha_1 + k_1^n + k_1^m, \ldots,
-\alpha_K + k_K^n + k_K^m).
-\]</span></p>
+= \exp\left{\sum_{k=1}^{K-1} \log\left(\frac{p_k}{p_K}\right) 1_{x_i = k} + \log p_K\right},
+\end{align*}
+with natural parameters (\eta_k(p) = \log(p_k/p_K)) for (k = 1, \ldots, K-1), sufficient statistics (T_k(x_i) = 1_{x_i = k}) for (k = 1, \ldots, K-1), and log-partition function (A(p) = -\log p_K). For (n) observations, the likelihood depends only on the sufficient statistic (T(x_{1:n}) = (k_1^n, \ldots, k_K^n)), the count vector where (k_k^n = \sum_{i=1}^n 1_{x_i = k}) is the number of observations in category (k). After observing (x_{1:n}) data points with counts (k_k^n) the posterior is</p>
+<p>[
+p \mid x \sim \text{Dirichlet}(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n).
+]</p>
+<p>Suppose the future, remaining data (z) comprise (m) additional data points. Then the posterior predictive distribution of the future count vector ((k_1^m, \ldots, k_K^m)) is</p>
+<p>\begin{align*}
+(k_1^m, \ldots, k_K^m) &amp; \sim \int \text{Multinomial}(m, p) , \text{Dirichlet}(p; \alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n) , dp \
+&amp; = \text{Dirichlet-Multinomial}(m, \alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n).
+\end{align*}</p>
+<p>If future counts ((k_1^m, \ldots, k_K^m)) occur:</p>
+<p>[
+p \mid x,z \sim \text{Dirichlet}(\alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m).
+]</p>
 <p>The final posterior success probability is</p>
-<p><span class="math display">\[
-P(H_1 \mid x,z) = \int 1_{p \in H_1} \, \text{Dirichlet}(p; \alpha_1 +
-k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m) \, dp,
-\]</span></p>
-<p>which can be computed via numerical integration or Monte Carlo
-sampling from the posterior.</p>
-<p>In the future, with <span class="math inline">\(z\)</span> additional
-data, success occurs when</p>
-<p><span class="math display">\[
+<p>[
+P(H_1 \mid x,z) = \int 1_{p \in H_1} , \text{Dirichlet}(p; \alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m) , dp,
+]</p>
+<p>which can be computed via numerical integration or Monte Carlo sampling from the posterior.</p>
+<p>In the future, with (z) additional data, success occurs when</p>
+<p>[
 P(H_1 \mid x,z) &gt; \eta.
-\]</span></p>
-<p>Since the posterior depends only on the sufficient statistic <span
-class="math inline">\((k_1^m, \ldots, k_K^m)\)</span> (the count vector
-of future data), we can define the success set directly in terms of this
-count vector. Let</p>
-<p><span class="math display">\[
-S = \{(k_1^m, \ldots, k_K^m) : \sum_{j=1}^K k_j^m = m, \, P(H_1 \mid x,
-k_1^m, \ldots, k_K^m) &gt; \eta\},
-\]</span></p>
-<p>where the constraint <span class="math inline">\(\sum_{j=1}^K k_j^m =
-m\)</span> ensures the counts sum to the total number of future
-observations. Then the PPS becomes</p>
-<p><span class="math display">\[
-PPS(x) = \sum_{(k_1^m, \ldots, k_K^m) \in S} p(k_1^m, \ldots, k_K^m \mid
-x),
-\]</span></p>
-<p>where <span class="math inline">\(p(k_1^m, \ldots, k_K^m \mid
-x)\)</span> is the Dirichlet-Multinomial predictive distribution:</p>
-<p><span class="math display">\[
-p(k_1^m, \ldots, k_K^m \mid x) = \frac{m!}{k_1^m! \cdots k_K^m!}
-\frac{B(\alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n +
-k_K^m)}{B(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n)},
-\]</span></p>
-<p>where <span class="math inline">\(B(\cdot)\)</span> is the
-multivariate Beta function. This is analytically computable but
-combinatorially more expensive than the Binomial case due to the larger
-state space of count vectors.</p>
-<h2 id="item-response-model">3.3 Item-response model</h2>
-<p>In our applications, we are interested in Item Response Theory (IRT)
-models that can be fitted to real-time survey data collected about
-interventions in humanitarian and social science settings. The data
-consist of responses to Likert-scale survey items collected from
-participants at baseline and endline. The data increases in size as more
-individuals are surveyed. The goal is to quantify intervention
-effectiveness based on the current data, and to quantify the predictive
-probability of success (PPS).</p>
-<p>Throughout, let <span class="math inline">\(i\)</span> index
-participants (<span class="math inline">\(i = 1, \ldots, n\)</span>),
-<span class="math inline">\(j\)</span> index items/questions (<span
-class="math inline">\(j = 1, \ldots, J\)</span>), and <span
-class="math inline">\(k\)</span> index response categories (<span
-class="math inline">\(k = 1, \ldots, K\)</span>). The response of
-participant <span class="math inline">\(i\)</span> to item <span
-class="math inline">\(j\)</span> at time <span
-class="math inline">\(t\)</span> (baesline or endline) is <span
-class="math inline">\(Y_{ijt}\)</span>; for simplicity we suppress <span
-class="math inline">\(t\)</span> in what follows. A widely-used IRT
-model which we use here is the partial credit model. The PCM models
-ordered categorical probabilities with cumulative logits,</p>
-<p><span class="math display">\[\begin{align*}
-P(Y_{ij} = k) &amp;= \text{softmax}(\phi_{i,j,k}) =
-\frac{\exp(\phi_{i,j,k})}{\sum_{k&#39;=1}^K \exp(\phi_{i,j,k&#39;})}\\
-\phi_{i,j,1} &amp;= 0\\
-\phi_{i,j,k} &amp;= \sum_{s=1}^k \lambda_{j} \cdot \left(\theta_i +
-\mathbf{X}_{i,j}^T \boldsymbol{\beta} - c_{j,s}\right), \quad
-k=2,\dotsc,K
-\end{align*}\]</span></p>
-<p>The number of free parameters are <span
-class="math inline">\(N\)</span> latent skills parameters <span
-class="math inline">\(\theta_i\)</span>, one for each participant; <span
-class="math inline">\(J(K-1)\)</span> incremental skill thresholds <span
-class="math inline">\(c_{j,s}\)</span>, one for each categorical
-increment for each response item; <span class="math inline">\(J\)</span>
-item loadings; and <span class="math inline">\(P\)</span> fixed
-participants effects. The total number of parameters is thus <span
-class="math inline">\(N+JK + P\)</span>, comprising <span
-class="math inline">\(N\)</span> local parameters that grow wich each
-new participant and <span class="math inline">\(JK + P\)</span> global
-parameters that are shared across participants.</p>
-<p>By construction, the PCM admits an incremental log-risk
-structure:</p>
-<p><span class="math display">\[\begin{align*}
+]</p>
+<p>Since the posterior depends only on the sufficient statistic ((k_1^m, \ldots, k_K^m)) (the count vector of future data), we can define the success set directly in terms of this count vector. Let</p>
+<p>[
+S = {(k_1^m, \ldots, k_K^m) : \sum_{j=1}^K k_j^m = m, , P(H_1 \mid x, k_1^m, \ldots, k_K^m) &gt; \eta},
+]</p>
+<p>where the constraint (\sum_{j=1}^K k_j^m = m) ensures the counts sum to the total number of future observations. Then the PPS becomes</p>
+<p>[
+PPS(x) = \sum_{(k_1^m, \ldots, k_K^m) \in S} p(k_1^m, \ldots, k_K^m \mid x),
+]</p>
+<p>where (p(k_1^m, \ldots, k_K^m \mid x)) is the Dirichlet-Multinomial predictive distribution:</p>
+<p>[
+p(k_1^m, \ldots, k_K^m \mid x) = \frac{m!}{k_1^m! \cdots k_K^m!} \frac{B(\alpha_1 + k_1^n + k_1^m, \ldots, \alpha_K + k_K^n + k_K^m)}{B(\alpha_1 + k_1^n, \ldots, \alpha_K + k_K^n)},
+]</p>
+<p>where (B(\cdot)) is the multivariate Beta function. This is analytically computable but combinatorially more expensive than the Binomial case due to the larger state space of count vectors.</p>
+<h2 id="33-item-response-model">3.3 Item-response model</h2>
+<p>In our applications, we are interested in Item Response Theory (IRT) models that can be fitted to real-time survey data collected about interventions in humanitarian and social science settings.
+The data consist of responses to Likert-scale survey items collected from participants at baseline and endline. The data increases in size as more individuals are surveyed. The goal is to quantify intervention effectiveness based on the current data, and to quantify the predictive probability of success (PPS).</p>
+<p>Throughout, let <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>i</mi></mrow><annotation encoding="application/x-tex">i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span></span></span></span> index participants (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>i</mi><mo>=</mo><mn>1</mn><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><mi>n</mi></mrow><annotation encoding="application/x-tex">i = 1, \ldots, n</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8389em;vertical-align:-0.1944em;"></span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal">n</span></span></span></span>), <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>j</mi></mrow><annotation encoding="application/x-tex">j</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.854em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05724em;">j</span></span></span></span> index items/questions (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>j</mi><mo>=</mo><mn>1</mn><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><mi>J</mi></mrow><annotation encoding="application/x-tex">j = 1, \ldots, J</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.854em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05724em;">j</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8778em;vertical-align:-0.1944em;"></span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.09618em;">J</span></span></span></span>), and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>k</mi></mrow><annotation encoding="application/x-tex">k</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span></span></span></span> index response categories (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>k</mi><mo>=</mo><mn>1</mn><mo separator="true">,</mo><mo>…</mo><mo separator="true">,</mo><mi>K</mi></mrow><annotation encoding="application/x-tex">k = 1, \ldots, K</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.8778em;vertical-align:-0.1944em;"></span><span class="mord">1</span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="minner">…</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mpunct">,</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.07153em;">K</span></span></span></span>). The response of participant <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>i</mi></mrow><annotation encoding="application/x-tex">i</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6595em;"></span><span class="mord mathnormal">i</span></span></span></span> to item <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>j</mi></mrow><annotation encoding="application/x-tex">j</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.854em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05724em;">j</span></span></span></span> at time <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>t</mi></mrow><annotation encoding="application/x-tex">t</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6151em;"></span><span class="mord mathnormal">t</span></span></span></span> (baesline or endline) is <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>Y</mi><mrow><mi>i</mi><mi>j</mi><mi>t</mi></mrow></msub></mrow><annotation encoding="application/x-tex">Y_{ijt}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9694em;vertical-align:-0.2861em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.2222em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight" style="margin-right:0.05724em;">ij</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span></span></span></span>; for simplicity we suppress <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>t</mi></mrow><annotation encoding="application/x-tex">t</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6151em;"></span><span class="mord mathnormal">t</span></span></span></span> in what follows. A widely-used IRT model which we use here is the partial credit model. The PCM models ordered categorical probabilities with cumulative logits,</p>
+<p>\begin{align*}
+P(Y_{ij} = k) &amp;= \text{softmax}(\phi_{i,j,k}) = \frac{\exp(\phi_{i,j,k})}{\sum_{k'=1}^K \exp(\phi_{i,j,k'})}\
+\phi_{i,j,1} &amp;= 0\
+\phi_{i,j,k} &amp;= \sum_{s=1}^k \lambda_{j} \cdot \left(\theta_i + \mathbf{X}<em>{i,j}^T \boldsymbol{\beta} - c</em>{j,s}\right), \quad k=2,\dotsc,K
+\end{align*}</p>
+<p>The number of free parameters are (N) latent skills parameters (\theta_i), one for each participant; (J(K-1)) incremental skill thresholds (c_{j,s}), one for each categorical increment for each response item; (J) item loadings; and (P) fixed participants effects. The total number of parameters is thus (N+JK + P), comprising (N) local parameters that grow wich each new participant and (JK + P) global parameters that are shared across participants.</p>
+<p>By construction, the PCM admits an incremental log-risk structure:</p>
+<p>\begin{align*}
 \log \frac{\Pr(Y_{i,j} = k)}{\Pr(Y_{i,j} = k-1)}
-=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}_{i,j}^T
-\boldsymbol{\beta} - c_{j,k}\right)
-\end{align*}\]</span></p>
-<p>The model thus does not follow the proportional cumulative odds
-assumptions, but it has a proportional incremental risk assumption: when
-<span class="math inline">\(\beta\)</span> represents an intervention
-effect (e.g., <span class="math inline">\(X_{i,j,t} = 1\)</span> at time
-<span class="math inline">\(t=1\)</span> and <span
-class="math inline">\(X_{i,j,t} = 0\)</span> at time <span
-class="math inline">\(t=0\)</span>), then</p>
-<p><span class="math display">\[\begin{align*}
-&amp;\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} =
-k-1 \mid \eta_{i,j,t=1})} \bigg/
-\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = k-1
-\mid \eta_{i,j,t=0})}\\
+=  \lambda_{j} \cdot \left(\theta_i + \mathbf{X}<em>{i,j}^T \boldsymbol{\beta} - c</em>{j,k}\right)
+\end{align*}</p>
+<p>The model thus does not follow the proportional cumulative odds assumptions, but it has a proportional incremental risk assumption: when <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>β</mi></mrow><annotation encoding="application/x-tex">\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span> represents an intervention effect (e.g., <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>X</mi><mrow><mi>i</mi><mo separator="true">,</mo><mi>j</mi><mo separator="true">,</mo><mi>t</mi></mrow></msub><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">X_{i,j,t} = 1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9694em;vertical-align:-0.2861em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07847em;">X</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0785em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mpunct mtight">,</span><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span><span class="mpunct mtight">,</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> at time <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>t</mi><mo>=</mo><mn>1</mn></mrow><annotation encoding="application/x-tex">t=1</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6151em;"></span><span class="mord mathnormal">t</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">1</span></span></span></span> and <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msub><mi>X</mi><mrow><mi>i</mi><mo separator="true">,</mo><mi>j</mi><mo separator="true">,</mo><mi>t</mi></mrow></msub><mo>=</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">X_{i,j,t} = 0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.9694em;vertical-align:-0.2861em;"></span><span class="mord"><span class="mord mathnormal" style="margin-right:0.07847em;">X</span><span class="msupsub"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height:0.3117em;"><span style="top:-2.55em;margin-left:-0.0785em;margin-right:0.05em;"><span class="pstrut" style="height:2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight"><span class="mord mathnormal mtight">i</span><span class="mpunct mtight">,</span><span class="mord mathnormal mtight" style="margin-right:0.05724em;">j</span><span class="mpunct mtight">,</span><span class="mord mathnormal mtight">t</span></span></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height:0.2861em;"><span></span></span></span></span></span></span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span> at time <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>t</mi><mo>=</mo><mn>0</mn></mrow><annotation encoding="application/x-tex">t=0</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6151em;"></span><span class="mord mathnormal">t</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:0.6444em;"></span><span class="mord">0</span></span></span></span>), then</p>
+<h1 id="beginalignfracpry_ijt1--k-mid-eta_ijt1pry_ijt1--k-1-mid-eta_ijt1-biggfracpry_ijt0--k-mid-eta_ijt0pry_ijt0--k-1-mid-eta_ijt0quad-expbig-lambda_j--theta_i--beta----lambda_j-theta_i--big">\begin{align*}
+&amp;\frac{\Pr(Y_{i,j,t=1} = k \mid \eta_{i,j,t=1})}{\Pr(Y_{i,j,t=1} = k-1 \mid \eta_{i,j,t=1})} \bigg/
+\frac{\Pr(Y_{i,j,t=0} = k \mid \eta_{i,j,t=0})}{\Pr(Y_{i,j,t=0} = k-1 \mid \eta_{i,j,t=0})}\
 &amp;\quad =
-\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)
-=
-\exp( \lambda_j \beta ),
-\end{align*}\]</span></p>
-<p>so when measured in incremental risks, the effect of the intervention
-is proportional to <span class="math inline">\(\exp\beta\)</span>, and
-the same regardless of the category <span
-class="math inline">\(k\)</span>.</p>
-<p>Computationally, the PCM involves direct evaluations of category
-specific events (<span class="math inline">\(Pr(Y=k)\)</span> not <span
-class="math inline">\(Pr(Y\leq k)\)</span>) and therefore tends to be
-much faster to evaluate and less prone to numerical issues than other
-IRT models. Standard priors can be attached to all free parameters.</p>
-<hr />
-<h1 id="no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of
-the PPS to today’s knowledge</h1>
-<p>A particular confusion that often arises with the PPS is that it does
-not fall back to today’s knowledge.</p>
-<p>A key concept in Bayesian forecasting is self-consistency, in that if
-we make posterior predictions <span class="math inline">\(z\)</span>
-from today’s posterior and then consider the updated posterior <span
-class="math inline">\(p(\theta|x,z)\)</span>, the two expansion and
-contraction steps cancel each other out.</p>
-<p>In our setting, this Bayesian prediction self-consistency property
-equates to</p>
-<p><span class="math display">\[
+\exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big)</h1>
+<p>\exp( \lambda_j \beta ),
+\end{align*}</p>
+<p>so when measured in incremental risks, the effect of the intervention is proportional to <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>exp</mi><mo>⁡</mo><mi>β</mi></mrow><annotation encoding="application/x-tex">\exp\beta</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.8889em;vertical-align:-0.1944em;"></span><span class="mop">exp</span><span class="mspace" style="margin-right:0.1667em;"></span><span class="mord mathnormal" style="margin-right:0.05278em;">β</span></span></span></span>, and the same regardless of the category <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>k</mi></mrow><annotation encoding="application/x-tex">k</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:0.6944em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span></span></span></span>.</p>
+<p>Computationally, the PCM involves direct evaluations of category specific events (<span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>P</mi><mi>r</mi><mo stretchy="false">(</mo><mi>Y</mi><mo>=</mo><mi>k</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">Pr(Y=k)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mclose">)</span></span></span></span> not <span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>P</mi><mi>r</mi><mo stretchy="false">(</mo><mi>Y</mi><mo>≤</mo><mi>k</mi><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">Pr(Y\leq k)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.13889em;">P</span><span class="mord mathnormal" style="margin-right:0.02778em;">r</span><span class="mopen">(</span><span class="mord mathnormal" style="margin-right:0.22222em;">Y</span><span class="mspace" style="margin-right:0.2778em;"></span><span class="mrel">≤</span><span class="mspace" style="margin-right:0.2778em;"></span></span><span class="base"><span class="strut" style="height:1em;vertical-align:-0.25em;"></span><span class="mord mathnormal" style="margin-right:0.03148em;">k</span><span class="mclose">)</span></span></span></span>) and therefore tends to be much faster to evaluate and less prone to numerical issues than other IRT models. Standard priors can be attached to all free parameters.</p>
+<hr>
+<h1 id="4-no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of the PPS to today's knowledge</h1>
+<p>A particular confusion that often arises with the PPS is that it does not fall back to today's knowledge.</p>
+<p>A key concept in Bayesian forecasting is self-consistency, in that if we make posterior predictions (z) from today's posterior and then consider the updated posterior (p(\theta|x,z)), the two expansion and contraction steps cancel each other out.</p>
+<p>In our setting, this Bayesian prediction self-consistency property equates to</p>
+<p>[
 \mathbb{E}_{z|x}[P(H_1|x,z)] = P(H_1|x),
-\]</span></p>
-<p>and it follows from replacing <span
-class="math inline">\(p(\theta|x,z)p(z|x)\)</span> with <span
-class="math inline">\(p(\theta,z|x)\)</span>, exchanging integrals, and
-integrating out <span class="math inline">\(z\)</span>.</p>
-<p>The key point is that the PPS contains the indicator decision
-rule</p>
-<p><span class="math display">\[
-1\{P(H_1 \mid x,z) &gt; \eta\},
-\]</span></p>
+]</p>
+<p>and it follows from replacing ( p(\theta|x,z)p(z|x) ) with ( p(\theta,z|x) ), exchanging integrals, and integrating out (z).</p>
+<p>The key point is that the PPS contains the indicator decision rule</p>
+<p>[
+1{P(H_1 \mid x,z) &gt; \eta},
+]</p>
 <p>and so</p>
-<p><span class="math display">\[
-\mathbb{E}_{z|x}[1\{P(H_1|x,z) &gt; \eta\}]
+<p>[
+\mathbb{E}_{z|x}[1{P(H_1|x,z) &gt; \eta}]
 \neq
-1\{P(H_1|x) &gt; \eta\},
-\]</span></p>
-<p>since <span class="math inline">\(E(f(X)) \neq f(E(X))\)</span>.
-Conceptually the PPS is a probability in <span
-class="math inline">\([0,1]\)</span> whereas today’s decision rule
-always evaluates to a binary value.</p>
-<hr />
-<h1 id="links-to-general-decision-theoretic-learning">5. Links to
-general decision-theoretic learning</h1>
-<h2 id="bayes-optimal-decisions-under-loss">5.1 Bayes optimal decisions
-under loss</h2>
-<p>In the broader decision theoretic literature, the objective is to
-evaluate the expected loss (or expected utility) of all possible actions
-given the observed data, and then choose the action that minimizes the
-expected loss.</p>
-<p>Let <span class="math inline">\(\mathcal{A}\)</span> denote the
-action space. Given data <span class="math inline">\(x\)</span>, the
-Bayes optimal action is</p>
-<p><span class="math display">\[
-a^* = \arg\min_{a \in \mathcal{A}} \mathbb{E}_{\theta \mid x}[L(a,
-\theta)]
-\]</span></p>
-<p>where <span class="math inline">\(L(a, \theta)\)</span> is the loss
-incurred by taking action <span class="math inline">\(a\)</span> when
-the unknown parameters are <span
-class="math inline">\(\theta\)</span>.</p>
-<p>In our setting, for final data <span
-class="math inline">\(x\)</span>, the decision theoretic problem
-simplifies to two actions:</p>
+1{P(H_1|x) &gt; \eta},
+]</p>
+<p>since ( E(f(X)) \neq f(E(X)) ). Conceptually the PPS is a probability in ( [0,1]) whereas today's decision rule always evaluates to a binary value.</p>
+<hr>
+<h1 id="5-links-to-general-decision-theoretic-learning">5. Links to general decision-theoretic learning</h1>
+<h2 id="51-bayes-optimal-decisions-under-loss">5.1 Bayes optimal decisions under loss</h2>
+<p>In the broader decision theoretic literature, the objective is to evaluate the expected loss (or expected utility) of all possible actions given the observed data, and then choose the action that minimizes the expected loss.</p>
+<p>Let (\mathcal{A}) denote the action space. Given data (x), the Bayes optimal action is</p>
+<p>[
+a^* = \arg\min_{a \in \mathcal{A}} \mathbb{E}_{\theta \mid x}[L(a, \theta)]
+]</p>
+<p>where (L(a, \theta)) is the loss incurred by taking action (a) when the unknown parameters are (\theta).</p>
+<p>In our setting, for final data (x), the decision theoretic problem simplifies to two actions:</p>
 <ul>
-<li><span class="math inline">\(a_1\)</span>: declare success, adopt
-intervention</li>
-<li><span class="math inline">\(a_0\)</span>: declare failure, reject
-intervention</li>
+<li>(a_1): declare success, adopt intervention</li>
+<li>(a_0): declare failure, reject intervention</li>
 </ul>
 <p>and two partitions on the unknown true treatment effect:</p>
 <ul>
-<li><span class="math inline">\(H_1\)</span>: success hypothesis (<span
-class="math inline">\(p &gt; p_0\)</span>)</li>
-<li><span class="math inline">\(H_0\)</span>: null hypothesis (<span
-class="math inline">\(p \leq p_0\)</span>)</li>
+<li>(H_1): success hypothesis ((p &gt; p_0))</li>
+<li>(H_0): null hypothesis ((p \leq p_0))</li>
 </ul>
 <p>We can define the loss matrix:</p>
 <table>
 <thead>
 <tr>
 <th>Action</th>
-<th><span class="math inline">\(H_1\)</span> true</th>
-<th><span class="math inline">\(H_0\)</span> true</th>
+<th>(H_1) true</th>
+<th>(H_0) true</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>Declare success (<span class="math inline">\(a_1\)</span>)</td>
+<td>Declare success ((a_1))</td>
 <td>0</td>
-<td><span class="math inline">\(L_{FP}\)</span></td>
+<td>(L_{FP})</td>
 </tr>
 <tr>
-<td>Declare failure (<span class="math inline">\(a_0\)</span>)</td>
-<td><span class="math inline">\(L_{FN}\)</span></td>
+<td>Declare failure ((a_0))</td>
+<td>(L_{FN})</td>
 <td>0</td>
 </tr>
 </tbody>
 </table>
-<p>where <span class="math inline">\(L_{FP}\)</span> is the cost of a
-false positive decision and <span class="math inline">\(L_{FN}\)</span>
-is the cost of a false negative decision.</p>
-<p>Given observed data <span class="math inline">\(x\)</span>, the
-expected loss of declaring success is</p>
-<p><span class="math display">\[
-\mathbb{E}_{H \mid x}[L(a_1, H)]
-= L_{FP} \cdot P(H_0 \mid x) + 0 \cdot P(H_1 \mid x)
+<p>where (L_{FP}) is the cost of a false positive decision and (L_{FN}) is the cost of a false negative decision.</p>
+<p>Given observed data (x), the expected loss of declaring success is</p>
+<p>[
+\mathbb{E}<em>{H \mid x}[L(a_1, H)]
+= L</em>{FP} \cdot P(H_0 \mid x) + 0 \cdot P(H_1 \mid x)
 = L_{FP} \cdot P(H_0 \mid x),
-\]</span></p>
+]</p>
 <p>amd similarly the expected loss of declaring failure is</p>
-<p><span class="math display">\[
-\mathbb{E}_{H \mid x}[L(a_0, H)]
-= L_{FN} \cdot P(H_1 \mid x).
-\]</span></p>
+<p>[
+\mathbb{E}<em>{H \mid x}[L(a_0, H)]
+= L</em>{FN} \cdot P(H_1 \mid x).
+]</p>
 <p>The Bayes optimal action minimizes expected loss,</p>
-<p><span class="math display">\[
-a^*(x) = \arg\min_{a \in \{a_0, a_1\}} \mathbb{E}_{H \mid x}[L(a_1, H)].
-\]</span></p>
-<p>And so, to declare success we want <span
-class="math display">\[\begin{align*}
+<p>[
+a^*(x) = \arg\min_{a \in {a_0, a_1}} \mathbb{E}_{H \mid x}[L(a_1, H)].
+]</p>
+<p>And so, to declare success we want
+\begin{align*}
 &amp;
-\mathbb{E}_{H \mid x}[L(a_1, H)] &lt; \mathbb{E}_{H \mid x}[L(a_0, H)]
-\\
+\mathbb{E}<em>{H \mid x}[L(a_1, H)] &lt; \mathbb{E}</em>{H \mid x}[L(a_0, H)] \
 \Leftrightarrow &amp;
-L_{FP} \cdot (1 - P(H_1 \mid x)) &lt; L_{FN} \cdot P(H_1 \mid x) \\
+L_{FP} \cdot (1 - P(H_1 \mid x)) &lt; L_{FN} \cdot P(H_1 \mid x) \
 \Leftrightarrow &amp;
 P(H_1 \mid x) &gt; L_{FP} / ( L_{FP} + L_{FN} ).
-\end{align*}\]</span></p>
-<p>This shows that the Bayes optimal decision threshold <span
-class="math inline">\(\eta\)</span> can be expressed in terms of
-utilities or loss terms. In particular, if false positives are more
-costly, <span class="math inline">\(\eta &gt; 0.5\)</span> and if false
-negatives are more costly, <span class="math inline">\(\eta &lt;
-0.5\)</span>. This provides a utility-based foundation for choosing
-<span class="math inline">\(\eta\)</span> in contrast to ad-hoc 0.89 or
-0.95.</p>
-<h2 id="net-benefit">5.2 Net benefit</h2>
-<p>A related concept is expected utility, normalised such that 1 unit
-corresponds to 1 true positive. Under the above action/partition set
-matrix, the relative cost of one false positive is <span
-class="math inline">\(w\)</span> and true pos and true neg have
-utility/cost 0. This does not depend on the particular units of the
-losses, and so is more easily interpretable.</p>
-<p>Under these utilities, the net benefit of declaring success is given
-by</p>
-<p><span class="math display">\[\begin{align*}
+\end{align*}</p>
+<p>This shows that the Bayes optimal decision threshold (\eta) can be expressed in terms of utilities or loss terms. In particular, if false positives are more costly, (\eta &gt; 0.5) and if false negatives are more costly, (\eta &lt; 0.5). This provides a utility-based foundation for choosing (\eta) in contrast to ad-hoc 0.89 or 0.95.</p>
+<h2 id="52-net-benefit">5.2 Net benefit</h2>
+<p>A related concept is expected utility, normalised such that 1 unit corresponds to 1 true positive. Under the above action/partition set matrix, the relative cost of one false positive is (w) and true pos and true neg have utility/cost 0. This does not depend on the particular units of the losses, and so is more easily interpretable.</p>
+<p>Under these utilities, the net benefit of declaring success is given by</p>
+<p>\begin{align*}
 NB(x)
 &amp;
 = P(H_1 \mid x) - w \cdot P(H_0 \mid x)
-\\
+\
 &amp;
 = P(H_1 \mid x) - w \cdot (1 - P(H_1 \mid x) )
-\end{align*}\]</span></p>
+\end{align*}</p>
 <p>and the net benefit decision rule is</p>
-<p><span class="math display">\[
-1\{ NB(x) &gt; 0 \}.    
-\]</span></p>
-<p>Under Bayes optimality, we find that the relative cost of a false
-positive must be <span class="math inline">\(w = L_{FP} /
-L_{FN}\)</span>. Using the expression for <span
-class="math inline">\(\eta\)</span> above, we then find <span
-class="math inline">\(w = \eta / (1 - \eta)\)</span>. Thus we can
-express the net benefit in the standard form</p>
-<p><span class="math display">\[
-NB(x) = P(H_1 \mid x) - \frac{\eta} {1 - \eta} \cdot (1 - P(H_1 \mid x)
-).
-\]</span></p>
-<p>This shows that our learning problem directly connects to standard
-cost-benefit analyses. Our PPS is equivalent to posterior predictive net
-benefit over future data <span class="math inline">\(z\)</span>, and so
-finding a way to amortise the PPS also means a solution to amortising
-posterior predictive net benefit.</p>
-<hr />
-<h1 id="amortized-inference-workflow">6. Amortized inference
-workflow</h1>
-<p>Rather than learning a neural posterior of high dimensional model
-parameters, an initial step might be to learn the function</p>
-<p><span class="math display">\[
-    z \rightarrow 𝑃( H_1 \mid x,z ),
-\]</span></p>
-<p>because this is the key component in the decision rules and PPS
-above. Here <span class="math inline">\(x\)</span> is today’s fixed
-observed data, but it is undesirable to repeat learning for every <span
-class="math inline">\(x\)</span>. This motivates me to learn a neural
-function</p>
-<p><span class="math display">\[
-(x_{1:n},z_{1:m}) \rightarrow q_\phi(x_{1:n},z_{1:m}) \approx P(H_1 \mid
-x_{1:n},z_{1:m}) \in [0,1]
-\]</span></p>
-<p>for arbitrary data <span class="math inline">\(x\)</span> with <span
-class="math inline">\(n\)</span> data points today and for arbitrary
-future data <span class="math inline">\(z\)</span> with remaining <span
-class="math inline">\(m\)</span> data points until the end of the
-scheduled intervention. In my setting, the posterior always factorizes,
-<span class="math display">\[
-    p(\theta \mid x,z) \propto p(\theta) \prod_{i=1}^n p(x_i \mid
-\theta) \prod_{i=1}^m p(z_i \mid \theta).
-\]</span></p>
-<p>I can re-frame this learning task as <span
-class="math display">\[\begin{align*}
+<p>[
+1{ NB(x) &gt; 0 }.<br>
+]</p>
+<p>Under Bayes optimality, we find that the relative cost of a false positive must be ( w = L_{FP} / L_{FN} ). Using the expression for (\eta) above, we then find ( w = \eta / (1 - \eta)). Thus we can express the net benefit in the standard form</p>
+<p>[
+NB(x) = P(H_1 \mid x) - \frac{\eta} {1 - \eta} \cdot (1 - P(H_1 \mid x) ).
+]</p>
+<p>This shows that our learning problem directly connects to standard cost-benefit analyses. Our PPS is equivalent to posterior predictive net benefit over future data (z), and so finding a way to amortise the PPS also means a solution to amortising posterior predictive net benefit.</p>
+<hr>
+<h1 id="6-amortized-inference-workflow">6. Amortized inference workflow</h1>
+<p>Rather than learning a neural posterior of high dimensional model parameters, an initial step might be to learn the function</p>
+<p>[
+z \rightarrow 𝑃( H_1 \mid x,z ),
+]</p>
+<p>because this is the key component in the decision rules and PPS above. Here (x) is today's fixed observed data, but it is undesirable to repeat learning for every (x). This motivates me to learn a neural function</p>
+<p>[
+(x_{1:n},z_{1:m}) \rightarrow q_\phi(x_{1:n},z_{1:m}) \approx P(H_1 \mid x_{1:n},z_{1:m}) \in [0,1]
+]</p>
+<p>for arbitrary data (x) with (n) data points today and for arbitrary future data (z) with remaining (m) data points until the end of the scheduled intervention. In my setting, the posterior always factorizes,
+[
+p(\theta \mid x,z) \propto p(\theta) \prod_{i=1}^n p(x_i \mid \theta) \prod_{i=1}^m p(z_i \mid \theta).
+]</p>
+<p>I can re-frame this learning task as
+\begin{align*}
 q_\phi(x,z)
 &amp;
 \approx \mathbb{E}_{\theta|x,z}(L(A,\theta))
-\\
+\
 &amp;
 =  \int L(A,\theta) p(\theta | x,z) d\theta,
-\end{align*}\]</span> which makes clear that we focus on learning the
-loss weighted mean of the future posterior. This is decision-focussed
-learning, we learn what is required to make an optimal decision.</p>
-<p>If we step back for a moment, for product likelihood models in the
-exponential family, we have for each data input <span
-class="math inline">\(\chi_i\)</span></p>
-<p><span class="math display">\[
-p(\chi_i|\theta)=h(x_i)\exp\{\eta(\theta)^\top T(\chi_i)-A(\theta)\},
-\]</span></p>
-<p>and so with a conjugate prior, the posterior is also in the
-exponential family and depends only on the sufficient statistic. In this
-case, if we condition on <span class="math inline">\(x\)</span> and
-<span class="math inline">\(z\)</span>, we can re-express our target in
-terms of some function <span class="math inline">\(g\)</span> <span
-class="math display">\[
-P(H_1|x,z) = g\big(\sum_{i=1}^n T(x_i) + \sum_{i^*=1}^m T(z_{i^*})\big).
-\]</span></p>
-<p>We always have that the data <span class="math inline">\(x_i\)</span>
-and <span class="math inline">\(z_{i^*}\)</span> are permutation
-invariant, and this motivates that we want to learn end-to-end a
-two-stage neural model <span class="math inline">\(q_\psi,
-q_\tau\)</span> that decomposes along the DeepSets theorem,</p>
-<p><span class="math display">\[
-(x,z) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x_i) + \sum_{i^* =1}^m
-q_\tau(z_{i^*})\bigg) \approx P(H_1|x,z).
-\]</span></p>
-<p>In particular, this immediately provides generalisability to
-different current data sets of different sizes <span
-class="math inline">\(n\)</span>, and to different future data sets of
-different sizes <span class="math inline">\(m\)</span>.</p>
+\end{align*}
+which makes clear that we focus on learning the loss weighted mean of the future posterior. This is decision-focussed learning, we learn what is required to make an optimal decision.</p>
+<p>If we step back for a moment, for product likelihood models in the exponential family, we have for each data input (\chi_i)</p>
+<p>[
+p(\chi_i|\theta)=h(x_i)\exp{\eta(\theta)^\top T(\chi_i)-A(\theta)},
+]</p>
+<p>and so with a conjugate prior, the posterior is also in the exponential family and depends only on the sufficient statistic. In this case, if we condition on (x) and (z), we can re-express our target in terms of some function (g)
+[
+P(H_1|x,z) = g\big(\sum_{i=1}^n T(x_i) + \sum_{i^<em>=1}^m T(z_{i^</em>})\big).
+]</p>
+<p>We always have that the data (x_i) and (z_{i^*}) are permutation invariant, and this motivates that we want to learn end-to-end a two-stage neural model ( q_\psi, q_\tau ) that decomposes along the DeepSets theorem,</p>
+<p>[
+(x,z) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x_i) + \sum_{i^* =1}^m q_\tau(z_{i^*})\bigg) \approx P(H_1|x,z).
+]</p>
+<p>In particular, this immediately provides generalisability to different current data sets of different sizes (n), and to different future data sets of different sizes (m).</p>
 <p>There are three steps:</p>
 <ul>
 <li>Workflow Step 1: generating labelled training data</li>
 <li>Workflow Step 2: learning neural architectures</li>
 <li>Workflow Step 3: deployment, amortise PPS</li>
 </ul>
-<hr />
-<h1 id="workflow-step-1-generating-labelled-training-data">7. Workflow
-Step 1: generating labelled training data</h1>
-<p>Generating training data is more challenging than in neural posterior
-estimation (NPE). We consider two distinct cases depending on whether
-the current data <span class="math inline">\(x\)</span> is fixed or
-variable.</p>
-<h3 id="case-a-fixed-x-with-access-to-the-posterior">Case A: Fixed <span
-class="math inline">\(x\)</span> with access to the posterior</h3>
-<p>In this simpler setting, we have observed a specific interim dataset
-<span class="math inline">\(x_{1:n}\)</span> and have access to the
-posterior distribution <span class="math inline">\(p(\theta \mid
-x)\)</span>. Then it is relatively straightforward to generate labelled
-training data:</p>
-<ol type="1">
-<li><p>Draw posterior samples: For simulation budget <span
-class="math inline">\(s = 1, \dots, S\)</span>, sample <span
-class="math inline">\(\theta^{(s)} \sim p(\theta \mid
-x)\)</span>.</p></li>
-<li><p>Generate future data: Sample future observations from the
-likelihood <span class="math inline">\(z^{(s)} \sim p(\cdot \mid
-\theta^{(s)})\)</span>.</p></li>
-<li><p>Compute labels: For each simulated future dataset, we need to
-compute the posterior success probability <span class="math display">\[
-y^{(s)} := P(H_1 \mid x, z^{(s)}) = \int 1_{\theta \in H_1} \, p(\theta
-\mid x, z^{(s)}) \, d\theta.
-\]</span> Since we have the posterior <span
-class="math inline">\(p(\theta \mid x)\)</span>, we can use importance
-reweighting: <span class="math display">\[\begin{align*}
-w^{(s)}_k &amp; \propto p(z^{(s)} \mid \theta_k), \quad \theta_k \sim
-p(\cdot \mid x) \\
-y^{(s)} &amp; \approx \frac{\sum_k w^{(s)}_k \, 1_{\theta_k \in
-H_1}}{\sum_k w^{(s)}_k}.
-\end{align*}\]</span></p></li>
+<hr>
+<h1 id="7-workflow-step-1-generating-labelled-training-data">7. Workflow Step 1: generating labelled training data</h1>
+<p>Generating training data is more challenging than in neural posterior estimation (NPE). We consider two distinct cases depending on whether the current data (x) is fixed or variable.</p>
+<h3 id="case-a-fixed-x-with-access-to-the-posterior">Case A: Fixed (x) with access to the posterior</h3>
+<p>In this simpler setting, we have observed a specific interim dataset (x_{1:n}) and have access to the posterior distribution (p(\theta \mid x)). Then it is relatively straightforward to generate labelled training data:</p>
+<ol>
+<li>
+<p>Draw posterior samples: For simulation budget (s = 1, \dots, S), sample ( \theta^{(s)} \sim p(\theta \mid x) ).</p>
+</li>
+<li>
+<p>Generate future data: Sample future observations from the likelihood ( z^{(s)} \sim p(\cdot \mid \theta^{(s)}) ).</p>
+</li>
+<li>
+<p>Compute labels: For each simulated future dataset, we need to compute the posterior success probability
+[
+y^{(s)} := P(H_1 \mid x, z^{(s)}) = \int 1_{\theta \in H_1} , p(\theta \mid x, z^{(s)}) , d\theta.
+]
+Because the proposal (p(\theta \mid x)) is available, every estimator below reuses <strong>one</strong> set of base draws ( \theta_k \sim p(\theta \mid x),\ k = 1,\dots,K ); only the future block (z^{(s)}) changes between labels. The three estimators trade cost against robustness as the size of the future data ( m = |z^{(s)}| ) grows relative to the current data ( n = |x| ).</p>
+</li>
 </ol>
-<h3 id="case-b-variable-x">Case B: Variable <span
-class="math inline">\(x\)</span></h3>
-<p>In the more general setting, we want to learn a function that works
-for arbitrary interim data <span class="math inline">\(x\)</span>, not
-just a single fixed dataset. This enables true real-time decision-making
-as data accumulates.</p>
-<p>The key challenge is that for each training example, we need to
-approximate <span class="math inline">\(p(\theta \mid x^{(s)},
-z^{(s)})\)</span>, but this posterior varies for every simulated dataset
-pair. We exploit that when we generate data from <span
-class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>, this
-parameter lies in a high-likelihood region for both <span
-class="math inline">\(x^{(s)}\)</span> and <span
-class="math inline">\(z^{(s)}\)</span> generated from it, making <span
-class="math inline">\(\theta^{(s)}\)</span> a natural anchor point for
-approximating the joint posterior.</p>
+<h4 id="a1-importance-sampling-self-normalized">A.1 Importance sampling (self-normalized)</h4>
+<p>Since ( p(\theta \mid x, z^{(s)}) \propto p(\theta \mid x), p(z^{(s)} \mid \theta) ), the base draws are reweighted by the future-data likelihood. Working in log space for stability,
+\begin{align*}
+\log w_k^{(s)} &amp;= \log p(z^{(s)} \mid \theta_k) = \sum_{i=1}^m \log p\big(z^{(s)}<em>i \mid \theta_k\big), \
+\tilde w_k^{(s)} &amp;= \operatorname{softmax}<em>k!\big(\log w_k^{(s)}\big) = \frac{\exp!\big(\log w_k^{(s)} - \ell^{(s)}\big)}{\sum_j \exp!\big(\log w_j^{(s)} - \ell^{(s)}\big)}, \quad \ell^{(s)} = \log!\textstyle\sum_j \exp \log w_j^{(s)}, \
+y^{(s)} &amp;\approx \sum</em>{k=1}^K \tilde w_k^{(s)} , 1</em>{\theta_k \in H_1}.
+\end{align*}
+The log-sum-exp / softmax map is the numerically stable form of ( w / \sum w ): subtracting the maximum log-weight before exponentiating prevents overflow while leaving the normalized weights unchanged.</p>
+<p>Reliability is monitored by the effective sample size (Kong, 1992; Liu, 2001)
+[
+\mathrm{ESS} = \frac{\big(\sum_k w_k\big)^2}{\sum_k w_k^2} = \frac{1}{\sum_k (\tilde w_k)^2}, \qquad \frac{\mathrm{ESS}}{K} \in [1/K,, 1],
+]
+equivalently the second-order weight moment ( \mathbb{E}(\tilde w^2) = \tfrac{1}{K}\sum_k \tilde w_k^2 ), with ( \mathrm{ESS}/K = 1/\big(K^2, \mathbb{E}(\tilde w^2)\big) ). Self-normalized IS is consistent but (O(1/K)) biased, and its variance is finite only when ( \mathbb{E}_{p(\theta \mid x)}!\big[p(z \mid \theta)^2\big] &lt; \infty ); the Pareto-smoothed importance sampling (PSIS) tail index ( \hat k ) (Vehtari, Simpson, Gelman, Yao &amp; Gabry, 2024) both estimates this and stabilizes the largest weights, with ( \hat k &gt; 0.7 ) flagging an unreliable estimate.</p>
+<p><strong>Degeneracy at large (m).</strong> The proposal/target mismatch grows with the amount of assimilated future data: ( \mathrm{KL}\big(p(\theta \mid x, z),|,p(\theta \mid x)\big) ) increases in (m), so the weight mass concentrates on a single draw and ( \mathrm{ESS} \to 1 ). Empirically, at the earliest interim of our case study (( n \approx 48 ) current vs ( m \approx 455 ) future units) the weights collapse to ( \mathrm{ESS} \approx 1 ) after even a <em>single</em> future participant, with PSIS ( \hat k = \infty ). Plain IS labels are therefore trustworthy only when (z) is small relative to (x) (late interims). The two corrections below target this regime.</p>
+<h4 id="a2-moment-matching-importance-sampling">A.2 Moment-matching importance sampling</h4>
+<p>Moment-matching IS (Paananen, Piironen, Bürkner &amp; Vehtari, 2021, <em>Implicitly adaptive importance sampling</em>, Statistics and Computing 31:16) repairs a mild proposal/target mismatch without new model fits, by transforming the draws so the transformed cloud better covers the target and reweighting with the change-of-variables Jacobian. Starting from the IS weights ( \tilde w_k ) of A.1, compute the weighted and proposal moments
+[
+\hat\mu_w = \sum_k \tilde w_k, \theta_k, \qquad \hat\mu_q = \tfrac{1}{K}\sum_k \theta_k, \qquad (\text{optionally } \hat\Sigma_w,\ \hat\Sigma_q),
+]
+and apply an invertible affine map (T) that matches them. The mean-match step uses
+[
+T(\theta) = \theta + (\hat\mu_w - \hat\mu_q), \qquad \theta_k^* = T(\theta_k),
+]
+(the covariance-match variant uses ( T(\theta) = \hat\mu_w + L_w L_q^{-1}(\theta - \hat\mu_q) ) with ( \hat\Sigma_\bullet = L_\bullet L_\bullet^\top )). The transformed draws are reweighted against the target with the Jacobian of (T^{-1}),
+[
+w_k^* = \frac{p(\theta_k^* \mid x, z^{(s)})}{q^<em>(\theta_k^</em>)}, \qquad q^<em>(\theta^</em>) = q\big(T^{-1}\theta^*\big),\big|\det \nabla T^{-1}\big|,
+]
+where (q) is the proposal density (p(\theta \mid x)) (in practice a diagonal-Gaussian fit to the base draws in an unconstrained reparameterisation, with positive parameters mapped through (\log)). One iterates over a small family of transforms and keeps the one maximizing (\mathrm{ESS}) (or minimizing ( \hat k )).</p>
+<p><strong>Limitation under collapse.</strong> When the base ( \mathrm{ESS} \approx 1 ), the weighted mean ( \hat\mu_w ) <em>equals</em> the single dominating draw, so the affine shift only relocates the whole cloud onto that point and (\mathrm{ESS}) does not recover. Moment matching corrects mild mismatch but cannot manufacture the support the fixed base draws lack — it never moves a particle to a region the proposal failed to sample. In our case study it leaves the early-interim ( \mathrm{ESS}/K ) unchanged at ( \approx 1/K ).</p>
+<h4 id="a3-sequential-monte-carlo-with-resample-move">A.3 Sequential Monte Carlo with resample-move</h4>
+<p>To cross an arbitrarily large ( x \to (x, z) ) gap we bridge the proposal to the target through a tempered sequence (annealed importance sampling, Neal, 2001; SMC samplers, Del Moral, Doucet &amp; Jasra, 2006; Chopin, 2002),
+[
+\pi_t(\theta) ;\propto; p(\theta \mid x); p(z^{(s)} \mid \theta)^{\beta_t}, \qquad 0 = \beta_0 &lt; \beta_1 &lt; \dots &lt; \beta_T = 1,
+]
+so ( \pi_0 = p(\theta \mid x) ) (the base draws) and ( \pi_T = p(\theta \mid x, z^{(s)}) ) (the target). Initialise particles ( \theta_k \sim p(\theta \mid x) ) with uniform weights; at step (t):</p>
+<ol>
+<li><strong>Reweight</strong> by the incremental likelihood,
+[
+\tilde w_k = \operatorname{softmax}<em>k!\Big( (\beta_t - \beta</em>{t-1}), \log p(z^{(s)} \mid \theta_k) \Big).
+]</li>
+<li><strong>Adapt</strong> ( \Delta\beta = \beta_t - \beta_{t-1} ) by bisection so the tempering ( \mathrm{ESS}/K ) hits a target (e.g. ( \tfrac12 )) — an automatic schedule (Jasra, Stephens, Doucet &amp; Tsagaris, 2011; Zhou, Johansen &amp; Aston, 2016).</li>
+<li><strong>Resample</strong> the particles by ( \tilde w_k ) (systematic resampling) and reset weights to (1/K).</li>
+<li><strong>Move</strong> each particle with an MCMC kernel (M_t) leaving (\pi_t) invariant (resample-move; Gilks &amp; Berzuini, 2001). We use Metropolis-adjusted Langevin (MALA; Roberts &amp; Tweedie, 1996) in the unconstrained reparameterisation, adapting the step size toward the optimal acceptance ( \approx 0.574 ) (Roberts &amp; Rosenthal, 1998).</li>
+</ol>
+<p>Because the temperature enters only as an exponent, the move kernel's log-density ( \log p(\theta \mid x) + \beta_t \log p(z^{(s)} \mid \theta) ) is compiled <strong>once</strong> with ( \beta_t ) a traced argument and reused across all temperatures. The final particles approximate ( \pi_T ) with uniform weights, giving the label
+[
+y^{(s)} \approx \frac{1}{K} \sum_{k=1}^K 1_{\theta_k^{(T)} \in H_1}.
+]
+Unlike IS and moment matching, the move step <strong>relocates</strong> particles into the target's typical set, so SMC crosses an arbitrarily large gap; the cost is (T) tempering steps, each a short MCMC sweep. Empirically, at the worst (earliest) interim the adaptive schedule reaches ( \beta = 1 ) in ( \approx 40 ) steps and restores ( \mathrm{ESS}/K \approx 1 ), at a wall-clock cost dominated by the per-step move rather than the one-off compile.</p>
+<p><strong>References.</strong>
+Chopin, N. (2002). A sequential particle filter method for static models. <em>Biometrika</em> 89(3), 539–551.
+Del Moral, P., Doucet, A. &amp; Jasra, A. (2006). Sequential Monte Carlo samplers. <em>JRSS-B</em> 68(3), 411–436.
+Gilks, W. R. &amp; Berzuini, C. (2001). Following a moving target — Monte Carlo inference for dynamic Bayesian models. <em>JRSS-B</em> 63(1), 127–146.
+Jasra, A., Stephens, D. A., Doucet, A. &amp; Tsagaris, T. (2011). Inference for Lévy-driven stochastic volatility models via adaptive sequential Monte Carlo. <em>Scand. J. Statist.</em> 38(1), 1–22.
+Kong, A. (1992). A note on importance sampling using standardized weights. <em>Univ. Chicago Tech. Report 348.</em>
+Liu, J. S. (2001). <em>Monte Carlo Strategies in Scientific Computing.</em> Springer.
+Neal, R. M. (2001). Annealed importance sampling. <em>Statistics and Computing</em> 11, 125–139.
+Paananen, T., Piironen, J., Bürkner, P.-C. &amp; Vehtari, A. (2021). Implicitly adaptive importance sampling. <em>Statistics and Computing</em> 31:16.
+Roberts, G. O. &amp; Rosenthal, J. S. (1998). Optimal scaling of discrete approximations to Langevin diffusions. <em>JRSS-B</em> 60(1), 255–268.
+Roberts, G. O. &amp; Tweedie, R. L. (1996). Exponential convergence of Langevin distributions and their discrete approximations. <em>Bernoulli</em> 2(4), 341–363.
+Vehtari, A., Simpson, D., Gelman, A., Yao, Y. &amp; Gabry, J. (2024). Pareto smoothed importance sampling. <em>JMLR</em> 25(72), 1–58.
+Zhou, Y., Johansen, A. M. &amp; Aston, J. A. D. (2016). Toward automatic model comparison: an adaptive sequential Monte Carlo approach. <em>J. Comput. Graph. Statist.</em> 25(3), 701–726.</p>
+<h3 id="case-b-variable-x">Case B: Variable (x)</h3>
+<p>In the more general setting, we want to learn a function that works for arbitrary interim data (x), not just a single fixed dataset. This enables true real-time decision-making as data accumulates.</p>
+<p>The key challenge is that for each training example, we need to approximate (p(\theta \mid x^{(s)}, z^{(s)})), but this posterior varies for every simulated dataset pair. We exploit that when we generate data from (\theta^{(s)} \sim p(\theta)), this parameter lies in a high-likelihood region for both (x^{(s)}) and (z^{(s)}) generated from it, making (\theta^{(s)}) a natural anchor point for approximating the joint posterior.</p>
 <p><strong>Option 1: Local importance sampling</strong></p>
-<p>This approach uses a local proposal distribution centered at the
-data-generating parameter <span
-class="math inline">\(\theta^{(s)}\)</span> to approximate the joint
-posterior <span class="math inline">\(p(\theta \mid x^{(s)},
-z^{(s)})\)</span>.</p>
+<p>This approach uses a local proposal distribution centered at the data-generating parameter (\theta^{(s)}) to approximate the joint posterior (p(\theta \mid x^{(s)}, z^{(s)})).</p>
 <p><strong>Algorithm:</strong></p>
-<p>For each <span class="math inline">\(s = 1, \ldots, S\)</span>,
-do:</p>
-<ol type="1">
-<li><p>Sample from prior: <span class="math inline">\(\theta^{(s)} \sim
-p(\theta)\)</span>.</p></li>
-<li><p>Generate current data: <span class="math inline">\(x^{(s)} \sim
-p(\cdot \mid \theta^{(s)})\)</span>.</p></li>
-<li><p>Generate future data: sample future observations from the same
-parameter <span class="math inline">\(z^{(s)} \sim p(\cdot \mid
-\theta^{(s)})\)</span>. Both <span
-class="math inline">\(x^{(s)}\)</span> and <span
-class="math inline">\(z^{(s)}\)</span> are generated from <span
-class="math inline">\(\theta^{(s)}\)</span>, so <span
-class="math inline">\(\theta^{(s)}\)</span> has high likelihood for both
-datasets.</p></li>
-<li><p>Construct local proposal: <span class="math display">\[
-q(\theta \mid \theta^{(s)}) = \mathcal{N}(\theta; \theta^{(s)}, \sigma^2
-I)
-\]</span> where <span class="math inline">\(\sigma^2\)</span> controls
-the local exploration radius, e.g., <span class="math inline">\(\sigma =
-0.1\)</span> times the prior standard deviation.</p></li>
-<li><p>Sample particles locally: Sample <span
-class="math inline">\(K\)</span> particles around <span
-class="math inline">\(\theta^{(s)}\)</span>: <span
-class="math display">\[
+<p>For each (s = 1, \ldots, S), do:</p>
+<ol>
+<li>
+<p>Sample from prior: (\theta^{(s)} \sim p(\theta) ).</p>
+</li>
+<li>
+<p>Generate current data: ( x^{(s)} \sim p(\cdot \mid \theta^{(s)}) ).</p>
+</li>
+<li>
+<p>Generate future data: sample future observations from the same parameter ( z^{(s)} \sim p(\cdot \mid \theta^{(s)}) ). Both (x^{(s)}) and (z^{(s)}) are generated from (\theta^{(s)}), so (\theta^{(s)}) has high likelihood for both datasets.</p>
+</li>
+<li>
+<p>Construct local proposal:
+[
+q(\theta \mid \theta^{(s)}) = \mathcal{N}(\theta; \theta^{(s)}, \sigma^2 I)
+]
+where (\sigma^2) controls the local exploration radius, e.g., (\sigma = 0.1) times the prior standard deviation.</p>
+</li>
+<li>
+<p>Sample particles locally: Sample (K) particles around (\theta^{(s)}):
+[
 \theta_k \sim q(\cdot \mid \theta^{(s)}), \quad k = 1, \ldots, K.
-\]</span> Optionally include <span
-class="math inline">\(\theta^{(s)}\)</span> itself as <span
-class="math inline">\(\theta_1 = \theta^{(s)}\)</span> to ensure at
-least one high-likelihood particle.</p></li>
-<li><p>Compute importance weights: Calculate weights for the joint
-posterior <span class="math inline">\(p(\theta \mid x^{(s)},
-z^{(s)})\)</span>: <span class="math display">\[\begin{align*}
-w_k &amp; = \frac{p(\theta_k \mid x^{(s)}, z^{(s)})}{q(\theta_k \mid
-\theta^{(s)})} \\
-&amp; \propto \frac{p(\theta_k) \, p(x^{(s)} \mid \theta_k) \, p(z^{(s)}
-\mid \theta_k)}{q(\theta_k \mid \theta^{(s)})},
-\end{align*}\]</span> and normalize to <span class="math display">\[
-\tilde{w}_k = w_k / \sum_{j=1}^K w_j.
-\]</span></p></li>
-<li><p>Estimate the label by <span class="math display">\[
-y^{(s)} := P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_k
-\, 1_{\theta_k \in H_1}.
-\]</span></p></li>
+]
+Optionally include (\theta^{(s)}) itself as (\theta_1 = \theta^{(s)}) to ensure at least one high-likelihood particle.</p>
+</li>
+<li>
+<p>Compute importance weights: Calculate weights for the joint posterior (p(\theta \mid x^{(s)}, z^{(s)})):
+\begin{align*}
+w_k &amp; = \frac{p(\theta_k \mid x^{(s)}, z^{(s)})}{q(\theta_k \mid \theta^{(s)})} \
+&amp; \propto \frac{p(\theta_k) , p(x^{(s)} \mid \theta_k) , p(z^{(s)} \mid \theta_k)}{q(\theta_k \mid \theta^{(s)})},
+\end{align*}
+and normalize to
+[
+\tilde{w}<em>k = w_k / \sum</em>{j=1}^K w_j.
+]</p>
+</li>
+<li>
+<p>Estimate the label by
+[
+y^{(s)} := P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}<em>k , 1</em>{\theta_k \in H_1}.
+]</p>
+</li>
 </ol>
 <p><strong>Option 2: Sequential Monte Carlo</strong></p>
-<p>An alternative approach uses sequential importance sampling, which
-processes data incrementally and reuses the same <span
-class="math inline">\(K\)</span> particles across both <span
-class="math inline">\(x^{(s)}\)</span> and <span
-class="math inline">\(z^{(s)}\)</span>.</p>
+<p>An alternative approach uses sequential importance sampling, which processes data incrementally and reuses the same (K) particles across both (x^{(s)}) and (z^{(s)}).</p>
 <p><strong>Algorithm:</strong></p>
-<p>For each <span class="math inline">\(s = 1, \ldots, S\)</span>,
-do:</p>
-<ol type="1">
-<li><p>Sample generating parameter: Sample <span
-class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>.</p></li>
-<li><p>Initialize particle system: Create <span
-class="math inline">\(K\)</span> particles by including <span
-class="math inline">\(\theta^{(s)}\)</span> and sampling <span
-class="math inline">\(K-1\)</span> additional particles from the prior:
-<span class="math display">\[
-\{\theta_{s,1} = \theta^{(s)}, \theta_{s,2}, \ldots, \theta_{s,K}\},
-\quad \theta_{s,k} \sim p(\theta) \text{ for } k \geq 2
-\]</span> with initial uniform weights <span
-class="math inline">\(w_{s,k}^{(0)} = 1/K\)</span> for all <span
-class="math inline">\(k\)</span>. Including <span
-class="math inline">\(\theta^{(s)}\)</span> as a particle ensures at
-least one particle has high likelihood.</p></li>
-<li><p>Generate current data: Sample one dataset <span
-class="math inline">\(x^{(s)} \sim p(\cdot \mid
-\theta^{(s)})\)</span>.</p></li>
-<li><p>Update particle weights for <span
-class="math inline">\(x^{(s)}\)</span>: Compute importance weights to
-approximate <span class="math inline">\(p(\theta \mid x^{(s)})\)</span>
-by evaluating how well each of the <span
-class="math inline">\(K\)</span> particles explains the observed <span
-class="math inline">\(x^{(s)}\)</span>: <span
-class="math display">\[\begin{align*}
-w_{s,k}^{(x)} &amp; \propto w_{s,k}^{(0)} \cdot p(x^{(s)} \mid
-\theta_{s,k}) \\
-\tilde{w}_{s,k}^{(x)} &amp; = w_{s,k}^{(x)} / \sum_{j=1}^K w_{s,j}^{(x)}
-\end{align*}\]</span> The normalized weights <span
-class="math inline">\(\{\theta_{s,k},
-\tilde{w}_{s,k}^{(x)}\}_{k=1}^K\)</span> now represent <span
-class="math inline">\(p(\theta \mid x^{(s)})\)</span>. Resample
-particles if the effective sample size <span
-class="math inline">\(1/\sum_k (\tilde{w}_{s,k}^{(x)})^2\)</span> is too
-small.</p></li>
-<li><p>Generate future data from posterior predictive: Sample one future
-dataset from the weighted particle system: <span class="math display">\[
-z^{(s)} \sim \sum_{k=1}^K \tilde{w}_{s,k}^{(x)} \, p(\cdot \mid
-\theta_{s,k}).
-\]</span> In practice, select a particle index <span
-class="math inline">\(\kappa \sim
-\text{Categorical}(\tilde{w}_{s,1}^{(x)}, \ldots,
-\tilde{w}_{s,K}^{(x)})\)</span> and generate <span
-class="math inline">\(z^{(s)} \sim p(\cdot \mid
-\theta_{s,\kappa})\)</span>.</p></li>
-<li><p>Sequential update for <span
-class="math inline">\(z^{(s)}\)</span>: Update the weights again to
-approximate <span class="math inline">\(p(\theta \mid x^{(s)},
-z^{(s)})\)</span> by evaluating how well each particle explains the
-joint data: <span class="math display">\[\begin{align*}
-w_{s,k}^{(x,z)} &amp; \propto \tilde{w}_{s,k}^{(x)} \cdot p(z^{(s)} \mid
-\theta_{s,k}) \\
-\tilde{w}_{s,k}^{(x,z)} &amp; = w_{s,k}^{(x,z)} / \sum_{j=1}^K
-w_{s,j}^{(x,z)}
-\end{align*}\]</span></p></li>
-<li><p>Estimate label: <span class="math display">\[
-y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K
-\tilde{w}_{s,k}^{(x,z)} \, 1_{\theta_{s,k} \in H_1}
-\]</span></p></li>
+<p>For each (s = 1, \ldots, S), do:</p>
+<ol>
+<li>
+<p>Sample generating parameter: Sample (\theta^{(s)} \sim p(\theta)).</p>
+</li>
+<li>
+<p>Initialize particle system: Create (K) particles by including (\theta^{(s)}) and sampling (K-1) additional particles from the prior:
+[
+{\theta_{s,1} = \theta^{(s)}, \theta_{s,2}, \ldots, \theta_{s,K}}, \quad \theta_{s,k} \sim p(\theta) \text{ for } k \geq 2
+]
+with initial uniform weights (w_{s,k}^{(0)} = 1/K) for all (k). Including (\theta^{(s)}) as a particle ensures at least one particle has high likelihood.</p>
+</li>
+<li>
+<p>Generate current data: Sample one dataset (x^{(s)} \sim p(\cdot \mid \theta^{(s)})).</p>
+</li>
+<li>
+<p>Update particle weights for (x^{(s)}): Compute importance weights to approximate (p(\theta \mid x^{(s)})) by evaluating how well each of the (K) particles explains the observed (x^{(s)}):
+\begin{align*}
+w_{s,k}^{(x)} &amp; \propto w_{s,k}^{(0)} \cdot p(x^{(s)} \mid \theta_{s,k}) \
+\tilde{w}<em>{s,k}^{(x)} &amp; = w</em>{s,k}^{(x)} / \sum_{j=1}^K w_{s,j}^{(x)}
+\end{align*}
+The normalized weights ({\theta_{s,k}, \tilde{w}<em>{s,k}^{(x)}}</em>{k=1}^K) now represent (p(\theta \mid x^{(s)})). Resample particles if the effective sample size (1/\sum_k (\tilde{w}_{s,k}^{(x)})^2) is too small.</p>
+</li>
+<li>
+<p>Generate future data from posterior predictive: Sample one future dataset from the weighted particle system:
+[
+z^{(s)} \sim \sum_{k=1}^K \tilde{w}<em>{s,k}^{(x)} , p(\cdot \mid \theta</em>{s,k}).
+]
+In practice, select a particle index (\kappa \sim \text{Categorical}(\tilde{w}<em>{s,1}^{(x)}, \ldots, \tilde{w}</em>{s,K}^{(x)})) and generate (z^{(s)} \sim p(\cdot \mid \theta_{s,\kappa})).</p>
+</li>
+<li>
+<p>Sequential update for (z^{(s)}): Update the weights again to approximate (p(\theta \mid x^{(s)}, z^{(s)})) by evaluating how well each particle explains the joint data:
+\begin{align*}
+w_{s,k}^{(x,z)} &amp; \propto \tilde{w}<em>{s,k}^{(x)} \cdot p(z^{(s)} \mid \theta</em>{s,k}) \
+\tilde{w}<em>{s,k}^{(x,z)} &amp; = w</em>{s,k}^{(x,z)} / \sum_{j=1}^K w_{s,j}^{(x,z)}
+\end{align*}</p>
+</li>
+<li>
+<p>Estimate label:
+[
+y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}<em>{s,k}^{(x,z)} , 1</em>{\theta_{s,k} \in H_1}
+]</p>
+</li>
 </ol>
 <p><strong>Comparing Options 1 and 2</strong></p>
-<p>I was motivated to consider an alternative to option 1 because in
-option 1, both <span class="math inline">\(x^{(s)}\)</span> and <span
-class="math inline">\(z^{(s)}\)</span> are generated from the same <span
-class="math inline">\(\theta^{(s)} \sim p(\theta)\)</span>. The joint
-distribution is <span class="math display">\[
-  p^{\text{prior}}(x,z) = \int p(x \mid \theta) p(z \mid \theta)
-p(\theta) \, d\theta.
-  \]</span> However during deployment, for a fixed observed <span
-class="math inline">\(x\)</span>, we generate <span
-class="math inline">\(z \sim p(z \mid x)\)</span> from the posterior
-predictive to evaluate PPS, and thus the corresponding joint
-distribution is tighter. In option 2, after generating <span
-class="math inline">\(x^{(s)} \sim p(\cdot \mid \theta^{(s)})\)</span>,
-the future data <span class="math inline">\(z^{(s)}\)</span> is sampled
-from the posterior predictive <span class="math inline">\(p(z \mid
-x^{(s)})\)</span> via the particle approximation in step 4. The joint
-distribution is <span class="math display">\[
-  p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid
-\theta) p(\theta \mid x) \, d\theta\right] p(x),
-  \]</span> and this matches the deployment distribution.</p>
-<hr />
-<h1 id="step-2-learning-neural-architectures">8. Step 2: learning neural
-architectures</h1>
-<p>Given the training data <span class="math inline">\((\theta^{(s)},
-x^{(s)}, z^{(s)}, y^{(s)})\)</span>, the current idea is to learn
-end-to-end two neural models <span class="math inline">\(q_\tau\)</span>
-and <span class="math inline">\(q_\psi\)</span> that respectively learn
-low-dimensional summaries and the decision target,</p>
-<p><span class="math display">\[
-(x^{(s)},z^{(s)}) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) +
-\sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) \approx y^{(s)} =
-P(H_1|x^{(s)},z^{(s)}).
-\]</span></p>
-<p>Since <span class="math inline">\(y^{(s)}\)</span> are probabilities,
-perhaps set the loss function to logit mean square error,</p>
-<p><span class="math display">\[
-\mathrm{arg\,min}_{\psi, \tau} \frac{1}{S} \sum_{s=1}^S \bigg[
-q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m
-q_\tau(z^{(s)}_{i^*})\bigg) - \text{logit} \: y^{(s)} \bigg]^2.
-\]</span></p>
-<p>The specifics of our core application (Hope Groups intervention) are
-as follows: our data are ordered categorical responses, so each person
-<span class="math inline">\(i\)</span> provides <span
-class="math inline">\(J\)</span> item responses <span
-class="math inline">\(x_{ij} \in \{1, \ldots, K\}\)</span> where <span
-class="math inline">\(K\)</span> is the number of ordered categories.
-The typical scale of our data sets is <span class="math inline">\(N
-\approx 1000\)</span> persons, <span class="math inline">\(J \approx
-20\)</span> items, <span class="math inline">\(K \approx 8\)</span>
-categories. The data are permutation invariant over participants <span
-class="math inline">\(i\)</span>, but not over survey items <span
-class="math inline">\(j\)</span>.</p>
-<p><strong>Option 1: unrestricted embeddings</strong></p>
-<p>Learn <span class="math inline">\(q_\psi\)</span> and <span
-class="math inline">\(q_\tau\)</span> without constraints, starting with
-a simple MLP architecture?</p>
-<p><strong>Option 2: minimum embeddings</strong></p>
-<p>There are two simple, relevant models in the exponential family.
-First, the categorical model assuming that participants and responses
-are iid, and in this case the sufficient statistics are the <span
-class="math inline">\(K-1\)</span> dimensional vector of counts, which
-can be written as the sum of <span class="math inline">\(K-1\)</span>
-dimensional one-hot encodings for each <span
-class="math inline">\(i,j\)</span>. This suggests that the network <span
-class="math inline">\(q_\tau\)</span> should be at least into <span
-class="math inline">\(\mathbb{R}^{K-1}\)</span>, and that the first
-<span class="math inline">\(K-1\)</span> should be one-hot
-embeddings.</p>
-<p><strong>Option 3: minimum restricted embeddings</strong></p>
-<p>Second, the other extreme is a categorical model that assumes that
-participants are identical but responses are indpendent, in which case
-the sufficient statistics are the sum of <span
-class="math inline">\(JK-J\)</span> dimensional one-hot encodings for
-each <span class="math inline">\(i\)</span>. This suggests that the
-network <span class="math inline">\(q_\tau\)</span> should at most be
-into <span class="math inline">\(\mathbb{R}^{JK-J}\)</span>.</p>
+<p>I was motivated to consider an alternative to option 1 because in option 1, both (x^{(s)}) and (z^{(s)}) are generated from the same (\theta^{(s)} \sim p(\theta)). The joint distribution is
+[
+p^{\text{prior}}(x,z) = \int p(x \mid \theta) p(z \mid \theta) p(\theta) , d\theta.
+]
+However during deployment, for a fixed observed (x), we generate (z \sim p(z \mid x)) from the posterior predictive to evaluate PPS, and thus the corresponding joint distribution is tighter. In option 2, after generating (x^{(s)} \sim p(\cdot \mid \theta^{(s)})), the future data (z^{(s)}) is sampled from the posterior predictive (p(z \mid x^{(s)})) via the particle approximation in step 4. The joint distribution is
+[
+p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid \theta) p(\theta \mid x) , d\theta\right] p(x),
+]
+and this matches the deployment distribution.</p>
+<hr>
+<h1 id="8-step-2-learning-neural-architectures">8. Step 2: learning neural architectures</h1>
+<p>Given the training data ( (\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)}) ), the current idea is to learn end-to-end two neural models (q_\tau) and (q_\psi) that respectively learn low-dimensional summaries and the decision target,</p>
+<p>[
+(x^{(s)},z^{(s)}) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}<em>i) + \sum</em>{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) \approx y^{(s)} = P(H_1|x^{(s)},z^{(s)}).
+]</p>
+<p>Since (y^{(s)}) are probabilities, perhaps set the loss function to logit mean square error,</p>
+<p>[
+\mathrm{arg,min}<em>{\psi, \tau} \frac{1}{S} \sum</em>{s=1}^S \bigg[ q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}<em>i) + \sum</em>{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) - \text{logit} : y^{(s)} \bigg]^2.
+]</p>
+<p>The specifics of our core application (Hope Groups intervention) are as follows: our data are ordered categorical responses, so each person (i) provides (J) item responses (x_{ij} \in {1, \ldots, K}) where (K) is the number of ordered categories. The typical scale of our data sets is (N \approx 1000) persons, (J \approx 20) items, (K \approx 8) categories. The data are permutation invariant over participants (i), but not over survey items (j).</p>
+<p><strong>Option 1:  unrestricted embeddings</strong></p>
+<p>Learn (q_\psi) and (q_\tau) without constraints, starting with a simple MLP architecture?</p>
+<p><strong>Option 2:  minimum embeddings</strong></p>
+<p>There are two simple, relevant models in the exponential family. First, the categorical model assuming that participants and responses are iid, and in this case the sufficient statistics are the (K-1) dimensional vector of counts, which can be written as the sum of (K-1) dimensional one-hot encodings for each (i,j). This suggests that the network (q_\tau) should be at least into (\mathbb{R}^{K-1}), and that the first (K-1) should be one-hot embeddings.</p>
+<p><strong>Option 3:  minimum restricted embeddings</strong></p>
+<p>Second, the other extreme is a categorical model that assumes that participants are identical but responses are indpendent, in which case the sufficient statistics are the sum of (JK-J) dimensional one-hot encodings for each (i). This suggests that the network (q_\tau) should at most be into (\mathbb{R}^{JK-J}).</p>
 <p><strong>Additional points on the training strategy</strong></p>
 <ul>
-<li>Hold out a 20% of the simulated examples <span
-class="math inline">\((\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)})\)</span>
-as test set</li>
-<li>Mini-batching: With <span class="math inline">\(S \sim 10^4\)</span>
-to <span class="math inline">\(10^5\)</span> training examples, use
-stochastic gradient descent with mini-batches of size 32-256.</li>
-<li>Since <span class="math inline">\(y^{(s)} \in [0,1]\)</span> is a
-probability, set the output layer to sigmoid activation</li>
-<li>Vary <span class="math inline">\(n\)</span> and <span
-class="math inline">\(m\)</span> (number of persons in current and
-future data) within training examples to improve generalization</li>
+<li>Hold out a 20% of the simulated examples ((\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)})) as test set</li>
+<li>Mini-batching: With (S \sim 10^4) to (10^5) training examples, use stochastic gradient descent with mini-batches of size 32-256.</li>
+<li>Since (y^{(s)} \in [0,1]) is a probability, set the output layer to sigmoid activation</li>
+<li>Vary (n) and (m) (number of persons in current and future data) within training examples to improve generalization</li>
 </ul>
 <p><strong>Nested DeepSets architecture:</strong></p>
-<p>Respect the hierarchical structure with person-level and
-dataset-level aggregation: <span class="math display">\[
-q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N
-\rho_{\text{inner}}\left(\sum_{j=1}^J \phi_{\text{embed}}(x_{ij},
-j)\right)\right)
-\]</span> This first aggregates item responses within each person, then
-aggregates across persons.</p>
-<hr />
-<h1 id="step-3-deployment-amortising-pps">9. Step 3: Deployment,
-amortising PPS</h1>
+<p>Respect the hierarchical structure with person-level and dataset-level aggregation:
+[
+q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N \rho_{\text{inner}}\left(\sum_{j=1}^J \phi_{\text{embed}}(x_{ij}, j)\right)\right)
+]
+This first aggregates item responses within each person, then aggregates across persons.</p>
+<hr>
+<h1 id="9-step-3-deployment-amortising-pps">9. Step 3: Deployment, amortising PPS</h1>
 <p>After training,</p>
 <ul>
-<li>for any observed data <span class="math inline">\(x_{1:n}\)</span>
-we can compute <span class="math inline">\(\sum_{i=1}^n
-q_\tau(x^{(s)}_i)\)</span>.</li>
-<li>give interim data <span class="math inline">\(x_{1:n}\)</span>, in
-practice we will estimate today’s posterior <span
-class="math inline">\(p(\theta | x)\)</span> with some Monte Carlo
-algorithm, and compute the first target objective, have we already won,
-<span class="math inline">\(1\{ P(H_1 \mid x ) &gt; \eta\)</span>. It is
-cheap to generate posterior predictions <span
-class="math inline">\(z^\star_{1:m}\)</span>. Then we can compute <span
-class="math inline">\(\sum_{i^\star=1}^m
-q_\tau(z^{(s)}_{i^\star})\)</span> for the corresponding <span
-class="math inline">\(m = N - n\)</span>.</li>
+<li>for any observed data (x_{1:n}) we can compute ( \sum_{i=1}^n q_\tau(x^{(s)}_i) ).</li>
+<li>give interim data (x_{1:n}), in practice we will estimate today's posterior (p(\theta | x)) with some Monte Carlo algorithm, and compute the first target objective, have we already won, ( 1{ P(H_1 \mid x ) &gt; \eta ). It is cheap to generate posterior predictions (z^\star_{1:m}). Then we can compute ( \sum_{i^\star=1}^m q_\tau(z^{(s)}_{i^\star}) ) for the corresponding (m = N - n).</li>
 <li>Next we can compute the PPS approximation</li>
 </ul>
-<p><span class="math display">\[
-q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m
-q_\tau(z^{(s)}_{i^*})\bigg).
-\]</span></p>
-<hr />
-<h1 id="tasks">10. Tasks</h1>
+<p>[
+q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}<em>i) + \sum</em>{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg).
+]</p>
+<hr>
+<h1 id="10-tasks">10. Tasks</h1>
 <ul>
-<li>Generate functions to compute the exact <span
-class="math inline">\(PPS(x)\)</span> in the case of simple Binomial and
-Categorial models</li>
-<li>Generate a case study that illustrates contracting posterior
-distributions with additional data, and evolving <span
-class="math inline">\(PPS(x)\)</span> with additional data under the
-simple Binomial model. Illustrate stopping early for futility/safety and
-for efficacy.</li>
-<li>Generate functions that implement Case A and B in generating
-labelled training data.</li>
-<li>Test these functions against the analytical formula under the simple
-Binomial and Categorial model.</li>
-<li>Test these functions against the analytical formula under the
-Categorial model.</li>
+<li>Generate functions to compute the exact ( PPS(x) ) in the case of simple Binomial and Categorial models</li>
+<li>Generate a case study that illustrates contracting posterior distributions with additional data, and evolving ( PPS(x) ) with additional data under the simple Binomial model. Illustrate stopping early for futility/safety and for efficacy.</li>
+<li>Generate functions that implement Case A and B in generating labelled training data.</li>
+<li>Test these functions against the analytical formula under the simple Binomial and Categorial model.</li>
+<li>Test these functions against the analytical formula under the Categorial model.</li>
 </ul>
-</body>
-</html>
+
+            <script async src="https://cdn.jsdelivr.net/npm/katex-copytex@latest/dist/katex-copytex.min.js"></script>
+            
+        </body>
+        </html>

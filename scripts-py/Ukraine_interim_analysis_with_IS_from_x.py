@@ -202,7 +202,7 @@ for interim_id in di['interim_id']:
         pps_ProbH1_thresh=pps_ProbH1_thresh,
         categorical_threshold=2,
         x_formula="~ time - 1",
-        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_IS_i{interim_id}"),
+        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
         save_to_file=False,
         verbose=False,
     )
@@ -225,12 +225,12 @@ mins_total = (time.time() - t_all0) / 60.0
 pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round(mins_total, 3)
 print(f"\nAll interims IS-PPS done in {mins_total:.2f} min")
-is_perf.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_IS_perf.csv"), index=False)
+is_perf.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_perf.csv"), index=False)
 
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_IS_p_h1_xz.pkl")
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz.pkl")
 p_h1_xz.to_pickle(pkl_path)
 print(f"Saved IS P(H_1 | x, z) samples to: {pkl_path}")
-pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_IS_timing.csv"), index=False)
+pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_timing.csv"), index=False)
 
 # %%
 
@@ -242,7 +242,7 @@ pps_df = (
 pps_df['eta'] = pps_ProbH1_thresh
 pps_df['S'] = pps_z_total
 
-csv_path = os.path.join(dir_out, f"{file_prefix}_pps_IS.csv")
+csv_path = os.path.join(dir_out, f"{file_prefix}_pps.csv")
 pps_df.to_csv(csv_path, index=False)
 print(f"Saved IS PPS table to: {csv_path}")
 print(pps_df.head(10).to_string(index=False))
@@ -315,7 +315,7 @@ p = (
     )
     + labs(x='Interim', y='p(H_1 | x, z)  [IS]')
 )
-box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_IS_p_h1_xz_boxplot.pdf")
+box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pdf")
 p.save(box_pdf, verbose=False, limitsize=False)
 print(f"Saved IS p(H_1 | x, z) boxplot to: {box_pdf}")
 
@@ -359,6 +359,6 @@ perf_long['metric'] = pd.Categorical(
 )
 perf_long['method'] = 'IS (reweight)'
 
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_IS_perf_long.pkl")
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_perf_long.pkl")
 perf_long.to_pickle(pkl_path)
 print(f"Saved IS performance long-form to: {pkl_path}")

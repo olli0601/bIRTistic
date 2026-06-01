@@ -16,10 +16,6 @@ Process-based parallelism (spawn) requires the executable body to run under
 ``if __name__ == '__main__'`` (here wrapped in ``main()``), else each worker
 re-imports the script and recursively spawns.
 
-Outputs (same artifacts as the IS-from-x script, ``_SMC`` suffixed): p_h1_xz pkl,
-PPS csv, box-stats pkl, p_h1_xz boxplot, perf long-form pkl (ESS /
-ESS-per-particle / E(w^2) / time), timing csv, per-sample SMC summary csv.
-
 Usage:
     cd /Users/or105/git/bIRTistic
     pixi run python scripts-py/Ukraine_interim_analysis_with_SMC_resample.py
@@ -217,11 +213,11 @@ def main():
     pps_timing['mins_total'] = round(mins_total, 3)
     print(f"\nAll interims SMC-PPS done in {mins_total:.2f} min")
 
-    smc_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_SMC_summary.csv"), index=False)
-    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMC_p_h1_xz.pkl")
+    smc_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_summary.csv"), index=False)
+    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz.pkl")
     p_h1_xz.to_pickle(pkl_path)
     print(f"Saved SMC P(H_1 | x, z) samples to: {pkl_path}")
-    pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_SMC_timing.csv"), index=False)
+    pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_timing.csv"), index=False)
 
     pps_df = (
         p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
@@ -230,7 +226,7 @@ def main():
     )
     pps_df['eta'] = pps_ProbH1_thresh
     pps_df['S'] = pps_z_total
-    csv_path = os.path.join(dir_out, f"{file_prefix}_pps_SMC.csv")
+    csv_path = os.path.join(dir_out, f"{file_prefix}_pps.csv")
     pps_df.to_csv(csv_path, index=False)
     print(f"Saved SMC PPS table to: {csv_path}")
     print(pps_df.head(10).to_string(index=False))
@@ -269,7 +265,7 @@ def main():
         )
         .reset_index()
     )
-    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMC_p_h1_xz_boxplot.pkl")
+    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pkl")
     box_stats.to_pickle(pkl_path)
     print(f"Saved SMC p(H_1 | x, z) box-stats to: {pkl_path}")
 
@@ -297,7 +293,7 @@ def main():
         )
         + labs(x='Interim', y='p(H_1 | x, z)  [SMC]')
     )
-    box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_SMC_p_h1_xz_boxplot.pdf")
+    box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_p_h1_xz_boxplot.pdf")
     p.save(box_pdf, verbose=False, limitsize=False)
     print(f"Saved SMC p(H_1 | x, z) boxplot to: {box_pdf}")
 
@@ -335,7 +331,7 @@ def main():
         categories=list(metric_labels.values()), ordered=True,
     )
     perf_long['method'] = 'SMC (resample-move)'
-    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_SMC_perf_long.pkl")
+    pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_perf_long.pkl")
     perf_long.to_pickle(pkl_path)
     print(f"Saved SMC performance long-form to: {pkl_path}")
 

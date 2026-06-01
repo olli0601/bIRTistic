@@ -11,7 +11,8 @@
       "Bash(echo \"EXIT $?\")",
       "Bash(tail -40 /tmp/birtistic-render/render.log)",
       "Read(//private/tmp/birtistic-render/**)",
-      "Bash(grep -nE '^```\\\\{r make-supp-table-1' scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd)"
+      "Bash(grep -nE '^```\\\\{r make-supp-table-1' scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd)",
+      "Bash(pdftotext /Users/or105/.claude/projects/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/tool-results/webfetch-1780207799118-ij179j.pdf -)"
     ]
   }
 }
