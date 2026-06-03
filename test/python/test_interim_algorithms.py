@@ -30,6 +30,8 @@ from fit_interim import (
     fit_interim_IS_moment_matching_of_posterior_xz_from_x,
     fit_interim_SMC_resample,
     fit_interim_SMC_resample_of_posterior_xz_from_x,
+    fit_interim_SMC_PPS,
+    fit_interim_SMC_PPS_of_posterior_xz_from_x,
     get_interim_z_from_ypredi,
 )
 from model_pcm import PartialCreditModelNCats
@@ -151,3 +153,33 @@ def test_SMC_resample_model_matches_shim(pcm_model, dit, xi, zi, draws):
         np.testing.assert_array_equal(
             np.asarray(parts_model[k]), np.asarray(parts_shim[k]),
         )
+
+
+# ---------------------------------------------------------------------------
+# fit_interim_SMC_PPS: model-aware wrapper vs free function
+# ---------------------------------------------------------------------------
+
+
+def test_SMC_PPS_model_matches_shim(pcm_model, dit, xi, zi):
+    """The model-aware wrapper unpacks model into the legacy free function;
+    output must be bit-identical."""
+    fma = {
+        'n_particles': 8, 'max_temps': 3, 'n_move_steps': 2, 'seed': 123,
+    }
+    p_model, summ_model = fit_interim_SMC_PPS(
+        model=pcm_model, zi=zi,
+        fitting_method_args=fma, draws_file=_DRAWS_FILE,
+        pps_z_total=2, categorical_threshold=2, cpu_n=1,
+        save_to_file=False, verbose=False,
+    )
+    p_shim, summ_shim = fit_interim_SMC_PPS_of_posterior_xz_from_x(
+        xi=xi, zi=zi, dit=dit,
+        fitting_method_args=fma, draws_file=_DRAWS_FILE,
+        pps_z_total=2, categorical_threshold=2, cpu_n=1,
+        save_to_file=False, verbose=False,
+    )
+    pd.testing.assert_frame_equal(p_model, p_shim, check_exact=True)
+    pd.testing.assert_frame_equal(
+        summ_model.drop(columns=['mins']), summ_shim.drop(columns=['mins']),
+        check_exact=True,
+    )

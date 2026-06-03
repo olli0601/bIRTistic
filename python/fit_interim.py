@@ -1083,6 +1083,43 @@ def fit_interim_SMC_PPS_of_posterior_xz_from_x(
     return p_h1_xz, smc_summary
 
 
+def fit_interim_SMC_PPS(
+    model,
+    zi: pd.DataFrame,
+    fitting_method_args: dict,
+    draws_file: str,
+    pps_z_total: int = 10,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    cpu_n: int = 1,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    Model-aware wrapper around
+    :func:`fit_interim_SMC_PPS_of_posterior_xz_from_x`. Unpacks
+    ``model.dcati`` / ``model.dit`` / ``model.x_formula`` into the legacy
+    free-function signature. The multiprocessing worker
+    (:func:`_fit_interim_SMC_one_sample`) still takes the picklable
+    ``(xi, zi, dit)`` triple -- a deeper refactor that hands a Model into
+    spawn workers is deferred to OO-port step 6+ once we know what state the
+    non-PCM subclasses carry.
+    """
+    fma = {**(fitting_method_args or {}), 'x_formula': model.x_formula}
+    return fit_interim_SMC_PPS_of_posterior_xz_from_x(
+        xi=model.dcati, zi=zi, dit=model.dit,
+        fitting_method_args=fma, draws_file=draws_file,
+        pps_z_total=pps_z_total,
+        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        categorical_threshold=categorical_threshold,
+        cpu_n=cpu_n,
+        output_file_prefix=output_file_prefix,
+        save_to_file=save_to_file, verbose=verbose,
+    )
+
+
 # =============================================================================
 # Strong-Oakley regression-based label estimator (Case A)
 # =============================================================================
