@@ -9,7 +9,7 @@ Migration smoke tests for the analysis + interim scripts under
 3. Contain no direct calls to the legacy module-level free fitters
    (``fit_partial_credit_model_ncats_pyrosvi`` etc.) in the script body,
    *except* where the legacy callable is passed through to
-   ``fit_interim_MC_of_posterior_xz`` via its ``fitting_method=`` kwarg
+   ``fit_interim_nested_monte_carlo_of_posterior_xz`` via its ``fitting_method=`` kwarg
    (a multiprocessing-only path we kept on the legacy module to avoid
    pickling a full Model into each spawn worker; see the docstring in
    ``Ukraine_interim_analyses_with_HMC.py``).
@@ -75,7 +75,7 @@ def test_script_does_not_call_legacy_free_fitters(name):
     """Legacy free-function fitter calls
     (``fit_partial_credit_model_ncats_pyrosvi`` etc.) must not appear as
     direct callables in the migrated scripts. Exception: when used as a
-    pickled callable passed to ``fit_interim_MC_of_posterior_xz`` via
+    pickled callable passed to ``fit_interim_nested_monte_carlo_of_posterior_xz`` via
     ``fitting_method=``, the legacy reference is acceptable -- only allow
     the literal substring ``fitting_method=fit_partial_credit_model_ncats``
     or ``fitting_method=fit_credit_model_ncats`` or

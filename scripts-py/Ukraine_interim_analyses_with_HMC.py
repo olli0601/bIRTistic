@@ -49,7 +49,7 @@ warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
-from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
+from fit_interim import get_interim_z_from_ypredi, fit_interim_nested_monte_carlo_of_posterior_xz, get_interim_x
 from utils import _futurama_palette
 
 print("✓ Imports successful")
@@ -561,7 +561,7 @@ for interim_id in di['interim_id']:
 
     t0 = time.time()
     zi = get_interim_z_from_ypredi(xi, draws_file, interim_m, pps_z_total=pps_z_total, seed=seed)
-    tmp = fit_interim_MC_of_posterior_xz(
+    tmp = fit_interim_nested_monte_carlo_of_posterior_xz(
         xi=xi,
         zi=zi,
         dit=dit,

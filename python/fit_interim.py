@@ -3,7 +3,7 @@ Interim-analysis helpers for predictive probability of success (PPS).
 
 - ``get_interim_z``: build the 'missing' future data block z from the interim
   cohort xi, the final cohort xf, and posterior-predictive draws ypred.
-- ``fit_interim_MC_of_posterior_xz``: Monte-Carlo estimate of p(H_1 | x, z_s)
+- ``fit_interim_nested_monte_carlo_of_posterior_xz``: Monte-Carlo estimate of p(H_1 | x, z_s)
   across S hypothetical future datasets, refitting the partial credit model to
   (xi + z_s) for each s.
 """
@@ -35,7 +35,7 @@ from interim_helpers import (
 )
 
 
-def _fit_interim_MC_of_posterior_xz_one_sample(
+def _fit_interim_nested_monte_carlo_of_posterior_xz_one_sample(
     s_idx, xi, zi, dit, output_file_prefix, model_cls,
     fitting_method_args, categorical_threshold, pps_H1_def, seed, verbose,
 ):
@@ -89,7 +89,7 @@ def _fit_interim_MC_of_posterior_xz_one_sample(
     return sample_p
 
 
-def fit_interim_MC_of_posterior_xz(
+def fit_interim_nested_monte_carlo_of_posterior_xz(
     xi: pd.DataFrame,
     zi: pd.DataFrame,
     dit: pd.DataFrame,
@@ -173,14 +173,14 @@ def fit_interim_MC_of_posterior_xz(
     )
 
     if cpu_n == 1:
-        rows = [_fit_interim_MC_of_posterior_xz_one_sample(s_idx, **work) for s_idx in range(pps_z_total)]
+        rows = [_fit_interim_nested_monte_carlo_of_posterior_xz_one_sample(s_idx, **work) for s_idx in range(pps_z_total)]
     else:
         import multiprocessing as _mp
         from concurrent.futures import ProcessPoolExecutor
         vprint(f"Running {pps_z_total} PPS refits over {cpu_n} worker processes...")
         ctx = _mp.get_context('spawn')
         with ProcessPoolExecutor(max_workers=cpu_n, mp_context=ctx) as ex:
-            futures = [ex.submit(_fit_interim_MC_of_posterior_xz_one_sample, s_idx, **work) for s_idx in range(pps_z_total)]
+            futures = [ex.submit(_fit_interim_nested_monte_carlo_of_posterior_xz_one_sample, s_idx, **work) for s_idx in range(pps_z_total)]
             rows = [f.result() for f in futures]
 
     p_h1_xz = pd.concat(rows, ignore_index=True)
@@ -792,7 +792,7 @@ def fit_interim_SMC_PPS_of_posterior_xz_from_x(
     whose per-item improvement ratio exceeds ``pps_H1_def`` (the particles are
     uniformly weighted). The S SMC runs are independent and parallelised over
     ``cpu_n`` ``spawn`` workers (each re-imports JAX and reloads ``draws_file``),
-    mirroring :func:`fit_interim_MC_of_posterior_xz`.
+    mirroring :func:`fit_interim_nested_monte_carlo_of_posterior_xz`.
 
     Parameters
     ----------
