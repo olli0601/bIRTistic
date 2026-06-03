@@ -26,6 +26,8 @@ if str(_python_dir) not in sys.path:
 from fit_interim import (
     fit_interim_IS_reweight,
     fit_interim_importance_sampling_of_posterior_xz_from_x,
+    fit_interim_IS_moment_matching,
+    fit_interim_IS_moment_matching_of_posterior_xz_from_x,
     get_interim_z_from_ypredi,
 )
 from model_pcm import PartialCreditModelNCats
@@ -86,3 +88,29 @@ def test_IS_reweight_model_matches_shim(pcm_model, dit, xi, zi, draws):
     )
     pd.testing.assert_frame_equal(p_model, p_shim, check_exact=True)
     pd.testing.assert_frame_equal(perf_model, perf_shim, check_exact=True)
+
+
+# ---------------------------------------------------------------------------
+# fit_interim_IS_moment_matching: model-aware vs shim
+# ---------------------------------------------------------------------------
+
+
+def test_IS_moment_matching_model_matches_shim(pcm_model, dit, xi, zi, draws):
+    p_model, mm_model = fit_interim_IS_moment_matching(
+        model=pcm_model, zi=zi, draws=draws,
+        fitting_method_args={},
+        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
+        save_to_file=False, verbose=False,
+    )
+    p_shim, mm_shim = fit_interim_IS_moment_matching_of_posterior_xz_from_x(
+        xi=xi, zi=zi, dit=dit, draws=draws,
+        fitting_method_args={},
+        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
+        save_to_file=False, verbose=False,
+    )
+    # mm has a non-deterministic 'mins' wall-time field; drop before comparing.
+    pd.testing.assert_frame_equal(p_model, p_shim, check_exact=True)
+    pd.testing.assert_frame_equal(
+        mm_model.drop(columns=['mins']), mm_shim.drop(columns=['mins']),
+        check_exact=True,
+    )

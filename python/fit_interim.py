@@ -527,6 +527,47 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
           derive from ``ess_over_n_* `` and ``N``: ess = ess_over_n*N,
           E(w^2) = 1/(N^2 * ess_over_n).
     """
+    # Back-compat shim: route through the model-aware
+    # fit_interim_IS_moment_matching. To remove in OO-port step 8.
+    from model_pcm import PartialCreditModelNCats
+    x_formula = fitting_method_args.get('x_formula', "~ time - 1")
+    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
+    return fit_interim_IS_moment_matching(
+        model=model, zi=zi,
+        fitting_method_args=fitting_method_args,
+        draws=draws, draws_file=draws_file,
+        pps_z_total=pps_z_total,
+        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        categorical_threshold=categorical_threshold,
+        output_file_prefix=output_file_prefix,
+        save_to_file=save_to_file, verbose=verbose,
+    )
+
+
+def fit_interim_IS_moment_matching(
+    model,
+    zi: pd.DataFrame,
+    fitting_method_args: Optional[dict] = None,
+    draws=None,
+    draws_file: Optional[str] = None,
+    pps_z_total: int = 10,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    Mean-match IS for p(H_1 | x, z) (Paananen 2021), model-aware rewrite of
+    :func:`fit_interim_IS_moment_matching_of_posterior_xz_from_x`. Reads
+    ``eval_loglik`` / ``logprior`` / ``positive_params`` from ``model``; the
+    legacy callable overrides in ``fitting_method_args`` are ignored. The
+    only honoured ``fitting_method_args`` key is ``x_formula`` (carried on
+    ``model.x_formula`` -- kept for shim compatibility).
+
+    Returns the same ``(p_h1_xz, mm)`` tuple as the legacy function.
+    """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
     if draws is None:
@@ -534,22 +575,16 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     if 'src_pid' not in zi.columns:
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
     vprint = print if verbose else (lambda *args, **kwargs: None)
+    if fitting_method_args is None:
+        fitting_method_args = {}
 
-    fitting_method_args = {
-        'x_formula': "~ time - 1",
-        'eval_loglik': eval_loglik_partial_credit_model_ncats,
-        'logprior': get_prior_of_partial_credit_model_ncats,
-        'positive_params': ('loadings_questions_m1',),
-        **fitting_method_args,
-    }
-    x_formula = fitting_method_args['x_formula']
-    eval_loglik = fitting_method_args['eval_loglik']
-    logprior = fitting_method_args['logprior']
-    positive_params = fitting_method_args['positive_params']
+    eval_loglik = model.eval_loglik
+    logprior = model.logprior
+    positive_params = model.positive_params
 
-    theta = _stack_posterior_theta(draws)
-    n_draw = int(theta['latent_factor_beta'].shape[0])
-    x_stan = _interim_make_x_stan(xi, dit, x_formula)
+    theta = model.stack_posterior_theta(draws)
+    n_draw = int(next(iter(theta.values())).shape[0])
+    x_stan = _interim_make_x_stan(model.dcati, model.dit, model.x_formula)
 
     # Build the match-space matrix Theta_u (K, D) and its block layout.
     layout, blocks = [], []
@@ -582,7 +617,7 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     # -- is invariant within an interim). Passing z_y as the only traced arg and
     # closing over the rest avoids the 200x JIT-recompile that previously
     # dominated MM wall time at ~10 min/interim.
-    z_stan_template = _interim_make_z_stan(zi, dit, 0, x_formula)
+    z_stan_template = _interim_make_z_stan(zi, model.dit, 0, model.x_formula)
 
     def _logw_inner(u, z_y):
         z_stan_local = {**z_stan_template, 'y': z_y}
@@ -613,7 +648,7 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     p_h1_xz = []
     t_all = time.time()
     for s_idx in range(pps_z_total):
-        z_stan = _interim_make_z_stan(zi, dit, s_idx, x_formula)
+        z_stan = _interim_make_z_stan(zi, model.dit, s_idx, model.x_formula)
         z_y = jnp.asarray(z_stan['y']).astype(jnp.int32)
 
         logw0 = np.asarray(logw_batch(Theta_u_j, z_y))
@@ -640,7 +675,8 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
         # then averaged with the mean-match weights w1.
         ratio = _ratio_per_draw_from_params(
             _u_batch_to_params(jnp.asarray(Theta_u_star)),
-            x_stan, xi, dit, categorical_threshold,
+            x_stan, model.dcati, model.dit, categorical_threshold,
+            ordered_prob_eval=model.eval_outcome_for_endpoint,
         )
         ratio = ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
         wdf = pd.DataFrame({'draw': np.arange(n_draw), 'w': w1})
