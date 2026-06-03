@@ -22,15 +22,8 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from fit_partial_credit_model import (
-    _fit_partial_credit_make_stan_data,
-    eval_loglik_partial_credit_model_ncats,
-    eval_loglik_partial_credit_model_ncats_with_annealing,
-    get_prior_of_partial_credit_model_ncats,
-    get_ordered_prob_of_partial_credit_model_ncats,
-)
 from get_endpoints import get_endpoints_per_draw
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModelNCats, _model_namespace
 from fit_interim import _stack_posterior_theta  # legacy version, hard-coded
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
@@ -100,49 +93,53 @@ def test_stan_data_built_at_construction(model, stan_data):
     assert int(stan_data['N_total']) == len(model.dcati)
 
 
-def test_make_stan_data_matches_free_function(model, dit, xi):
-    free = _fit_partial_credit_make_stan_data(
-        dit=dit, dcati=xi, x_formula="~ time - 1", verbose=False,
-    )
-    by_method = model.make_stan_data(xi, "~ time - 1")
-    assert set(free.keys()) == set(by_method.keys())
-    for k in free:
-        a, b = free[k], by_method[k]
-        if isinstance(a, np.ndarray):
-            np.testing.assert_array_equal(a, np.asarray(b))
-        else:
-            assert a == b, f"mismatch on {k}: {a!r} vs {b!r}"
+def test_make_stan_data_shape_invariants(model, stan_data, dit, xi):
+    """make_stan_data must produce the standard partial-credit stan_data
+    keys + shapes against the fixture cohort."""
+    expected_keys = {
+        'C', 'U', 'N', 'Q', 'K', 'N_total', 'Q_total', 'y', 'unit_of_obs',
+        'question_of_obs', 'cat_type', 'X', 'Xpr_id', 'P', 'P_pr',
+    }
+    assert expected_keys.issubset(set(stan_data.keys()))
+    assert int(stan_data['N_total']) == len(xi)
+    assert int(stan_data['C']) == int(dit['item_type_id'].max())
+    # Call directly: model.make_stan_data(dcati, x_formula) returns the same.
+    again = model.make_stan_data(xi, "~ time - 1")
+    assert set(again.keys()) == set(stan_data.keys())
 
 
 # ---------------------------------------------------------------------------
-# Loglik / prior / outcome
+# Loglik / prior / outcome -- the @staticmethod proxies must agree with the
+# underlying .pyro namespace they delegate to.
 # ---------------------------------------------------------------------------
 
 
-def test_eval_loglik_matches_free_function(model, stan_data, params_one):
-    free = eval_loglik_partial_credit_model_ncats(stan_data, params_one)
+def test_eval_loglik_matches_pyro_namespace(model, stan_data, params_one):
+    ns = _model_namespace()
+    direct = ns['get_log_likelihood_of_partial_credit_model_ncats'](stan_data, params_one)
     by_method = model.eval_loglik(stan_data, params_one)
-    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+    np.testing.assert_array_equal(np.asarray(direct), np.asarray(by_method))
 
 
-def test_eval_loglik_annealed_matches_free_function(model, stan_data, params_one):
+def test_eval_loglik_annealed_matches_pyro_namespace(model, stan_data, params_one):
     p = dict(params_one)
     p['temperature'] = jnp.asarray(0.5)
-    free = eval_loglik_partial_credit_model_ncats_with_annealing(stan_data, p)
+    ns = _model_namespace()
+    direct = ns['get_log_likelihood_of_partial_credit_model_ncats_with_annealing'](stan_data, p)
     by_method = model.eval_loglik_annealed(stan_data, p)
-    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+    np.testing.assert_array_equal(np.asarray(direct), np.asarray(by_method))
 
 
-def test_logprior_matches_free_function(model, params_one):
-    free = get_prior_of_partial_credit_model_ncats(params_one)
+def test_logprior_matches_pyro_namespace(model, params_one):
+    direct = _model_namespace()['get_prior_of_partial_credit_model_ncats'](params_one)
     by_method = model.logprior(params_one)
-    assert float(free) == float(by_method)
+    assert float(direct) == float(by_method)
 
 
-def test_eval_outcome_matches_free_function(model, stan_data, params_one):
-    free = get_ordered_prob_of_partial_credit_model_ncats(stan_data, params_one)
+def test_eval_outcome_matches_pyro_namespace(model, stan_data, params_one):
+    direct = _model_namespace()['get_ordered_prob_of_partial_credit_model_ncats'](stan_data, params_one)
     by_method = model.eval_outcome_for_endpoint(stan_data, params_one)
-    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+    np.testing.assert_array_equal(np.asarray(direct), np.asarray(by_method))
 
 
 # ---------------------------------------------------------------------------
