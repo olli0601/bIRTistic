@@ -51,7 +51,7 @@ from utils import (
     _make_idata_from_svi_posterior,
     _pdf_or_parts_exist,
 )
-from model import _IRTModel
+from model_irt import IRTModel
 
 
 _MODEL_NS = None
@@ -68,7 +68,7 @@ def _model_namespace():
     return _MODEL_NS
 
 
-class PartialCreditModelNCats(_IRTModel):
+class PartialCreditModelNCats(IRTModel):
     """Partial credit (ncats) IRT model. Implements every :class:`model.Model`
     blueprint method inline; ``_module`` is unset so the :class:`_IRTModel`
     mixin's dict dispatch is bypassed."""

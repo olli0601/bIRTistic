@@ -1,7 +1,6 @@
 """
-Step 2 of the OO-port refactor: the ``Model`` ABC and the ``_IRTModel``
-mixin. No concrete subclass yet -- these tests only verify the abstract
-contract.
+The ``Model`` ABC + the ``IRTModel`` mixin. No concrete subclass yet --
+these tests only verify the abstract contract.
 """
 
 import sys
@@ -15,7 +14,8 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from model import Model, _IRTModel  # noqa: E402
+from model import Model  # noqa: E402
+from model_irt import IRTModel  # noqa: E402
 
 
 def test_model_is_abstract():
@@ -26,10 +26,10 @@ def test_model_is_abstract():
 
 
 def test_irt_mixin_is_abstract():
-    """The mixin is still abstract until ``_module`` / ``_make_stan_data``
-    are supplied by a concrete IRT subclass."""
+    """IRTModel is still abstract until a concrete IRT subclass supplies
+    the remaining abstract methods (make_stan_data, eval_loglik, etc.)."""
     with pytest.raises(TypeError):
-        _IRTModel(dit=pd.DataFrame(), dcati=pd.DataFrame())
+        IRTModel(dit=pd.DataFrame(), dcati=pd.DataFrame())
 
 
 def test_model_param_names_default_empty():
@@ -50,8 +50,8 @@ def test_model_fit_closed_form_raises_by_default():
         def eval_loglik_annealed(self, data, params): return None
         def eval_log_prior(self, params): return None
         def eval_outcome_for_endpoint(self, data, params): return None
-        def endpoints_per_draw(self, dcati, draws, categorical_threshold,
-                               endpoint_type='items'): return None
+        def get_endpoints_per_draw(self, draws, categorical_threshold,
+                                   endpoint_type='items'): return None
 
     stub = _Stub(dit=pd.DataFrame(), dcati=pd.DataFrame())
     with pytest.raises(NotImplementedError):
@@ -74,8 +74,8 @@ def test_stack_posterior_theta_uses_param_names():
         def eval_loglik_annealed(self, data, params): return None
         def eval_log_prior(self, params): return None
         def eval_outcome_for_endpoint(self, data, params): return None
-        def endpoints_per_draw(self, dcati, draws, categorical_threshold,
-                               endpoint_type='items'): return None
+        def get_endpoints_per_draw(self, draws, categorical_threshold,
+                                   endpoint_type='items'): return None
 
     # Build a tiny fake arviz idata-like object.
     arr = np.arange(12, dtype=float).reshape(2, 3, 2)   # (chain, draw, d)

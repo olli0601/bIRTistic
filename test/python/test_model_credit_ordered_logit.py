@@ -1,6 +1,6 @@
 """
 :class:`CreditModelNCats` and :class:`OrderedLogitNCats` -- the credit
-and ordered-logit subclasses of :class:`model._IRTModel`. All bodies
+and ordered-logit subclasses of :class:`model.IRTModel`. All bodies
 are now inlined as methods on the class (model_credit.py /
 model_ordered_logit.py); the legacy fit_credit_model.py and
 fit_ordered_logit_model.py modules are deleted.
@@ -96,15 +96,16 @@ def test_ordered_logit_eval_outcome_raises_not_implemented():
 
 
 # ---------------------------------------------------------------------------
-# Cross-subclass sanity: both inherit the abstract contract via _IRTModel
+# Cross-subclass sanity: both inherit the abstract contract via IRTModel
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize('cls', [CreditModelNCats, OrderedLogitNCats])
 def test_subclass_passes_abc_contract(cls):
     """Constructor signature: (dit, dcati, x_formula='~ time - 1', *, seed=123)."""
-    from model import Model, _IRTModel
-    assert issubclass(cls, _IRTModel)
+    from model import Model
+    from model_irt import IRTModel
+    assert issubclass(cls, IRTModel)
     assert issubclass(cls, Model)
     import inspect
     sig = inspect.signature(cls.__init__)

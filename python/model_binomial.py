@@ -86,9 +86,9 @@ class BinomialModel(Model):
     def eval_outcome_for_endpoint(self, data: dict, params: dict) -> jnp.ndarray:
         return params['p']
 
-    def endpoints_per_draw(self, dcati: pd.DataFrame, draws,
-                           categorical_threshold: int,
-                           endpoint_type: str = 'items') -> pd.DataFrame:
+    def get_endpoints_per_draw(self, draws,
+                               categorical_threshold: int = 3,
+                               endpoint_type: str = 'items') -> pd.DataFrame:
         """One row per (item, draw) with ratio = p (the §3.1 example uses
         baseline p_0 = 0, so ratio = p / p_0 - 1 collapses to p with the
         convention used by the IS / regression algorithms)."""

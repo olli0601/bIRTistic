@@ -147,16 +147,16 @@ def test_eval_outcome_matches_pyro_namespace(model, stan_data, params_one):
 # ---------------------------------------------------------------------------
 
 
-def test_endpoints_per_draw_matches_free_function(model, dit, xi, draws):
+def test_endpoints_per_draw_matches_shim(model, dit, xi, draws):
     free = get_endpoints_per_draw(
         dcati=xi, dit=dit, draws=draws,
         categorical_threshold=2,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
         verbose=False,
     )
-    by_method = model.endpoints_per_draw(
-        dcati=xi, draws=draws, categorical_threshold=2,
-        endpoint_type='items',
+    by_method = model.get_endpoints_per_draw(
+        draws=draws, categorical_threshold=2,
+        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
     )
     pd.testing.assert_frame_equal(
         free.reset_index(drop=True),

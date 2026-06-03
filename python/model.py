@@ -128,28 +128,8 @@ class Model(ABC):
         ``ordered_prob_by_cat_qu_fit``. Binomial: ``p(theta)``."""
 
     @abstractmethod
-    def endpoints_per_draw(self, dcati: pd.DataFrame, draws,
-                           categorical_threshold: int,
-                           endpoint_type: str = 'items') -> pd.DataFrame:
+    def get_endpoints_per_draw(self, draws, categorical_threshold: int,
+                               endpoint_type: str = 'items') -> pd.DataFrame:
         """One row per (item, draw) with at least
-        ``item_label, item_type, item_high_label, draw, ratio``."""
-
-
-class _IRTModel(Model):
-    """Marker mixin for the IRT family (PCM, credit, ordered-logit). Each
-    concrete subclass inlines its own ``eval_loglik`` / fit drivers /
-    ``make_stan_data`` etc. as methods. The only behaviour shared across
-    all three -- :meth:`endpoints_per_draw` -- lives here because every
-    IRT subclass records ``ordered_prob_by_cat_qu_fit`` in its posterior
-    and feeds it to :func:`get_endpoints.get_endpoints_per_draw`."""
-
-    def endpoints_per_draw(self, dcati, draws, categorical_threshold,
-                           endpoint_type: str = 'items') -> pd.DataFrame:
-        # Imported lazily to keep this module light during ABC introspection.
-        from get_endpoints import get_endpoints_per_draw
-        return get_endpoints_per_draw(
-            dcati=dcati, dit=self.dit, draws=draws,
-            categorical_threshold=categorical_threshold,
-            endpoint_type=endpoint_type,
-            param_name='ordered_prob_by_cat_qu_fit', verbose=False,
-        )
+        ``item_label, item_type, item_high_label, draw, ratio``. IRT
+        subclasses inherit :class:`model_irt.IRTModel`'s implementation."""

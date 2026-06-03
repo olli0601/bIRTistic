@@ -21,7 +21,8 @@ from jax import random
 from scipy.special import softmax
 import statsmodels.api as sm
 
-from get_endpoints import get_endpoints_per_draw
+# IRT-specific endpoint helpers now live on IRTModel
+# (python/model_irt.py). Algorithm callers route through a Model instance.
 # Legacy free-function callable still imported for fit_interim_MC_of_posterior_xz's
 # `fitting_method=` default; the MC path predates the OO refactor and pickles
 # the callable into spawn workers. All other algorithms route through a Model
@@ -75,9 +76,11 @@ def _fit_interim_MC_of_posterior_xz_one_sample(
     )
 
     # Per-item P(H_1 | x, z_s) = fraction of draws with ratio > pps_H1_def.
-    ratio_xz = get_endpoints_per_draw(
-        dcati=xzi,
-        dit=dit,
+    # MC worker is PCM-specific via the default fitting_method; instantiate
+    # a PCM model here to compute endpoints on the augmented cohort.
+    from model_pcm import PartialCreditModelNCats
+    _endpoint_model = PartialCreditModelNCats(dit=dit, dcati=xzi)
+    ratio_xz = _endpoint_model.get_endpoints_per_draw(
         draws=fit['draws'],
         categorical_threshold=categorical_threshold,
         endpoint_type='items',
@@ -230,10 +233,11 @@ def fit_interim_IS_reweight(
     vprint = print if verbose else (lambda *args, **kwargs: None)
 
     # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k below.
-    x_ratio = model.endpoints_per_draw(
-        dcati=model.dcati, draws=draws,
+    x_ratio = model.get_endpoints_per_draw(
+        draws=draws,
         categorical_threshold=categorical_threshold,
         endpoint_type='items',
+        param_name='ordered_prob_by_cat_qu_fit',
     )
     x_ratio = x_ratio.assign(ind=(x_ratio['ratio'] > pps_H1_def).astype(float))
 
@@ -354,20 +358,20 @@ def _interim_make_z_stan(model, zi: pd.DataFrame, s_idx: int) -> dict:
     return model.make_stan_data(z_dcati, model.x_formula)
 
 
-def _ratio_per_draw_from_params(theta_batch, x_stan, xi, dit, categorical_threshold,
+def _ratio_per_draw_from_params(theta_batch, x_stan, model, categorical_threshold,
                                 ordered_prob_eval):
     """Per-(draw, item) improvement ratio for an arbitrary batch of parameter sets.
 
     Evaluates ``ordered_prob_by_cat_qu_fit`` for every draw in ``theta_batch``
     (dict of ``(K, ...)`` jnp arrays) on the x-cohort design ``x_stan``, wraps the
-    result as an arviz posterior and runs :func:`get_endpoints_per_draw`. Lets
+    result as an arviz posterior and runs ``model.get_endpoints_per_draw``. Lets
     reweighted (moment-matched) draws or moved (SMC) particles be scored for
     p(H_1 | x, z) exactly like a refit, rather than reusing the frozen x-ratio.
     """
     ordprob = np.asarray(jax.vmap(lambda p: ordered_prob_eval(x_stan, p))(theta_batch))  # (K, L)
     idata = az.from_dict(posterior={'ordered_prob_by_cat_qu_fit': ordprob[None, ...]})
-    return get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=idata,
+    return model.get_endpoints_per_draw(
+        draws=idata,
         categorical_threshold=categorical_threshold,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
         verbose=False,
@@ -505,7 +509,7 @@ def fit_interim_IS_moment_matching(
         # then averaged with the mean-match weights w1.
         ratio = _ratio_per_draw_from_params(
             _u_batch_to_params(jnp.asarray(Theta_u_star)),
-            x_stan, model.dcati, model.dit, categorical_threshold,
+            x_stan, model, categorical_threshold,
             ordered_prob_eval=model.eval_outcome_for_endpoint,
         )
         ratio = ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
@@ -752,7 +756,7 @@ def _fit_interim_SMC_one_sample(
     )
     x_stan = _interim_make_x_stan(model)
     ratio = _ratio_per_draw_from_params(
-        particles, x_stan, model.dcati, model.dit, categorical_threshold,
+        particles, x_stan, model, categorical_threshold,
         ordered_prob_eval=model.eval_outcome_for_endpoint,
     )
     sample_p = (
@@ -1010,10 +1014,11 @@ def get_interim_endpt_and_w_from_poi(
     wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
 
     # Actual per-draw endpoint ratio from the x-fit posterior.
-    x_ratio = model.endpoints_per_draw(
-        dcati=xi, draws=draws,
+    x_ratio = model.get_endpoints_per_draw(
+        draws=draws,
         categorical_threshold=categorical_threshold,
         endpoint_type='items',
+        param_name='ordered_prob_by_cat_qu_fit',
     )
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
     x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)

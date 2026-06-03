@@ -153,10 +153,10 @@ def test_fit_closed_form_returns_arviz_draws(model):
 # ---------------------------------------------------------------------------
 
 
-def test_endpoints_per_draw_shape(model):
+def test_get_endpoints_per_draw_shape(model):
     fit = model.fit_closed_form(output_samples=50, verbose=False)
-    end = model.endpoints_per_draw(
-        dcati=model.dcati, draws=fit['draws'],
+    end = model.get_endpoints_per_draw(
+        draws=fit['draws'],
         categorical_threshold=2,
     )
     assert len(end) == 50
