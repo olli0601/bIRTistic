@@ -29,7 +29,7 @@ from fit_interim import (
     fit_interim_regress_endptx_on_wz,
     fit_interim_IS_reweight,
 )
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -98,7 +98,7 @@ def test_get_interim_z_from_ypredi_changes_with_seed(xi):
 
 
 def _build_wa(xi, dit, draws, seed):
-    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+    model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=seed)
     return get_interim_endpt_and_w_from_poi(
         model=model, draws=draws, draws_file=_DRAWS_FILE,
@@ -160,7 +160,7 @@ def test_fit_interim_IS_reweight_deterministic(xi, dit, draws):
     zi = get_interim_z_from_ypredi(
         xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
-    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+    model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=_SEED)
     p_a, _ = fit_interim_IS_reweight(
         model=model, zi=zi, draws=draws,

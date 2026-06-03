@@ -64,7 +64,7 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_ukraine
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 from utils import _summarize_ordered_prob_quantiles
 
 print("✓ Imports successful")
@@ -176,7 +176,7 @@ print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
 
 # Build the Model instance once; all fit_* calls below dispatch through it.
-_pcm = PartialCreditModelNCats(
+_pcm = PartialCreditModel(
     dit=dit_ukr, dcati=dp1_ukr, x_formula="~ time - 1", seed=seed,
 )
 

@@ -50,7 +50,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_colombia
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 from utils import _futurama_palette, _build_interim_dcati
 
 print("✓ Imports successful")
@@ -219,7 +219,7 @@ for i, row in di.iterrows():
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    _pcm = PartialCreditModelNCats(
+    _pcm = PartialCreditModel(
         dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
     )
     result = _pcm.fit_pyro_svi(
@@ -359,7 +359,7 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_zarr.items():
     dcati = interim_dcati[interim_id]
-    _pcm = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    _pcm = PartialCreditModel(dit=dit, dcati=dcati)
     per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=3,

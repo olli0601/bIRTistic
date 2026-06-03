@@ -13,17 +13,17 @@ __version__ = "0.1.0"
 __author__ = "bIRTistic Team"
 
 from .data_loading import read_data_colombia, read_data_ukraine
-from .model_pcm import PartialCreditModelNCats
-from .model_credit import CreditModelNCats
-from .model_ordered_logit import OrderedLogitNCats
+from .model_pcm import PartialCreditModel
+from .model_credit import CreditModel
+from .model_ordered_logit import OrderedLogit
 from .model_binomial import BinomialModel
 
 __all__ = [
     'read_data_colombia',
     'read_data_ukraine',
-    'PartialCreditModelNCats',
-    'CreditModelNCats',
-    'OrderedLogitNCats',
+    'PartialCreditModel',
+    'CreditModel',
+    'OrderedLogit',
     'BinomialModel',
 ]
 

@@ -23,7 +23,7 @@ import statsmodels.api as sm
 
 # IRT-specific endpoint helpers now live on IRTModel
 # (python/model_irt.py). Algorithm callers route through a Model instance.
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 # Pure-pandas helpers live in interim_helpers.py (OO-port step 1). Re-exported
 # here for the convenience of the interim-analysis scripts, which already had
 # imports against this module before the refactor.
@@ -99,7 +99,7 @@ def fit_interim_MC_of_posterior_xz(
     pps_H1_def: float = 0.5,
     pps_ProbH1_thresh: float = 0.89,
     categorical_threshold: int = 3,
-    model_cls=PartialCreditModelNCats,
+    model_cls=PartialCreditModel,
     seed: int = 123,
     save_to_file: Optional[bool] = True,
     verbose: bool = True,
@@ -136,7 +136,7 @@ def fit_interim_MC_of_posterior_xz(
     categorical_threshold : int, default 3
         Categorical aggregation threshold passed to
         :func:`get_endpoints_per_draw`.
-    model_cls : type, default :class:`model_pcm.PartialCreditModelNCats`
+    model_cls : type, default :class:`model_pcm.PartialCreditModel`
         Model subclass instantiated per sample as
         ``model_cls(dit=dit, dcati=xzi, x_formula=..., seed=...)``. The worker
         calls ``model.fit_pyro_svi(output_file_prefix=...,
@@ -739,8 +739,8 @@ def _fit_interim_SMC_one_sample(
     fma = {**fitting_method_args, 's_idx': s_idx}
     # Build a PCM model from (xi, dit). Spawn workers re-import every module
     # anyway, so the lazy import keeps the helper picklable.
-    from model_pcm import PartialCreditModelNCats
-    model = PartialCreditModelNCats(
+    from model_pcm import PartialCreditModel
+    model = PartialCreditModel(
         dit=dit, dcati=xi,
         x_formula=fma.get('x_formula', "~ time - 1"),
     )

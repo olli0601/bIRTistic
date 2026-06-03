@@ -26,7 +26,7 @@ if str(_python_dir) not in sys.path:
 
 from interim_helpers import _load_ypred
 from fit_interim import get_interim_endpt_and_w_from_poi
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -101,7 +101,7 @@ def test_load_ypred_random_subset_uses_rng(raw_ypred):
 
 @pytest.fixture(scope='module')
 def wa(xi, dit, draws):
-    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+    model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=123)
     return get_interim_endpt_and_w_from_poi(
         model=model, draws=draws, draws_file=_DRAWS_FILE,
@@ -116,7 +116,7 @@ def test_wa_pps_ratio_x_matches_get_endpoints_per_draw(wa, xi, dit, draws):
     independently-computed get_endpoints_per_draw ratio at the same draw
     index. Catches any permutation of the posterior-draw axis between the
     two pipelines."""
-    _ref_model = PartialCreditModelNCats(dit=dit, dcati=xi)
+    _ref_model = PartialCreditModel(dit=dit, dcati=xi)
     x_ratio = _ref_model.get_endpoints_per_draw(
         draws=draws, categorical_threshold=2,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',

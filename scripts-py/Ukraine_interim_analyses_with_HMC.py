@@ -48,7 +48,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
 from utils import _futurama_palette
 
@@ -303,7 +303,7 @@ for i in range(len(di)):
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    _pcm = PartialCreditModelNCats(
+    _pcm = PartialCreditModel(
         dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
     )
     fit = _pcm.fit_pyro_svi(
@@ -445,7 +445,7 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_x_draws_dict.items():
     dcati = interim_x_dict[interim_id]
-    _pcm = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    _pcm = PartialCreditModel(dit=dit, dcati=dcati)
     per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=2,
@@ -570,7 +570,7 @@ for interim_id in di['interim_id']:
         pps_H1_def=pps_H1_def,
         pps_ProbH1_thresh=pps_ProbH1_thresh,
         categorical_threshold=2,
-        model_cls=PartialCreditModelNCats,
+        model_cls=PartialCreditModel,
         fitting_method_args={
             'algorithm': svi_algorithm,
             'x_formula': "~ time - 1",

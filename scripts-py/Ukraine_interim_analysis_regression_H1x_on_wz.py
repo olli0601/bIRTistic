@@ -92,7 +92,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 from fit_interim import (
     get_interim_x,
     get_interim_endpt_and_w_from_poi,
@@ -210,7 +210,7 @@ for interim_id in di['interim_id']:
 
     t0 = time.time()
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+    model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula=x_formula, seed=seed)
     fit = model.fit_pyro_svi(
         output_file_prefix=interim_prefix,

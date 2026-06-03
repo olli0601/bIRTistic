@@ -5,9 +5,9 @@ functions in :mod:`get_endpoints` (now deleted from that module's
 public surface): per-draw endpoint extraction and quantile summarisation
 of posterior ordered-prob arrays.
 
-Concrete IRT subclasses (:class:`model_pcm.PartialCreditModelNCats`,
-:class:`model_credit.CreditModelNCats`,
-:class:`model_ordered_logit.OrderedLogitNCats`) inline their own
+Concrete IRT subclasses (:class:`model_pcm.PartialCreditModel`,
+:class:`model_credit.CreditModel`,
+:class:`model_ordered_logit.OrderedLogit`) inline their own
 ``eval_loglik`` / fit drivers / ``make_stan_data`` etc. The two methods
 shared across all three -- :meth:`get_endpoints_per_draw` and
 :meth:`get_endpoints` -- live here because every IRT model records

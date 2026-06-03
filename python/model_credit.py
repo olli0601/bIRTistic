@@ -1,5 +1,5 @@
 """
-:class:`CreditModelNCats` -- the IRT partial-credit model subclass of
+:class:`CreditModel` -- the IRT partial-credit model subclass of
 :class:`model._IRTModel`. All PCM-specific math, the stan-data builder,
 and the three Stan/Pyro fit drivers are now methods on this class
 (previously free functions in ``fit_partial_credit_model.py``, deleted
@@ -63,7 +63,7 @@ def _model_namespace():
     return _MODEL_NS
 
 
-class CreditModelNCats(IRTModel):
+class CreditModel(IRTModel):
     """Credit (ncats) IRT model. Implements every :class:`model.Model`
     blueprint method inline; ``_module`` is unset so the :class:`_IRTModel`
     mixin's dict dispatch is bypassed."""
@@ -115,7 +115,7 @@ class CreditModelNCats(IRTModel):
         src/numpyro/credit_model_ncats_v260413.pyro and update this method
         once MM / SMC are needed for credit."""
         raise NotImplementedError(
-            "CreditModelNCats does not yet expose"
+            "CreditModel does not yet expose"
             " get_ordered_prob_of_credit_model_ncats. Add it to"
             " credit_model_ncats_v260413.pyro before using MM / SMC."
         )

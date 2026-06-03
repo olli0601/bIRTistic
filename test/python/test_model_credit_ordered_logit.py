@@ -1,5 +1,5 @@
 """
-:class:`CreditModelNCats` and :class:`OrderedLogitNCats` -- the credit
+:class:`CreditModel` and :class:`OrderedLogit` -- the credit
 and ordered-logit subclasses of :class:`model.IRTModel`. All bodies
 are now inlined as methods on the class (model_credit.py /
 model_ordered_logit.py); the legacy fit_credit_model.py and
@@ -27,9 +27,9 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from model_credit import CreditModelNCats, _model_namespace as _credit_ns
+from model_credit import CreditModel, _model_namespace as _credit_ns
 from model_ordered_logit import (
-    OrderedLogitNCats, _model_namespace as _ol_ns,
+    OrderedLogit, _model_namespace as _ol_ns,
 )
 
 
@@ -42,11 +42,11 @@ def test_credit_param_names_match_pyro_model():
     """Sample sites in src/numpyro/credit_model_ncats_v260413.pyro are
     latent_factor_unit / latent_factor_beta / skill_thresholds /
     loadings_questions_m1 -- declared in the subclass."""
-    assert set(CreditModelNCats.param_names) == {
+    assert set(CreditModel.param_names) == {
         'latent_factor_unit', 'latent_factor_beta',
         'skill_thresholds', 'loadings_questions_m1',
     }
-    assert CreditModelNCats.positive_params == ('loadings_questions_m1',)
+    assert CreditModel.positive_params == ('loadings_questions_m1',)
 
 
 def test_credit_proxies_resolve_in_pyro_namespace():
@@ -63,7 +63,7 @@ def test_credit_eval_outcome_raises_not_implemented():
     callable; eval_outcome_for_endpoint must raise so MM / SMC algorithms
     fail loudly rather than silently."""
     with pytest.raises(NotImplementedError):
-        CreditModelNCats.eval_outcome_for_endpoint(data={}, params={})
+        CreditModel.eval_outcome_for_endpoint(data={}, params={})
 
 
 # ---------------------------------------------------------------------------
@@ -75,12 +75,12 @@ def test_ordered_logit_param_names_match_pyro_model():
     """Sample sites in src/numpyro/ordered_logit_ncats_v260413.pyro are
     latent_factor_unit / latent_factor_beta / skill_thresholds_1 /
     skill_thresholds_incs / loadings_questions_m1."""
-    assert set(OrderedLogitNCats.param_names) == {
+    assert set(OrderedLogit.param_names) == {
         'latent_factor_unit', 'latent_factor_beta',
         'skill_thresholds_1', 'skill_thresholds_incs',
         'loadings_questions_m1',
     }
-    assert OrderedLogitNCats.positive_params == ('loadings_questions_m1',)
+    assert OrderedLogit.positive_params == ('loadings_questions_m1',)
 
 
 def test_ordered_logit_proxies_resolve_in_pyro_namespace():
@@ -92,7 +92,7 @@ def test_ordered_logit_proxies_resolve_in_pyro_namespace():
 
 def test_ordered_logit_eval_outcome_raises_not_implemented():
     with pytest.raises(NotImplementedError):
-        OrderedLogitNCats.eval_outcome_for_endpoint(data={}, params={})
+        OrderedLogit.eval_outcome_for_endpoint(data={}, params={})
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ def test_ordered_logit_eval_outcome_raises_not_implemented():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize('cls', [CreditModelNCats, OrderedLogitNCats])
+@pytest.mark.parametrize('cls', [CreditModel, OrderedLogit])
 def test_subclass_passes_abc_contract(cls):
     """Constructor signature: (dit, dcati, x_formula='~ time - 1', *, seed=123)."""
     from model import Model

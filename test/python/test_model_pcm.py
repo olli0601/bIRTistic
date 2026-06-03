@@ -1,5 +1,5 @@
 """
-Step 3 of the OO-port refactor: :class:`PartialCreditModelNCats` must
+Step 3 of the OO-port refactor: :class:`PartialCreditModel` must
 return bit-identical outputs to the existing free-function pipeline in
 :mod:`fit_partial_credit_model` for every blueprint method.
 
@@ -22,7 +22,7 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from model_pcm import PartialCreditModelNCats, _model_namespace
+from model_pcm import PartialCreditModel, _model_namespace
 from fit_interim import _stack_posterior_theta  # legacy version, hard-coded
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
@@ -47,7 +47,7 @@ def draws():
 
 @pytest.fixture(scope='module')
 def model(dit, xi):
-    return PartialCreditModelNCats(dit=dit, dcati=xi,
+    return PartialCreditModel(dit=dit, dcati=xi,
                                    x_formula="~ time - 1", seed=123)
 
 

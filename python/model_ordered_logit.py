@@ -1,5 +1,5 @@
 """
-:class:`OrderedLogitNCats` -- the IRT partial-credit model subclass of
+:class:`OrderedLogit` -- the IRT partial-credit model subclass of
 :class:`model._IRTModel`. All PCM-specific math, the stan-data builder,
 and the three Stan/Pyro fit drivers are now methods on this class
 (previously free functions in ``fit_partial_credit_model.py``, deleted
@@ -63,7 +63,7 @@ def _model_namespace():
     return _MODEL_NS
 
 
-class OrderedLogitNCats(IRTModel):
+class OrderedLogit(IRTModel):
     """Ordered logit (ncats) IRT model. Implements every :class:`model.Model`
     blueprint method inline; ``_module`` is unset so the :class:`_IRTModel`
     mixin's dict dispatch is bypassed."""
@@ -116,7 +116,7 @@ class OrderedLogitNCats(IRTModel):
         src/numpyro/ordered_logit_ncats_v260413.pyro and update this method
         once MM / SMC are needed for OL."""
         raise NotImplementedError(
-            "OrderedLogitNCats does not yet expose"
+            "OrderedLogit does not yet expose"
             " get_ordered_prob_of_ordered_logit_ncats. Add it to"
             " ordered_logit_ncats_v260413.pyro before using MM / SMC."
         )

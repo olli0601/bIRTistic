@@ -12,7 +12,7 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from model_pcm import PartialCreditModelNCats
+from model_pcm import PartialCreditModel
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -33,7 +33,7 @@ def reference_endpoints():
 
 def test_get_endpoints_matches_reference(interim_inputs, reference_endpoints):
     dcati, dit, zarr_path = interim_inputs
-    model = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    model = PartialCreditModel(dit=dit, dcati=dcati)
     pos = model.get_endpoints(
         draws_file=zarr_path,
         categorical_threshold=2,
