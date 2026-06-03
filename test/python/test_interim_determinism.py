@@ -22,14 +22,14 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
+from interim_helpers import _load_ypred, get_interim_z_from_ypredi
 from fit_interim import (
-    _load_ypred,
-    get_interim_z_from_ypredi,
     get_interim_endpt_and_w_from_poi,
     fit_interim_regress_H1x_on_wz,
     fit_interim_regress_endptx_on_wz,
-    fit_interim_importance_sampling_of_posterior_xz_from_x,
+    fit_interim_IS_reweight,
 )
+from model_pcm import PartialCreditModelNCats
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -98,8 +98,10 @@ def test_get_interim_z_from_ypredi_changes_with_seed(xi):
 
 
 def _build_wa(xi, dit, draws, seed):
+    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+                                    x_formula="~ time - 1", seed=seed)
     return get_interim_endpt_and_w_from_poi(
-        xi=xi, dit=dit, draws=draws, draws_file=_DRAWS_FILE,
+        model=model, draws=draws, draws_file=_DRAWS_FILE,
         interim_m=_INTERIM_M, pps_z_total=_PPS_Z_TOTAL,
         pps_H1_def=0.5, pps_ProbH1_thresh=0.89,
         categorical_threshold=2, seed=seed,
@@ -158,13 +160,15 @@ def test_fit_interim_IS_reweight_deterministic(xi, dit, draws):
     zi = get_interim_z_from_ypredi(
         xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
-    p_a, _ = fit_interim_importance_sampling_of_posterior_xz_from_x(
-        xi=xi, zi=zi, dit=dit, draws=draws,
+    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+                                    x_formula="~ time - 1", seed=_SEED)
+    p_a, _ = fit_interim_IS_reweight(
+        model=model, zi=zi, draws=draws,
         pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
         save_to_file=False, verbose=False,
     )
-    p_b, _ = fit_interim_importance_sampling_of_posterior_xz_from_x(
-        xi=xi, zi=zi, dit=dit, draws=draws,
+    p_b, _ = fit_interim_IS_reweight(
+        model=model, zi=zi, draws=draws,
         pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
         save_to_file=False, verbose=False,
     )

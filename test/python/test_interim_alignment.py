@@ -24,11 +24,10 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from fit_interim import (
-    _load_ypred,
-    get_interim_endpt_and_w_from_poi,
-)
+from interim_helpers import _load_ypred
+from fit_interim import get_interim_endpt_and_w_from_poi
 from get_endpoints import get_endpoints_per_draw
+from model_pcm import PartialCreditModelNCats
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -103,8 +102,10 @@ def test_load_ypred_random_subset_uses_rng(raw_ypred):
 
 @pytest.fixture(scope='module')
 def wa(xi, dit, draws):
+    model = PartialCreditModelNCats(dit=dit, dcati=xi,
+                                    x_formula="~ time - 1", seed=123)
     return get_interim_endpt_and_w_from_poi(
-        xi=xi, dit=dit, draws=draws, draws_file=_DRAWS_FILE,
+        model=model, draws=draws, draws_file=_DRAWS_FILE,
         interim_m=10, pps_z_total=20,
         pps_H1_def=0.5, pps_ProbH1_thresh=0.89,
         categorical_threshold=2, seed=123,

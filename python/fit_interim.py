@@ -22,16 +22,14 @@ from scipy.special import softmax
 import statsmodels.api as sm
 
 from get_endpoints import get_endpoints_per_draw
-from fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_pyrosvi,
-    _fit_partial_credit_make_stan_data,
-    eval_loglik_partial_credit_model_ncats,
-    eval_loglik_partial_credit_model_ncats_with_annealing,
-    get_prior_of_partial_credit_model_ncats,
-    get_ordered_prob_of_partial_credit_model_ncats,
-)
-# Pure-pandas helpers moved to interim_helpers.py (OO-port step 1).
-# Re-exported here for backward compatibility -- one cycle, removed in step 8.
+# Legacy free-function callable still imported for fit_interim_MC_of_posterior_xz's
+# `fitting_method=` default; the MC path predates the OO refactor and pickles
+# the callable into spawn workers. All other algorithms route through a Model
+# instance instead.
+from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+# Pure-pandas helpers live in interim_helpers.py (OO-port step 1). Re-exported
+# here for the convenience of the interim-analysis scripts, which already had
+# imports against this module before the refactor.
 from interim_helpers import (
     _load_ypred,
     get_interim_x,
@@ -201,88 +199,6 @@ def fit_interim_MC_of_posterior_xz(
     return p_h1_xz
 
 
-def fit_interim_importance_sampling_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
-    zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    draws=None,
-    draws_file: Optional[str] = None,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    x_formula: str = "~ time - 1",
-    eval_loglik=eval_loglik_partial_credit_model_ncats,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
-):
-    """
-    Importance-sampling estimate of p(H_1 | x, z_s) for fixed x (Case A).
-
-    Instead of refitting the model for each future dataset z_s (cf.
-    :func:`fit_interim_MC_of_posterior_xz`), reuse the existing x-posterior
-    draws ``theta_k ~ p(theta | x)`` and reweight them by the likelihood of the
-    future data (dev/amortised_decision_making.md, Step 7 Case A):
-
-        w_k^(s)  ∝ p(z_s | theta_k)
-        p(H_1 | x, z_s)_item ≈ (sum_k w_k^(s) 1[ratio_{k,item} > pps_H1_def])
-                               / (sum_k w_k^(s))
-
-    The per-draw improvement ratio (the H_1 basis) comes from
-    :func:`get_endpoints_per_draw` on the x-fit; the IS weights come from
-    ``eval_loglik``. Each z_s participant is a resampled x participant
-    (``zi['src_pid']``), so its latent factor exists in ``theta_k``.
-
-    Parameters
-    ----------
-    xi : pd.DataFrame
-        Interim cohort the x-posterior was fit on.
-    zi : pd.DataFrame
-        Future-data block from :func:`get_interim_z_from_ypredi` (must carry the
-        ``src_pid`` column + ``ypred_0 .. ypred_{pps_z_total-1}``).
-    dit : pd.DataFrame
-        Item metadata.
-    draws : arviz.InferenceData, optional
-        In-memory x-fit posterior (``fit['draws']``). Provide this or ``draws_file``.
-    draws_file : str, optional
-        Path to the x-fit zarr. Provide this or ``draws``.
-    pps_z_total, pps_H1_def, pps_ProbH1_thresh, categorical_threshold, x_formula
-        As in :func:`fit_interim_MC_of_posterior_xz`.
-    eval_loglik : callable, default ``eval_loglik_partial_credit_model_ncats``
-        ``(stan_data, params) -> array[N_total]`` pointwise log-likelihood used
-        for the IS weights (swap for the credit / ordered-logit equivalents).
-    output_file_prefix : str, optional
-        If given and ``save_to_file``, writes ``{prefix}_p_h1_xz_IS.pkl`` and
-        ``{prefix}_is_perf.csv``.
-
-    Returns
-    -------
-    (p_h1_xz, is_perf) : tuple of pd.DataFrame
-        - ``p_h1_xz``: one row per (item, sample s) with ``p_h1_xz``, ``s`` and
-          the recorded ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
-        - ``is_perf``: one row per sample s with IS diagnostics ``N`` (number of
-          particles), ``ess`` (effective sample size = 1/sum(w^2)),
-          ``ess_over_n`` (ESS / N) and ``ew2`` (the second-order weight moment
-          E(w^2) = mean(w^2) — the weight-degeneracy diagnostic).
-    """
-    # Back-compat shim: route through the model-aware fit_interim_IS_reweight.
-    # The pre-refactor function accepted (xi, dit, x_formula, eval_loglik) as
-    # arguments; the model now carries that state. Instantiate a default PCM
-    # model from the supplied (xi, dit). To remove in OO-port step 8.
-    from model_pcm import PartialCreditModelNCats
-    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
-    return fit_interim_IS_reweight(
-        model=model, zi=zi,
-        draws=draws, draws_file=draws_file,
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=categorical_threshold,
-        output_file_prefix=output_file_prefix,
-        save_to_file=save_to_file, verbose=verbose,
-    )
-
-
 def fit_interim_IS_reweight(
     model,
     zi: pd.DataFrame,
@@ -412,9 +328,9 @@ def _stack_posterior_theta(draws) -> dict:
     }
 
 
-def _interim_make_x_stan(xi: pd.DataFrame, dit: pd.DataFrame, x_formula: str) -> dict:
+def _interim_make_x_stan(model) -> dict:
     """stan_data for the x cohort (the full p(x | theta) factor)."""
-    x_dcati = xi.copy()
+    x_dcati = model.dcati.copy()
     if 'y_stan' not in x_dcati:
         x_dcati['y_stan'] = x_dcati['y'] + 1
     x_dcati = x_dcati.sort_values(
@@ -422,12 +338,10 @@ def _interim_make_x_stan(xi: pd.DataFrame, dit: pd.DataFrame, x_formula: str) ->
     ).reset_index(drop=True)
     x_dcati['oid'] = np.arange(1, len(x_dcati) + 1)
     x_dcati['oidt'] = x_dcati.groupby('item_type').cumcount() + 1
-    return _fit_partial_credit_make_stan_data(
-        dit=dit, dcati=x_dcati, x_formula=x_formula, verbose=False,
-    )
+    return model.make_stan_data(x_dcati, model.x_formula)
 
 
-def _interim_make_z_stan(zi: pd.DataFrame, dit: pd.DataFrame, s_idx: int, x_formula: str) -> dict:
+def _interim_make_z_stan(model, zi: pd.DataFrame, s_idx: int) -> dict:
     """stan_data for future-data sample s (mirrors the IS function)."""
     zcol = f'ypred_{s_idx}'
     z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
@@ -437,13 +351,11 @@ def _interim_make_z_stan(zi: pd.DataFrame, dit: pd.DataFrame, s_idx: int, x_form
     ).reset_index(drop=True)
     z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
     z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
-    return _fit_partial_credit_make_stan_data(
-        dit=dit, dcati=z_dcati, x_formula=x_formula, verbose=False,
-    )
+    return model.make_stan_data(z_dcati, model.x_formula)
 
 
 def _ratio_per_draw_from_params(theta_batch, x_stan, xi, dit, categorical_threshold,
-                                ordered_prob_eval=get_ordered_prob_of_partial_credit_model_ncats):
+                                ordered_prob_eval):
     """Per-(draw, item) improvement ratio for an arbitrary batch of parameter sets.
 
     Evaluates ``ordered_prob_by_cat_qu_fit`` for every draw in ``theta_batch``
@@ -459,88 +371,6 @@ def _ratio_per_draw_from_params(theta_batch, x_stan, xi, dit, categorical_thresh
         categorical_threshold=categorical_threshold,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
         verbose=False,
-    )
-
-
-def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
-    zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    fitting_method_args: dict,
-    draws=None,
-    draws_file: Optional[str] = None,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
-):
-    """
-    Moment-matching importance sampling (Paananen et al. 2021, mean-match step)
-    for p(H_1 | x, z) at a fixed x (Case A), as a *mitigation experiment* for the
-    weight degeneracy of
-    :func:`fit_interim_importance_sampling_of_posterior_xz_from_x`.
-
-    Method. Work in a "match space" ``u`` where the ``positive_params`` are
-    log-transformed and everything else is identity. Approximate the proposal
-    p(theta | x) by a diagonal Gaussian ``q(u) = N(u; mu_p, diag sd_p^2)`` fit to
-    the x-posterior draws (this Gaussian approximation is intrinsic to applying
-    MMIS without the exact variational density). The match-space weights are
-
-        log w(u) = logprior(theta(u)) + loglik_x(theta(u)) + loglik_z(theta(u))
-                   + sum(u_positive)          # Jacobian of the log-transform
-                   - logq(u)
-
-    The mean-match step shifts every draw by ``(mu_weighted - mu_proposal)`` and
-    recomputes the weights. **Finding:** when the base weights already collapse
-    onto a single draw (early interims), ``mu_weighted`` *is* that draw, so the
-    shift only piles the particles onto it and ESS does not recover.
-
-    Parameters
-    ----------
-    fitting_method_args : dict
-        Method tuning (required; specify at the call site). Defaults are applied
-        for any missing keys:
-        ``x_formula`` (design formula, default ``"~ time - 1"``),
-        ``eval_loglik`` (pointwise log-lik callable, default
-        ``eval_loglik_partial_credit_model_ncats``),
-        ``logprior`` (callable ``params -> scalar``; default the partial credit
-        prior ``get_prior_of_partial_credit_model_ncats``),
-        ``positive_params`` (params log-transformed into match space, default
-        ``('loadings_questions_m1',)``).
-
-    Returns
-    -------
-    (p_h1_xz, mm) : tuple of pd.DataFrame
-        - ``p_h1_xz``: one row per (item, sample s) with the mean-match estimate
-          ``p_h1_xz`` = sum_k w1_k 1[ratio(theta*_k) > pps_H1_def] / sum_k w1_k,
-          where ``theta*`` are the shifted draws (so the improvement ratio is
-          re-evaluated on the shifted params, not the frozen x-ratio), plus
-          ``s`` / ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
-        - ``mm``: one row per s with ``N``, ``ess_over_n_base``,
-          ``ess_over_n_meanmatch``, ``basew_vs_exact_corr`` (Pearson corr of the
-          diagonal-Gaussian base log-weights against the exact IS log-weights
-          ``loglik_z`` — a check that the Gaussian proposal approximation is sound)
-          and ``mins`` (wall-clock minutes for the whole call). ESS and E(w^2)
-          derive from ``ess_over_n_* `` and ``N``: ess = ess_over_n*N,
-          E(w^2) = 1/(N^2 * ess_over_n).
-    """
-    # Back-compat shim: route through the model-aware
-    # fit_interim_IS_moment_matching. To remove in OO-port step 8.
-    from model_pcm import PartialCreditModelNCats
-    x_formula = fitting_method_args.get('x_formula', "~ time - 1")
-    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
-    return fit_interim_IS_moment_matching(
-        model=model, zi=zi,
-        fitting_method_args=fitting_method_args,
-        draws=draws, draws_file=draws_file,
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=categorical_threshold,
-        output_file_prefix=output_file_prefix,
-        save_to_file=save_to_file, verbose=verbose,
     )
 
 
@@ -584,7 +414,7 @@ def fit_interim_IS_moment_matching(
 
     theta = model.stack_posterior_theta(draws)
     n_draw = int(next(iter(theta.values())).shape[0])
-    x_stan = _interim_make_x_stan(model.dcati, model.dit, model.x_formula)
+    x_stan = _interim_make_x_stan(model)
 
     # Build the match-space matrix Theta_u (K, D) and its block layout.
     layout, blocks = [], []
@@ -617,7 +447,7 @@ def fit_interim_IS_moment_matching(
     # -- is invariant within an interim). Passing z_y as the only traced arg and
     # closing over the rest avoids the 200x JIT-recompile that previously
     # dominated MM wall time at ~10 min/interim.
-    z_stan_template = _interim_make_z_stan(zi, model.dit, 0, model.x_formula)
+    z_stan_template = _interim_make_z_stan(model, zi, 0)
 
     def _logw_inner(u, z_y):
         z_stan_local = {**z_stan_template, 'y': z_y}
@@ -648,7 +478,7 @@ def fit_interim_IS_moment_matching(
     p_h1_xz = []
     t_all = time.time()
     for s_idx in range(pps_z_total):
-        z_stan = _interim_make_z_stan(zi, model.dit, s_idx, model.x_formula)
+        z_stan = _interim_make_z_stan(model, zi, s_idx)
         z_y = jnp.asarray(z_stan['y']).astype(jnp.int32)
 
         logw0 = np.asarray(logw_batch(Theta_u_j, z_y))
@@ -701,81 +531,6 @@ def fit_interim_IS_moment_matching(
         p_h1_xz.to_pickle(f"{output_file_prefix}_p_h1_xz_MM.pkl")
         vprint(f"\nSaved moment-matching diagnostics to: {output_file_prefix}_momentmatch.csv")
     return p_h1_xz, mm
-
-
-def fit_interim_SMC_resample_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
-    zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    fitting_method_args: dict,
-    draws=None,
-    draws_file: Optional[str] = None,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
-):
-    """
-    SMC sampler with resample-move for p(theta | x, z_s) at a fixed x (Case A),
-    the mitigation that actually crosses a large proposal/target gap.
-
-    Bridges ``pi_beta ∝ p(theta|x) p(z_s|theta)^beta`` from beta=0 (the proposal,
-    = the x-posterior draws) to beta=1 (the target). Each tempering step:
-
-      1. adaptively pick the next beta so the tempering ESS ≈ ``ess_frac_target``
-         * ``n_particles`` (bisection on the incremental weights),
-      2. systematic-resample the particles by the incremental weights,
-      3. MOVE them with ``n_move_steps`` MALA (Metropolis-adjusted Langevin) steps
-         invariant to ``pi_beta`` — the relocation that plain reweighting (and
-         moment matching) cannot do. The step size adapts toward ``target_accept``.
-
-    Compile-once kernel. The move is a hand-rolled vectorised MALA in pure JAX
-    with ``beta`` (and the step size) as *traced* arguments, so the gradient/step
-    function compiles once and is reused for every temperature (numpyro's
-    multi-chain NUTS instead vmaps model args inconsistently between init and
-    sample, which a per-temperature beta cannot satisfy). The annealed z-term is
-    evaluated through ``eval_loglik_annealed`` with the temperature in ``params``.
-
-    Notes. Specialised to the partial credit ncats model (priors hard-coded). The
-    move works in a partly-unconstrained space (loadings via ``log``); the
-    ``latent_factor_unit`` prior uses the plain ``Normal(0, 1/sqrt(1-1/U))``
-    ZeroSumNormal marginal, dropping only the (here immaterial) sum-to-zero
-    identifiability.
-
-    Parameters
-    ----------
-    fitting_method_args : dict
-        Method tuning (required; specify at the call site). Defaults are applied
-        for any missing keys: ``s_idx`` (future-data
-        sample, default 0), ``n_particles`` (default 128), ``ess_frac_target``
-        (default 0.5), ``n_move_steps`` (MALA steps per temperature, default 20),
-        ``init_step_size`` (default 0.02), ``target_accept`` (default 0.574),
-        ``max_temps`` (default 150), ``x_formula`` (default ``"~ time - 1"``),
-        ``eval_loglik`` (default ``eval_loglik_partial_credit_model_ncats``),
-        ``eval_loglik_annealed`` (default
-        ``eval_loglik_partial_credit_model_ncats_with_annealing``),
-        ``seed`` (default 123).
-
-    Returns
-    -------
-    (schedule, particles) : (pd.DataFrame, dict)
-        - ``schedule``: one row per tempering step with ``temp``, ``beta``,
-          ``d_beta``, ``ess_frac_temper`` and ``move_secs``.
-        - ``particles``: the final move-step particles (dict of jnp arrays,
-          shape ``(n_particles, *event)``), approximately ~ pi_beta at the
-          last beta reached.
-    """
-    # Back-compat shim: route through the model-aware fit_interim_SMC_resample.
-    # To remove in OO-port step 8.
-    from model_pcm import PartialCreditModelNCats
-    x_formula = fitting_method_args.get('x_formula', "~ time - 1") if fitting_method_args else "~ time - 1"
-    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
-    return fit_interim_SMC_resample(
-        model=model, zi=zi,
-        fitting_method_args=fitting_method_args,
-        draws=draws, draws_file=draws_file,
-        output_file_prefix=output_file_prefix,
-        save_to_file=save_to_file, verbose=verbose,
-    )
 
 
 def fit_interim_SMC_resample(
@@ -841,8 +596,8 @@ def fit_interim_SMC_resample(
     L = int(theta['skill_thresholds'].shape[1])
     Ld = int(theta['loadings_questions_m1'].shape[1])
 
-    x_stan = _interim_make_x_stan(model.dcati, model.dit, model.x_formula)
-    z_stan = _interim_make_z_stan(zi, model.dit, s_idx, model.x_formula)
+    x_stan = _interim_make_x_stan(model)
+    z_stan = _interim_make_z_stan(model, zi, s_idx)
     pcm_keys = ('latent_factor_unit', 'latent_factor_beta',
                 'skill_thresholds', 'loadings_questions_m1')
 
@@ -984,12 +739,22 @@ def _fit_interim_SMC_one_sample(
     uniformly weighted, so p(H_1 | x, z_s) is the fraction with ratio > pps_H1_def.
     """
     fma = {**fitting_method_args, 's_idx': s_idx}
-    schedule, particles = fit_interim_SMC_resample_of_posterior_xz_from_x(
-        xi=xi, zi=zi, dit=dit, draws_file=draws_file,
+    # Build a PCM model from (xi, dit). Spawn workers re-import every module
+    # anyway, so the lazy import keeps the helper picklable.
+    from model_pcm import PartialCreditModelNCats
+    model = PartialCreditModelNCats(
+        dit=dit, dcati=xi,
+        x_formula=fma.get('x_formula', "~ time - 1"),
+    )
+    schedule, particles = fit_interim_SMC_resample(
+        model=model, zi=zi, draws_file=draws_file,
         fitting_method_args=fma, save_to_file=False, verbose=verbose,
     )
-    x_stan = _interim_make_x_stan(xi, dit, fma.get('x_formula', "~ time - 1"))
-    ratio = _ratio_per_draw_from_params(particles, x_stan, xi, dit, categorical_threshold)
+    x_stan = _interim_make_x_stan(model)
+    ratio = _ratio_per_draw_from_params(
+        particles, x_stan, model.dcati, model.dit, categorical_threshold,
+        ordered_prob_eval=model.eval_outcome_for_endpoint,
+    )
     sample_p = (
         ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
         .groupby(['item_label', 'item_type', 'item_high_label'])['ind']
@@ -1136,27 +901,19 @@ def fit_interim_SMC_PPS(
 
 
 def get_interim_endpt_and_w_from_poi(
-    xi: pd.DataFrame = None,
-    dit: pd.DataFrame = None,
-    draws=None,
-    draws_file: str = None,
-    interim_m: int = None,
-    pps_z_total: int = None,
+    model,
+    draws,
+    draws_file: str,
+    interim_m: int,
+    pps_z_total: int,
     pps_H1_def: float = 0.5,
     pps_ProbH1_thresh: float = 0.89,
     categorical_threshold: int = 3,
     seed: int = 123,
-    model=None,
 ) -> pd.DataFrame:
     """
     Per-(item, draw) endpoint ratio from the x-posterior + per-(item, draw)
     summary ``W(z^(s))_t`` for the Strong-Oakley regression training set.
-
-    Accepts either a :class:`Model` instance (``model=`` kwarg) or the legacy
-    free-function arguments ``xi`` + ``dit``. The model-aware path is the
-    forward-compatible call site; the (xi, dit) path is a one-cycle shim that
-    instantiates a default :class:`PartialCreditModelNCats` -- removed in
-    OO-port step 8.
 
     For each draw s = 0..pps_z_total-1 (in posterior order; see
     :func:`_load_ypred` with ``keep_order=True``):
@@ -1186,16 +943,6 @@ def get_interim_endpt_and_w_from_poi(
         w_baseline, w_endline, w_diff, w_ratio,
         pps_ratio_x, pps_H1_x``.
     """
-    # Resolve model vs (xi, dit) shim path.
-    if model is None:
-        if xi is None or dit is None:
-            raise ValueError(
-                "Pass either `model=` or both `xi=` and `dit=`."
-            )
-        from model_pcm import PartialCreditModelNCats
-        model = PartialCreditModelNCats(dit=dit, dcati=xi)
-    # `xi` / `dit` (whether passed or sourced from model) are now always
-    # accessible via `model.dcati` / `model.dit`.
     xi = model.dcati
     dit = model.dit
 
