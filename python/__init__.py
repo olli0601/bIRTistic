@@ -17,7 +17,6 @@ from .model_pcm import PartialCreditModelNCats
 from .model_credit import CreditModelNCats
 from .model_ordered_logit import OrderedLogitNCats
 from .model_binomial import BinomialModel
-from .get_endpoints import get_endpoints
 
 __all__ = [
     'read_data_colombia',
@@ -26,7 +25,6 @@ __all__ = [
     'CreditModelNCats',
     'OrderedLogitNCats',
     'BinomialModel',
-    'get_endpoints',
 ]
 
 # Package will be populated as modules are ported from R

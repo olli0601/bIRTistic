@@ -65,7 +65,6 @@ warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
 from model_ordered_logit import OrderedLogitNCats
-from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
 print("✓ Imports successful")
@@ -228,9 +227,7 @@ dmeta_col = tmp['dmeta']
 
 # Get endpoints for HMC
 print("\nComputing HMC endpoints...")
-endpoints_hmc = get_endpoints(
-    dp1=dp1_col,
-    dit=dit_col,
+endpoints_hmc = _ol.get_endpoints(
     draws_file=f"{output_file_prefix_hmc}_draws.zarr",
     categorical_threshold=3,
     endpoint_type="items"
@@ -239,9 +236,7 @@ endpoints_hmc['method'] = 'HMC'
 
 # Get endpoints for ADVI
 print("Computing ADVI endpoints...")
-endpoints_advi = get_endpoints(
-    dp1=dp1_col,
-    dit=dit_col,
+endpoints_advi = _ol.get_endpoints(
     draws_file=f"{output_file_prefix_advi}_draws.zarr",
     param_name="ordered_prob_by_cat_qu_pr",
     categorical_threshold=3,

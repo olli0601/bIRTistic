@@ -1,4 +1,5 @@
-"""Tests for python/get_endpoints.py."""
+"""Tests for IRTModel.get_endpoints (formerly the
+``get_endpoints`` free function in get_endpoints.py)."""
 
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from get_endpoints import get_endpoints
+from model_pcm import PartialCreditModelNCats
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -32,9 +33,8 @@ def reference_endpoints():
 
 def test_get_endpoints_matches_reference(interim_inputs, reference_endpoints):
     dcati, dit, zarr_path = interim_inputs
-    pos = get_endpoints(
-        dp1=dcati,
-        dit=dit,
+    model = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    pos = model.get_endpoints(
         draws_file=zarr_path,
         categorical_threshold=2,
         endpoint_type='items',

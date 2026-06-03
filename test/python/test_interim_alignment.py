@@ -26,7 +26,6 @@ if str(_python_dir) not in sys.path:
 
 from interim_helpers import _load_ypred
 from fit_interim import get_interim_endpt_and_w_from_poi
-from get_endpoints import get_endpoints_per_draw
 from model_pcm import PartialCreditModelNCats
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
@@ -117,9 +116,9 @@ def test_wa_pps_ratio_x_matches_get_endpoints_per_draw(wa, xi, dit, draws):
     independently-computed get_endpoints_per_draw ratio at the same draw
     index. Catches any permutation of the posterior-draw axis between the
     two pipelines."""
-    x_ratio = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
-        categorical_threshold=2,
+    _ref_model = PartialCreditModelNCats(dit=dit, dcati=xi)
+    x_ratio = _ref_model.get_endpoints_per_draw(
+        draws=draws, categorical_threshold=2,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
         verbose=False,
     ).rename(columns={'ratio': 'pps_ratio_x_truth'})

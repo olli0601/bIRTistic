@@ -51,7 +51,6 @@ warnings.filterwarnings('ignore')
 
 from data_loading import read_data_colombia
 from model_pcm import PartialCreditModelNCats
-from get_endpoints import get_endpoints, get_endpoints_per_draw
 from utils import _futurama_palette, _build_interim_dcati
 
 print("✓ Imports successful")
@@ -238,9 +237,7 @@ for i, row in di.iterrows():
     interim_dcati[interim_id] = dcati
     interim_zarr[interim_id] = zarr_path
 
-    pos = get_endpoints(
-        dp1=dcati,
-        dit=dit,
+    pos = _pcm.get_endpoints(
         draws_file=zarr_path,
         categorical_threshold=3,
         endpoint_type='items',
@@ -362,9 +359,8 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_zarr.items():
     dcati = interim_dcati[interim_id]
-    per_draw = get_endpoints_per_draw(
-        dcati=dcati,
-        dit=dit,
+    _pcm = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=3,
         endpoint_type='items',

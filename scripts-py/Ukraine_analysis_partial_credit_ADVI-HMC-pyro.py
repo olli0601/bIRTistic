@@ -65,7 +65,6 @@ warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModelNCats
-from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
 print("✓ Imports successful")
@@ -381,8 +380,6 @@ endpoints_by_method = {}
 for method, cfg in method_cfg.items():
     print(f"\nComputing {method} endpoints...")
     ep_kwargs = {
-        'dp1': dp1_ukr,
-        'dit': dit_ukr,
         'draws_file': cfg['draws_file'],
         'categorical_threshold': categorical_threshold,
         'endpoint_type': 'items',
@@ -390,7 +387,7 @@ for method, cfg in method_cfg.items():
     if cfg['param_name'] is not None:
         ep_kwargs['param_name'] = cfg['param_name']
 
-    pos = get_endpoints(**ep_kwargs)
+    pos = _pcm.get_endpoints(**ep_kwargs)
     pos['method'] = method
     endpoints_by_method[method] = pos
 

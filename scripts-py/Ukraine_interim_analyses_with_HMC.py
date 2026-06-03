@@ -53,7 +53,6 @@ from model_pcm import PartialCreditModelNCats
 # `fitting_method=` callable interface (one per spawn worker). The OO API
 # would require pickling a Model instance into each worker; deferred.
 from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
-from get_endpoints import get_endpoints, get_endpoints_per_draw
 from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
 from utils import _futurama_palette
 
@@ -327,9 +326,7 @@ for i in range(len(di)):
     interim_x_dict[interim_id] = dcati
     interim_x_draws_dict[interim_id] = zarr_path
 
-    pos = get_endpoints(
-        dp1=dcati,
-        dit=dit,
+    pos = _pcm.get_endpoints(
         draws=fit['draws'],
         categorical_threshold=2,
         endpoint_type='items',
@@ -452,9 +449,8 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_x_draws_dict.items():
     dcati = interim_x_dict[interim_id]
-    per_draw = get_endpoints_per_draw(
-        dcati=dcati,
-        dit=dit,
+    _pcm = PartialCreditModelNCats(dit=dit, dcati=dcati)
+    per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=2,
         endpoint_type='items',

@@ -22,7 +22,6 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from get_endpoints import get_endpoints_per_draw
 from model_pcm import PartialCreditModelNCats, _model_namespace
 from fit_interim import _stack_posterior_theta  # legacy version, hard-coded
 
@@ -147,22 +146,16 @@ def test_eval_outcome_matches_pyro_namespace(model, stan_data, params_one):
 # ---------------------------------------------------------------------------
 
 
-def test_endpoints_per_draw_matches_shim(model, dit, xi, draws):
-    free = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
-        categorical_threshold=2,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=False,
-    )
-    by_method = model.get_endpoints_per_draw(
+def test_get_endpoints_per_draw_shape(model, draws):
+    """Output schema invariants for the model-aware endpoint method."""
+    out = model.get_endpoints_per_draw(
         draws=draws, categorical_threshold=2,
         endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
     )
-    pd.testing.assert_frame_equal(
-        free.reset_index(drop=True),
-        by_method.reset_index(drop=True),
-        check_dtype=True, check_exact=True,
-    )
+    expected_cols = {'item_label', 'item_type', 'item_high_label',
+                     'draw', 'ratio', 'Baseline', 'Endline', 'diff'}
+    assert expected_cols.issubset(set(out.columns))
+    assert out['ratio'].notna().any()
 
 
 # ---------------------------------------------------------------------------
