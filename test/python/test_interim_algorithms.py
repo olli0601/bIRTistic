@@ -1,0 +1,88 @@
+"""
+Step 4 of the OO-port refactor: each interim algorithm in
+``fit_interim.py`` gains a model-aware form and a back-compat shim. The
+two forms must agree bit-for-bit on the fixture cohort.
+
+Algorithms covered (incrementally as step 4 progresses):
+- ``fit_interim_IS_reweight``  (vs ``fit_interim_importance_sampling_of_posterior_xz_from_x``)
+- TODO: ``fit_interim_IS_moment_matching``,
+        ``fit_interim_SMC_resample``,
+        ``fit_interim_SMC_PPS``,
+        ``get_interim_endpt_and_w_from_poi``
+"""
+
+import sys
+from pathlib import Path
+
+import arviz as az
+import pandas as pd
+import pytest
+
+_repo_root = Path(__file__).resolve().parents[2]
+_python_dir = _repo_root / 'python'
+if str(_python_dir) not in sys.path:
+    sys.path.insert(0, str(_python_dir))
+
+from fit_interim import (
+    fit_interim_IS_reweight,
+    fit_interim_importance_sampling_of_posterior_xz_from_x,
+    get_interim_z_from_ypredi,
+)
+from model_pcm import PartialCreditModelNCats
+
+_TEST_DATA = _repo_root / 'test' / 'test_data'
+_INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
+_DRAWS_FILE = f"{_INTERIM_STEM}_draws.zarr"
+
+_SEED = 123
+_PPS_Z_TOTAL = 8
+_INTERIM_M = 12
+
+
+@pytest.fixture(scope='module')
+def dit():
+    return pd.read_csv(f"{_INTERIM_STEM}_data_dit.csv")
+
+
+@pytest.fixture(scope='module')
+def xi():
+    return pd.read_csv(f"{_INTERIM_STEM}_data_dp1.csv")
+
+
+@pytest.fixture(scope='module')
+def draws():
+    return az.from_zarr(_DRAWS_FILE)
+
+
+@pytest.fixture(scope='module')
+def zi(xi):
+    return get_interim_z_from_ypredi(
+        xi, _DRAWS_FILE, _INTERIM_M,
+        pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
+    )
+
+
+@pytest.fixture(scope='module')
+def pcm_model(dit, xi):
+    return PartialCreditModelNCats(dit=dit, dcati=xi,
+                                   x_formula="~ time - 1", seed=_SEED)
+
+
+# ---------------------------------------------------------------------------
+# fit_interim_IS_reweight: model-aware vs shim
+# ---------------------------------------------------------------------------
+
+
+def test_IS_reweight_model_matches_shim(pcm_model, dit, xi, zi, draws):
+    p_model, perf_model = fit_interim_IS_reweight(
+        model=pcm_model, zi=zi, draws=draws,
+        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
+        save_to_file=False, verbose=False,
+    )
+    p_shim, perf_shim = fit_interim_importance_sampling_of_posterior_xz_from_x(
+        xi=xi, zi=zi, dit=dit, draws=draws,
+        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
+        save_to_file=False, verbose=False,
+    )
+    pd.testing.assert_frame_equal(p_model, p_shim, check_exact=True)
+    pd.testing.assert_frame_equal(perf_model, perf_shim, check_exact=True)

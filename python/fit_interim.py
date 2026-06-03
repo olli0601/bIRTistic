@@ -266,6 +266,45 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
           ``ess_over_n`` (ESS / N) and ``ew2`` (the second-order weight moment
           E(w^2) = mean(w^2) — the weight-degeneracy diagnostic).
     """
+    # Back-compat shim: route through the model-aware fit_interim_IS_reweight.
+    # The pre-refactor function accepted (xi, dit, x_formula, eval_loglik) as
+    # arguments; the model now carries that state. Instantiate a default PCM
+    # model from the supplied (xi, dit). To remove in OO-port step 8.
+    from model_pcm import PartialCreditModelNCats
+    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
+    return fit_interim_IS_reweight(
+        model=model, zi=zi,
+        draws=draws, draws_file=draws_file,
+        pps_z_total=pps_z_total,
+        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        categorical_threshold=categorical_threshold,
+        output_file_prefix=output_file_prefix,
+        save_to_file=save_to_file, verbose=verbose,
+    )
+
+
+def fit_interim_IS_reweight(
+    model,
+    zi: pd.DataFrame,
+    draws=None,
+    draws_file: Optional[str] = None,
+    pps_z_total: int = 10,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    Importance-sampling estimate of p(H_1 | x, z_s) for fixed x. Model-aware
+    rewrite of :func:`fit_interim_importance_sampling_of_posterior_xz_from_x`
+    that consumes a :class:`Model` instance (which holds dit / dcati / x_formula
+    and exposes ``eval_loglik`` / ``endpoints_per_draw`` /
+    ``stack_posterior_theta`` / ``make_stan_data``).
+
+    Returns the same ``(p_h1_xz, is_perf)`` tuple as the legacy free function.
+    """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
     if draws is None:
@@ -274,30 +313,17 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
     vprint = print if verbose else (lambda *args, **kwargs: None)
 
-    # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k below
-    # (both flatten the (chain, draw) axes in C order).
-    x_ratio = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
+    # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k below.
+    x_ratio = model.endpoints_per_draw(
+        dcati=model.dcati, draws=draws,
         categorical_threshold=categorical_threshold,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=verbose,
+        endpoint_type='items',
     )
     x_ratio = x_ratio.assign(ind=(x_ratio['ratio'] > pps_H1_def).astype(float))
 
-    # Stack the posterior draws each loglik back-end may consume; include only
-    # the params present so partial-credit/credit (skill_thresholds) and
-    # ordered-logit (skill_thresholds_1 / skill_thresholds_incs) all work.
-    post = draws.posterior
-    theta_names = (
-        'latent_factor_unit', 'latent_factor_beta',
-        'skill_thresholds', 'skill_thresholds_1', 'skill_thresholds_incs',
-        'loadings_questions_m1',
-    )
-    theta = {
-        name: jnp.asarray(np.asarray(post[name].values).reshape(-1, *post[name].shape[2:]))
-        for name in theta_names if name in post
-    }
-    n_draw = int(theta['latent_factor_beta'].shape[0])
+    theta = model.stack_posterior_theta(draws)
+    # First param array's leading dim is K (number of posterior draws).
+    n_draw = int(next(iter(theta.values())).shape[0])
 
     p_h1_xz = []
     perf_rows = []
@@ -315,18 +341,13 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
         ).reset_index(drop=True)
         z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
         z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
-        z_stan = _fit_partial_credit_make_stan_data(
-            dit=dit, dcati=z_dcati, x_formula=x_formula, verbose=False,
-        )
+        z_stan = model.make_stan_data(z_dcati, model.x_formula)
 
         # log p(z_s | theta_k) for every draw via vmap over the stacked params.
-        loglik = jax.vmap(lambda p: eval_loglik(z_stan, p))(theta)  # (K, N_total_z)
-        # Normalised weights via the numerically-stable softmax (= exp(logw -
-        # logsumexp(logw))); keeps the numerator in log-space throughout.
+        loglik = jax.vmap(lambda p: model.eval_loglik(z_stan, p))(theta)
+        # Numerically-stable softmax over total-loglik per draw.
         w = np.asarray(jax.nn.softmax(loglik.sum(axis=1)))  # (K,) sums to 1
 
-        # IS performance diagnostics for this sample. ess = 1/sum(w^2);
-        # ew2 = E(w^2) = mean(w^2), the second-order moment of the weights.
         sum_w2 = float(np.sum(w ** 2))
         perf_rows.append({
             's': s_label,
