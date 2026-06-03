@@ -49,11 +49,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+from model_pcm import PartialCreditModelNCats
 from fit_interim import (
     get_interim_x,
     get_interim_z_from_ypredi,
-    fit_interim_SMC_PPS_of_posterior_xz_from_x,
+    fit_interim_SMC_PPS,
 )
 from utils import _futurama_palette
 
@@ -170,19 +170,20 @@ def main():
 
         t0 = time.time()
         interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-        fit_partial_credit_model_ncats_pyrosvi(
-            dit, xi,
+        model = PartialCreditModelNCats(dit=dit, dcati=xi,
+                                        x_formula=x_formula, seed=seed)
+        model.fit_pyro_svi(
             output_file_prefix=interim_prefix,
             algorithm=svi_algorithm,
-            lr=0.01, num_steps=10000, output_samples=4000, seed=seed,
-            x_formula=x_formula, resume=True,
+            lr=0.01, num_steps=10000, output_samples=4000,
+            resume=True,
             with_core_analyses=True, with_additional_analyses=False, verbose=False,
         )
         zi = get_interim_z_from_ypredi(
             xi, f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
         )
-        p, smc_summary = fit_interim_SMC_PPS_of_posterior_xz_from_x(
-            xi=xi, zi=zi, dit=dit,
+        p, smc_summary = fit_interim_SMC_PPS(
+            model=model, zi=zi,
             fitting_method_args=fitting_method_args,
             draws_file=f"{interim_prefix}_draws.zarr",
             pps_z_total=pps_z_total,
