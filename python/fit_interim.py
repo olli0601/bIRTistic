@@ -391,7 +391,7 @@ def fit_interim_IS_moment_matching(
     """
     Mean-match IS for p(H_1 | x, z) (Paananen 2021), model-aware rewrite of
     :func:`fit_interim_IS_moment_matching_of_posterior_xz_from_x`. Reads
-    ``eval_loglik`` / ``logprior`` / ``positive_params`` from ``model``; the
+    ``eval_loglik`` / ``eval_log_prior`` / ``positive_params`` from ``model``; the
     legacy callable overrides in ``fitting_method_args`` are ignored. The
     only honoured ``fitting_method_args`` key is ``x_formula`` (carried on
     ``model.x_formula`` -- kept for shim compatibility).
@@ -409,7 +409,7 @@ def fit_interim_IS_moment_matching(
         fitting_method_args = {}
 
     eval_loglik = model.eval_loglik
-    logprior = model.logprior
+    eval_log_prior = model.eval_log_prior
     positive_params = model.positive_params
 
     theta = model.stack_posterior_theta(draws)
@@ -453,7 +453,7 @@ def fit_interim_IS_moment_matching(
         z_stan_local = {**z_stan_template, 'y': z_y}
         pr = _u_to_params(u)
         jac = u[pos_cols].sum() if pos_cols.size else 0.0
-        lt = (logprior(pr)
+        lt = (eval_log_prior(pr)
               + eval_loglik(x_stan, pr).sum()
               + eval_loglik(z_stan_local, pr).sum()
               + jac)
@@ -546,7 +546,7 @@ def fit_interim_SMC_resample(
     """
     SMC sampler with resample-move for p(theta | x, z_s), model-aware rewrite
     of :func:`fit_interim_SMC_resample_of_posterior_xz_from_x`. Reads
-    ``eval_loglik`` / ``eval_loglik_annealed`` / ``logprior`` /
+    ``eval_loglik`` / ``eval_loglik_annealed`` / ``eval_log_prior`` /
     ``stack_posterior_theta`` from ``model``; the legacy callable overrides in
     ``fitting_method_args`` are ignored. The PCM-specific param layout
     (latent_factor_unit / latent_factor_beta / skill_thresholds /
@@ -587,7 +587,7 @@ def fit_interim_SMC_resample(
 
     eval_loglik = model.eval_loglik
     eval_loglik_annealed = model.eval_loglik_annealed
-    logprior = model.logprior
+    eval_log_prior = model.eval_log_prior
 
     theta = model.stack_posterior_theta(draws)
     n_draw = int(theta['latent_factor_beta'].shape[0])
@@ -617,7 +617,7 @@ def fit_interim_SMC_resample(
 
     def _logpost(u, beta):
         pr = _u_to_params(u)
-        return (logprior(pr)
+        return (eval_log_prior(pr)
                 + eval_loglik(x_stan, pr).sum()
                 + eval_loglik_annealed(z_stan, {**pr, 'temperature': beta}).sum()
                 + u[sl_l].sum())          # Jacobian of the log-transform

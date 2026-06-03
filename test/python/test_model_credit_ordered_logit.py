@@ -42,7 +42,7 @@ def test_credit_module_dispatch_resolves_to_free_functions():
     assert _CREDIT_MODULE['stanhmc'] is fit_credit_model.fit_credit_model_ncats_stanhmc
     assert _CREDIT_MODULE['eval_loglik'] is fit_credit_model.eval_loglik_credit_model_ncats
     assert _CREDIT_MODULE['eval_loglik_annealed'] is fit_credit_model.eval_loglik_credit_model_ncats_with_annealing
-    assert _CREDIT_MODULE['logprior'] is fit_credit_model.get_prior_of_credit_model_ncats
+    assert _CREDIT_MODULE['eval_log_prior'] is fit_credit_model.get_prior_of_credit_model_ncats
 
 
 def test_credit_param_names_match_pyro_model():
@@ -81,7 +81,7 @@ def test_ordered_logit_module_dispatch_resolves_to_free_functions():
     assert _OL_MODULE['stanhmc'] is fit_ordered_logit_model.fit_ordered_logit_model_ncats_stanhmc
     assert _OL_MODULE['eval_loglik'] is fit_ordered_logit_model.eval_loglik_ordered_logit_ncats
     assert _OL_MODULE['eval_loglik_annealed'] is fit_ordered_logit_model.eval_loglik_ordered_logit_ncats_with_annealing
-    assert _OL_MODULE['logprior'] is fit_ordered_logit_model.get_prior_of_ordered_logit_ncats
+    assert _OL_MODULE['eval_log_prior'] is fit_ordered_logit_model.get_prior_of_ordered_logit_ncats
 
 
 def test_ordered_logit_param_names_match_pyro_model():

@@ -48,7 +48,7 @@ def test_model_fit_closed_form_raises_by_default():
         def fit_stan_hmc(self, output_file_prefix, **kw): return {}
         def eval_loglik(self, data, params): return None
         def eval_loglik_annealed(self, data, params): return None
-        def logprior(self, params): return None
+        def eval_log_prior(self, params): return None
         def eval_outcome_for_endpoint(self, data, params): return None
         def endpoints_per_draw(self, dcati, draws, categorical_threshold,
                                endpoint_type='items'): return None
@@ -72,7 +72,7 @@ def test_stack_posterior_theta_uses_param_names():
         def fit_stan_hmc(self, output_file_prefix, **kw): return {}
         def eval_loglik(self, data, params): return None
         def eval_loglik_annealed(self, data, params): return None
-        def logprior(self, params): return None
+        def eval_log_prior(self, params): return None
         def eval_outcome_for_endpoint(self, data, params): return None
         def endpoints_per_draw(self, dcati, draws, categorical_threshold,
                                endpoint_type='items'): return None

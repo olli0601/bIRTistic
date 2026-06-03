@@ -118,7 +118,7 @@ class Model(ABC):
         ``params['temperature']`` in ``[0, 1]`` scales the loglik."""
 
     @abstractmethod
-    def logprior(self, params: dict) -> jnp.ndarray:
+    def eval_log_prior(self, params: dict) -> jnp.ndarray:
         """Scalar log-prior."""
 
     # ---- 2.6 Endpoint / outcome quantity per draw ----------------------
@@ -184,8 +184,8 @@ class _IRTModel(Model):
     def eval_loglik_annealed(self, data, params):
         return self._module['eval_loglik_annealed'](data, params)
 
-    def logprior(self, params):
-        return self._module['logprior'](params)
+    def eval_log_prior(self, params):
+        return self._module['eval_log_prior'](params)
 
     def eval_outcome_for_endpoint(self, data, params):
         return self._module['eval_outcome'](data, params)

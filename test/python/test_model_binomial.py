@@ -6,7 +6,7 @@ beyond the partial-credit family.
 Tests pin down:
 - closed-form posterior matches the analytic Beta(a+k, b+n-k) (§3.1 of
   ``dev/amortised_decision_making.md``)
-- eval_loglik, eval_loglik_annealed, logprior, eval_outcome_for_endpoint
+- eval_loglik, eval_loglik_annealed, eval_log_prior, eval_outcome_for_endpoint
   compute the correct closed-form quantities
 - endpoints_per_draw returns the expected (item, draw) shape with
   ratio = p
@@ -106,11 +106,11 @@ def test_eval_loglik_annealed_scales_by_temperature(model):
     assert annealed == pytest.approx(0.5 * base, abs=1e-5)
 
 
-def test_logprior_matches_beta(model):
+def test_eval_log_prior_matches_beta(model):
     import scipy.stats as st
     p = 0.5
     expected = float(st.beta.logpdf(p, _A, _B))
-    actual = float(model.logprior({'p': jnp.asarray(p)}))
+    actual = float(model.eval_log_prior({'p': jnp.asarray(p)}))
     assert actual == pytest.approx(expected, abs=1e-5)
 
 

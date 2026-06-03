@@ -79,7 +79,7 @@ class BinomialModel(Model):
         temperature = params.get('temperature', 1.0)
         return temperature * self.eval_loglik(data, params)
 
-    def logprior(self, params: dict) -> jnp.ndarray:
+    def eval_log_prior(self, params: dict) -> jnp.ndarray:
         return jstats.beta.logpdf(params['p'], self.prior_a, self.prior_b)
 
     # ---- Endpoint / outcome -----------------------------------------------

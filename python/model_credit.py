@@ -41,7 +41,7 @@ _CREDIT_MODULE = {
     'stanhmc':              fit_credit_model_ncats_stanhmc,
     'eval_loglik':          eval_loglik_credit_model_ncats,
     'eval_loglik_annealed': eval_loglik_credit_model_ncats_with_annealing,
-    'logprior':             get_prior_of_credit_model_ncats,
+    'eval_log_prior':             get_prior_of_credit_model_ncats,
     'eval_outcome':         _credit_eval_outcome_not_implemented,
 }
 

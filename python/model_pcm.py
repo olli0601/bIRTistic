@@ -109,7 +109,7 @@ class PartialCreditModelNCats(_IRTModel):
         return _model_namespace()['get_log_likelihood_of_partial_credit_model_ncats_with_annealing'](data, params)
 
     @staticmethod
-    def logprior(params):
+    def eval_log_prior(params):
         """Pointwise log p(theta) for the partial credit ncats priors."""
         return _model_namespace()['get_prior_of_partial_credit_model_ncats'](params)
 

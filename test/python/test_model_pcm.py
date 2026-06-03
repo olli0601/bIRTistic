@@ -60,7 +60,7 @@ def stan_data(model):
 @pytest.fixture(scope='module')
 def params_one(model, draws):
     """A single posterior-draw parameter dict (the first draw) for use
-    with eval_loglik / logprior / eval_outcome."""
+    with eval_loglik / eval_log_prior / eval_outcome."""
     theta = model.stack_posterior_theta(draws)
     return {k: v[0] for k, v in theta.items()}
 
@@ -130,9 +130,9 @@ def test_eval_loglik_annealed_matches_pyro_namespace(model, stan_data, params_on
     np.testing.assert_array_equal(np.asarray(direct), np.asarray(by_method))
 
 
-def test_logprior_matches_pyro_namespace(model, params_one):
+def test_eval_log_prior_matches_pyro_namespace(model, params_one):
     direct = _model_namespace()['get_prior_of_partial_credit_model_ncats'](params_one)
-    by_method = model.logprior(params_one)
+    by_method = model.eval_log_prior(params_one)
     assert float(direct) == float(by_method)
 
 
