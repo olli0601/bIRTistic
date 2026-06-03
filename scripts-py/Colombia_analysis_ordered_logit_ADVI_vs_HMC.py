@@ -64,10 +64,7 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
-from fit_ordered_logit_model import (
-    fit_ordered_logit_model_ncats_stanadvi,
-    fit_ordered_logit_model_ncats_stanhmc,
-)
+from model_ordered_logit import OrderedLogitNCats
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -166,15 +163,18 @@ tmp = os.path.join(dir_out_ol, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 
+# Build the Model instance once; all fit_* calls below dispatch through it.
+_ol = OrderedLogitNCats(
+    dit=dit_col, dcati=dp1_col, x_formula="~ time - 1", seed=seed,
+)
+
 # %%
 
 # =============================================================================
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_ordered_logit_model_ncats_stanhmc(
-    dit_col,
-    dp1_col,
+result_hmc = _ol.fit_stan_hmc(
     output_file_prefix=output_file_prefix_hmc,
     stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     chains=4,
@@ -182,8 +182,6 @@ result_hmc = fit_ordered_logit_model_ncats_stanhmc(
     threads_per_chain=1,
     iter_warmup=500,
     iter_sampling=1000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=False,
     with_additional_analyses=False,
@@ -200,17 +198,13 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_ordered_logit_model_ncats_stanadvi(
-    dit_col,
-    dp1_col,
+result_advi = _ol.fit_stan_svi(
     output_file_prefix=output_file_prefix_advi,
     stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,

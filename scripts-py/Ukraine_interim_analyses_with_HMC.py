@@ -48,6 +48,10 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
+from model_pcm import PartialCreditModelNCats
+# Legacy free-function still needed by fit_interim_MC_of_posterior_xz's
+# `fitting_method=` callable interface (one per spawn worker). The OO API
+# would require pickling a Model instance into each worker; deferred.
 from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
 from get_endpoints import get_endpoints, get_endpoints_per_draw
 from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
@@ -304,16 +308,15 @@ for i in range(len(di)):
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    fit = fit_partial_credit_model_ncats_pyrosvi(
-        dit,
-        dcati,
+    _pcm = PartialCreditModelNCats(
+        dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
+    )
+    fit = _pcm.fit_pyro_svi(
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
         lr=0.01,
         num_steps=10000,
         output_samples=4000,
-        seed=seed,
-        x_formula="~ time - 1",
         resume=True,
         with_core_analyses=True,
         with_additional_analyses=False,

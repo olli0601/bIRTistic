@@ -63,11 +63,7 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
-from fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_stanadvi,
-    fit_partial_credit_model_ncats_stanhmc,
-    fit_partial_credit_model_ncats_pyrosvi,
-)
+from model_pcm import PartialCreditModelNCats
 from get_endpoints import get_endpoints
 from utils import _summarize_ordered_prob_quantiles
 
@@ -176,15 +172,18 @@ tmp = os.path.join(dir_out_pcm, "pcm_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 
+# Build the Model instance once; all fit_* calls below dispatch through it.
+_pcm = PartialCreditModelNCats(
+    dit=dit_col, dcati=dp1_col, x_formula="~ time - 1", seed=seed,
+)
+
 # %%
 
 # =============================================================================
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_partial_credit_model_ncats_stanhmc(
-    dit_col,
-    dp1_col,
+result_hmc = _pcm.fit_stan_hmc(
     output_file_prefix=output_file_prefix_hmc,
     stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
     chains=4,
@@ -192,8 +191,6 @@ result_hmc = fit_partial_credit_model_ncats_stanhmc(
     threads_per_chain=1,
     iter_warmup=500,
     iter_sampling=1000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -210,17 +207,13 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_partial_credit_model_ncats_stanadvi(
-    dit_col,
-    dp1_col,
+result_advi = _pcm.fit_stan_svi(
     output_file_prefix=output_file_prefix_advi,
     stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -236,16 +229,12 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # Model Fitting - SVI AutoDiagonalNormal
 # =============================================================================
 
-result_svi_autodiagnormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_col,
-    dp1_col,
+result_svi_autodiagnormal = _pcm.fit_pyro_svi(
     output_file_prefix=output_file_svi_autodiagnormal,
     algorithm=svi_algorithm_autodiagnormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -261,16 +250,12 @@ print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
 # Model Fitting - SVI AutoLaplaceApproximation
 # =============================================================================
 
-result_svi_autolaplaceapproximation = fit_partial_credit_model_ncats_pyrosvi(
-    dit_col,
-    dp1_col,
+result_svi_autolaplaceapproximation = _pcm.fit_pyro_svi(
     output_file_prefix=output_file_svi_autolaplaceapproximation,
     algorithm=svi_algorithm_autolaplaceapproximation,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -286,16 +271,12 @@ print(f"  Draws file: {output_file_svi_autolaplaceapproximation}_draws.zarr")
 # Model Fitting - SVI AutoMultivariateNormal
 # =============================================================================
 
-result_svi_automultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_col,
-    dp1_col,
+result_svi_automultivariatenormal = _pcm.fit_pyro_svi(
     output_file_prefix=output_file_svi_automultivariatenormal,
     algorithm=svi_algorithm_automultivariatenormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -311,16 +292,12 @@ print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
 # Model Fitting - SVI AutoLowRankMultivariateNormal
 # =============================================================================
 
-result_svi_autolowrankmultivariatenormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_col,
-    dp1_col,
+result_svi_autolowrankmultivariatenormal = _pcm.fit_pyro_svi(
     output_file_prefix=output_file_svi_autolowrankmultivariatenormal,
     algorithm=svi_algorithm_autolowrankmultivariatenormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -336,16 +313,12 @@ print(f"  Draws file: {output_file_svi_autolowrankmultivariatenormal}_draws.zarr
 # Model Fitting - SVI Auto IAF Normal
 # =============================================================================
 
-result_svi_autoiafnormal = fit_partial_credit_model_ncats_pyrosvi(
-    dit_col,
-    dp1_col,
+result_svi_autoiafnormal = _pcm.fit_pyro_svi(
     output_file_prefix=output_file_svi_autoiafnormal,
     algorithm=svi_algorithm_autoiafnormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
