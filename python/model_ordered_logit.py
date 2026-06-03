@@ -28,16 +28,11 @@ from functools import partial
 import pandas as pd
 import numpy as np
 import patsy
-import ggsci  # noqa: F401  (kept to mirror legacy module's import set)
-import matplotlib.colors as mcolors  # noqa: F401
 import arviz as az
 import matplotlib.pyplot as plt
 from cmdstanpy import CmdStanModel
-from plotnine import *  # noqa: F401, F403  (legacy module re-used this)
-from plotnine import options as p9_options  # noqa: F401
 
 import jax
-import jax.numpy as jnp  # noqa: F401
 import numpyro
 from numpyro.infer import SVI, Trace_ELBO
 
