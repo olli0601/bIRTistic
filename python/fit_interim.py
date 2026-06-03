@@ -1136,20 +1136,27 @@ def fit_interim_SMC_PPS(
 
 
 def get_interim_endpt_and_w_from_poi(
-    xi: pd.DataFrame,
-    dit: pd.DataFrame,
-    draws,
-    draws_file: str,
-    interim_m: int,
-    pps_z_total: int,
+    xi: pd.DataFrame = None,
+    dit: pd.DataFrame = None,
+    draws=None,
+    draws_file: str = None,
+    interim_m: int = None,
+    pps_z_total: int = None,
     pps_H1_def: float = 0.5,
     pps_ProbH1_thresh: float = 0.89,
     categorical_threshold: int = 3,
     seed: int = 123,
+    model=None,
 ) -> pd.DataFrame:
     """
     Per-(item, draw) endpoint ratio from the x-posterior + per-(item, draw)
     summary ``W(z^(s))_t`` for the Strong-Oakley regression training set.
+
+    Accepts either a :class:`Model` instance (``model=`` kwarg) or the legacy
+    free-function arguments ``xi`` + ``dit``. The model-aware path is the
+    forward-compatible call site; the (xi, dit) path is a one-cycle shim that
+    instantiates a default :class:`PartialCreditModelNCats` -- removed in
+    OO-port step 8.
 
     For each draw s = 0..pps_z_total-1 (in posterior order; see
     :func:`_load_ypred` with ``keep_order=True``):
@@ -1167,8 +1174,9 @@ def get_interim_endpt_and_w_from_poi(
 
     The actual per-draw endpoint ratio ``pps_ratio_x`` and the H_1 indicator
     ``pps_H1_x = 1{pps_ratio_x > pps_H1_def}`` come from
-    :func:`get_endpoints_per_draw` on the x-fit posterior; per-item summaries
-    ``pps_ProbH1_x`` and the decision indicator ``pps_H1_yes`` are also added.
+    ``model.endpoints_per_draw(...)`` on the x-fit posterior; per-item
+    summaries ``pps_ProbH1_x`` and the decision indicator ``pps_H1_yes`` are
+    also added.
 
     Returns
     -------
@@ -1178,6 +1186,19 @@ def get_interim_endpt_and_w_from_poi(
         w_baseline, w_endline, w_diff, w_ratio,
         pps_ratio_x, pps_H1_x``.
     """
+    # Resolve model vs (xi, dit) shim path.
+    if model is None:
+        if xi is None or dit is None:
+            raise ValueError(
+                "Pass either `model=` or both `xi=` and `dit=`."
+            )
+        from model_pcm import PartialCreditModelNCats
+        model = PartialCreditModelNCats(dit=dit, dcati=xi)
+    # `xi` / `dit` (whether passed or sourced from model) are now always
+    # accessible via `model.dcati` / `model.dit`.
+    xi = model.dcati
+    dit = model.dit
+
     # Load ypred in posterior-draw order so row s == posterior draw s.
     ypred = _load_ypred(draws_file, pps_z_total, np.random.default_rng(seed), keep_order=True)
     S = ypred.shape[0]
@@ -1242,11 +1263,10 @@ def get_interim_endpt_and_w_from_poi(
     wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
 
     # Actual per-draw endpoint ratio from the x-fit posterior.
-    x_ratio = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
+    x_ratio = model.endpoints_per_draw(
+        dcati=xi, draws=draws,
         categorical_threshold=categorical_threshold,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=False,
+        endpoint_type='items',
     )
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
     x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)

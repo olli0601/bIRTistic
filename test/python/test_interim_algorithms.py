@@ -32,6 +32,7 @@ from fit_interim import (
     fit_interim_SMC_resample_of_posterior_xz_from_x,
     fit_interim_SMC_PPS,
     fit_interim_SMC_PPS_of_posterior_xz_from_x,
+    get_interim_endpt_and_w_from_poi,
     get_interim_z_from_ypredi,
 )
 from model_pcm import PartialCreditModelNCats
@@ -158,6 +159,20 @@ def test_SMC_resample_model_matches_shim(pcm_model, dit, xi, zi, draws):
 # ---------------------------------------------------------------------------
 # fit_interim_SMC_PPS: model-aware wrapper vs free function
 # ---------------------------------------------------------------------------
+
+
+def test_get_interim_endpt_and_w_model_matches_shim(pcm_model, dit, xi, draws):
+    """The model-aware call path (model=...) must produce the same wa frame
+    as the legacy positional (xi=..., dit=...) path."""
+    kw = dict(
+        draws=draws, draws_file=_DRAWS_FILE,
+        interim_m=_INTERIM_M, pps_z_total=_PPS_Z_TOTAL,
+        pps_H1_def=0.5, pps_ProbH1_thresh=0.89,
+        categorical_threshold=2, seed=_SEED,
+    )
+    wa_model = get_interim_endpt_and_w_from_poi(model=pcm_model, **kw)
+    wa_shim = get_interim_endpt_and_w_from_poi(xi=xi, dit=dit, **kw)
+    pd.testing.assert_frame_equal(wa_model, wa_shim, check_exact=True)
 
 
 def test_SMC_PPS_model_matches_shim(pcm_model, dit, xi, zi):
