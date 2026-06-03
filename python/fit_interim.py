@@ -764,6 +764,42 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
           shape ``(n_particles, *event)``), approximately ~ pi_beta at the
           last beta reached.
     """
+    # Back-compat shim: route through the model-aware fit_interim_SMC_resample.
+    # To remove in OO-port step 8.
+    from model_pcm import PartialCreditModelNCats
+    x_formula = fitting_method_args.get('x_formula', "~ time - 1") if fitting_method_args else "~ time - 1"
+    model = PartialCreditModelNCats(dit=dit, dcati=xi, x_formula=x_formula)
+    return fit_interim_SMC_resample(
+        model=model, zi=zi,
+        fitting_method_args=fitting_method_args,
+        draws=draws, draws_file=draws_file,
+        output_file_prefix=output_file_prefix,
+        save_to_file=save_to_file, verbose=verbose,
+    )
+
+
+def fit_interim_SMC_resample(
+    model,
+    zi: pd.DataFrame,
+    fitting_method_args: dict,
+    draws=None,
+    draws_file: Optional[str] = None,
+    output_file_prefix: Optional[str] = None,
+    save_to_file: bool = True,
+    verbose: bool = True,
+):
+    """
+    SMC sampler with resample-move for p(theta | x, z_s), model-aware rewrite
+    of :func:`fit_interim_SMC_resample_of_posterior_xz_from_x`. Reads
+    ``eval_loglik`` / ``eval_loglik_annealed`` / ``logprior`` /
+    ``stack_posterior_theta`` from ``model``; the legacy callable overrides in
+    ``fitting_method_args`` are ignored. The PCM-specific param layout
+    (latent_factor_unit / latent_factor_beta / skill_thresholds /
+    loadings_questions_m1) is currently still hard-coded here -- generalising
+    that layout to credit / ordered-logit / Binomial is OO-port step 6+.
+
+    Returns the same ``(schedule, particles)`` tuple as the legacy function.
+    """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
     if draws is None:
@@ -772,6 +808,8 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
     vprint = print if verbose else (lambda *args, **kwargs: None)
 
+    if fitting_method_args is None:
+        fitting_method_args = {}
     fitting_method_args = {
         's_idx': 0,
         'n_particles': 128,
@@ -780,9 +818,6 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
         'init_step_size': 0.02,
         'target_accept': 0.574,
         'max_temps': 150,
-        'x_formula': "~ time - 1",
-        'eval_loglik': eval_loglik_partial_credit_model_ncats,
-        'eval_loglik_annealed': eval_loglik_partial_credit_model_ncats_with_annealing,
         'seed': 123,
         **fitting_method_args,
     }
@@ -793,20 +828,21 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
     init_step_size = fitting_method_args['init_step_size']
     target_accept = fitting_method_args['target_accept']
     max_temps = fitting_method_args['max_temps']
-    x_formula = fitting_method_args['x_formula']
-    eval_loglik = fitting_method_args['eval_loglik']
-    eval_loglik_annealed = fitting_method_args['eval_loglik_annealed']
     seed = fitting_method_args['seed']
 
-    theta = _stack_posterior_theta(draws)
+    eval_loglik = model.eval_loglik
+    eval_loglik_annealed = model.eval_loglik_annealed
+    logprior = model.logprior
+
+    theta = model.stack_posterior_theta(draws)
     n_draw = int(theta['latent_factor_beta'].shape[0])
     U = int(theta['latent_factor_unit'].shape[1])
     P = int(theta['latent_factor_beta'].shape[1])
     L = int(theta['skill_thresholds'].shape[1])
     Ld = int(theta['loadings_questions_m1'].shape[1])
 
-    x_stan = _interim_make_x_stan(xi, dit, x_formula)
-    z_stan = _interim_make_z_stan(zi, dit, s_idx, x_formula)
+    x_stan = _interim_make_x_stan(model.dcati, model.dit, model.x_formula)
+    z_stan = _interim_make_z_stan(zi, model.dit, s_idx, model.x_formula)
     pcm_keys = ('latent_factor_unit', 'latent_factor_beta',
                 'skill_thresholds', 'loadings_questions_m1')
 
@@ -826,7 +862,7 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
 
     def _logpost(u, beta):
         pr = _u_to_params(u)
-        return (get_prior_of_partial_credit_model_ncats(pr)
+        return (logprior(pr)
                 + eval_loglik(x_stan, pr).sum()
                 + eval_loglik_annealed(z_stan, {**pr, 'temperature': beta}).sum()
                 + u[sl_l].sum())          # Jacobian of the log-transform

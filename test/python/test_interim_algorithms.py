@@ -28,6 +28,8 @@ from fit_interim import (
     fit_interim_importance_sampling_of_posterior_xz_from_x,
     fit_interim_IS_moment_matching,
     fit_interim_IS_moment_matching_of_posterior_xz_from_x,
+    fit_interim_SMC_resample,
+    fit_interim_SMC_resample_of_posterior_xz_from_x,
     get_interim_z_from_ypredi,
 )
 from model_pcm import PartialCreditModelNCats
@@ -114,3 +116,38 @@ def test_IS_moment_matching_model_matches_shim(pcm_model, dit, xi, zi, draws):
         mm_model.drop(columns=['mins']), mm_shim.drop(columns=['mins']),
         check_exact=True,
     )
+
+
+# ---------------------------------------------------------------------------
+# fit_interim_SMC_resample: model-aware vs shim
+# ---------------------------------------------------------------------------
+
+
+def test_SMC_resample_model_matches_shim(pcm_model, dit, xi, zi, draws):
+    fma = {
+        's_idx': 0, 'n_particles': 8, 'max_temps': 3,
+        'n_move_steps': 2, 'seed': 123,
+    }
+    sched_model, parts_model = fit_interim_SMC_resample(
+        model=pcm_model, zi=zi, draws=draws,
+        fitting_method_args=fma,
+        save_to_file=False, verbose=False,
+    )
+    sched_shim, parts_shim = fit_interim_SMC_resample_of_posterior_xz_from_x(
+        xi=xi, zi=zi, dit=dit, draws=draws,
+        fitting_method_args=fma,
+        save_to_file=False, verbose=False,
+    )
+    # 'mins_total' and 'move_secs' columns are wall-clock; drop before comparing.
+    drop_cols = ['mins_total', 'move_secs']
+    pd.testing.assert_frame_equal(
+        sched_model.drop(columns=drop_cols),
+        sched_shim.drop(columns=drop_cols),
+        check_exact=True,
+    )
+    assert set(parts_model) == set(parts_shim)
+    import numpy as np
+    for k in parts_model:
+        np.testing.assert_array_equal(
+            np.asarray(parts_model[k]), np.asarray(parts_shim[k]),
+        )
