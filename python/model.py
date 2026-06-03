@@ -140,14 +140,15 @@ class _IRTModel(Model):
     subclasses declare:
 
     - ``param_names`` and ``positive_params``
-    - ``_module``                 -- namespace with the model's loglik /
-                                     prior / ordered-prob callables (one of
-                                     ``fit_partial_credit_model``,
-                                     ``fit_credit_model``,
-                                     ``fit_ordered_logit_model``)
-    - ``_make_stan_data``         -- the model's stan-data builder
-                                     (``_fit_partial_credit_make_stan_data``,
-                                     etc.), supplied as a ``staticmethod``.
+    Note: PCM / credit / OL each now inline all bodies as class methods
+    (model_pcm.py / model_credit.py / model_ordered_logit.py), so the
+    ``_module`` dict-dispatch path below is dead code retained for any
+    future IRT subclass that wants the original wrapper pattern.
+
+    - ``_module``                 -- optional namespace dict with the model's
+                                     loglik / prior / ordered-prob callables.
+    - ``_make_stan_data``         -- the model's stan-data builder, supplied
+                                     as a ``staticmethod``.
     """
 
     _module: Any = None
