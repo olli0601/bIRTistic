@@ -1,0 +1,184 @@
+"""
+Step 3 of the OO-port refactor: :class:`PartialCreditModelNCats` must
+return bit-identical outputs to the existing free-function pipeline in
+:mod:`fit_partial_credit_model` for every blueprint method.
+
+These tests load the fixture cohort in ``test/test_data/`` and pair each
+``model.X(...)`` call with the corresponding free-function call,
+asserting the two agree.
+"""
+
+import sys
+from pathlib import Path
+
+import arviz as az
+import jax.numpy as jnp
+import numpy as np
+import pandas as pd
+import pytest
+
+_repo_root = Path(__file__).resolve().parents[2]
+_python_dir = _repo_root / 'python'
+if str(_python_dir) not in sys.path:
+    sys.path.insert(0, str(_python_dir))
+
+from fit_partial_credit_model import (
+    _fit_partial_credit_make_stan_data,
+    eval_loglik_partial_credit_model_ncats,
+    eval_loglik_partial_credit_model_ncats_with_annealing,
+    get_prior_of_partial_credit_model_ncats,
+    get_ordered_prob_of_partial_credit_model_ncats,
+)
+from get_endpoints import get_endpoints_per_draw
+from model_pcm import PartialCreditModelNCats
+from fit_interim import _stack_posterior_theta  # legacy version, hard-coded
+
+_TEST_DATA = _repo_root / 'test' / 'test_data'
+_INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
+_DRAWS_FILE = f"{_INTERIM_STEM}_draws.zarr"
+
+
+@pytest.fixture(scope='module')
+def dit():
+    return pd.read_csv(f"{_INTERIM_STEM}_data_dit.csv")
+
+
+@pytest.fixture(scope='module')
+def xi():
+    return pd.read_csv(f"{_INTERIM_STEM}_data_dp1.csv")
+
+
+@pytest.fixture(scope='module')
+def draws():
+    return az.from_zarr(_DRAWS_FILE)
+
+
+@pytest.fixture(scope='module')
+def model(dit, xi):
+    return PartialCreditModelNCats(dit=dit, dcati=xi,
+                                   x_formula="~ time - 1", seed=123)
+
+
+@pytest.fixture(scope='module')
+def stan_data(model):
+    return model.stan_data
+
+
+@pytest.fixture(scope='module')
+def params_one(model, draws):
+    """A single posterior-draw parameter dict (the first draw) for use
+    with eval_loglik / logprior / eval_outcome."""
+    theta = model.stack_posterior_theta(draws)
+    return {k: v[0] for k, v in theta.items()}
+
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+
+
+def test_param_names_includes_known_pcm_params(model):
+    expected = {
+        'latent_factor_unit', 'latent_factor_beta',
+        'loadings_questions_m1',
+    }
+    assert expected.issubset(set(model.param_names))
+
+
+def test_positive_params_is_subset_of_param_names(model):
+    assert set(model.positive_params).issubset(set(model.param_names))
+
+
+# ---------------------------------------------------------------------------
+# Stan data
+# ---------------------------------------------------------------------------
+
+
+def test_stan_data_built_at_construction(model, stan_data):
+    assert isinstance(stan_data, dict)
+    assert 'N_total' in stan_data
+    assert int(stan_data['N_total']) == len(model.dcati)
+
+
+def test_make_stan_data_matches_free_function(model, dit, xi):
+    free = _fit_partial_credit_make_stan_data(
+        dit=dit, dcati=xi, x_formula="~ time - 1", verbose=False,
+    )
+    by_method = model.make_stan_data(xi, "~ time - 1")
+    assert set(free.keys()) == set(by_method.keys())
+    for k in free:
+        a, b = free[k], by_method[k]
+        if isinstance(a, np.ndarray):
+            np.testing.assert_array_equal(a, np.asarray(b))
+        else:
+            assert a == b, f"mismatch on {k}: {a!r} vs {b!r}"
+
+
+# ---------------------------------------------------------------------------
+# Loglik / prior / outcome
+# ---------------------------------------------------------------------------
+
+
+def test_eval_loglik_matches_free_function(model, stan_data, params_one):
+    free = eval_loglik_partial_credit_model_ncats(stan_data, params_one)
+    by_method = model.eval_loglik(stan_data, params_one)
+    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+
+
+def test_eval_loglik_annealed_matches_free_function(model, stan_data, params_one):
+    p = dict(params_one)
+    p['temperature'] = jnp.asarray(0.5)
+    free = eval_loglik_partial_credit_model_ncats_with_annealing(stan_data, p)
+    by_method = model.eval_loglik_annealed(stan_data, p)
+    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+
+
+def test_logprior_matches_free_function(model, params_one):
+    free = get_prior_of_partial_credit_model_ncats(params_one)
+    by_method = model.logprior(params_one)
+    assert float(free) == float(by_method)
+
+
+def test_eval_outcome_matches_free_function(model, stan_data, params_one):
+    free = get_ordered_prob_of_partial_credit_model_ncats(stan_data, params_one)
+    by_method = model.eval_outcome_for_endpoint(stan_data, params_one)
+    np.testing.assert_array_equal(np.asarray(free), np.asarray(by_method))
+
+
+# ---------------------------------------------------------------------------
+# Endpoints per draw
+# ---------------------------------------------------------------------------
+
+
+def test_endpoints_per_draw_matches_free_function(model, dit, xi, draws):
+    free = get_endpoints_per_draw(
+        dcati=xi, dit=dit, draws=draws,
+        categorical_threshold=2,
+        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
+        verbose=False,
+    )
+    by_method = model.endpoints_per_draw(
+        dcati=xi, draws=draws, categorical_threshold=2,
+        endpoint_type='items',
+    )
+    pd.testing.assert_frame_equal(
+        free.reset_index(drop=True),
+        by_method.reset_index(drop=True),
+        check_dtype=True, check_exact=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Posterior stacking
+# ---------------------------------------------------------------------------
+
+
+def test_stack_posterior_theta_matches_legacy(model, draws):
+    """The new param-name-driven stacker must produce identical arrays
+    to the hard-coded :func:`fit_interim._stack_posterior_theta`."""
+    legacy = _stack_posterior_theta(draws)
+    by_method = model.stack_posterior_theta(draws)
+    assert set(legacy.keys()) == set(by_method.keys())
+    for k in legacy:
+        np.testing.assert_array_equal(np.asarray(legacy[k]),
+                                      np.asarray(by_method[k]))
