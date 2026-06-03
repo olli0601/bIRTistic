@@ -19,6 +19,7 @@ import jax.numpy as jnp
 import jax.scipy.stats as jstats
 from jax import random
 from scipy.special import softmax
+import statsmodels.api as sm
 
 from get_endpoints import get_endpoints_per_draw
 from fit_partial_credit_model import (
@@ -31,14 +32,23 @@ from fit_partial_credit_model import (
 )
 
 
-def _load_ypred(draws_file: str, pps_z_total: int, rng) -> np.ndarray:
+def _load_ypred(draws_file: str, pps_z_total: int, rng, keep_order: bool = False) -> np.ndarray:
     """
     Load the ``ypred`` posterior-predictive draws from a zarr, flatten the
-    (chain, draw) dims, and return ``pps_z_total`` randomly selected draws as a
+    (chain, draw) dims, and return ``pps_z_total`` draws as a
     ``(pps_z_total, N_total)`` array.
+
+    ``keep_order=False`` (default) randomly selects ``pps_z_total`` draws via
+    ``rng.choice`` (used by the IS/MC scripts where a permuted subsample is
+    fine). ``keep_order=True`` returns the first ``pps_z_total`` draws in
+    posterior order (no shuffling), so row ``s`` of the returned matrix
+    corresponds to posterior draw ``s`` -- required when downstream code merges
+    on the posterior-draw index (e.g. against ``get_endpoints_per_draw`` output).
     """
     ypred = az.from_zarr(draws_file).posterior['ypred'].values  # (chain, draw, N_total)
     ypred = ypred.reshape(-1, ypred.shape[-1])                  # (n_draw, N_total)
+    if keep_order:
+        return ypred[:pps_z_total]
     return ypred[rng.choice(ypred.shape[0], size=pps_z_total, replace=False)]
 
 #%%
@@ -710,16 +720,30 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
 
     mu_p_j, sd_p_j = jnp.asarray(mu_p), jnp.asarray(sd_p)
 
-    def _make_logw(z_stan):
-        def logw(u):
-            pr = _u_to_params(u)
-            jac = u[pos_cols].sum() if pos_cols.size else 0.0
-            lt = (logprior(pr)
-                  + eval_loglik(x_stan, pr).sum()
-                  + eval_loglik(z_stan, pr).sum()
-                  + jac)
-            return lt - jstats.norm.logpdf(u, mu_p_j, sd_p_j).sum()
-        return jax.jit(jax.vmap(logw))
+    # Compile logw and llz_exact ONCE per interim: only z's `y` changes across
+    # s_idx (the rest of z_stan -- C/N/Q/K/cat_type/X/unit_of_obs/question_of_obs
+    # -- is invariant within an interim). Passing z_y as the only traced arg and
+    # closing over the rest avoids the 200x JIT-recompile that previously
+    # dominated MM wall time at ~10 min/interim.
+    z_stan_template = _interim_make_z_stan(zi, dit, 0, x_formula)
+
+    def _logw_inner(u, z_y):
+        z_stan_local = {**z_stan_template, 'y': z_y}
+        pr = _u_to_params(u)
+        jac = u[pos_cols].sum() if pos_cols.size else 0.0
+        lt = (logprior(pr)
+              + eval_loglik(x_stan, pr).sum()
+              + eval_loglik(z_stan_local, pr).sum()
+              + jac)
+        return lt - jstats.norm.logpdf(u, mu_p_j, sd_p_j).sum()
+
+    logw_batch = jax.jit(jax.vmap(_logw_inner, in_axes=(0, None)))
+
+    def _llz_inner(p, z_y):
+        z_stan_local = {**z_stan_template, 'y': z_y}
+        return eval_loglik(z_stan_local, p).sum()
+
+    llz_batch = jax.jit(jax.vmap(_llz_inner, in_axes=(0, None)))
 
     def _u_batch_to_params(u_batch):
         return {
@@ -733,17 +757,17 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     t_all = time.time()
     for s_idx in range(pps_z_total):
         z_stan = _interim_make_z_stan(zi, dit, s_idx, x_formula)
-        logw_fn = _make_logw(z_stan)
+        z_y = jnp.asarray(z_stan['y']).astype(jnp.int32)
 
-        logw0 = np.asarray(logw_fn(Theta_u_j))
+        logw0 = np.asarray(logw_batch(Theta_u_j, z_y))
         w0 = softmax(logw0)
         ess0 = float(1.0 / (n_draw * np.sum(w0 ** 2)))
-        llz_exact = np.asarray(jax.vmap(lambda p: eval_loglik(z_stan, p).sum())(theta))
+        llz_exact = np.asarray(llz_batch(theta, z_y))
         corr = float(np.corrcoef(logw0, llz_exact)[0, 1])
 
         mu_w = (w0[:, None] * Theta_u).sum(axis=0)
         Theta_u_star = Theta_u + (mu_w - mu_p)[None, :]
-        logw1 = np.asarray(logw_fn(jnp.asarray(Theta_u_star)))
+        logw1 = np.asarray(logw_batch(jnp.asarray(Theta_u_star), z_y))
         w1 = softmax(logw1)
         ess1 = float(1.0 / (n_draw * np.sum(w1 ** 2)))
 
@@ -1128,3 +1152,302 @@ def fit_interim_SMC_PPS_of_posterior_xz_from_x(
         smc_summary.to_csv(f"{output_file_prefix}_smc_summary.csv", index=False)
         vprint(f"\nSaved SMC P(H_1 | x, z) samples to: {output_file_prefix}_p_h1_xz_SMC.pkl")
     return p_h1_xz, smc_summary
+
+
+# =============================================================================
+# Strong-Oakley regression-based label estimator (Case A)
+# =============================================================================
+# 1. ``get_interim_endpt_and_w_from_poi`` builds the per-item training set
+#    ``wa`` from the x-posterior draws: per-(item, draw) the actual endpoint
+#    ratio ``pps_ratio_x`` (and its H_1 indicator), and per-(item, draw) the
+#    posterior-predictive summary ``W(z^(s))_t`` at baseline / endline plus the
+#    direction-aware ``w_diff`` / ``w_ratio``.
+# 2. ``fit_interim_regress_H1x_on_wz`` fits a per-item binomial GLM
+#    ``pps_H1_x ~ w_ratio`` and predicts ``p_h1_xz`` = pi_hat(W(z^(s))) for
+#    every draw, plus per-item Pearson rho and Gaussian-GLM R^2 diagnostics.
+# 3. ``fit_interim_regress_H1x_on_wz_per_item_summary`` is the per-item helper
+#    used both inside (2) and by the diagnostic plot scripts.
+
+
+def get_interim_endpt_and_w_from_poi(
+    xi: pd.DataFrame,
+    dit: pd.DataFrame,
+    draws,
+    draws_file: str,
+    interim_m: int,
+    pps_z_total: int,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    categorical_threshold: int = 3,
+    seed: int = 123,
+) -> pd.DataFrame:
+    """
+    Per-(item, draw) endpoint ratio from the x-posterior + per-(item, draw)
+    summary ``W(z^(s))_t`` for the Strong-Oakley regression training set.
+
+    For each draw s = 0..pps_z_total-1 (in posterior order; see
+    :func:`_load_ypred` with ``keep_order=True``):
+
+    - load ``ypred[s]`` (the posterior-predictive at every xi observation) and
+      build a future-data block z by resampling ``interim_m`` xi participants
+      with replacement (seeded), inheriting their ypred values;
+    - compute per-(item, time) summary ``W(z^(s))_t``:
+        * ``out-of-7``  items -> mean of y_stan (1..7),
+        * ``categorical`` items -> proportion of responses
+          ``>= categorical_threshold``;
+    - pivot to ``w_baseline`` / ``w_endline`` and derive the direction-aware
+      ``w_diff`` and ``w_ratio`` (positive => improvement, matching the
+      endpoint-ratio convention).
+
+    The actual per-draw endpoint ratio ``pps_ratio_x`` and the H_1 indicator
+    ``pps_H1_x = 1{pps_ratio_x > pps_H1_def}`` come from
+    :func:`get_endpoints_per_draw` on the x-fit posterior; per-item summaries
+    ``pps_ProbH1_x`` and the decision indicator ``pps_H1_yes`` are also added.
+
+    Returns
+    -------
+    wa : pd.DataFrame
+        One row per (item, draw) with columns
+        ``item_label, item_type, item_high_label, draw,
+        w_baseline, w_endline, w_diff, w_ratio,
+        pps_ratio_x, pps_H1_x``.
+    """
+    # Load ypred in posterior-draw order so row s == posterior draw s.
+    ypred = _load_ypred(draws_file, pps_z_total, np.random.default_rng(seed), keep_order=True)
+    S = ypred.shape[0]
+
+    # Resample participants (with replacement, seeded) for the shadow z block.
+    rng = np.random.default_rng(seed)
+    tmp = pd.DataFrame({
+        'src_pid': rng.choice(xi['pid'].unique(), size=interim_m, replace=True),
+        'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
+    })
+    zi = (
+        tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
+        .sort_values(['pid', 'oid']).reset_index(drop=True)
+    )
+    ypred_cols = [f'ypred_{s}' for s in range(S)]
+    zi[ypred_cols] = ypred[:, zi['oid'].to_numpy() - 1].T
+
+    # Per-(item, time) summaries W(z^(s))_t, type-specific.
+    zi_o7 = zi[zi['item_type'] == 'out-of-7']
+    zi_cat = zi[zi['item_type'] == 'categorical']
+    w_o7 = (
+        zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+        .mean().reset_index()
+    )
+    zi_cat_bin = zi_cat[ypred_cols].ge(categorical_threshold).astype(float)
+    zi_cat_bin = pd.concat(
+        [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
+         zi_cat_bin.reset_index(drop=True)], axis=1,
+    )
+    w_cat = (
+        zi_cat_bin.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+        .mean().reset_index()
+    )
+    wa = pd.concat([w_o7, w_cat], ignore_index=True).melt(
+        id_vars=['item_label', 'item_type', 'time'],
+        value_vars=ypred_cols, var_name='s_col', value_name='w',
+    )
+    wa['draw'] = wa['s_col'].str.replace('ypred_', '').astype(int)
+    wa = wa.drop(columns='s_col')
+
+    t_min, t_max = wa['time'].min(), wa['time'].max()
+    wa = (
+        wa.pivot_table(index=['item_label', 'item_type', 'draw'],
+                       columns='time', values='w')
+        .reset_index()
+    )
+    wa.columns.name = None
+    wa = wa.rename(columns={t_min: 'w_baseline', t_max: 'w_endline'})
+
+    # Direction-aware diff / ratio (mirrors the endpoint-ratio computation).
+    wa = wa.merge(
+        dit[['item_label', 'item_high_label']].drop_duplicates(),
+        on='item_label', how='left',
+    )
+    wa['w_diff'] = np.nan
+    wa['w_ratio'] = np.nan
+    tmp = wa['item_high_label'] == 'lower_is_better'
+    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_baseline'] - wa.loc[tmp, 'w_endline']
+    wa.loc[tmp, 'w_ratio'] = 1 - wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline']
+    tmp = wa['item_high_label'] == 'higher_is_better'
+    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_endline'] - wa.loc[tmp, 'w_baseline']
+    wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
+
+    # Actual per-draw endpoint ratio from the x-fit posterior.
+    x_ratio = get_endpoints_per_draw(
+        dcati=xi, dit=dit, draws=draws,
+        categorical_threshold=categorical_threshold,
+        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
+        verbose=False,
+    )
+    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    tmp = (
+        x_ratio.groupby(['item_type', 'item_label'])
+        .agg(pps_ProbH1_x=('pps_H1_x', 'mean'))
+        .reset_index()
+    )
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    x_ratio = x_ratio.merge(
+        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']], on='item_label', how='left',
+    )
+
+    wa = wa.merge(
+        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
+        on=['draw', 'item_label', 'item_type'], how='inner',
+    )
+    return wa
+
+
+def fit_interim_regress_H1x_on_wz_per_item_summary(g: pd.DataFrame) -> pd.Series:
+    """Per-item diagnostic: Pearson rho on ``(w_ratio, pps_ratio_x)``,
+    Gaussian-GLM R^2 (= 1 - deviance / null_deviance, exact for the identity-
+    link Gaussian fit), and panel-relative positions for an annotation plot.
+    Returns NaN when there are too few finite rows to fit."""
+    x = g['w_ratio'].to_numpy()
+    y = g['pps_ratio_x'].to_numpy()
+    mask = np.isfinite(x) & np.isfinite(y)
+    x, y = x[mask], y[mask]
+    if len(x) < 3:
+        return pd.Series({'rho': np.nan, 'r2': np.nan,
+                          'x_left': np.nan, 'x_right': np.nan, 'y_top': np.nan})
+    rho = float(np.corrcoef(x, y)[0, 1])
+    res = sm.GLM(y, sm.add_constant(x), family=sm.families.Gaussian()).fit()
+    r2 = float(1.0 - res.deviance / res.null_deviance)
+    y_lo, y_hi = float(y.min()), float(y.max())
+    y_top = y_hi + 0.04 * (y_hi - y_lo if y_hi > y_lo else 1.0)
+    return pd.Series({'rho': rho, 'r2': r2,
+                      'x_left': float(x.min()), 'x_right': float(x.max()),
+                      'y_top': y_top})
+
+
+def fit_interim_regress_H1x_on_wz(wa: pd.DataFrame):
+    """
+    Per-item Strong-Oakley regression label: fit a binomial GLM
+    ``pps_H1_x ~ w_ratio`` (logit link) on each item's S training rows and
+    predict ``p_h1_xz = pi_hat(W(z^(s)))`` for every draw. Also returns the per-
+    item diagnostic (rho, R^2) used by the regression diagnostic plot. When
+    ``pps_H1_x`` is constant for an item or the GLM fails to converge, fall back
+    to the empirical mean (a proper constant pi_hat).
+
+    Returns
+    -------
+    (p_h1_xz, perf) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, draw) with ``item_label``,
+          ``item_type``, ``item_high_label``, ``p_h1_xz`` (predicted label),
+          ``s`` (= draw + 1).
+        - ``perf``: one row per item with ``item_label``, ``item_type``,
+          ``rho`` and ``r2``.
+    """
+    p_rows = []
+    perf_rows = []
+    for item in wa['item_label'].unique():
+        g = wa[wa['item_label'] == item].copy()
+        mask = np.isfinite(g['w_ratio']) & np.isfinite(g['pps_H1_x'])
+        g_ok = g[mask]
+        if len(g_ok) < 3 or g_ok['pps_H1_x'].nunique() < 2:
+            pi_hat = np.full(len(g),
+                             float(g['pps_H1_x'].mean()) if len(g) else np.nan,
+                             dtype=float)
+        else:
+            X_fit = sm.add_constant(g_ok['w_ratio'].to_numpy())
+            try:
+                res = sm.GLM(g_ok['pps_H1_x'].to_numpy(), X_fit,
+                             family=sm.families.Binomial()).fit()
+                w_fill = float(np.nanmedian(g['w_ratio']))
+                X_all = sm.add_constant(g['w_ratio'].fillna(w_fill).to_numpy())
+                pi_hat = np.asarray(res.predict(X_all), dtype=float)
+            except Exception:
+                pi_hat = np.full(len(g),
+                                 float(g_ok['pps_H1_x'].mean()), dtype=float)
+        gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
+        gout['p_h1_xz'] = pi_hat
+        gout['s'] = gout['draw'].astype(int) + 1
+        p_rows.append(gout.drop(columns='draw'))
+
+        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
+        perf_rows.append({
+            'item_label': item, 'item_type': g['item_type'].iloc[0],
+            'rho': float(s['rho']), 'r2': float(s['r2']),
+        })
+
+    p_h1_xz = pd.concat(p_rows, ignore_index=True)
+    perf = pd.DataFrame(perf_rows)
+    return p_h1_xz, perf
+
+
+def fit_interim_regress_endptx_on_wz(wa: pd.DataFrame, pps_H1_def: float = 0.5):
+    """
+    Per-item Strong-Oakley regression label using the continuous endpoint ratio
+    as the target (more discriminative than binarising to ``pps_H1_x``).
+
+    For each item we fit a Gaussian GLM (identity link)
+    ``pps_ratio_x ~ w_ratio`` on the S training rows, then convert the
+    predictive distribution of ratio | W(z) into a label probability via
+    ``p_h1_xz = P(ratio > pps_H1_def | W) = 1 - Phi((pps_H1_def - mu_hat) / sigma_hat)``,
+    where ``sigma_hat = sqrt(res.scale)`` is the fitted residual SD.
+
+    When ``w_ratio`` is degenerate or the GLM fails, falls back to a constant
+    ``mu_hat = mean(pps_ratio_x)`` with the empirical SD; if the SD is not
+    positive/finite, returns the indicator ``1{mu_hat > pps_H1_def}``.
+
+    Returns
+    -------
+    (p_h1_xz, perf) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, draw) with ``item_label``,
+          ``item_type``, ``item_high_label``, ``p_h1_xz``, ``mu_hat``,
+          ``sigma_hat``, ``s`` (= draw + 1).
+        - ``perf``: one row per item with ``item_label``, ``item_type``,
+          ``rho`` (Pearson on ``w_ratio`` vs ``pps_ratio_x``) and ``r2``
+          (Gaussian-GLM deviance R^2).
+    """
+    from scipy.stats import norm
+
+    p_rows = []
+    perf_rows = []
+    for item in wa['item_label'].unique():
+        g = wa[wa['item_label'] == item].copy()
+        mask = np.isfinite(g['w_ratio']) & np.isfinite(g['pps_ratio_x'])
+        g_ok = g[mask]
+        if len(g_ok) < 3:
+            mu_const = float(g['pps_ratio_x'].mean()) if len(g) else np.nan
+            mu_hat = np.full(len(g), mu_const, dtype=float)
+            sigma = (float(g['pps_ratio_x'].std(ddof=1))
+                     if len(g) >= 2 else float('nan'))
+        else:
+            X_fit = sm.add_constant(g_ok['w_ratio'].to_numpy())
+            try:
+                res = sm.GLM(g_ok['pps_ratio_x'].to_numpy(), X_fit,
+                             family=sm.families.Gaussian()).fit()
+                w_fill = float(np.nanmedian(g['w_ratio']))
+                X_all = sm.add_constant(g['w_ratio'].fillna(w_fill).to_numpy())
+                mu_hat = np.asarray(res.predict(X_all), dtype=float)
+                sigma = float(np.sqrt(res.scale)) if res.scale > 0 else float('nan')
+            except Exception:
+                mu_hat = np.full(len(g), float(g_ok['pps_ratio_x'].mean()),
+                                 dtype=float)
+                sigma = float(g_ok['pps_ratio_x'].std(ddof=1))
+
+        if not np.isfinite(sigma) or sigma <= 0:
+            pi_hat = (mu_hat > pps_H1_def).astype(float)
+        else:
+            pi_hat = 1.0 - norm.cdf((pps_H1_def - mu_hat) / sigma)
+
+        gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
+        gout['p_h1_xz'] = pi_hat
+        gout['mu_hat'] = mu_hat
+        gout['sigma_hat'] = sigma
+        gout['s'] = gout['draw'].astype(int) + 1
+        p_rows.append(gout.drop(columns='draw'))
+
+        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
+        perf_rows.append({
+            'item_label': item, 'item_type': g['item_type'].iloc[0],
+            'rho': float(s['rho']), 'r2': float(s['r2']),
+        })
+
+    p_h1_xz = pd.concat(p_rows, ignore_index=True)
+    perf = pd.DataFrame(perf_rows)
+    return p_h1_xz, perf

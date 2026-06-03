@@ -12,7 +12,7 @@ d(x) = 1\{P(H_1 \mid x) > \eta\},
 \]
 where 
 \[
-H_1 : p > p_0.
+H_1 : p > p_0 \Leftrightarrow \rho := p/p_0 > 0 
 \]
 
 In practice, the interventions can be Cholera vaccination, our Hope group interventions in Jordan, alternative medical procedures, or similar. As generative models I am interested in various versions of item-response models such as the ordered categorical or partial credit model, but many other generative models are possible. The baseline treatment effect is without loss of generality \(p_0 = 0\), for example \(p\) can be coded as a contrast between the intervention and standard-of-care arm. The decision threshold \(\eta\) can be set to \(0.89\) in defiance to \(0.95\), but can also be derived as the Bayes optimal threshold given false positive and false negative loss functions.
@@ -498,9 +498,9 @@ Unlike IS and moment matching, the move step relocates particles into the target
 
 We found that at the worst (earliest) interim the adaptive schedule reaches \( \beta = 1 \) in \( \approx 40 \) steps and restores \( \mathrm{ESS}/K \approx 1 \) at a wall-clock cost dominated by the per-step move rather than the one-off compile. The overall computational cost was 7-8 times larger than SVI estimation of the posterior \(p(\theta | x, z^{(s)}) \).
 
-### 6.5 Regression-based labels
+### 6.5 Regression-based functional inference
 
-The estimators 6.1–6.4 all approximate the conditional posterior \(p(\theta \mid x, z^{(s)})\) once per future sample. The regression-based approach [@strong2014estimating] instead learns the label as a function of a low-dimensional summary of the future data directly, sidestepping per-\(s\) posterior approximation.
+The estimators 6.1–6.4 all approximate the conditional posterior \(p(\theta \mid x, z^{(s)})\) once per future sample \(z^{(s)}\). The regression-based approach [@strong2014estimating] instead learns a function \(q_\psi\) with tuning parameters \(\psi\) that produces the label as a function of a low-dimensional summary of the future data directly.
 
 Pick a summary statistic \(w:\mathcal{Z}\to\mathbb{R}^d\) of the future data and proceed as follows.
 
@@ -524,19 +524,55 @@ Pick a summary statistic \(w:\mathcal{Z}\to\mathbb{R}^d\) of the future data and
    using a a GAM for \(d\le 6\) or a GP for higher \(d\).
 3. **Predict** the label \(y^\star\) for any new future sample \(z^\star\) with the learned regressor by \(\hat y(z)=q_{\hat\psi}\big(w(z^\star)\big)\).
 
-This scheme is guaranteed to create unbiased labels when \(w\) is a sufficient statistc for \(\theta\). In that case,
+Instead of the binary labels \(y^{(s)}\), it is advantageous to consider the continuous \(\rho^{(s)}\) that underlie the alternative hypothesis, \(H_1 : \rho^{(s)} > 0\). This leads to the steps 
+
+1. **Joint sampling.** For \(s=1,\dotsc,S\), draw
+   $$   
+   \theta^{(s)} \sim p(\theta\mid x),\qquad
+   z^{(s)} \sim p(z\mid \theta^{(s)}),
+   $$
+   compute based on \(x\) and not \(z^{(s)}\) 
+   $$
+   \rho^{(s)} := \theta^{(s)}/\theta_0
+   $$
+   and also based \(z^{(s)}\) and not \(x\)
+   $$
+   w^{(s)} := w(z^{(s)}).
+   $$
+2. **Fit a regressor** \(q_\psi:\mathbb{R}^d\to\mathbb{R}\) to the pairs \(\{(w^{(s)},\rho^{(s)})\}_{s=1}^S\) by minimizing the least-squares loss
+   \[
+   \hat\psi=\arg\min_\psi \frac{1}{S}\sum_{s=1}^S\big(\rho^{(s)} - q_\psi(w^{(s)})\big)^2,
+   \]
+   using a a GAM for \(d\le 6\) or a GP for higher \(d\).
+3. **Predict** the label \(\rho^\star\) for any new future sample \(z^\star\) with the learned regressor by \(\hat \rho(z)=q_{\hat\psi}\big(w(z^\star)\big)\), then compute \(y^\star := 1\{ \rho^\star > 0 \}\).
+
+This scheme is guaranteed to create unbiased labels when \(w\) is a sufficient statistic for \(\theta\), as \(S \to \infty \). Indeed, in that case there are \(h\) and \(g\) such that
 \[
 p(z\mid \theta)=h(z)\,g\big(w(z);\theta\big),
 \]
-so
-\[
-p(\theta\mid x,z)\;\propto\;p(\theta\mid x)\,p(z\mid\theta)=p(\theta\mid x)\,h(z)\,g(w(z);\theta)\;\propto\;p\big(\theta\mid x,w(z)\big),
-\]
-and so the label inherits the same reduction,
-\[
-P(H_1\mid x,z)\;=\;\int 1_{\theta\in H_1}\,p(\theta\mid x,z)\,d\theta\;=\;\int 1_{\theta\in H_1}\,p\big(\theta\mid x,w(z)\big)\,d\theta\;=:\;q^\star(w(z); x).
-\]
-Now the regression task in step 2 above provides a consistent estimator of \(q^\star\) under the joint sampling of step 1. Specifically, the marginal of the training pairs is
+and further,
+$$
+\begin{aligned} 
+p(\theta\mid x, z) & = 
+\frac{p(\theta, z \mid x)}{p(z\mid x)} = 
+\frac{p(\theta\mid x) p(z\mid\theta)}{p(z\mid x)} \\
+& \propto p(\theta\mid x) p(z \mid\theta) \\
+& \propto p(\theta\mid x) g(w(z) ; \theta). 
+\end{aligned}
+$$
+Thus, we can retrieve the contracted posterior of the LHS by joint sampling as on the RHS (which is step 1 above) and then conditioning on \(w(z)\).
+
+The label inherits the same reduction,
+$$
+\begin{aligned} 
+y = P(H_1\mid x,z) & = \int 1_{\theta\in H_1}\,p(\theta\mid x,z)\,d\theta \\ 
+& = C^{-1}\int 1_{\theta\in H_1}\,p(\theta\mid x) g(w(z) ; \theta)\,d\theta \\
+& =:\;q^\star(w(z); x).
+\end{aligned}
+$$
+
+
+ Thus the regression task in step 2 above provides a consistent estimator of \(q^\star\) under the joint sampling of step 1. Specifically, the marginal of the training pairs is
 \[
 p(w,y\mid x)=\int p(w\mid\theta)\,\mathrm{Bern}\big(y;1_{\theta\in H_1}\big)\,p(\theta\mid x)\,d\theta,
 \]
@@ -544,8 +580,7 @@ and the population minimiser of either the MSE or the cross-entropy loss is the 
 \[
 \arg\min_\tau \mathbb{E}\big[(y-q_\tau(w))^2\,\big|\,x\big]
 \;=\;\mathbb{E}[y\mid w,x]
-\;=\;\int 1_{\theta\in H_1}\,p(\theta\mid w,x)\,d\theta
-\;=\;q^\star(W;x).
+\;=\;\int 1_{\theta\in H_1}\,p(\theta\mid w,x)\,d\theta.
 \]
 Any consistent regression family \(q_\tau\) therefore recovers \(q^\star\) as \(S\to\infty\), and step 3 evaluates the exact label \(P(H_1\mid x,z)\) at any new \(z\) by a single regression evaluation. 
 
