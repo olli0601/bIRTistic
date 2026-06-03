@@ -23,11 +23,7 @@ import statsmodels.api as sm
 
 # IRT-specific endpoint helpers now live on IRTModel
 # (python/model_irt.py). Algorithm callers route through a Model instance.
-# Legacy free-function callable still imported for fit_interim_MC_of_posterior_xz's
-# `fitting_method=` default; the MC path predates the OO refactor and pickles
-# the callable into spawn workers. All other algorithms route through a Model
-# instance instead.
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+from model_pcm import PartialCreditModelNCats
 # Pure-pandas helpers live in interim_helpers.py (OO-port step 1). Re-exported
 # here for the convenience of the interim-analysis scripts, which already had
 # imports against this module before the refactor.
@@ -40,7 +36,7 @@ from interim_helpers import (
 
 
 def _fit_interim_MC_of_posterior_xz_one_sample(
-    s_idx, xi, zi, dit, output_file_prefix, fitting_method,
+    s_idx, xi, zi, dit, output_file_prefix, model_cls,
     fitting_method_args, categorical_threshold, pps_H1_def, seed, verbose,
 ):
     """
@@ -62,25 +58,22 @@ def _fit_interim_MC_of_posterior_xz_one_sample(
     xzi = get_interim_x(pd.concat([xi, tmp], ignore_index=True))
 
     # Refit the model to the augmented data (x, z_s), in memory only.
-    fit = fitting_method(
-        dit,
-        xzi,
+    fma = dict(fitting_method_args)
+    x_formula = fma.pop('x_formula', "~ time - 1")
+    model = model_cls(dit=dit, dcati=xzi, x_formula=x_formula,
+                      seed=seed + s_label)
+    fit = model.fit_pyro_svi(
         output_file_prefix=f"{output_file_prefix}_s{s_label}",
-        seed=seed + s_label,
         save_to_file=False,
         resume=False,
         with_core_analyses=False,
         with_additional_analyses=False,
         verbose=verbose,
-        **fitting_method_args,
+        **fma,
     )
 
     # Per-item P(H_1 | x, z_s) = fraction of draws with ratio > pps_H1_def.
-    # MC worker is PCM-specific via the default fitting_method; instantiate
-    # a PCM model here to compute endpoints on the augmented cohort.
-    from model_pcm import PartialCreditModelNCats
-    _endpoint_model = PartialCreditModelNCats(dit=dit, dcati=xzi)
-    ratio_xz = _endpoint_model.get_endpoints_per_draw(
+    ratio_xz = model.get_endpoints_per_draw(
         draws=fit['draws'],
         categorical_threshold=categorical_threshold,
         endpoint_type='items',
@@ -106,7 +99,7 @@ def fit_interim_MC_of_posterior_xz(
     pps_H1_def: float = 0.5,
     pps_ProbH1_thresh: float = 0.89,
     categorical_threshold: int = 3,
-    fitting_method=fit_partial_credit_model_ncats_pyrosvi,
+    model_cls=PartialCreditModelNCats,
     seed: int = 123,
     save_to_file: Optional[bool] = True,
     verbose: bool = True,
@@ -143,24 +136,25 @@ def fit_interim_MC_of_posterior_xz(
     categorical_threshold : int, default 3
         Categorical aggregation threshold passed to
         :func:`get_endpoints_per_draw`.
-    fitting_method : callable, default ``fit_partial_credit_model_ncats_pyrosvi``
-        Model-fitting function called per sample. It must accept ``(dit, xzi)``
-        positionally plus the keyword args ``output_file_prefix``, ``seed``,
-        ``save_to_file``, ``resume``, ``with_core_analyses``,
-        ``with_additional_analyses`` (all set by this function), and return a
-        dict with a ``'draws'`` idata.
+    model_cls : type, default :class:`model_pcm.PartialCreditModelNCats`
+        Model subclass instantiated per sample as
+        ``model_cls(dit=dit, dcati=xzi, x_formula=..., seed=...)``. The worker
+        calls ``model.fit_pyro_svi(output_file_prefix=...,
+        **fitting_method_args_without_x_formula)`` and consumes ``model
+        .get_endpoints_per_draw`` to score the resulting cohort. Spawn workers
+        pickle the class reference; supply an importable top-level class.
     fitting_method_args : dict
-        Keyword arguments forwarded to ``fitting_method`` (e.g. ``algorithm``,
-        ``x_formula``, ``lr``, ``num_steps``, ``output_samples``); required,
-        specify at the call site (pass ``{}`` for the fit defaults). Must not
-        include any of the keys this function sets itself.
+        Keyword arguments forwarded to ``model.fit_pyro_svi`` (e.g.
+        ``algorithm``, ``lr``, ``num_steps``, ``output_samples``). May include
+        ``x_formula`` -- popped before forwarding and used to construct the
+        model.  Required (pass ``{}`` for the fit defaults). Must not include
+        any of the keys this function sets itself.
     seed : int, default 123
         Base seed; sample ``s`` uses ``seed + s``.
     cpu_n : int, default 1
         Number of worker processes for the S independent refits. ``1`` runs the
         loop serially. ``> 1`` uses a ``spawn`` ``ProcessPoolExecutor`` (each
-        worker re-imports JAX/NumPyro and fits fresh, so ``fitting_method`` must
-        be an importable top-level function, not a lambda/closure).
+        worker re-imports JAX/NumPyro and fits fresh).
 
     Returns
     -------
@@ -173,7 +167,7 @@ def fit_interim_MC_of_posterior_xz(
 
     work = dict(
         xi=xi, zi=zi, dit=dit, output_file_prefix=output_file_prefix,
-        fitting_method=fitting_method, fitting_method_args=fitting_method_args,
+        model_cls=model_cls, fitting_method_args=fitting_method_args,
         categorical_threshold=categorical_threshold, pps_H1_def=pps_H1_def,
         seed=seed, verbose=verbose,
     )

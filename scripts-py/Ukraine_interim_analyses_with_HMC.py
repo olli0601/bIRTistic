@@ -49,10 +49,6 @@ warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModelNCats
-# Legacy free-function still needed by fit_interim_MC_of_posterior_xz's
-# `fitting_method=` callable interface (one per spawn worker). The OO API
-# would require pickling a Model instance into each worker; deferred.
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
 from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
 from utils import _futurama_palette
 
@@ -574,7 +570,7 @@ for interim_id in di['interim_id']:
         pps_H1_def=pps_H1_def,
         pps_ProbH1_thresh=pps_ProbH1_thresh,
         categorical_threshold=2,
-        fitting_method=fit_partial_credit_model_ncats_pyrosvi,
+        model_cls=PartialCreditModelNCats,
         fitting_method_args={
             'algorithm': svi_algorithm,
             'x_formula': "~ time - 1",

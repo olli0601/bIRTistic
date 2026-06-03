@@ -1,15 +1,12 @@
 """
-Step 8 of the OO-port refactor: forbid stale references to the deleted
-back-compat shims and to the legacy ``fit_*_model`` free-function
-fitters in user-facing code (scripts + algorithm library).
+Forbid stale references to deleted back-compat shims and to the
+``fit_*_model`` legacy free-function fitters in user-facing code
+(scripts + algorithm library).
 
-The legacy module files themselves (python/fit_partial_credit_model.py,
-fit_credit_model.py, fit_ordered_logit_model.py) are still on disk:
-the ``Model`` subclasses in python/model_pcm.py / model_credit.py /
-model_ordered_logit.py delegate to them via the ``_module`` dict. Only
-those subclass files (and python/fit_interim.py for the
-``fit_interim_MC_of_posterior_xz`` multiprocessing default) are allowed
-to import from the legacy modules.
+After the model_*.py inlining all three legacy modules
+(fit_partial_credit_model.py, fit_credit_model.py,
+fit_ordered_logit_model.py) are deleted -- no code in the repo should
+import them.
 """
 
 import re
@@ -21,16 +18,6 @@ import pytest
 _repo_root = Path(__file__).resolve().parents[2]
 _python_dir = _repo_root / 'python'
 _scripts_dir = _repo_root / 'scripts-py'
-
-# Files allowed to keep an internal reference to the legacy free-function
-# pipeline -- the Model subclasses (which delegate to it) and the one
-# fit_interim multiprocessing default that predates the refactor.
-_ALLOWED_LEGACY_IMPORTERS = {
-    'model_pcm.py',
-    'model_credit.py',
-    'model_ordered_logit.py',
-    'fit_interim.py',
-}
 
 _LEGACY_MODULES_RE = re.compile(
     r"\bfrom\s+(fit_partial_credit_model|fit_credit_model|fit_ordered_logit_model)\s+import"
@@ -54,31 +41,24 @@ def test_no_legacy_module_imports_in_scripts():
     """Scripts must not import from fit_partial_credit_model /
     fit_credit_model / fit_ordered_logit_model. They route through a Model
     subclass instead."""
-    offenders = []
-    for path in _iter_py_files(_scripts_dir):
-        src = path.read_text()
-        if _LEGACY_MODULES_RE.search(src):
-            # Exception: Ukraine_interim_analyses_with_HMC.py keeps one
-            # legacy import for fit_interim_MC_of_posterior_xz's
-            # fitting_method= callable. See its docstring.
-            if path.name == 'Ukraine_interim_analyses_with_HMC.py':
-                continue
-            offenders.append(str(path.relative_to(_repo_root)))
+    offenders = [
+        str(path.relative_to(_repo_root))
+        for path in _iter_py_files(_scripts_dir)
+        if _LEGACY_MODULES_RE.search(path.read_text())
+    ]
     assert not offenders, (
         f"Scripts still import legacy free fitters: {offenders}"
     )
 
 
 def test_no_legacy_module_imports_in_python_lib():
-    """python/*.py files must not import from the legacy modules except via
-    the allow-listed Model subclasses + fit_interim's MC default."""
-    offenders = []
-    for path in _iter_py_files(_python_dir):
-        if path.name in _ALLOWED_LEGACY_IMPORTERS:
-            continue
-        src = path.read_text()
-        if _LEGACY_MODULES_RE.search(src):
-            offenders.append(str(path.relative_to(_repo_root)))
+    """python/*.py files must not import from any of the deleted legacy
+    modules."""
+    offenders = [
+        str(path.relative_to(_repo_root))
+        for path in _iter_py_files(_python_dir)
+        if _LEGACY_MODULES_RE.search(path.read_text())
+    ]
     assert not offenders, (
         f"python/ files leak legacy imports: {offenders}"
     )
