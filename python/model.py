@@ -136,60 +136,12 @@ class Model(ABC):
 
 
 class _IRTModel(Model):
-    """Boilerplate shared by PCM, credit, and ordered-logit. Concrete
-    subclasses declare:
-
-    - ``param_names`` and ``positive_params``
-    Note: PCM / credit / OL each now inline all bodies as class methods
-    (model_pcm.py / model_credit.py / model_ordered_logit.py), so the
-    ``_module`` dict-dispatch path below is dead code retained for any
-    future IRT subclass that wants the original wrapper pattern.
-
-    - ``_module``                 -- optional namespace dict with the model's
-                                     loglik / prior / ordered-prob callables.
-    - ``_make_stan_data``         -- the model's stan-data builder, supplied
-                                     as a ``staticmethod``.
-    """
-
-    _module: Any = None
-    _make_stan_data: Any = None
-
-    def make_stan_data(self, dcati: pd.DataFrame, x_formula: str) -> dict:
-        return type(self)._make_stan_data(
-            dit=self.dit, dcati=dcati, x_formula=x_formula, verbose=False,
-        )
-
-    # -- Fitters: forward to the model's free-function fitters ----------
-    def _fit(self, fit_fn, output_file_prefix, **kwargs):
-        return fit_fn(
-            self.dit, self.dcati,
-            output_file_prefix=output_file_prefix,
-            x_formula=self.x_formula,
-            seed=self.seed,
-            **kwargs,
-        )
-
-    def fit_pyro_svi(self, output_file_prefix, **kw):
-        return self._fit(self._module['pyrosvi'], output_file_prefix, **kw)
-
-    def fit_stan_svi(self, output_file_prefix, **kw):
-        return self._fit(self._module['stanadvi'], output_file_prefix, **kw)
-
-    def fit_stan_hmc(self, output_file_prefix, **kw):
-        return self._fit(self._module['stanhmc'], output_file_prefix, **kw)
-
-    # -- Loglik / prior / endpoint --------------------------------------
-    def eval_loglik(self, data, params):
-        return self._module['eval_loglik'](data, params)
-
-    def eval_loglik_annealed(self, data, params):
-        return self._module['eval_loglik_annealed'](data, params)
-
-    def eval_log_prior(self, params):
-        return self._module['eval_log_prior'](params)
-
-    def eval_outcome_for_endpoint(self, data, params):
-        return self._module['eval_outcome'](data, params)
+    """Marker mixin for the IRT family (PCM, credit, ordered-logit). Each
+    concrete subclass inlines its own ``eval_loglik`` / fit drivers /
+    ``make_stan_data`` etc. as methods. The only behaviour shared across
+    all three -- :meth:`endpoints_per_draw` -- lives here because every
+    IRT subclass records ``ordered_prob_by_cat_qu_fit`` in its posterior
+    and feeds it to :func:`get_endpoints.get_endpoints_per_draw`."""
 
     def endpoints_per_draw(self, dcati, draws, categorical_threshold,
                            endpoint_type: str = 'items') -> pd.DataFrame:
