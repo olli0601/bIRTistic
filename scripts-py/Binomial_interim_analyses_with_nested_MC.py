@@ -115,8 +115,28 @@ print(f"  {len(di)} monthly interims from {di['interim_date'].min().date()} "
 # %%
 
 # =============================================================================
-# Fit Stan HMC + NumPyro HMC at each interim; collect posterior draws
+# Fit Stan HMC + NumPyro HMC + NumPyro SVI (AutoDiagonalNormal,
+# AutoLowRankMultivariateNormal) at each interim. resume=True so reruns
+# pick up cached posteriors from {dir_out}/binomial_i{interim_id}_*.
 # =============================================================================
+
+# (method_label, fit_fn_name, fit_kwargs, file_suffix)
+methods = [
+    ('stan_HMC', 'fit_stan_hmc',
+     dict(chains=4, iter_warmup=500, iter_sampling=1000),
+     'stan_hmc'),
+    ('pyro_HMC', 'fit_pyro_hmc',
+     dict(chains=4, iter_warmup=500, iter_sampling=1000),
+     'pyro_hmc'),
+    ('pyro_SVI_AutoDiagonalNormal', 'fit_pyro_svi',
+     dict(algorithm='AutoDiagonalNormal', lr=0.05, num_steps=4000,
+          output_samples=4000),
+     'pyro_svi_autodiagnormal'),
+    ('pyro_SVI_AutoLowRankMultivariateNormal', 'fit_pyro_svi',
+     dict(algorithm='AutoLowRankMultivariateNormal', lr=0.05,
+          num_steps=4000, output_samples=4000),
+     'pyro_svi_autolowrankmvn'),
+]
 
 posterior_rows = []   # (interim_id, method, p_draw)
 analytic_rows = []    # (interim_id, a_post, b_post, k, n)
@@ -145,27 +165,21 @@ for _, row in di.iterrows():
         'a_post': a_post, 'b_post': b_post, 'k': k, 'n': n_obs,
     })
 
-    # Stan HMC
-    stan_fit = model.fit_stan_hmc(
-        chains=4, iter_warmup=500, iter_sampling=1000, verbose=False,
-    )
-    for p_val in stan_fit['posterior_samples']['p']:
-        posterior_rows.append({
-            'interim_id': interim_id,
-            'interim_month_year': row['interim_month_year'],
-            'method': 'stan_HMC', 'p': float(p_val),
-        })
-
-    # Pyro HMC (NumPyro NUTS)
-    pyro_fit = model.fit_pyro_hmc(
-        chains=4, iter_warmup=500, iter_sampling=1000, verbose=False,
-    )
-    for p_val in pyro_fit['posterior_samples']['p']:
-        posterior_rows.append({
-            'interim_id': interim_id,
-            'interim_month_year': row['interim_month_year'],
-            'method': 'pyro_HMC', 'p': float(p_val),
-        })
+    for method_label, fit_name, fit_kwargs, file_suffix in methods:
+        prefix = os.path.join(
+            dir_out, f"binomial_i{interim_id}_{file_suffix}",
+        )
+        fit = getattr(model, fit_name)(
+            output_file_prefix=prefix,
+            save_to_file=True, resume=True, verbose=False,
+            **fit_kwargs,
+        )
+        for p_val in fit['posterior_samples']['p']:
+            posterior_rows.append({
+                'interim_id': interim_id,
+                'interim_month_year': row['interim_month_year'],
+                'method': method_label, 'p': float(p_val),
+            })
 
 posterior_df = pd.DataFrame(posterior_rows)
 analytic_df = pd.DataFrame(analytic_rows)
@@ -216,7 +230,16 @@ analytic_samples_df['interim_month_year'] = pd.Categorical(
     categories=interim_order, ordered=True,
 )
 
-method_colours = {'stan_HMC': '#1f77b4', 'pyro_HMC': '#d62728'}
+method_colours = {
+    'stan_HMC': '#1f77b4',
+    'pyro_HMC': '#d62728',
+    'pyro_SVI_AutoDiagonalNormal': '#2ca02c',
+    'pyro_SVI_AutoLowRankMultivariateNormal': '#ff7f0e',
+}
+_method_labels = list(method_colours.keys())
+posterior_df['method'] = pd.Categorical(
+    posterior_df['method'], categories=_method_labels, ordered=True,
+)
 
 p = (
     ggplot()
@@ -240,7 +263,7 @@ p = (
     )
     + labs(
         x='p', y='posterior density',
-        colour='HMC method',
+        colour='method',
         title=(f'Binomial posterior across {len(di)} monthly interims '
                f'(true p={TRUE_P}, prior Beta({PRIOR_A:.0f},{PRIOR_B:.0f}))'),
     )
@@ -249,11 +272,11 @@ pdf_path = os.path.join(dir_out, 'binomial_interim_hmc_vs_analytic.pdf')
 p.save(pdf_path, verbose=False, limitsize=False)
 print(f"\nSaved per-interim density plot to: {pdf_path}")
 
-# Sanity print: max abs diff of posterior mean (HMC vs analytic) per interim.
-print("\nPer-interim posterior-mean comparison (|HMC_mean - analytic_mean|):")
+# Sanity print: |posterior mean - analytic mean| per (interim, method).
+print("\nPer-interim posterior-mean comparison (|fit_mean - analytic_mean|):")
 for _, ar in analytic_df.iterrows():
     analytic_mean = ar['a_post'] / (ar['a_post'] + ar['b_post'])
-    for method in ('stan_HMC', 'pyro_HMC'):
+    for method in _method_labels:
         sub = posterior_df[
             (posterior_df['interim_id'] == ar['interim_id'])
             & (posterior_df['method'] == method)

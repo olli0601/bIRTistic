@@ -14,6 +14,8 @@ Fitters: closed-form posterior, closed-form PPS (analytic Beta-Binomial
 tail sum), NumPyro SVI + HMC, Stan ADVI + HMC.
 """
 
+from functools import partial
+import os
 from pathlib import Path
 import runpy
 import time
@@ -25,13 +27,13 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro
 from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
-from numpyro.infer.autoguide import AutoDiagonalNormal
 import pandas as pd
 from scipy.stats import beta as _scipy_beta
 from scipy.stats import betabinom as _scipy_betabinom
 import xarray as xr
 
 from model import Model
+from utils import _get_autoguide_factory
 
 
 _MODEL_NS = None
@@ -220,6 +222,7 @@ class BinomialModel(Model):
         self,
         output_file_prefix: Optional[str] = None,
         *,
+        algorithm: str = 'AutoDiagonalNormal',
         lr: float = 0.05,
         num_steps: int = 2000,
         output_samples: int = 4000,
@@ -228,17 +231,42 @@ class BinomialModel(Model):
         verbose: bool = True,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """NumPyro SVI fit on the inline Beta-Bernoulli program."""
+        """NumPyro SVI fit. ``algorithm`` selects the autoguide
+        (``AutoDiagonalNormal`` / ``AutoLowRankMultivariateNormal`` /
+        etc). When ``save_to_file`` and ``resume`` are True and the
+        ``{prefix}_draws.zarr`` + ``{prefix}_timing.csv`` artifacts
+        exist, the cached posterior is returned instead of refitting."""
         t0 = time.time()
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None
+            and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
+        )
+        if can_resume:
+            if verbose:
+                print(f"[BinomialModel] pyro SVI ({algorithm}) RESUME from"
+                      f" {draws_file}")
+            idata = az.from_zarr(draws_file)
+            p_samples = np.asarray(idata.posterior['p'].values).reshape(-1)
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            return {
+                'draws': idata,
+                'posterior_samples': {'p': p_samples},
+                'timing': timing,
+            }
+
         model_fn = self._numpyro_model_fn()
-        # Use the no-generated-quantities variant during SVI optimisation
-        # so we don't trace ypred / log_lik on every Adam step.
-        from functools import partial
         model_for_svi = partial(model_fn, sample_ypred=False,
                                 compute_generated=False)
 
         rng = jax.random.PRNGKey(self.seed)
-        guide = AutoDiagonalNormal(model_for_svi)
+        guide_factory = _get_autoguide_factory(algorithm)
+        guide = guide_factory(model_for_svi)
         svi = SVI(model_for_svi, guide,
                   numpyro.optim.Adam(lr), Trace_ELBO())
         rng, sub = jax.random.split(rng)
@@ -256,12 +284,18 @@ class BinomialModel(Model):
         ds = xr.Dataset({'p': (('chain', 'draw'), p_samples[None, :])})
         draws = az.InferenceData(posterior=ds)
         timing = {'mins': (time.time() - t0) / 60.0,
-                  'final_elbo': float(-run.losses[-1])}
+                  'final_elbo': float(-run.losses[-1]),
+                  'algorithm': algorithm}
         if verbose:
-            print(f"[BinomialModel] pyro SVI: {num_steps} steps,"
-                  f" final ELBO={timing['final_elbo']:.1f},"
+            print(f"[BinomialModel] pyro SVI ({algorithm}): {num_steps}"
+                  f" steps, final ELBO={timing['final_elbo']:.1f},"
                   f" {output_samples} posterior draws in"
                   f" {timing['mins']:.4f} min")
+        if save_to_file and output_file_prefix is not None:
+            os.makedirs(os.path.dirname(output_file_prefix) or '.',
+                        exist_ok=True)
+            draws.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
         return {
             'draws': draws,
             'posterior_samples': {'p': p_samples},
@@ -280,14 +314,34 @@ class BinomialModel(Model):
         verbose: bool = True,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """NumPyro NUTS fit on the Beta-Bernoulli program (full ypred +
-        log_lik traced via ``sample_ypred=True, compute_generated=True``)."""
+        """NumPyro NUTS fit on the Beta-Bernoulli program. NUTS does not
+        enumerate discrete sites so ``sample_ypred`` is forced to False
+        (ypred is only useful for posterior-predictive simulation, not
+        inference). ``resume=True`` returns the cached
+        ``{prefix}_draws.zarr`` if it exists."""
         t0 = time.time()
-        from functools import partial
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
+        )
+        if can_resume:
+            if verbose:
+                print(f"[BinomialModel] pyro HMC RESUME from {draws_file}")
+            idata = az.from_zarr(draws_file)
+            p_samples = np.asarray(idata.posterior['p'].values).reshape(-1)
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            return {
+                'draws': idata,
+                'posterior_samples': {'p': p_samples},
+                'timing': timing,
+            }
+
         model_fn = self._numpyro_model_fn()
-        # NUTS does not enumerate discrete sites; skip sample_ypred (it is
-        # only useful for posterior-predictive simulation, not inference).
-        # compute_generated stays True so log_lik / p_fit are traced.
         model_for_hmc = partial(model_fn, sample_ypred=False,
                                 compute_generated=True)
         rng = jax.random.PRNGKey(self.seed)
@@ -308,6 +362,11 @@ class BinomialModel(Model):
         if verbose:
             print(f"[BinomialModel] pyro HMC: {chains} chains x"
                   f" {iter_sampling} draws in {timing['mins']:.4f} min")
+        if save_to_file and output_file_prefix is not None:
+            os.makedirs(os.path.dirname(output_file_prefix) or '.',
+                        exist_ok=True)
+            draws.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
         return {
             'mcmc': mcmc,
             'draws': draws,
@@ -345,9 +404,31 @@ class BinomialModel(Model):
         verbose: bool = True,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """Stan NUTS via cmdstanpy on the Beta-Bernoulli model."""
+        """Stan NUTS via cmdstanpy on the Beta-Bernoulli model.
+        ``resume=True`` returns the cached ``{prefix}_draws.zarr`` if
+        it exists."""
         from cmdstanpy import CmdStanModel
         t0 = time.time()
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
+        )
+        if can_resume:
+            if verbose:
+                print(f"[BinomialModel] Stan HMC RESUME from {draws_file}")
+            idata = az.from_zarr(draws_file)
+            p_samples = np.asarray(idata.posterior['p'].values).reshape(-1)
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            return {
+                'draws': idata,
+                'posterior_samples': {'p': p_samples},
+                'timing': timing,
+            }
         sf = stan_file or str(self._STAN_FILE)
         model = CmdStanModel(stan_file=sf)
         fit = model.sample(
@@ -365,6 +446,11 @@ class BinomialModel(Model):
         if verbose:
             print(f"[BinomialModel] Stan HMC: {chains} chains x"
                   f" {iter_sampling} draws in {timing['mins']:.4f} min")
+        if save_to_file and output_file_prefix is not None:
+            os.makedirs(os.path.dirname(output_file_prefix) or '.',
+                        exist_ok=True)
+            idata.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
         return {
             'fit': fit,
             'draws': idata,
