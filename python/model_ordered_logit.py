@@ -295,14 +295,14 @@ class OrderedLogit(IRTModel):
             )
 
             vprint("Loading NumPyro model...")
-            numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "ordered_logit_ncats_v260413.pyro"
-            if not numpyro_model_file.exists():
-                raise FileNotFoundError(f"NumPyro model file not found: {numpyro_model_file}")
-
-            model_ns = runpy.run_path(str(numpyro_model_file))
+            # Use the cached module-level _model_namespace() so repeated SVI
+            # fits in the same Python session share the same ordered_logit
+            # _ncats function identity and therefore the JAX JIT cache.
+            model_ns = _model_namespace()
             if "ordered_logit_ncats" not in model_ns:
                 raise AttributeError(
-                    f"Function 'ordered_logit_ncats' not found in {numpyro_model_file}"
+                    "Function 'ordered_logit_ncats' not found in"
+                    " ordered_logit_ncats_v260413.pyro"
                 )
             ordered_logit_ncats = model_ns["ordered_logit_ncats"]
 

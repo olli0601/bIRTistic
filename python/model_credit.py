@@ -294,14 +294,14 @@ class CreditModel(IRTModel):
             )
 
             vprint("Loading NumPyro model...")
-            numpyro_model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "credit_model_ncats_v260413.pyro"
-            if not numpyro_model_file.exists():
-                raise FileNotFoundError(f"NumPyro model file not found: {numpyro_model_file}")
-
-            model_ns = runpy.run_path(str(numpyro_model_file))
+            # Use the cached module-level _model_namespace() so repeated SVI
+            # fits in the same Python session share the same credit_model_ncats
+            # function identity and therefore the JAX JIT cache.
+            model_ns = _model_namespace()
             if "credit_model_ncats" not in model_ns:
                 raise AttributeError(
-                    f"Function 'credit_model_ncats' not found in {numpyro_model_file}"
+                    "Function 'credit_model_ncats' not found in"
+                    " credit_model_ncats_v260413.pyro"
                 )
             credit_model_ncats = model_ns["credit_model_ncats"]
 
