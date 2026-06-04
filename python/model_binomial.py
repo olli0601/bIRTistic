@@ -1,34 +1,30 @@
 """
-:class:`BinomialModel` -- a Beta-Binomial generative model that
-implements the :class:`model.Model` blueprint. The §3.1 example from
-``dev/amortised_decision_making.md``:
+:class:`BinomialModel` -- Beta-Bernoulli generative model. §3.1 example.
 
     p ~ Beta(a, b)
-    y_i | p ~ Bernoulli(p)        i = 1, ..., n
+    y_i | p ~ Bernoulli(p)       i = 1, ..., N
 
 Closed-form posterior is Beta(a + k, b + n - k) with k = sum_i y_i.
+All loglik / prior / endpoint kernels live in
+``src/numpyro/binomial_v260603.pyro``; this class wraps them with the
+``Model`` blueprint surface (``make_stan_data`` / fit drivers /
+endpoint helpers).
 
-Implementation:
-- ``fit_closed_form_posterior``: direct Beta sampling.
-- ``fit_closed_form_pps``: analytic Beta-Binomial PPS tail sum (§3.1).
-- ``fit_pyro_svi``: NumPyro SVI with an Adam + Trace_ELBO loop on an
-  inline Beta-Bernoulli program.
-- ``fit_stan_svi`` / ``fit_stan_hmc``: cmdstanpy variational + NUTS on
-  ``src/stan/binomial_v260603.stan``.
+Fitters: closed-form posterior, closed-form PPS (analytic Beta-Binomial
+tail sum), NumPyro SVI + HMC, Stan ADVI + HMC.
 """
 
 from pathlib import Path
+import runpy
 import time
 from typing import Any, Dict, Optional
 
 import arviz as az
 import jax
 import jax.numpy as jnp
-import jax.scipy.stats as jstats
 import numpy as np
 import numpyro
-import numpyro.distributions as dist
-from numpyro.infer import SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
 from numpyro.infer.autoguide import AutoDiagonalNormal
 import pandas as pd
 from scipy.stats import beta as _scipy_beta
@@ -38,28 +34,36 @@ import xarray as xr
 from model import Model
 
 
-def _bernoulli_numpyro_model(N_total, y, a, b):
-    """Inline Beta-Bernoulli program. Used by :meth:`BinomialModel.fit_pyro_svi`."""
-    p = numpyro.sample('p', dist.Beta(a, b))
-    with numpyro.plate('obs', N_total):
-        numpyro.sample('y', dist.Bernoulli(probs=p), obs=y)
+_MODEL_NS = None
+
+
+def _model_namespace():
+    """Lazily load + cache the binomial numpyro model namespace."""
+    global _MODEL_NS
+    if _MODEL_NS is None:
+        model_file = Path(__file__).resolve().parents[1] / 'src' / 'numpyro' / 'binomial_v260603.pyro'
+        if not model_file.exists():
+            raise FileNotFoundError(f"NumPyro model file not found: {model_file}")
+        _MODEL_NS = runpy.run_path(str(model_file))
+    return _MODEL_NS
 
 
 class BinomialModel(Model):
-    """Beta-Binomial generative model. Single item; ``dcati`` is a long
-    DataFrame with a ``y`` column carrying 0/1 outcomes. ``dit`` is an
-    item table with a single row whose ``item_label`` / ``item_type`` /
-    ``item_high_label`` columns are echoed back by
-    :meth:`get_endpoints_per_draw`."""
+    """Beta-Bernoulli generative model. ``dcati`` is a long DataFrame
+    with a ``y`` column carrying 0/1 outcomes; ``dit`` is an item table
+    with one row (single proportion). ``p_0`` is the null reference for
+    the endpoint ratio ``ratio = p / p_0``."""
 
     param_names = ('p',)
     positive_params = ()  # p lives on (0, 1); MM would use a logit transform.
 
     def __init__(self, dit: pd.DataFrame, dcati: pd.DataFrame,
                  x_formula: str = "~ 1", *, seed: int = 123,
-                 prior_a: float = 1.0, prior_b: float = 1.0):
+                 prior_a: float = 1.0, prior_b: float = 1.0,
+                 p_0: float = 0.5):
         self.prior_a = float(prior_a)
         self.prior_b = float(prior_b)
+        self.p_0 = float(p_0)
         super().__init__(dit=dit, dcati=dcati, x_formula=x_formula, seed=seed)
 
     # ---- Stan data --------------------------------------------------------
@@ -73,31 +77,35 @@ class BinomialModel(Model):
             'b': self.prior_b,
         }
 
-    # ---- Loglik / prior ---------------------------------------------------
-    def eval_loglik(self, data: dict, params: dict) -> jnp.ndarray:
-        """Pointwise log Bernoulli(y_i | p). Returns shape ``(N_total,)``."""
-        p = params['p']
-        y = data['y']
-        return y * jnp.log(p) + (1 - y) * jnp.log1p(-p)
+    # ---- Loglik / prior / outcome (delegate to the .pyro namespace) -------
 
-    def eval_loglik_annealed(self, data: dict, params: dict) -> jnp.ndarray:
-        temperature = params.get('temperature', 1.0)
-        return temperature * self.eval_loglik(data, params)
+    @staticmethod
+    def eval_loglik(data, params):
+        return _model_namespace()['get_log_likelihood_of_binomial'](data, params)
 
-    def eval_log_prior(self, params: dict) -> jnp.ndarray:
-        return jstats.beta.logpdf(params['p'], self.prior_a, self.prior_b)
+    @staticmethod
+    def eval_loglik_annealed(data, params):
+        return _model_namespace()['get_log_likelihood_of_binomial_with_annealing'](data, params)
 
-    # ---- Endpoint / outcome -----------------------------------------------
-    def eval_outcome_for_endpoint(self, data: dict, params: dict) -> jnp.ndarray:
-        return params['p']
+    def eval_log_prior(self, params):
+        """Log Beta(prior_a, prior_b) prior. The model wrapper passes the
+        instance's ``prior_a`` / ``prior_b`` to the .pyro function (which
+        defaults to Beta(1, 1) when called standalone)."""
+        return _model_namespace()['get_log_prior_of_binomial'](
+            params, a=self.prior_a, b=self.prior_b,
+        )
 
+    def eval_outcome_for_endpoint(self, data, params):
+        """Endpoint scalar ``p / p_0`` per draw."""
+        return _model_namespace()['get_endpoint_of_binomial'](params, p_0=self.p_0)
+
+    # ---- Endpoint per draw ------------------------------------------------
     def get_endpoints_per_draw(self, draws,
                                categorical_threshold: int = 3,
                                endpoint_type: str = 'items') -> pd.DataFrame:
-        """One row per (item, draw) with ratio = p (the §3.1 example uses
-        baseline p_0 = 0, so ratio = p / p_0 - 1 collapses to p with the
-        convention used by the IS / regression algorithms)."""
+        """One row per (item, draw) with ``ratio = p / p_0``."""
         p_draws = np.asarray(draws.posterior['p'].values).reshape(-1)
+        ratio = p_draws / self.p_0
         K = p_draws.size
         item_row = self.dit.iloc[0]
         return pd.DataFrame({
@@ -105,8 +113,37 @@ class BinomialModel(Model):
             'item_type':        [item_row['item_type']] * K,
             'item_high_label':  [item_row['item_high_label']] * K,
             'draw':             np.arange(K),
-            'ratio':            p_draws,
+            'p':                p_draws,
+            'ratio':            ratio,
         })
+
+    def get_endpoints(self, draws,
+                      categorical_threshold: int = 3,
+                      endpoint_type: str = 'items',
+                      verbose: bool = False) -> pd.DataFrame:
+        """Quantile-summarised endpoint at q=[2.5, 25, 50, 75, 97.5]% on
+        both ``p`` and the ratio ``p / p_0``. Returns one row per
+        (item, variable) with columns ``q_lower``, ``iqr_lower``,
+        ``median``, ``iqr_upper``, ``q_upper``."""
+        per_draw = self.get_endpoints_per_draw(
+            draws=draws,
+            categorical_threshold=categorical_threshold,
+            endpoint_type=endpoint_type,
+        )
+        quantiles = [0.025, 0.25, 0.5, 0.75, 0.975]
+        quantile_names = ['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper']
+        rows = []
+        item_row = self.dit.iloc[0]
+        for var in ('p', 'ratio'):
+            q = per_draw[var].quantile(quantiles).to_list()
+            rows.append({
+                'item_label': item_row['item_label'],
+                'item_type':  item_row['item_type'],
+                'item_high_label': item_row['item_high_label'],
+                'variable':   var,
+                **dict(zip(quantile_names, q)),
+            })
+        return pd.DataFrame(rows)
 
     # ------------------------------------------------------------------
     # Closed-form posterior + closed-form PPS
@@ -151,18 +188,9 @@ class BinomialModel(Model):
         pps_ProbH1_thresh: float = 0.89,
     ) -> float:
         """Analytic Beta-Binomial PPS over ``m`` future trials (§3.1).
-
-        Posterior after observing x: ``Beta(a_post, b_post)`` with
-        ``a_post = prior_a + k``, ``b_post = prior_b + n - k``.
-
-        For each possible future success count ``k_m in {0, ..., m}``:
-            posterior after (x, z): ``Beta(a_post + k_m, b_post + m - k_m)``
-            P(H_1 | x, z) = 1 - F_Beta(pps_H1_def; a_post + k_m, b_post + m - k_m)
-
-        PPS is the Beta-Binomial(m, a_post, b_post) tail mass at the
-        smallest ``k_m`` for which ``P(H_1 | x, z) > pps_ProbH1_thresh``
-        (the decision is monotone increasing in ``k_m``).
-        """
+        ``pps_H1_def`` is the threshold on ``p`` -- by default the same
+        ``p_0`` used by the endpoint ratio. ``pps_ProbH1_thresh`` is the
+        decision threshold on ``P(H_1 | x, z)``."""
         if m < 0:
             raise ValueError("m must be non-negative.")
         k = int(self.stan_data['k'])
@@ -178,13 +206,15 @@ class BinomialModel(Model):
         if not crosses.any():
             return 0.0
         k_star = int(k_m_grid[crosses][0])
-        # Tail probability under Beta-Binomial(m, a_post, b_post).
         tail = _scipy_betabinom.sf(k_star - 1, m, a_post, b_post)
         return float(tail)
 
     # ------------------------------------------------------------------
-    # NumPyro SVI
+    # NumPyro SVI + HMC
     # ------------------------------------------------------------------
+
+    def _numpyro_model_fn(self):
+        return _model_namespace()['bernoulli_model']
 
     def fit_pyro_svi(
         self,
@@ -200,19 +230,19 @@ class BinomialModel(Model):
     ) -> Dict[str, Any]:
         """NumPyro SVI fit on the inline Beta-Bernoulli program."""
         t0 = time.time()
+        model_fn = self._numpyro_model_fn()
+        # Use the no-generated-quantities variant during SVI optimisation
+        # so we don't trace ypred / log_lik on every Adam step.
+        from functools import partial
+        model_for_svi = partial(model_fn, sample_ypred=False,
+                                compute_generated=False)
+
         rng = jax.random.PRNGKey(self.seed)
-        guide = AutoDiagonalNormal(_bernoulli_numpyro_model)
-        svi = SVI(_bernoulli_numpyro_model, guide,
+        guide = AutoDiagonalNormal(model_for_svi)
+        svi = SVI(model_for_svi, guide,
                   numpyro.optim.Adam(lr), Trace_ELBO())
         rng, sub = jax.random.split(rng)
-        run = svi.run(
-            sub, num_steps,
-            int(self.stan_data['N_total']),
-            jnp.asarray(self.stan_data['y']),
-            float(self.stan_data['a']),
-            float(self.stan_data['b']),
-            progress_bar=False,
-        )
+        run = svi.run(sub, num_steps, self.stan_data, progress_bar=False)
         rng, sub = jax.random.split(rng)
         if hasattr(svi, 'get_posterior'):
             post = svi.get_posterior(run.state).sample(
@@ -235,6 +265,53 @@ class BinomialModel(Model):
         return {
             'draws': draws,
             'posterior_samples': {'p': p_samples},
+            'timing': timing,
+        }
+
+    def fit_pyro_hmc(
+        self,
+        output_file_prefix: Optional[str] = None,
+        *,
+        chains: int = 2,
+        iter_warmup: int = 500,
+        iter_sampling: int = 1500,
+        save_to_file: bool = False,
+        resume: bool = False,
+        verbose: bool = True,
+        **method_kwargs,
+    ) -> Dict[str, Any]:
+        """NumPyro NUTS fit on the Beta-Bernoulli program (full ypred +
+        log_lik traced via ``sample_ypred=True, compute_generated=True``)."""
+        t0 = time.time()
+        from functools import partial
+        model_fn = self._numpyro_model_fn()
+        # NUTS does not enumerate discrete sites; skip sample_ypred (it is
+        # only useful for posterior-predictive simulation, not inference).
+        # compute_generated stays True so log_lik / p_fit are traced.
+        model_for_hmc = partial(model_fn, sample_ypred=False,
+                                compute_generated=True)
+        rng = jax.random.PRNGKey(self.seed)
+        kernel = NUTS(model_for_hmc)
+        mcmc = MCMC(
+            kernel,
+            num_warmup=iter_warmup,
+            num_samples=iter_sampling,
+            num_chains=chains,
+            progress_bar=False,
+        )
+        mcmc.run(rng, self.stan_data)
+        samples = mcmc.get_samples(group_by_chain=True)
+        p_samples_chained = np.asarray(samples['p'])  # (chains, draws)
+        ds = xr.Dataset({'p': (('chain', 'draw'), p_samples_chained)})
+        draws = az.InferenceData(posterior=ds)
+        timing = {'mins': (time.time() - t0) / 60.0}
+        if verbose:
+            print(f"[BinomialModel] pyro HMC: {chains} chains x"
+                  f" {iter_sampling} draws in {timing['mins']:.4f} min")
+        return {
+            'mcmc': mcmc,
+            'draws': draws,
+            'posterior_samples': {'p': p_samples_chained.reshape(-1)},
             'timing': timing,
         }
 
@@ -324,7 +401,6 @@ class BinomialModel(Model):
             seed=self.seed,
             show_console=False,
         )
-        # cmdstanpy variational draws are accessed via variational_sample_pd.
         p_samples = np.asarray(fit.variational_sample_pd['p']).reshape(-1)
         ds = xr.Dataset({'p': (('chain', 'draw'), p_samples[None, :])})
         idata = az.InferenceData(posterior=ds)

@@ -7,10 +7,19 @@ data {
   real<lower=0> a;
   real<lower=0> b;
 }
+transformed data {
+  int<lower=0, upper=N> successes = sum(y);
+}
 parameters {
   real<lower=0, upper=1> p;
 }
 model {
-  p ~ beta(a, b);
-  y ~ bernoulli(p);
+  target += beta_lpdf(p | a, b);
+  target += binomial_lpmf(successes | N, p);
+}
+generated quantities {
+  array[N] int<lower=0, upper=1> y_rep;
+  for (n in 1:N) {
+    y_rep[n] = bernoulli_rng(p);
+  }
 }

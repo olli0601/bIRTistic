@@ -128,10 +128,13 @@ def test_eval_log_prior_matches_beta(model):
     assert actual == pytest.approx(expected, abs=1e-5)
 
 
-def test_eval_outcome_returns_p(model):
+def test_eval_outcome_returns_ratio(model):
+    """eval_outcome_for_endpoint now returns the endpoint ratio p / p_0
+    (default p_0 = 0.5), matching the convention used by the IS /
+    regression algorithms."""
     p_val = jnp.asarray(0.42)
     out = model.eval_outcome_for_endpoint(model.stan_data, {'p': p_val})
-    assert float(out) == pytest.approx(0.42, abs=1e-5)
+    assert float(out) == pytest.approx(0.42 / 0.5, abs=1e-5)
 
 
 # ---------------------------------------------------------------------------
@@ -211,12 +214,13 @@ def test_get_endpoints_per_draw_shape(model):
     )
     assert len(end) == 50
     assert set(end.columns) >= {
-        'item_label', 'item_type', 'item_high_label', 'draw', 'ratio',
+        'item_label', 'item_type', 'item_high_label', 'draw', 'p', 'ratio',
     }
-    # ratio column == p samples (in order)
-    np.testing.assert_array_equal(
-        end['ratio'].to_numpy(),
-        fit['posterior_samples']['p'],
+    # p column == posterior samples (in order); ratio = p / p_0 (default 0.5).
+    p_samples = fit['posterior_samples']['p']
+    np.testing.assert_array_equal(end['p'].to_numpy(), p_samples)
+    np.testing.assert_allclose(
+        end['ratio'].to_numpy(), p_samples / 0.5, rtol=0, atol=1e-12,
     )
 
 

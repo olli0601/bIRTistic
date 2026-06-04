@@ -66,7 +66,7 @@ seed = 123
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-260526"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-nested-MC-260526"
 dir_logs = os.path.join(dir_out, "logs")
 os.makedirs(dir_out, exist_ok=True)
 os.makedirs(dir_logs, exist_ok=True)
