@@ -30,6 +30,117 @@ class IRTModel(Model):
     endpoint extraction from posterior ordered-prob arrays."""
 
     # ------------------------------------------------------------------
+    # IRT data builder
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def get_interim_data_x(df: pd.DataFrame,
+                           interim_date: Optional[str] = None
+                           ) -> pd.DataFrame:
+        """Slice a long-form panel ``df`` to the cohort observed on/before
+        ``interim_date``, keep only (participant, item) responses present
+        at BOTH baseline and endline, then re-index pids / oids / oidt.
+
+        Callers operating on the instance pass ``self.dcati``; the
+        nested-MC driver passes the augmented ``pd.concat([xi, z_s])``.
+        Participants missing a timepoint for some items are retained for
+        their complete items; only the incomplete (pid, item) responses
+        are dropped (not the whole participant)."""
+        dcati = df
+
+        if interim_date is not None:
+            dcati = dcati[dcati['submission_date'] <= interim_date]
+
+        if dcati.empty:
+            return dcati
+
+        n_per_pid_item = (
+            dcati.groupby(['pid', 'item_label'])['time']
+            .nunique().reset_index(name='n_times')
+        )
+        keep = n_per_pid_item.loc[n_per_pid_item['n_times'] == 2, ['pid', 'item_label']]
+        dcati = dcati.merge(keep, on=['pid', 'item_label'], how='inner')
+        if dcati.empty:
+            return dcati
+
+        pid_map = pd.DataFrame({'pid_orig': sorted(dcati['pid'].unique())})
+        pid_map['pid_new'] = range(1, len(pid_map) + 1)
+        dcati = dcati.merge(pid_map, left_on='pid', right_on='pid_orig')
+        dcati['pid'] = dcati['pid_new']
+        dcati = dcati.drop(columns=['pid_orig', 'pid_new'])
+
+        dcati = dcati.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+        dcati['oid'] = range(1, len(dcati) + 1)
+        dcati['oidt'] = dcati.groupby('item_type').cumcount() + 1
+        return dcati
+
+    # ------------------------------------------------------------------
+    # training-set summary W(z^(s))_t
+    # ------------------------------------------------------------------
+
+    def get_w(self, zi: pd.DataFrame,
+              categorical_threshold: int = 3) -> pd.DataFrame:
+        """Build the Strong-Oakley per-(item, draw) summary frame from
+        the future-data block ``zi`` (must carry
+        ``ypred_0 .. ypred_{S-1}`` columns).
+
+        For each draw column:
+        - ``out-of-7`` items -> mean of ypred_s (1..7),
+        - ``categorical`` items -> proportion of ypred_s
+          ``>= categorical_threshold``.
+
+        Pivots to ``w_baseline`` / ``w_endline`` per (item, draw) and
+        derives direction-aware ``w_diff`` / ``w_ratio`` consistent with
+        the endpoint-ratio convention."""
+        dit = self.dit
+        ypred_cols = [c for c in zi.columns if c.startswith('ypred_')]
+
+        zi_o7 = zi[zi['item_type'] == 'out-of-7']
+        zi_cat = zi[zi['item_type'] == 'categorical']
+        w_o7 = (
+            zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+            .mean().reset_index()
+        )
+        zi_cat_bin = zi_cat[ypred_cols].ge(categorical_threshold).astype(float)
+        zi_cat_bin = pd.concat(
+            [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
+             zi_cat_bin.reset_index(drop=True)], axis=1,
+        )
+        w_cat = (
+            zi_cat_bin.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+            .mean().reset_index()
+        )
+        wa = pd.concat([w_o7, w_cat], ignore_index=True).melt(
+            id_vars=['item_label', 'item_type', 'time'],
+            value_vars=ypred_cols, var_name='s_col', value_name='w',
+        )
+        wa['draw'] = wa['s_col'].str.replace('ypred_', '').astype(int)
+        wa = wa.drop(columns='s_col')
+
+        t_min, t_max = wa['time'].min(), wa['time'].max()
+        wa = (
+            wa.pivot_table(index=['item_label', 'item_type', 'draw'],
+                           columns='time', values='w')
+            .reset_index()
+        )
+        wa.columns.name = None
+        wa = wa.rename(columns={t_min: 'w_baseline', t_max: 'w_endline'})
+
+        wa = wa.merge(
+            dit[['item_label', 'item_high_label']].drop_duplicates(),
+            on='item_label', how='left',
+        )
+        wa['w_diff'] = np.nan
+        wa['w_ratio'] = np.nan
+        tmp = wa['item_high_label'] == 'lower_is_better'
+        wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_baseline'] - wa.loc[tmp, 'w_endline']
+        wa.loc[tmp, 'w_ratio'] = 1 - wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline']
+        tmp = wa['item_high_label'] == 'higher_is_better'
+        wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_endline'] - wa.loc[tmp, 'w_baseline']
+        wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
+        return wa
+
+    # ------------------------------------------------------------------
     # Private helpers -- bodies verbatim from the legacy get_endpoints.py
     # ------------------------------------------------------------------
 
@@ -71,16 +182,31 @@ class IRTModel(Model):
         cq_map = _map_cq_id_to_item_structure(dp1, dit)
         return po.merge(cq_map, on='cq_id')
 
-    def _endpoints_per_draw_impl(
+    # ------------------------------------------------------------------
+    # Public endpoint methods
+    # ------------------------------------------------------------------
+
+    def get_endpoints_per_draw(
         self,
-        po: pd.DataFrame,
+        draws=None,
+        draws_file: Optional[str] = None,
         categorical_threshold: int = 3,
         endpoint_type: Literal["items", "item_groups"] = "items",
+        param_name: str = "ordered_prob_by_cat_qu_pr",
+        verbose: bool = False,
     ) -> pd.DataFrame:
-        """Compute per-draw endpoint scalars + directional ``diff`` and
-        ``ratio`` for both categorical and out-of-7 items. Body verbatim
-        from legacy ``_get_endpoints_per_draw``; reads ``self.dcati``
-        (``dp1``) and ``self.dit``."""
+        """Per-draw directional ``diff`` and ``ratio`` per item or
+        item-group, computed from ``self.dcati`` + ``self.dit`` and the
+        supplied posterior."""
+        if endpoint_type not in ("items", "item_groups"):
+            raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
+        if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
+            raise ValueError(
+                "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
+            )
+        po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
+        po = self._make_po(po_arr)
+
         dp1 = self.dcati
         dit = self.dit
         parts = []
@@ -126,7 +252,6 @@ class IRTModel(Model):
             on=['item_type', 'group_label'],
         )
 
-        # Compute differences and ratios (direction depends on item_high_label)
         po['diff'] = np.nan
         po['ratio'] = np.nan
         tmp = po['item_high_label'] == 'lower_is_better'
@@ -136,37 +261,6 @@ class IRTModel(Model):
         po.loc[tmp, 'diff'] = po.loc[tmp, 'Endline'] - po.loc[tmp, 'Baseline']
         po.loc[tmp, 'ratio'] = po.loc[tmp, 'Endline'] / po.loc[tmp, 'Baseline'] - 1
 
-        return po
-
-    # ------------------------------------------------------------------
-    # Public endpoint methods
-    # ------------------------------------------------------------------
-
-    def get_endpoints_per_draw(
-        self,
-        draws=None,
-        draws_file: Optional[str] = None,
-        categorical_threshold: int = 3,
-        endpoint_type: Literal["items", "item_groups"] = "items",
-        param_name: str = "ordered_prob_by_cat_qu_pr",
-        verbose: bool = False,
-    ) -> pd.DataFrame:
-        """Per-draw directional ``diff`` and ``ratio`` per item or
-        item-group, computed from ``self.dcati`` + ``self.dit`` and the
-        supplied posterior."""
-        if endpoint_type not in ("items", "item_groups"):
-            raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
-        if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
-            raise ValueError(
-                "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
-            )
-        po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
-        po = self._make_po(po_arr)
-        po = self._endpoints_per_draw_impl(
-            po,
-            categorical_threshold=categorical_threshold,
-            endpoint_type=endpoint_type,
-        )
         po.rename(columns={'.draw': 'draw'}, inplace=True)
         return po
 
@@ -183,21 +277,14 @@ class IRTModel(Model):
         (2.5%, 25%, 50%, 75%, 97.5%). Reads ``self.dcati`` + ``self.dit``
         and the supplied posterior."""
         vprint = print if verbose else (lambda *args, **kwargs: None)
-        if endpoint_type not in ("items", "item_groups"):
-            raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
-        if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
-            raise ValueError(
-                "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
-            )
         dit = self.dit
 
         vprint("Computing per-draw endpoints...")
-        po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
-        po = self._make_po(po_arr)
-        po = self._endpoints_per_draw_impl(
-            po,
+        po = self.get_endpoints_per_draw(
+            draws=draws, draws_file=draws_file,
             categorical_threshold=categorical_threshold,
             endpoint_type=endpoint_type,
+            param_name=param_name, verbose=verbose,
         )
 
         if endpoint_type == "item_groups":
@@ -205,22 +292,19 @@ class IRTModel(Model):
         else:
             id_vars = ['item_type_id', 'item_type', 'item_label', 'group_label']
 
-        # Reshape to long format for summarisation
         po = po.melt(
-            id_vars=['.draw'] + id_vars,
+            id_vars=['draw'] + id_vars,
             value_vars=['diff', 'ratio', 'Baseline', 'Endline'],
             var_name='variable',
             value_name='value',
         )
 
-        # Quantile summaries
         quantiles = [0.025, 0.25, 0.5, 0.75, 0.975]
         quantile_names = ['q_lower', 'iqr_lower', 'median', 'iqr_upper', 'q_upper']
         pos = po.groupby(id_vars + ['variable'])['value'].quantile(quantiles).unstack()
         pos.columns = quantile_names
         pos = pos.reset_index()
 
-        # Merge with item metadata
         if endpoint_type == "item_groups":
             tmp = dit[['item_type', 'group_label', 'group_label_long', 'item_high_label']].drop_duplicates()
             pos = pos.merge(tmp, on=['item_type', 'group_label'])

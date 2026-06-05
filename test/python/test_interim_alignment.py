@@ -24,9 +24,10 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from interim_helpers import _load_ypred
-from fit_interim import get_interim_endpt_and_w_from_poi
+from model import Model
 from model_pcm import PartialCreditModel
+
+_load_ypred = Model._load_ypred
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -103,11 +104,30 @@ def test_load_ypred_random_subset_uses_rng(raw_ypred):
 def wa(xi, dit, draws):
     model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=123)
-    return get_interim_endpt_and_w_from_poi(
-        model=model, draws=draws, draws_file=_DRAWS_FILE,
-        interim_m=10, pps_z_total=20,
-        pps_H1_def=0.5, pps_ProbH1_thresh=0.89,
-        categorical_threshold=2, seed=123,
+    pps_H1_def = 0.5
+    pps_ProbH1_thresh = 0.89
+    zi = model.get_interim_z_from_ypredi(
+        _DRAWS_FILE, interim_m=10,
+        pps_z_total=20, seed=123, keep_order=True,
+    )
+    wa = model.get_w(zi, categorical_threshold=2)
+    x_ratio = model.get_endpoints_per_draw(
+        draws=draws, categorical_threshold=2, endpoint_type='items',
+    )
+    tmp = (
+        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        .rename(columns={'p_h1': 'pps_ProbH1_x'})
+    )
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio = x_ratio.merge(
+        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
+        on='item_label', how='left',
+    )
+    return wa.merge(
+        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
+        on=['draw', 'item_label', 'item_type'], how='inner',
     )
 
 

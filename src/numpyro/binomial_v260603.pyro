@@ -9,8 +9,11 @@ Mirrors the Stan version in ``src/stan/binomial_v260603.stan``:
 Posterior is closed form: Beta(a + sum_i y_i, b + N - sum_i y_i).
 
 The pyro file exposes:
-- ``bernoulli_model(data, sample_ypred=True, compute_generated=True)``:
-  the numpyro program. ``data`` keys ``N_total``, ``y``, ``a``, ``b``.
+- ``bernoulli_model(data, compute_generated=True)``: the numpyro
+  program. ``data`` keys ``N_total``, ``y``, ``a``, ``b``. With
+  ``compute_generated=True`` the program also emits ``ypred`` (posterior-
+  predictive Bernoulli draws), ``log_lik`` (pointwise) and ``p_fit`` as
+  deterministics.
 - ``get_log_likelihood_of_binomial(data, params)``: pointwise Bernoulli loglik
 - ``get_log_likelihood_of_binomial_with_annealing(data, params)``: annealed
 - ``get_log_prior_of_binomial(params, a=1.0, b=1.0)``: log Beta prior
@@ -24,7 +27,7 @@ import numpyro
 import numpyro.distributions as dist
 
 
-def bernoulli_model(data, sample_ypred=True, compute_generated=True):
+def bernoulli_model(data, compute_generated=True):
     """Beta-Bernoulli numpyro program.
 
     Parameters
@@ -32,11 +35,13 @@ def bernoulli_model(data, sample_ypred=True, compute_generated=True):
     data : dict
         Must contain ``N_total`` (int), ``y`` (length-N_total array of
         0/1), ``a`` and ``b`` (Beta prior shape parameters).
-    sample_ypred : bool
-        If True, draw a posterior-predictive Bernoulli sample at every
-        observation as the ``ypred`` deterministic.
     compute_generated : bool
-        If True, expose ``log_lik`` (pointwise) and ``p`` as deterministics.
+        If True, emit ``ypred`` (posterior-predictive Bernoulli at every
+        observation), ``log_lik`` (pointwise) and ``p_fit`` as
+        deterministics. Set False during NUTS / SVI inference (NUTS
+        cannot enumerate the discrete ypred site, and SVI has no need
+        for it); ``Predictive`` re-runs the model with True to obtain
+        ypred + log_lik per posterior draw.
     """
     N_total = int(data['N_total'])
     y = jnp.asarray(data['y']).astype(jnp.int32)
@@ -48,14 +53,12 @@ def bernoulli_model(data, sample_ypred=True, compute_generated=True):
     log_lik = y * jnp.log(p) + (1 - y) * jnp.log1p(-p)
     numpyro.factor('binomial_likelihood', jnp.sum(log_lik))
 
-    if sample_ypred:
+    if compute_generated:
         ypred_raw = numpyro.sample(
             'ypred_raw', dist.Bernoulli(probs=p).expand([N_total])
         )
         # ``+ 0`` keeps the array deterministic-traced as int.
         numpyro.deterministic('ypred', ypred_raw + 0)
-
-    if compute_generated:
         numpyro.deterministic('log_lik', log_lik)
         numpyro.deterministic('p_fit', p)
 
@@ -86,7 +89,7 @@ def get_log_prior_of_binomial(params, a=1.0, b=1.0):
 
 
 def get_endpoint_of_binomial(params, p_0=0.5):
-    """Per-draw endpoint scalar ``p / p_0``. Default ``p_0 = 0.5`` matches
+    """Per-draw endpoint scalar ``1 - p / p_0``. Default ``p_0 = 0.5`` matches
     the H_1 boundary in :func:`fit_interim.fit_interim_IS_reweight` etc.
-    With this convention ``H_1: p > p_0`` becomes ``ratio > 1``."""
-    return params['p'] / p_0
+    With this convention ``H_1: p > p_0`` becomes ``endpoint > 0``."""
+    return 1 - params['p'] / p_0

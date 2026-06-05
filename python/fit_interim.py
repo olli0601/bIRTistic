@@ -21,18 +21,9 @@ from jax import random
 from scipy.special import softmax
 import statsmodels.api as sm
 
-# IRT-specific endpoint helpers now live on IRTModel
+# IRT-specific endpoint helpers + cohort builder live on IRTModel
 # (python/model_irt.py). Algorithm callers route through a Model instance.
 from model_pcm import PartialCreditModel
-# Pure-pandas helpers live in interim_helpers.py (OO-port step 1). Re-exported
-# here for the convenience of the interim-analysis scripts, which already had
-# imports against this module before the refactor.
-from interim_helpers import (
-    _load_ypred,
-    get_interim_x,
-    get_interim_z_from_ypredf,
-    get_interim_z_from_ypredi,
-)
 
 
 def _fit_interim_nested_monte_carlo_of_posterior_xz_one_sample(
@@ -49,17 +40,21 @@ def _fit_interim_nested_monte_carlo_of_posterior_xz_one_sample(
     vprint(f"\n--- PPS sample {s_label} ---")
 
     # This sample's predicted outcomes become y_stan for the new participants;
-    # concat onto the interim data and rebuild the cohort.
+    # concat onto the interim data and rebuild the cohort via the model-class
+    # hook (IRT rebuilds pid/oid/oidt; Binomial is identity).
     ycol = f'ypred_{s_idx}'
     tmp = zi.drop(
         columns=['y', 'y_stan'] + [c for c in zi.columns if c.startswith('ypred_') and c != ycol],
         errors='ignore',
     ).rename(columns={ycol: 'y_stan'})
-    xzi = get_interim_x(pd.concat([xi, tmp], ignore_index=True))
 
-    # Refit the model to the augmented data (x, z_s), in memory only.
     fma = dict(fitting_method_args)
     x_formula = fma.pop('x_formula', "~ time - 1")
+
+    xzi = model_cls.get_interim_data_x(
+        pd.concat([xi, tmp], ignore_index=True),
+    )
+
     model = model_cls(dit=dit, dcati=xzi, x_formula=x_formula,
                       seed=seed + s_label)
     fit = model.fit_pyro_svi(
@@ -72,18 +67,18 @@ def _fit_interim_nested_monte_carlo_of_posterior_xz_one_sample(
         **fma,
     )
 
-    # Per-item P(H_1 | x, z_s) = fraction of draws with ratio > pps_H1_def.
+    # Per-item P(H_1 | x, z_s). Each model class supplies its own
+    # ratio definition (IRT: 1 - p_end/p_base for lower_is_better;
+    # Binomial: 1 - p/p_0) and shares the same get_p_h1 aggregator
+    # (right-tail r > pps_H1_def).
     ratio_xz = model.get_endpoints_per_draw(
         draws=fit['draws'],
         categorical_threshold=categorical_threshold,
         endpoint_type='items',
-        param_name='ordered_prob_by_cat_qu_pr',
-        verbose=verbose,
     )
     sample_p = (
-        ratio_xz.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
-        .apply(lambda r: float((r > pps_H1_def).mean()))
-        .reset_index(name='p_h1_xz')
+        model.get_p_h1(ratio_xz, pps_H1_def=pps_H1_def)
+        .rename(columns={'p_h1': 'p_h1_xz'})
     )
     sample_p['s'] = s_label
     return sample_p
@@ -111,7 +106,7 @@ def fit_interim_nested_monte_carlo_of_posterior_xz(
     For each sample ``s`` (0 .. ``pps_z_total`` - 1) the column ``ypred_s`` of
     ``zi`` becomes the outcome ``y_stan`` for the new participants; this is
     concatenated onto the interim data ``xi`` and rebuilt into a cohort frame via
-    :func:`get_interim_x`. The partial credit model is refit in memory
+    ``model.get_interim_data_x``. The model is refit in memory
     (``save_to_file=False``) and the per-item probability that the directional
     improvement ratio exceeds ``pps_H1_def`` is recorded.
 
@@ -886,151 +881,14 @@ def fit_interim_SMC_PPS(
 # =============================================================================
 # Strong-Oakley regression-based label estimator (Case A)
 # =============================================================================
-# 1. ``get_interim_endpt_and_w_from_poi`` builds the per-item training set
-#    ``wa`` from the x-posterior draws: per-(item, draw) the actual endpoint
-#    ratio ``pps_ratio_x`` (and its H_1 indicator), and per-(item, draw) the
-#    posterior-predictive summary ``W(z^(s))_t`` at baseline / endline plus the
-#    direction-aware ``w_diff`` / ``w_ratio``.
+# 1. Callers build the per-item training set ``wa`` inline via
+#    ``model.get_interim_z_from_ypredi`` (keep_order=True) + ``model.get_w``
+#    + ``model.get_endpoints_per_draw`` + ``model.get_p_h1``.
 # 2. ``fit_interim_regress_H1x_on_wz`` fits a per-item binomial GLM
 #    ``pps_H1_x ~ w_ratio`` and predicts ``p_h1_xz`` = pi_hat(W(z^(s))) for
 #    every draw, plus per-item Pearson rho and Gaussian-GLM R^2 diagnostics.
 # 3. ``fit_interim_regress_H1x_on_wz_per_item_summary`` is the per-item helper
 #    used both inside (2) and by the diagnostic plot scripts.
-
-
-def get_interim_endpt_and_w_from_poi(
-    model,
-    draws,
-    draws_file: str,
-    interim_m: int,
-    pps_z_total: int,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    seed: int = 123,
-) -> pd.DataFrame:
-    """
-    Per-(item, draw) endpoint ratio from the x-posterior + per-(item, draw)
-    summary ``W(z^(s))_t`` for the Strong-Oakley regression training set.
-
-    For each draw s = 0..pps_z_total-1 (in posterior order; see
-    :func:`_load_ypred` with ``keep_order=True``):
-
-    - load ``ypred[s]`` (the posterior-predictive at every xi observation) and
-      build a future-data block z by resampling ``interim_m`` xi participants
-      with replacement (seeded), inheriting their ypred values;
-    - compute per-(item, time) summary ``W(z^(s))_t``:
-        * ``out-of-7``  items -> mean of y_stan (1..7),
-        * ``categorical`` items -> proportion of responses
-          ``>= categorical_threshold``;
-    - pivot to ``w_baseline`` / ``w_endline`` and derive the direction-aware
-      ``w_diff`` and ``w_ratio`` (positive => improvement, matching the
-      endpoint-ratio convention).
-
-    The actual per-draw endpoint ratio ``pps_ratio_x`` and the H_1 indicator
-    ``pps_H1_x = 1{pps_ratio_x > pps_H1_def}`` come from
-    ``model.endpoints_per_draw(...)`` on the x-fit posterior; per-item
-    summaries ``pps_ProbH1_x`` and the decision indicator ``pps_H1_yes`` are
-    also added.
-
-    Returns
-    -------
-    wa : pd.DataFrame
-        One row per (item, draw) with columns
-        ``item_label, item_type, item_high_label, draw,
-        w_baseline, w_endline, w_diff, w_ratio,
-        pps_ratio_x, pps_H1_x``.
-    """
-    xi = model.dcati
-    dit = model.dit
-
-    # Load ypred in posterior-draw order so row s == posterior draw s.
-    ypred = _load_ypred(draws_file, pps_z_total, np.random.default_rng(seed), keep_order=True)
-    S = ypred.shape[0]
-
-    # Resample participants (with replacement, seeded) for the shadow z block.
-    rng = np.random.default_rng(seed)
-    tmp = pd.DataFrame({
-        'src_pid': rng.choice(xi['pid'].unique(), size=interim_m, replace=True),
-        'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
-    })
-    zi = (
-        tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
-        .sort_values(['pid', 'oid']).reset_index(drop=True)
-    )
-    ypred_cols = [f'ypred_{s}' for s in range(S)]
-    zi[ypred_cols] = ypred[:, zi['oid'].to_numpy() - 1].T
-
-    # Per-(item, time) summaries W(z^(s))_t, type-specific.
-    zi_o7 = zi[zi['item_type'] == 'out-of-7']
-    zi_cat = zi[zi['item_type'] == 'categorical']
-    w_o7 = (
-        zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
-        .mean().reset_index()
-    )
-    zi_cat_bin = zi_cat[ypred_cols].ge(categorical_threshold).astype(float)
-    zi_cat_bin = pd.concat(
-        [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
-         zi_cat_bin.reset_index(drop=True)], axis=1,
-    )
-    w_cat = (
-        zi_cat_bin.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
-        .mean().reset_index()
-    )
-    wa = pd.concat([w_o7, w_cat], ignore_index=True).melt(
-        id_vars=['item_label', 'item_type', 'time'],
-        value_vars=ypred_cols, var_name='s_col', value_name='w',
-    )
-    wa['draw'] = wa['s_col'].str.replace('ypred_', '').astype(int)
-    wa = wa.drop(columns='s_col')
-
-    t_min, t_max = wa['time'].min(), wa['time'].max()
-    wa = (
-        wa.pivot_table(index=['item_label', 'item_type', 'draw'],
-                       columns='time', values='w')
-        .reset_index()
-    )
-    wa.columns.name = None
-    wa = wa.rename(columns={t_min: 'w_baseline', t_max: 'w_endline'})
-
-    # Direction-aware diff / ratio (mirrors the endpoint-ratio computation).
-    wa = wa.merge(
-        dit[['item_label', 'item_high_label']].drop_duplicates(),
-        on='item_label', how='left',
-    )
-    wa['w_diff'] = np.nan
-    wa['w_ratio'] = np.nan
-    tmp = wa['item_high_label'] == 'lower_is_better'
-    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_baseline'] - wa.loc[tmp, 'w_endline']
-    wa.loc[tmp, 'w_ratio'] = 1 - wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline']
-    tmp = wa['item_high_label'] == 'higher_is_better'
-    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_endline'] - wa.loc[tmp, 'w_baseline']
-    wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
-
-    # Actual per-draw endpoint ratio from the x-fit posterior.
-    x_ratio = model.get_endpoints_per_draw(
-        draws=draws,
-        categorical_threshold=categorical_threshold,
-        endpoint_type='items',
-        param_name='ordered_prob_by_cat_qu_fit',
-    )
-    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
-    tmp = (
-        x_ratio.groupby(['item_type', 'item_label'])
-        .agg(pps_ProbH1_x=('pps_H1_x', 'mean'))
-        .reset_index()
-    )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
-    x_ratio = x_ratio.merge(
-        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']], on='item_label', how='left',
-    )
-
-    wa = wa.merge(
-        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
-        on=['draw', 'item_label', 'item_type'], how='inner',
-    )
-    return wa
 
 
 def fit_interim_regress_H1x_on_wz_per_item_summary(g: pd.DataFrame) -> pd.Series:

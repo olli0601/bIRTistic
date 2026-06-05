@@ -22,6 +22,7 @@ See ``dev/interim_model_blueprint_plan.md`` for the full design.
 from abc import ABC, abstractmethod
 from typing import Any, Dict
 
+import arviz as az
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
@@ -133,3 +134,77 @@ class Model(ABC):
         """One row per (item, draw) with at least
         ``item_label, item_type, item_high_label, draw, ratio``. IRT
         subclasses inherit :class:`model_irt.IRTModel`'s implementation."""
+
+    def get_p_h1(self, ratio_xz: pd.DataFrame,
+                 pps_H1_def: float = 0.5) -> pd.DataFrame:
+        """Per-item ``mean(endpt > pps_H1_def)`` over draws.
+
+        Both IRT (where ``endpt`` is the directional improvement
+        ``1 - p_endline/p_baseline`` for ``lower_is_better`` items) and
+        Binomial (where ``endpt = 1 - p / p_0``) use the same
+        right-tail rule. Returns one row per
+        ``(item_label, item_type, item_high_label)`` with a ``p_h1``
+        column. Callers rename to ``p_h1_x`` / ``p_h1_xz`` /
+        ``pps_ProbH1_x`` etc per context."""
+        return (
+            ratio_xz
+            .groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
+            .apply(lambda endpt: float((endpt > pps_H1_def).mean()))
+            .reset_index(name='p_h1')
+        )
+
+    # ---- 2.7 Generic posterior-predictive utilities --------------------
+    @staticmethod
+    def _load_ypred(draws_file: str, pps_z_total: int, rng,
+                    keep_order: bool = False) -> np.ndarray:
+        """Load ``posterior['ypred']`` from a draws zarr, flatten the
+        (chain, draw) dims, and return ``pps_z_total`` draws as
+        ``(pps_z_total, N_total)``. ``keep_order=False`` samples without
+        replacement via ``rng.choice``; ``keep_order=True`` returns the
+        first ``pps_z_total`` draws in posterior order."""
+        ypred = az.from_zarr(draws_file).posterior['ypred'].values
+        ypred = ypred.reshape(-1, ypred.shape[-1])
+        if keep_order:
+            return ypred[:pps_z_total]
+        return ypred[rng.choice(ypred.shape[0], size=pps_z_total, replace=False)]
+
+    def get_interim_z_from_ypredi(self, draws_file: str, interim_m: int,
+                                  pps_z_total: int = 10, seed: int = 123,
+                                  keep_order: bool = False
+                                  ) -> pd.DataFrame:
+        """Build the future-data block z from this model's INTERIM fit
+        predictions.
+
+        Uses ``self.dcati`` as the interim cohort ``xi``. ``interim_m``
+        new (shadow) participants are resampled WITH replacement from
+        ``xi``, each assigned a fresh ``pid`` offset above ``xi``'s
+        maximum so they don't collide on a later concat. Their predicted
+        outcomes are taken from ``draws_file``'s ``posterior['ypred']``
+        at the original ``xi`` observation positions; for sample ``s``
+        all rows share the same posterior draw (y_s is linked to
+        theta_s by the shared draw index).
+
+        ``keep_order=False`` (default) randomly subsamples
+        ``pps_z_total`` posterior draws. ``keep_order=True`` keeps
+        posterior order so row ``s`` corresponds to posterior draw
+        index ``s`` -- required when downstream code merges on the
+        posterior-draw index (e.g. against ``get_endpoints_per_draw``).
+
+        Requires ``self.dcati`` to carry ``pid`` and ``oid``."""
+        xi = self.dcati
+        rng = np.random.default_rng(seed)
+        ypred = self._load_ypred(draws_file, pps_z_total, rng,
+                                 keep_order=keep_order)
+
+        src_pids = rng.choice(xi['pid'].unique(), size=interim_m, replace=True)
+        tmp = pd.DataFrame({
+            'src_pid': src_pids,
+            'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
+        })
+        zi = tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
+        zi.sort_values(['pid', 'oid'], inplace=True)
+        zi.reset_index(drop=True, inplace=True)
+        zi[[f'ypred_{s}' for s in range(pps_z_total)]] = (
+            ypred[:, zi['oid'].to_numpy() - 1].T
+        )
+        return zi

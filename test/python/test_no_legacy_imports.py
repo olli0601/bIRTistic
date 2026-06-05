@@ -20,7 +20,7 @@ _python_dir = _repo_root / 'python'
 _scripts_dir = _repo_root / 'scripts-py'
 
 _LEGACY_MODULES_RE = re.compile(
-    r"\bfrom\s+(fit_partial_credit_model|fit_credit_model|fit_ordered_logit_model)\s+import"
+    r"\bfrom\s+(fit_partial_credit_model|fit_credit_model|fit_ordered_logit_model|interim_helpers)\s+import"
 )
 
 _DELETED_SHIM_RE = re.compile(

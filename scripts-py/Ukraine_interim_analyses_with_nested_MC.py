@@ -49,7 +49,7 @@ warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
-from fit_interim import get_interim_z_from_ypredi, fit_interim_nested_monte_carlo_of_posterior_xz, get_interim_x
+from fit_interim import fit_interim_nested_monte_carlo_of_posterior_xz
 from utils import _futurama_palette
 
 print("✓ Imports successful")
@@ -296,7 +296,7 @@ for i in range(len(di)):
     interim_id = int(di.iloc[i]['interim_id'])
     print(f"\n--- Interim {interim_id}: {di.iloc[i]['interim_date'].date()} ---")
 
-    dcati = get_interim_x(dp1, di.iloc[i]['interim_date'])
+    dcati = PartialCreditModel.get_interim_data_x(dp1, di.iloc[i]['interim_date'])
     if dcati.empty or dcati['pid'].nunique() < 2:
         print(f"  Skipping (insufficient complete participants)")
         continue
@@ -560,7 +560,13 @@ for interim_id in di['interim_id']:
     print(f"\n{'='*70}\nPPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
 
     t0 = time.time()
-    zi = get_interim_z_from_ypredi(xi, draws_file, interim_m, pps_z_total=pps_z_total, seed=seed)
+    model = PartialCreditModel(dit=dit, 
+                               dcati=xi, 
+                               x_formula="~ time - 1",
+                               seed=seed)
+    zi = model.get_interim_z_from_ypredi(
+        draws_file, interim_m, pps_z_total=pps_z_total, seed=seed,
+    )
     tmp = fit_interim_nested_monte_carlo_of_posterior_xz(
         xi=xi,
         zi=zi,

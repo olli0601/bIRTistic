@@ -26,7 +26,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer import MCMC, NUTS, Predictive, SVI, Trace_ELBO
 import pandas as pd
 from scipy.stats import beta as _scipy_beta
 from scipy.stats import betabinom as _scipy_betabinom
@@ -66,7 +66,33 @@ class BinomialModel(Model):
         self.prior_a = float(prior_a)
         self.prior_b = float(prior_b)
         self.p_0 = float(p_0)
+        if 'oid' not in dcati.columns:
+            raise RuntimeError(
+                "BinomialModel.dcati must carry an 'oid' column "
+                "(1-indexed observation id)."
+            )
         super().__init__(dit=dit, dcati=dcati, x_formula=x_formula, seed=seed)
+
+    # ---- data builder ---------------------------------------------------
+    @staticmethod
+    def get_interim_data_x(df: pd.DataFrame, interim_date=None) -> pd.DataFrame:
+        """Trivial Binomial data builder. Returns ``df`` optionally
+        sliced to ``submission_date <= interim_date`` with ``oid``
+        reset to a contiguous 1..N index (matches the IRT cohort
+        builder's invariant).
+
+        If a ``y_stan`` column is present (rows arriving from the
+        nested-MC ``zi`` block carry the sampled future outcomes here),
+        it is renamed to ``y`` so the augmented cohort feeds
+        :meth:`make_stan_data` uniformly."""
+        dcati = df
+        if interim_date is not None and 'submission_date' in dcati.columns:
+            dcati = dcati[dcati['submission_date'] <= interim_date]
+        dcati = dcati.reset_index(drop=True)
+        if 'y_stan' in dcati.columns:
+            dcati = dcati.rename(columns={'y_stan': 'y'})
+        dcati['oid'] = np.arange(1, len(dcati) + 1, dtype=int)
+        return dcati
 
     # ---- Stan data --------------------------------------------------------
     def make_stan_data(self, dcati: pd.DataFrame, x_formula: str) -> dict:
@@ -107,7 +133,7 @@ class BinomialModel(Model):
                                endpoint_type: str = 'items') -> pd.DataFrame:
         """One row per (item, draw) with ``ratio = p / p_0``."""
         p_draws = np.asarray(draws.posterior['p'].values).reshape(-1)
-        ratio = p_draws / self.p_0
+        ratio = 1 - p_draws / self.p_0
         K = p_draws.size
         item_row = self.dit.iloc[0]
         return pd.DataFrame({
@@ -159,7 +185,11 @@ class BinomialModel(Model):
         output_samples: int = 4000,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """Sample directly from the analytic Beta(a + k, b + n - k) posterior."""
+        """Sample directly from the analytic Beta(a + k, b + n - k) posterior.
+
+        Also produces ``ypred`` (per-draw Bernoulli(p_s) at every
+        observation) and analytic pointwise ``log_lik`` so the returned
+        zarr matches the four numerical fit drivers."""
         t0 = time.time()
         k = int(self.stan_data['k'])
         n = int(self.stan_data['N_total'])
@@ -167,7 +197,21 @@ class BinomialModel(Model):
         b_post = self.prior_b + (n - k)
         rng = np.random.default_rng(self.seed)
         p_samples = rng.beta(a_post, b_post, size=output_samples)
-        ds = xr.Dataset({'p': (('chain', 'draw'), p_samples[None, :])})
+
+        y = np.asarray(self.stan_data['y'], dtype=np.int8)         # (N,)
+        # ypred[s, i] ~ Bernoulli(p_s); log_lik[s, i] = y_i log p_s + (1-y_i) log(1-p_s).
+        ypred = rng.binomial(
+            1, np.broadcast_to(p_samples[:, None], (output_samples, n)),
+        ).astype(np.int8)                                          # (S, N)
+        log_p = np.log(p_samples)[:, None]                         # (S, 1)
+        log_1mp = np.log1p(-p_samples)[:, None]
+        log_lik = y[None, :] * log_p + (1 - y[None, :]) * log_1mp  # (S, N)
+
+        ds = xr.Dataset({
+            'p':       (('chain', 'draw'), p_samples[None, :]),
+            'ypred':   (('chain', 'draw', 'obs'), ypred[None, :, :]),
+            'log_lik': (('chain', 'draw', 'obs'), log_lik[None, :, :]),
+        })
         draws = az.InferenceData(posterior=ds)
         timing = {'mins': (time.time() - t0) / 60.0}
         if verbose:
@@ -190,9 +234,17 @@ class BinomialModel(Model):
         pps_ProbH1_thresh: float = 0.89,
     ) -> float:
         """Analytic Beta-Binomial PPS over ``m`` future trials (§3.1).
-        ``pps_H1_def`` is the threshold on ``p`` -- by default the same
-        ``p_0`` used by the endpoint ratio. ``pps_ProbH1_thresh`` is the
-        decision threshold on ``P(H_1 | x, z)``."""
+
+        H_1 is defined on the endpoint ``1 - p / p_0``:
+        ``H_1: 1 - p / p_0 > pps_H1_def``, equivalently
+        ``p < (1 - pps_H1_def) * p_0``.
+
+        ``pps_ProbH1_thresh`` is the decision threshold on
+        ``P(H_1 | x, z)``. Returns
+        ``P( P(H_1 | x, z) > pps_ProbH1_thresh )`` integrating zi
+        analytically over the Beta-Binomial(m, a_post, b_post)
+        posterior-predictive.
+        """
         if m < 0:
             raise ValueError("m must be non-negative.")
         k = int(self.stan_data['k'])
@@ -200,16 +252,19 @@ class BinomialModel(Model):
         a_post = self.prior_a + k
         b_post = self.prior_b + (n - k)
 
+        # H_1: p < p_h1_threshold; P(H_1 | x, z) is decreasing in k_m
+        # (more successes shift the posterior right, away from the threshold).
+        p_h1_threshold = (1.0 - pps_H1_def) * self.p_0
         k_m_grid = np.arange(m + 1)
         a_z = a_post + k_m_grid
         b_z = b_post + (m - k_m_grid)
-        p_h1_given_z = 1.0 - _scipy_beta.cdf(pps_H1_def, a_z, b_z)
+        p_h1_given_z = _scipy_beta.cdf(p_h1_threshold, a_z, b_z)
         crosses = p_h1_given_z > pps_ProbH1_thresh
         if not crosses.any():
             return 0.0
-        k_star = int(k_m_grid[crosses][0])
-        tail = _scipy_betabinom.sf(k_star - 1, m, a_post, b_post)
-        return float(tail)
+        # Largest k_m where the decision still triggers; PPS = P(K_m <= k_star).
+        k_star = int(k_m_grid[crosses][-1])
+        return float(_scipy_betabinom.cdf(k_star, m, a_post, b_post))
 
     # ------------------------------------------------------------------
     # NumPyro SVI + HMC
@@ -217,6 +272,24 @@ class BinomialModel(Model):
 
     def _numpyro_model_fn(self):
         return _model_namespace()['bernoulli_model']
+
+    def _pyro_predictive(self, posterior_samples_dict, rng_key):
+        """Run numpyro :class:`Predictive` to attach ``ypred`` + ``log_lik``
+        per posterior draw. Returns ``{'ypred': (n, N_total),
+        'log_lik': (n, N_total)}`` as plain numpy arrays."""
+        pred_fn = partial(
+            self._numpyro_model_fn(), compute_generated=True,
+        )
+        predictive = Predictive(
+            pred_fn,
+            posterior_samples=posterior_samples_dict,
+            return_sites=['log_lik', 'ypred'],
+        )
+        predictions = predictive(rng_key, self.stan_data)
+        return {
+            'ypred': np.asarray(predictions['ypred']).astype(np.int8),
+            'log_lik': np.asarray(predictions['log_lik']),
+        }
 
     def fit_pyro_svi(
         self,
@@ -261,8 +334,7 @@ class BinomialModel(Model):
             }
 
         model_fn = self._numpyro_model_fn()
-        model_for_svi = partial(model_fn, sample_ypred=False,
-                                compute_generated=False)
+        model_for_svi = partial(model_fn, compute_generated=False)
 
         rng = jax.random.PRNGKey(self.seed)
         guide_factory = _get_autoguide_factory(algorithm)
@@ -281,7 +353,17 @@ class BinomialModel(Model):
             post = guide.sample_posterior(sub, params,
                                           sample_shape=(output_samples,))
         p_samples = np.asarray(post['p'])
-        ds = xr.Dataset({'p': (('chain', 'draw'), p_samples[None, :])})
+        rng, sub = jax.random.split(rng)
+        predictions = self._pyro_predictive({'p': p_samples}, sub)
+        N_total = int(self.stan_data['N_total'])
+        n_draw = p_samples.shape[0]
+        ds = xr.Dataset({
+            'p':       (('chain', 'draw'), p_samples[None, :]),
+            'ypred':   (('chain', 'draw', 'obs'),
+                        predictions['ypred'].reshape(1, n_draw, N_total)),
+            'log_lik': (('chain', 'draw', 'obs'),
+                        predictions['log_lik'].reshape(1, n_draw, N_total)),
+        })
         draws = az.InferenceData(posterior=ds)
         timing = {'mins': (time.time() - t0) / 60.0,
                   'final_elbo': float(-run.losses[-1]),
@@ -314,11 +396,11 @@ class BinomialModel(Model):
         verbose: bool = True,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """NumPyro NUTS fit on the Beta-Bernoulli program. NUTS does not
-        enumerate discrete sites so ``sample_ypred`` is forced to False
-        (ypred is only useful for posterior-predictive simulation, not
-        inference). ``resume=True`` returns the cached
-        ``{prefix}_draws.zarr`` if it exists."""
+        """NumPyro NUTS fit on the Beta-Bernoulli program. NUTS cannot
+        enumerate the discrete ypred site, so ``compute_generated`` is
+        forced to False during inference; ``ypred`` + ``log_lik`` are
+        produced post-fit via :meth:`_pyro_predictive`. ``resume=True``
+        returns the cached ``{prefix}_draws.zarr`` if it exists."""
         t0 = time.time()
         draws_file = (f"{output_file_prefix}_draws.zarr"
                       if output_file_prefix is not None else None)
@@ -342,8 +424,9 @@ class BinomialModel(Model):
             }
 
         model_fn = self._numpyro_model_fn()
-        model_for_hmc = partial(model_fn, sample_ypred=False,
-                                compute_generated=True)
+        # NUTS cannot enumerate the discrete ypred site; disable generated
+        # quantities during inference. ypred + log_lik come from Predictive below.
+        model_for_hmc = partial(model_fn, compute_generated=False)
         rng = jax.random.PRNGKey(self.seed)
         kernel = NUTS(model_for_hmc)
         mcmc = MCMC(
@@ -356,7 +439,19 @@ class BinomialModel(Model):
         mcmc.run(rng, self.stan_data)
         samples = mcmc.get_samples(group_by_chain=True)
         p_samples_chained = np.asarray(samples['p'])  # (chains, draws)
-        ds = xr.Dataset({'p': (('chain', 'draw'), p_samples_chained)})
+        rng, sub = jax.random.split(rng)
+        predictions = self._pyro_predictive(
+            {'p': p_samples_chained.reshape(-1)}, sub,
+        )
+        n_chain, n_draw = p_samples_chained.shape
+        N_total = int(self.stan_data['N_total'])
+        ds = xr.Dataset({
+            'p':       (('chain', 'draw'), p_samples_chained),
+            'ypred':   (('chain', 'draw', 'obs'),
+                        predictions['ypred'].reshape(n_chain, n_draw, N_total)),
+            'log_lik': (('chain', 'draw', 'obs'),
+                        predictions['log_lik'].reshape(n_chain, n_draw, N_total)),
+        })
         draws = az.InferenceData(posterior=ds)
         timing = {'mins': (time.time() - t0) / 60.0}
         if verbose:
@@ -440,7 +535,15 @@ class BinomialModel(Model):
             show_console=False,
             show_progress=False,
         )
-        idata = az.from_cmdstanpy(fit)
+        raw_idata = az.from_cmdstanpy(fit, posterior_predictive='y_rep')
+        ds = xr.Dataset({
+            'p':       (('chain', 'draw'), raw_idata.posterior['p'].values),
+            'ypred':   (('chain', 'draw', 'obs'),
+                        raw_idata.posterior_predictive['y_rep'].values.astype(np.int8)),
+            'log_lik': (('chain', 'draw', 'obs'),
+                        raw_idata.log_likelihood['log_lik'].values),
+        })
+        idata = az.InferenceData(posterior=ds)
         p_samples = np.asarray(idata.posterior['p'].values).reshape(-1)
         timing = {'mins': (time.time() - t0) / 60.0}
         if verbose:
@@ -472,7 +575,9 @@ class BinomialModel(Model):
         verbose: bool = True,
         **method_kwargs,
     ) -> Dict[str, Any]:
-        """Stan ADVI via cmdstanpy on the Beta-Bernoulli model."""
+        """Stan ADVI via cmdstanpy on the Beta-Bernoulli model. ``ypred`` +
+        ``log_lik`` are attached post-fit by parsing the cmdstanpy
+        variational sample (Stan's ``generated quantities``)."""
         from cmdstanpy import CmdStanModel
         t0 = time.time()
         sf = stan_file or str(self._STAN_FILE)
@@ -487,8 +592,31 @@ class BinomialModel(Model):
             seed=self.seed,
             show_console=False,
         )
-        p_samples = np.asarray(fit.variational_sample_pd['p']).reshape(-1)
-        ds = xr.Dataset({'p': (('chain', 'draw'), p_samples[None, :])})
+        df = fit.variational_sample_pd
+        p_samples = np.asarray(df['p']).reshape(-1)
+        N_total = int(self.stan_data['N_total'])
+        yrep_cols = [c for c in df.columns if c.startswith('y_rep')]
+        ll_cols = [c for c in df.columns if c.startswith('log_lik')]
+
+        def _key(c):
+            return int(c.split('.', 1)[1]) if '.' in c else int(
+                c.split('[', 1)[1].rstrip(']')
+            )
+
+        yrep_cols.sort(key=_key)
+        ll_cols.sort(key=_key)
+        if len(yrep_cols) != N_total or len(ll_cols) != N_total:
+            raise RuntimeError(
+                f"[fit_stan_svi] expected {N_total} y_rep / log_lik columns, "
+                f"got {len(yrep_cols)} / {len(ll_cols)}"
+            )
+        ypred = df[yrep_cols].to_numpy().astype(np.int8)   # (n_draw, N)
+        log_lik = df[ll_cols].to_numpy()
+        ds = xr.Dataset({
+            'p':       (('chain', 'draw'), p_samples[None, :]),
+            'ypred':   (('chain', 'draw', 'obs'), ypred[None, :, :]),
+            'log_lik': (('chain', 'draw', 'obs'), log_lik[None, :, :]),
+        })
         idata = az.InferenceData(posterior=ds)
         timing = {'mins': (time.time() - t0) / 60.0}
         if verbose:

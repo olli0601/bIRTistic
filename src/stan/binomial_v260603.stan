@@ -19,7 +19,9 @@ model {
 }
 generated quantities {
   array[N] int<lower=0, upper=1> y_rep;
+  vector[N] log_lik;
   for (n in 1:N) {
     y_rep[n] = bernoulli_rng(p);
+    log_lik[n] = bernoulli_lpmf(y[n] | p);
   }
 }

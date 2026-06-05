@@ -51,8 +51,6 @@ warnings.filterwarnings('ignore')
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
 from fit_interim import (
-    get_interim_x,
-    get_interim_z_from_ypredi,
     fit_interim_SMC_PPS,
 )
 from utils import _futurama_palette
@@ -159,7 +157,7 @@ def main():
         interim_id = int(interim_id)
         interim_date = pd.to_datetime(di.loc[di['interim_id'] == interim_id, 'interim_date'].iloc[0])
 
-        xi = get_interim_x(dp1, interim_date)
+        xi = PartialCreditModel.get_interim_data_x(dp1, interim_date)
         if xi.empty or xi['pid'].nunique() < 2:
             continue
         interim_m = n_full - xi['pid'].nunique()
@@ -179,8 +177,7 @@ def main():
             resume=True,
             with_core_analyses=True, with_additional_analyses=False, verbose=False,
         )
-        zi = get_interim_z_from_ypredi(
-            xi, f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
+        zi = model.get_interim_z_from_ypredi(f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
         )
         p, smc_summary = fit_interim_SMC_PPS(
             model=model, zi=zi,

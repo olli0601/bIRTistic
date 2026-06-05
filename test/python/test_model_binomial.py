@@ -57,7 +57,11 @@ def dit():
 def dcati():
     """30 Bernoulli outcomes with K=18 successes."""
     y = np.concatenate([np.ones(_K, dtype=int), np.zeros(_N - _K, dtype=int)])
-    return pd.DataFrame({'y': y, 'pid': np.arange(_N)})
+    return pd.DataFrame({
+        'y': y,
+        'pid': np.arange(_N),
+        'oid': np.arange(1, _N + 1, dtype=int),
+    })
 
 
 @pytest.fixture(scope='module')
@@ -74,7 +78,11 @@ def _make_model(n, k, prior_a, prior_b, seed):
         'item_type': ['binomial'],
         'item_high_label': ['higher_is_better'],
     })
-    dcati = pd.DataFrame({'y': y, 'pid': np.arange(n)})
+    dcati = pd.DataFrame({
+        'y': y,
+        'pid': np.arange(n),
+        'oid': np.arange(1, n + 1, dtype=int),
+    })
     return BinomialModel(dit=dit, dcati=dcati,
                          prior_a=prior_a, prior_b=prior_b, seed=seed)
 
@@ -129,12 +137,13 @@ def test_eval_log_prior_matches_beta(model):
 
 
 def test_eval_outcome_returns_ratio(model):
-    """eval_outcome_for_endpoint now returns the endpoint ratio p / p_0
-    (default p_0 = 0.5), matching the convention used by the IS /
-    regression algorithms."""
+    """eval_outcome_for_endpoint returns the directional endpoint
+    ``1 - p / p_0`` (default p_0 = 0.5), matching the H_1 convention
+    used by the IS / regression algorithms (``H_1: 1 - p/p_0 > pps_H1_def``).
+    """
     p_val = jnp.asarray(0.42)
     out = model.eval_outcome_for_endpoint(model.stan_data, {'p': p_val})
-    assert float(out) == pytest.approx(0.42 / 0.5, abs=1e-5)
+    assert float(out) == pytest.approx(1.0 - 0.42 / 0.5, abs=1e-5)
 
 
 # ---------------------------------------------------------------------------
@@ -172,31 +181,43 @@ def test_fit_closed_form_posterior_returns_arviz_draws(model):
 
 def test_fit_closed_form_pps_matches_brute_force():
     """Brute-force compute the analytic PPS by enumerating k_m and verifying
-    fit_closed_form_pps returns the same number."""
+    fit_closed_form_pps returns the same number.
+
+    H_1 convention: ``1 - p/p_0 > pps_H1_def`` (default ``p_0 = 0.5``)
+    ⇔ ``p < (1 - pps_H1_def) * p_0``. So
+    ``p_h1_given_z = Beta.cdf(threshold, a_z, b_z)`` is DECREASING in
+    k_m → ``k_star`` is the LARGEST k_m where the decision still
+    triggers; PPS = ``betabinom.cdf(k_star, m, a_post, b_post)``.
+    """
     n, k, a, b = 30, 21, 2.0, 3.0
     p_h1_def, eta = 0.5, 0.89
+    p_0 = 0.5
+    threshold = (1.0 - p_h1_def) * p_0
     mdl = _make_model(n=n, k=k, prior_a=a, prior_b=b, seed=42)
     a_post, b_post = a + k, b + (n - k)
     for m in (5, 20, 100):
-        # Brute: find smallest k_m with P(H_1 | x, z) > eta.
         ok = []
         for km in range(m + 1):
-            p_h1 = 1.0 - _scipy_beta.cdf(p_h1_def, a_post + km, b_post + m - km)
+            p_h1 = _scipy_beta.cdf(threshold, a_post + km, b_post + m - km)
             ok.append(p_h1 > eta)
         if not any(ok):
             expected = 0.0
         else:
-            k_star = int(np.argmax(ok))
-            expected = float(_scipy_betabinom.sf(k_star - 1, m, a_post, b_post))
+            k_star = max(km for km, flag in enumerate(ok) if flag)
+            expected = float(_scipy_betabinom.cdf(k_star, m, a_post, b_post))
         actual = mdl.fit_closed_form_pps(m=m, pps_H1_def=p_h1_def,
                                          pps_ProbH1_thresh=eta)
         assert actual == pytest.approx(expected, abs=1e-12)
 
 
 def test_fit_closed_form_pps_returns_zero_when_threshold_unreachable():
-    """If even k_m = m fails to cross the threshold, PPS = 0."""
-    # Tiny posterior mass on H_1: prior says p~Beta(1, 99), observe 0/30.
-    mdl = _make_model(n=30, k=0, prior_a=1.0, prior_b=99.0, seed=0)
+    """If no k_m crosses the decision threshold, PPS = 0.
+
+    H_1 is now ``p < (1 - pps_H1_def) * p_0 = 0.25`` and P(H_1 | x, z) is
+    decreasing in k_m. To make even ``k_m = 0`` fail, pick a posterior
+    that already sits above the threshold (e.g. prior Beta(99, 1) +
+    30 successes → posterior mean very close to 1)."""
+    mdl = _make_model(n=30, k=30, prior_a=99.0, prior_b=1.0, seed=0)
     pps = mdl.fit_closed_form_pps(m=10, pps_H1_def=0.5, pps_ProbH1_thresh=0.89)
     assert pps == 0.0
 
@@ -216,11 +237,11 @@ def test_get_endpoints_per_draw_shape(model):
     assert set(end.columns) >= {
         'item_label', 'item_type', 'item_high_label', 'draw', 'p', 'ratio',
     }
-    # p column == posterior samples (in order); ratio = p / p_0 (default 0.5).
+    # p column == posterior samples (in order); ratio = 1 - p / p_0 (default 0.5).
     p_samples = fit['posterior_samples']['p']
     np.testing.assert_array_equal(end['p'].to_numpy(), p_samples)
     np.testing.assert_allclose(
-        end['ratio'].to_numpy(), p_samples / 0.5, rtol=0, atol=1e-12,
+        end['ratio'].to_numpy(), 1.0 - p_samples / 0.5, rtol=0, atol=1e-12,
     )
 
 
@@ -306,3 +327,98 @@ def test_stan_hmc_recovers_analytic_mean_100_sims(simulations):
         errors.append(abs(hmc_mean - analytic))
     assert np.median(errors) < 0.02
     assert np.max(errors) < 0.05
+
+
+# ---------------------------------------------------------------------------
+# ypred + log_lik invariant on every fit driver
+# ---------------------------------------------------------------------------
+#
+# After the OO refactor (dev/OO_refactor.md item 7) every Binomial fit
+# driver must return draws.posterior carrying {p, ypred, log_lik} with
+# ypred/log_lik shaped (n_chain, n_draw, N_total). Locks the contract
+# get_interim_z_from_ypredi relies on.
+
+
+def _assert_post_has_ypred_log_lik(fit, N_total):
+    post = fit['draws'].posterior
+    assert {'p', 'ypred', 'log_lik'} <= set(post.data_vars), (
+        f"posterior data_vars missing fields: {set(post.data_vars)}"
+    )
+    n_chain = post.sizes['chain']
+    n_draw = post.sizes['draw']
+    assert post['ypred'].shape == (n_chain, n_draw, N_total)
+    assert post['log_lik'].shape == (n_chain, n_draw, N_total)
+
+
+def test_fit_closed_form_posterior_has_ypred_and_log_lik(model):
+    fit = model.fit_closed_form_posterior(output_samples=64, verbose=False)
+    _assert_post_has_ypred_log_lik(fit, N_total=_N)
+
+
+def test_fit_pyro_svi_has_ypred_and_log_lik(model):
+    fit = model.fit_pyro_svi(num_steps=200, lr=0.05,
+                             output_samples=64, verbose=False)
+    _assert_post_has_ypred_log_lik(fit, N_total=_N)
+
+
+@pytest.mark.slow
+def test_fit_pyro_hmc_has_ypred_and_log_lik(model):
+    fit = model.fit_pyro_hmc(chains=2, iter_warmup=100, iter_sampling=100,
+                             verbose=False)
+    _assert_post_has_ypred_log_lik(fit, N_total=_N)
+
+
+@pytest.mark.slow
+def test_fit_stan_hmc_has_ypred_and_log_lik(model):
+    fit = model.fit_stan_hmc(chains=2, iter_warmup=100, iter_sampling=100,
+                             verbose=False)
+    _assert_post_has_ypred_log_lik(fit, N_total=_N)
+
+
+@pytest.mark.slow
+def test_fit_stan_svi_has_ypred_and_log_lik(model):
+    fit = model.fit_stan_svi(iter=2000, output_samples=200, verbose=False)
+    _assert_post_has_ypred_log_lik(fit, N_total=_N)
+
+
+# ---------------------------------------------------------------------------
+# z-link invariant: y_s linked to theta_s by shared posterior-draw index
+# ---------------------------------------------------------------------------
+
+
+def test_get_interim_z_from_ypredi_links_y_s_to_theta_s(tmp_path, model):
+    """For every Monte-Carlo sample s, the m rows of zi['ypred_s'] must
+    be reconstructable from a single posterior draw of ``ypred``. Locks
+    the 'y_s linked to theta_s' invariant from dev/OO_refactor.md item 5.
+    """
+    prefix = str(tmp_path / "binomial_z_link")
+    fit = model.fit_pyro_svi(
+        output_file_prefix=prefix,
+        num_steps=200, lr=0.05, output_samples=200,
+        save_to_file=True, resume=False, verbose=False,
+    )
+    draws_file = f"{prefix}_draws.zarr"
+    interim_m = 5
+    pps_z_total = 4
+    zi = model.get_interim_z_from_ypredi(
+        draws_file, interim_m=interim_m,
+        pps_z_total=pps_z_total, seed=7,
+    )
+
+    # Pull the same posterior block the helper saw (seed=7, keep_order=False).
+    rng = np.random.default_rng(7)
+    ypred_block = BinomialModel._load_ypred(
+        draws_file, pps_z_total, rng, keep_order=False,
+    )  # (pps_z_total, N_total)
+
+    # For each s, every row of zi[ypred_s] equals
+    # ypred_block[s, source_obs_oid - 1] -- i.e. row j inherits the same
+    # posterior draw index s as every other row j'.
+    src_oids = zi['oid'].to_numpy() - 1
+    for s in range(pps_z_total):
+        np.testing.assert_array_equal(
+            zi[f'ypred_{s}'].to_numpy(),
+            ypred_block[s, src_oids],
+        )
+
+    assert fit['draws'].posterior.sizes['draw'] >= pps_z_total

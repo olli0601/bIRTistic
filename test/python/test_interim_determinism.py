@@ -22,9 +22,8 @@ _python_dir = _repo_root / 'python'
 if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
-from interim_helpers import _load_ypred, get_interim_z_from_ypredi
+from model import Model
 from fit_interim import (
-    get_interim_endpt_and_w_from_poi,
     fit_interim_regress_H1x_on_wz,
     fit_interim_regress_endptx_on_wz,
     fit_interim_IS_reweight,
@@ -60,33 +59,38 @@ def draws():
 # ---------------------------------------------------------------------------
 
 
+def _make_model(xi, dit, seed):
+    return PartialCreditModel(dit=dit, dcati=xi,
+                              x_formula="~ time - 1", seed=seed)
+
+
 def test_load_ypred_random_subset_deterministic():
-    a = _load_ypred(_DRAWS_FILE, _PPS_Z_TOTAL,
-                    np.random.default_rng(_SEED), keep_order=False)
-    b = _load_ypred(_DRAWS_FILE, _PPS_Z_TOTAL,
-                    np.random.default_rng(_SEED), keep_order=False)
+    a = Model._load_ypred(_DRAWS_FILE, _PPS_Z_TOTAL,
+                          np.random.default_rng(_SEED), keep_order=False)
+    b = Model._load_ypred(_DRAWS_FILE, _PPS_Z_TOTAL,
+                          np.random.default_rng(_SEED), keep_order=False)
     np.testing.assert_array_equal(a, b)
 
 
-def test_get_interim_z_from_ypredi_deterministic(xi):
-    zi_a = get_interim_z_from_ypredi(
-        xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
+def test_get_interim_z_from_ypredi_deterministic(xi, dit):
+    m = _make_model(xi, dit, _SEED)
+    zi_a = m.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
-    zi_b = get_interim_z_from_ypredi(
-        xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
+    zi_b = m.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
     pd.testing.assert_frame_equal(zi_a, zi_b, check_dtype=True, check_exact=True)
 
 
-def test_get_interim_z_from_ypredi_changes_with_seed(xi):
-    zi_a = get_interim_z_from_ypredi(
-        xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
+def test_get_interim_z_from_ypredi_changes_with_seed(xi, dit):
+    m = _make_model(xi, dit, _SEED)
+    zi_a = m.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
-    zi_b = get_interim_z_from_ypredi(
-        xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED + 1,
+    zi_b = m.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED + 1,
     )
-    # Resampled src_pids should differ with a different seed (probabilistic
-    # but with interim_m=12 and a different seed essentially certain).
     assert not zi_a['src_pid'].reset_index(drop=True).equals(
         zi_b['src_pid'].reset_index(drop=True)
     )
@@ -100,11 +104,30 @@ def test_get_interim_z_from_ypredi_changes_with_seed(xi):
 def _build_wa(xi, dit, draws, seed):
     model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=seed)
-    return get_interim_endpt_and_w_from_poi(
-        model=model, draws=draws, draws_file=_DRAWS_FILE,
-        interim_m=_INTERIM_M, pps_z_total=_PPS_Z_TOTAL,
-        pps_H1_def=0.5, pps_ProbH1_thresh=0.89,
-        categorical_threshold=2, seed=seed,
+    pps_H1_def = 0.5
+    pps_ProbH1_thresh = 0.89
+    zi = model.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M,
+        pps_z_total=_PPS_Z_TOTAL, seed=seed, keep_order=True,
+    )
+    wa = model.get_w(zi, categorical_threshold=2)
+    x_ratio = model.get_endpoints_per_draw(
+        draws=draws, categorical_threshold=2, endpoint_type='items',
+    )
+    tmp = (
+        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        .rename(columns={'p_h1': 'pps_ProbH1_x'})
+    )
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio = x_ratio.merge(
+        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
+        on='item_label', how='left',
+    )
+    return wa.merge(
+        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
+        on=['draw', 'item_label', 'item_type'], how='inner',
     )
 
 
@@ -157,11 +180,11 @@ def test_fit_interim_regress_endptx_on_wz_deterministic(xi, dit, draws):
 
 
 def test_fit_interim_IS_reweight_deterministic(xi, dit, draws):
-    zi = get_interim_z_from_ypredi(
-        xi, _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
-    )
     model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=_SEED)
+    zi = model.get_interim_z_from_ypredi(
+        _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
+    )
     p_a, _ = fit_interim_IS_reweight(
         model=model, zi=zi, draws=draws,
         pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
