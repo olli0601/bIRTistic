@@ -61,10 +61,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
+from model_pcm import PartialCreditModel
 from fit_interim import (
-    get_interim_x,
-    get_interim_endpt_and_w_from_poi,
     fit_interim_regress_endptx_on_wz,
     fit_interim_regress_H1x_on_wz_per_item_summary,
 )
@@ -168,7 +166,7 @@ for interim_id in di['interim_id']:
     interim_id = int(interim_id)
     interim_date = pd.to_datetime(di.loc[di['interim_id'] == interim_id, 'interim_date'].iloc[0])
 
-    xi = get_interim_x(dp1, interim_date)
+    xi = PartialCreditModel.get_interim_data_x(dp1, interim_date)
     if xi.empty or xi['pid'].nunique() < 2:
         print(f"\n[interim {interim_id}] skipped: empty xi"); continue
     interim_m = n_full - xi['pid'].nunique()
@@ -178,27 +176,57 @@ for interim_id in di['interim_id']:
     print(f"  n_obs={len(xi):,} | n_pid={xi['pid'].nunique()} | m={interim_m}")
 
     t0 = time.time()
+    
+    # fit model on today's data x
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    fit = fit_partial_credit_model_ncats_pyrosvi(
-        dit, xi,
+    model = PartialCreditModel(dit=dit, dcati=xi,
+                                    x_formula=x_formula, seed=seed)
+    fit = model.fit_pyro_svi(
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
-        lr=0.01, num_steps=10000, output_samples=pps_z_total, seed=seed,
-        x_formula=x_formula, resume=True,
+        lr=0.01, num_steps=10000, output_samples=pps_z_total,
+        resume=True,
         with_core_analyses=True, with_additional_analyses=False, verbose=False,
     )
-    wa = get_interim_endpt_and_w_from_poi(
-        xi=xi, dit=dit, draws=fit['draws'],
-        draws_file=f"{interim_prefix}_draws.zarr",
-        interim_m=interim_m, pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=categorical_threshold, seed=seed,
+
+    # expand to future data keeping draw index linked to posterior draws, and get w(z^s)
+    zi = model.get_interim_z_from_ypredi(
+        f"{interim_prefix}_draws.zarr", interim_m,
+        pps_z_total=pps_z_total, seed=seed, keep_order=True,
+    )
+    wa = model.get_w(zi, categorical_threshold=categorical_threshold)
+
+    # calculate endpoint on theta | x
+    x_ratio = model.get_endpoints_per_draw(
+        draws=fit['draws'], categorical_threshold=categorical_threshold,
+        endpoint_type='items',
     )
 
+    # calculate Prob(H1|x) ie mean over samples theta^s
+    tmp = (
+        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        .rename(columns={'p_h1': 'pps_ProbH1_x'})
+    )
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+
+    # calculate 1{theta^s in H1} per draw
+    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio = x_ratio.merge(
+        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
+        on='item_label', how='left',
+    )
+    wa = wa.merge(
+        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
+        on=['draw', 'item_label', 'item_type'], how='inner',
+    )
+
+    # save data for regression
     pkl_path = os.path.join(dir_out, f"{file_prefix}_i{interim_id}_regression_training.pkl")
     wa.to_pickle(pkl_path)
     print(f"  saved training pkl: {pkl_path}")
 
+    # do regression of endpoint on w(x)
     p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz(
         wa, pps_H1_def=pps_H1_def,
     )

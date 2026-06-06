@@ -3,9 +3,9 @@ Interim-analysis helpers for predictive probability of success (PPS).
 
 - ``get_interim_z``: build the 'missing' future data block z from the interim
   cohort xi, the final cohort xf, and posterior-predictive draws ypred.
-- ``fit_interim_MC_of_posterior_xz``: Monte-Carlo estimate of p(H_1 | x, z_s)
-  across S hypothetical future datasets, refitting the partial credit model to
-  (xi + z_s) for each s.
+- ``fit_interim_posterior_xz_with_nested_monte_carlo``: Monte-Carlo estimate
+  of p(H_1 | x, z_s) across S hypothetical future datasets, refitting the
+  model to (xi + z_s) for each s.
 """
 
 from typing import Optional
@@ -21,309 +21,109 @@ from jax import random
 from scipy.special import softmax
 import statsmodels.api as sm
 
-from get_endpoints import get_endpoints_per_draw
-from fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_pyrosvi,
-    _fit_partial_credit_make_stan_data,
-    eval_loglik_partial_credit_model_ncats,
-    eval_loglik_partial_credit_model_ncats_with_annealing,
-    get_prior_of_partial_credit_model_ncats,
-    get_ordered_prob_of_partial_credit_model_ncats,
-)
+# IRT-specific endpoint helpers + cohort builder live on IRTModel
+# (python/model_irt.py). Algorithm callers route through a Model instance.
 
 
-def _load_ypred(draws_file: str, pps_z_total: int, rng, keep_order: bool = False) -> np.ndarray:
-    """
-    Load the ``ypred`` posterior-predictive draws from a zarr, flatten the
-    (chain, draw) dims, and return ``pps_z_total`` draws as a
-    ``(pps_z_total, N_total)`` array.
-
-    ``keep_order=False`` (default) randomly selects ``pps_z_total`` draws via
-    ``rng.choice`` (used by the IS/MC scripts where a permuted subsample is
-    fine). ``keep_order=True`` returns the first ``pps_z_total`` draws in
-    posterior order (no shuffling), so row ``s`` of the returned matrix
-    corresponds to posterior draw ``s`` -- required when downstream code merges
-    on the posterior-draw index (e.g. against ``get_endpoints_per_draw`` output).
-    """
-    ypred = az.from_zarr(draws_file).posterior['ypred'].values  # (chain, draw, N_total)
-    ypred = ypred.reshape(-1, ypred.shape[-1])                  # (n_draw, N_total)
-    if keep_order:
-        return ypred[:pps_z_total]
-    return ypred[rng.choice(ypred.shape[0], size=pps_z_total, replace=False)]
-
-#%%
-def get_interim_x(dp1: pd.DataFrame,
-                  interim_date: Optional[str] = None
-                  ) -> pd.DataFrame:
-    """
-    Slice dp1 to the cohort observed on/before ``interim_date``, keeping only
-    (participant, item) responses present at BOTH baseline and endline, then
-    re-index pids / oids / oidt.
-
-    Participants who are missing a timepoint for some items are retained for
-    their complete items; only the incomplete (pid, item) responses are
-    dropped (not the whole participant).
-
-    Used by the interim-analysis scripts to slice the longitudinal panel into
-    monthly cohorts ready to be passed to the ncats fit helpers.
-    """
-    dcati = dp1
-
-    if interim_date is not None:
-        dcati = dcati[dcati['submission_date'] <= interim_date]
-
-    if dcati.empty:
-        return dcati
-
-    # Keep (pid, item_label) responses observed at both timepoints; drop only
-    # the incomplete item-responses, not the whole participant.
-    n_per_pid_item = (
-        dcati.groupby(['pid', 'item_label'])['time']
-        .nunique().reset_index(name='n_times')
-    )
-    keep = n_per_pid_item.loc[n_per_pid_item['n_times'] == 2, ['pid', 'item_label']]
-    dcati = dcati.merge(keep, on=['pid', 'item_label'], how='inner')
-    if dcati.empty:
-        return dcati
-
-    pid_map = pd.DataFrame({'pid_orig': sorted(dcati['pid'].unique())})
-    pid_map['pid_new'] = range(1, len(pid_map) + 1)
-    dcati = dcati.merge(pid_map, left_on='pid', right_on='pid_orig')
-    dcati['pid'] = dcati['pid_new']
-    dcati = dcati.drop(columns=['pid_orig', 'pid_new'])
-
-    dcati = dcati.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
-    dcati['oid'] = range(1, len(dcati) + 1)
-    dcati['oidt'] = dcati.groupby('item_type').cumcount() + 1
-    return dcati
-
-
-def get_interim_z_from_ypredf(xi: pd.DataFrame, xf: pd.DataFrame, draws_file: str,
-                              pps_z_total: int = 10, seed: int = 123) -> pd.DataFrame:
-    """
-    Build the future-data block z from the FINAL-cohort fit's predictions.
-
-    z consists of the participants present in the final cohort ``xf`` but not in
-    the interim cohort ``xi``, drawn at random (without replacement). Each of
-    ``pps_z_total`` posterior-predictive draws read from ``draws_file`` (the
-    final-cohort fit) is attached as a column ``ypred_0 .. ypred_{pps_z_total-1}``
-    holding that draw's predicted outcome at the corresponding observation
-    (matched via ``oid`` - 1, since ``oid`` is 1-indexed).
-
-    Parameters
-    ----------
-    xi : pd.DataFrame
-        Interim cohort (long form; must include ``pid`` and ``oid``).
-    xf : pd.DataFrame
-        Final cohort; its participant set is a superset of ``xi``.
-    draws_file : str
-        Path to the final-cohort fit zarr (holding ``ypred``).
-    pps_z_total : int, default 10
-        Number of posterior-predictive draws (Monte-Carlo samples) to attach.
-    seed : int, default 123
-        RNG seed for sampling new participants and draws.
-
-    Returns
-    -------
-    pd.DataFrame
-        zi: the ``xf`` rows for the sampled new participants, sorted by ``oid``,
-        with one ``ypred_s`` column per selected draw.
-    """
-    interim_m = xf['pid'].nunique() - xi['pid'].nunique()
-    if interim_m <= 0:
-        raise ValueError(
-            f"[get_interim_z_from_ypredf] no new participants: xf has "
-            f"{xf['pid'].nunique()}, xi has {xi['pid'].nunique()}."
-        )
-
-    rng = np.random.default_rng(seed)
-    ypred = _load_ypred(draws_file, pps_z_total, rng)  # (pps_z_total, N_total_xf)
-
-    new_pids = np.setdiff1d(xf['pid'].unique(), xi['pid'].unique())
-    zi_pids = rng.choice(new_pids, size=interim_m, replace=False)
-    zi_pids.sort()
-
-    zi = xf.merge(pd.DataFrame({'pid': zi_pids}), on='pid', how='inner')
-    zi.sort_values('oid', inplace=True)
-    zi.reset_index(drop=True, inplace=True)
-
-    zi[[f'ypred_{s}' for s in range(pps_z_total)]] = ypred[:, zi['oid'].to_numpy() - 1].T
-    return zi
-
-
-def get_interim_z_from_ypredi(xi: pd.DataFrame, draws_file: str, interim_m: int,
-                              pps_z_total: int = 10, seed: int = 123) -> pd.DataFrame:
-    """
-    Build the future-data block z from the INTERIM fit's predictions.
-
-    Unlike :func:`get_interim_z_from_ypredf` there is no final cohort: the
-    interim fit (``draws_file``) only contains the ``xi`` participants, and the
-    number of new participants required (``interim_m``) typically exceeds the
-    number of distinct ``xi`` participants. New participants are therefore
-    resampled WITH replacement from ``xi``, each assigned a fresh ``pid`` offset
-    above ``xi``'s maximum so they don't collide on a later concat, and their
-    predicted outcomes are taken from the interim fit's ``ypred`` at the original
-    ``xi`` observation positions.
-
-    Parameters
-    ----------
-    xi : pd.DataFrame
-        Interim cohort (long form; must include ``pid`` and ``oid``).
-    draws_file : str
-        Path to the interim-cohort fit zarr (holding ``ypred`` for ``xi``).
-    interim_m : int
-        Number of new (shadow) participants to create.
-    pps_z_total : int, default 10
-        Number of posterior-predictive draws (Monte-Carlo samples) to attach.
-    seed : int, default 123
-        RNG seed for sampling participants and draws.
-
-    Returns
-    -------
-    pd.DataFrame
-        zi: ``interim_m`` resampled ``xi`` participants (fresh pids), sorted by
-        ``pid`` then ``oid``, with one ``ypred_s`` column per selected draw.
-    """
-    rng = np.random.default_rng(seed)
-    ypred = _load_ypred(draws_file, pps_z_total, rng)  # (pps_z_total, N_total_xi)
-
-    src_pids = rng.choice(xi['pid'].unique(), size=interim_m, replace=True)
-    tmp = pd.DataFrame({
-        'src_pid': src_pids,
-        'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
-    })
-    # Keep ``src_pid`` (the original xi unit id) so downstream importance
-    # sampling can index that unit's latent factor in the x-posterior.
-    zi = tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
-    zi.sort_values(['pid', 'oid'], inplace=True)
-    zi.reset_index(drop=True, inplace=True)
-
-    # ypred is indexed by the ORIGINAL xi observation (oid - 1); each resampled
-    # row keeps its source oid, so the same lookup applies.
-    zi[[f'ypred_{s}' for s in range(pps_z_total)]] = ypred[:, zi['oid'].to_numpy() - 1].T
-    return zi
-
-
-def _fit_interim_MC_of_posterior_xz_one_sample(
-    s_idx, xi, zi, dit, output_file_prefix, fitting_method,
-    fitting_method_args, categorical_threshold, pps_H1_def, seed, verbose,
+def _fit_interim_posterior_xz_with_nested_monte_carlo_one_sample(
+    s_idx,
+    xi,
+    zi,
+    dit,
+    model_cls,
+    interim_method_args,
+    fit_method_args,
 ):
     """
     Refit the model on (xi + z_{s_idx}) and return the per-item p(H_1 | x, z_s)
     frame for a single Monte-Carlo sample. Module-level so it is picklable for
-    process-based parallelism.
+    process-based parallelism. Inherits the two arg dicts from
+    :func:`fit_interim_posterior_xz_with_nested_monte_carlo`.
     """
-    vprint = print if verbose else (lambda *args, **kwargs: None)
+    ima = interim_method_args
+    fma = dict(fit_method_args)
+    x_formula = fma.pop('x_formula')   # KeyError if caller omits
+
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
     s_label = s_idx + 1
     vprint(f"\n--- PPS sample {s_label} ---")
 
     # This sample's predicted outcomes become y_stan for the new participants;
-    # concat onto the interim data and rebuild the cohort.
+    # concat onto the interim data and rebuild the cohort via the model-class
+    # hook (IRT rebuilds pid/oid/oidt; Binomial coalesces y_stan -> y).
     ycol = f'ypred_{s_idx}'
     tmp = zi.drop(
         columns=['y', 'y_stan'] + [c for c in zi.columns if c.startswith('ypred_') and c != ycol],
         errors='ignore',
     ).rename(columns={ycol: 'y_stan'})
-    xzi = get_interim_x(pd.concat([xi, tmp], ignore_index=True))
 
-    # Refit the model to the augmented data (x, z_s), in memory only.
-    fit = fitting_method(
-        dit,
-        xzi,
-        output_file_prefix=f"{output_file_prefix}_s{s_label}",
-        seed=seed + s_label,
+    xzi = model_cls.get_interim_data_x(
+        pd.concat([xi, tmp], ignore_index=True),
+    )
+
+    s_model = model_cls(dit=dit, dcati=xzi, x_formula=x_formula,
+                        seed=ima['seed'] + s_label)
+    # SVI-only post-fit IRT analyses are off by default in the driver.
+    # HMC fit signatures absorb the with_* kwargs via **method_kwargs.
+    out_prefix = ima['output_file_prefix']
+    fit = getattr(s_model, ima['fit_method'])(
+        output_file_prefix=(f"{out_prefix}_s{s_label}" if out_prefix else None),
         save_to_file=False,
         resume=False,
         with_core_analyses=False,
         with_additional_analyses=False,
-        verbose=verbose,
-        **fitting_method_args,
+        verbose=ima['verbose'],
+        **fma,
     )
 
-    # Per-item P(H_1 | x, z_s) = fraction of draws with ratio > pps_H1_def.
-    ratio_xz = get_endpoints_per_draw(
-        dcati=xzi,
-        dit=dit,
-        draws=fit['draws'],
-        categorical_threshold=categorical_threshold,
-        endpoint_type='items',
-        param_name='ordered_prob_by_cat_qu_pr',
-        verbose=verbose,
+    # Per-item P(H_1 | x, z_s). Each model class supplies its own
+    # ratio definition (IRT: 1 - p_end/p_base for lower_is_better;
+    # Binomial: 1 - p/p_0) and shares the same get_p_h1 aggregator
+    # (right-tail r > pps_H1_def).
+    ratio_xz = s_model.get_endpoints_per_draw(
+        draws=fit['draws'], endpoint_type='items',
     )
     sample_p = (
-        ratio_xz.groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
-        .apply(lambda r: float((r > pps_H1_def).mean()))
-        .reset_index(name='p_h1_xz')
+        s_model.get_p_h1(ratio_xz, pps_H1_def=ima['pps_H1_def'])
+        .rename(columns={'p_h1': 'p_h1_xz'})
     )
     sample_p['s'] = s_label
     return sample_p
 
 
-def fit_interim_MC_of_posterior_xz(
-    xi: pd.DataFrame,
+def fit_interim_posterior_xz_with_nested_monte_carlo(
+    model,
     zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    output_file_prefix: str,
-    fitting_method_args: dict,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    fitting_method=fit_partial_credit_model_ncats_pyrosvi,
-    seed: int = 123,
-    save_to_file: Optional[bool] = True,
-    verbose: bool = True,
-    cpu_n: int = 1,
+    interim_method_args: dict,
+    fit_method_args: dict,
 ) -> pd.DataFrame:
     """
     Monte-Carlo estimate of p(H_1 | x, z_s) over S hypothetical future datasets.
 
-    For each sample ``s`` (0 .. ``pps_z_total`` - 1) the column ``ypred_s`` of
-    ``zi`` becomes the outcome ``y_stan`` for the new participants; this is
-    concatenated onto the interim data ``xi`` and rebuilt into a cohort frame via
-    :func:`get_interim_x`. The partial credit model is refit in memory
-    (``save_to_file=False``) and the per-item probability that the directional
-    improvement ratio exceeds ``pps_H1_def`` is recorded.
+    For each sample ``s`` the ``ypred_s`` column of ``zi`` becomes the outcome
+    ``y_stan`` for the new participants; this is concatenated onto
+    ``model.dcati`` and rebuilt via ``type(model).get_interim_data_x``. A fresh
+    model is refit in memory (``save_to_file=False``) and the per-item
+    probability that the directional improvement ratio exceeds ``pps_H1_def``
+    is recorded.
 
     Parameters
     ----------
-    xi : pd.DataFrame
-        Interim cohort.
+    model : :class:`model.Model`
+        Carries ``dcati`` (= xi), ``dit``, ``x_formula`` and the subclass used
+        to build per-sample refits via ``type(model)(...)``.
     zi : pd.DataFrame
-        Future-data block from :func:`get_interim_z` (must hold ``ypred_0 ..
-        ypred_{pps_z_total-1}`` columns).
-    dit : pd.DataFrame
-        Item metadata.
-    output_file_prefix : str
-        Path prefix; the result is written to ``{output_file_prefix}_p_h1_xz.pkl``.
-    pps_z_total : int, default 10
-        Number of Monte-Carlo samples (ypred draws) to use.
-    pps_H1_def : float, default 0.5
-        H_1 threshold on the per-draw improvement ratio (ratio > pps_H1_def).
-    pps_ProbH1_thresh : float, default 0.89
-        Decision threshold on p(H_1 | data); recorded on the output for the
-        downstream PPS aggregation.
-    categorical_threshold : int, default 3
-        Categorical aggregation threshold passed to
-        :func:`get_endpoints_per_draw`.
-    fitting_method : callable, default ``fit_partial_credit_model_ncats_pyrosvi``
-        Model-fitting function called per sample. It must accept ``(dit, xzi)``
-        positionally plus the keyword args ``output_file_prefix``, ``seed``,
-        ``save_to_file``, ``resume``, ``with_core_analyses``,
-        ``with_additional_analyses`` (all set by this function), and return a
-        dict with a ``'draws'`` idata.
-    fitting_method_args : dict
-        Keyword arguments forwarded to ``fitting_method`` (e.g. ``algorithm``,
-        ``x_formula``, ``lr``, ``num_steps``, ``output_samples``); required,
-        specify at the call site (pass ``{}`` for the fit defaults). Must not
-        include any of the keys this function sets itself.
-    seed : int, default 123
-        Base seed; sample ``s`` uses ``seed + s``.
-    cpu_n : int, default 1
-        Number of worker processes for the S independent refits. ``1`` runs the
-        loop serially. ``> 1`` uses a ``spawn`` ``ProcessPoolExecutor`` (each
-        worker re-imports JAX/NumPyro and fits fresh, so ``fitting_method`` must
-        be an importable top-level function, not a lambda/closure).
+        Future-data block (must hold ``ypred_0 .. ypred_{S-1}`` columns).
+    interim_method_args : dict
+        PPS-loop tuning. ALL keys are required (no defaults):
+        ``pps_z_total``, ``pps_H1_def``, ``pps_ProbH1_thresh``,
+        ``fit_method``, ``seed``, ``save_to_file``, ``verbose``,
+        ``cpu_n``, ``output_file_prefix``.
+    fit_method_args : dict
+        Kwargs forwarded to ``getattr(model, fit_method)`` in each per-s refit
+        (e.g. ``algorithm``, ``lr``, ``num_steps``, ``output_samples``,
+        ``chains``, ``iter_warmup``, ``iter_sampling``). Must include
+        ``x_formula`` (popped before forwarding); no implicit default.
 
     Returns
     -------
@@ -332,103 +132,81 @@ def fit_interim_MC_of_posterior_xz(
         ``item_label``, ``item_type``, ``item_high_label``, ``p_h1_xz``, ``s``,
         plus the recorded ``pps_H1_def``, ``pps_ProbH1_thresh`` and ``S``.
     """
-    vprint = print if verbose else (lambda *args, **kwargs: None)
+    ima = interim_method_args
+    fma = fit_method_args
 
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
     work = dict(
-        xi=xi, zi=zi, dit=dit, output_file_prefix=output_file_prefix,
-        fitting_method=fitting_method, fitting_method_args=fitting_method_args,
-        categorical_threshold=categorical_threshold, pps_H1_def=pps_H1_def,
-        seed=seed, verbose=verbose,
+        xi=model.dcati, zi=zi, dit=model.dit,
+        model_cls=type(model),
+        interim_method_args=ima, fit_method_args=fma,
     )
 
-    if cpu_n == 1:
-        rows = [_fit_interim_MC_of_posterior_xz_one_sample(s_idx, **work) for s_idx in range(pps_z_total)]
+    if ima['cpu_n'] == 1:
+        rows = [
+            _fit_interim_posterior_xz_with_nested_monte_carlo_one_sample(s_idx, **work)
+            for s_idx in range(ima['pps_z_total'])
+        ]
     else:
         import multiprocessing as _mp
         from concurrent.futures import ProcessPoolExecutor
-        vprint(f"Running {pps_z_total} PPS refits over {cpu_n} worker processes...")
+        vprint(f"Running {ima['pps_z_total']} PPS refits over {ima['cpu_n']} worker processes...")
         ctx = _mp.get_context('spawn')
-        with ProcessPoolExecutor(max_workers=cpu_n, mp_context=ctx) as ex:
-            futures = [ex.submit(_fit_interim_MC_of_posterior_xz_one_sample, s_idx, **work) for s_idx in range(pps_z_total)]
+        with ProcessPoolExecutor(max_workers=ima['cpu_n'], mp_context=ctx) as ex:
+            futures = [
+                ex.submit(
+                    _fit_interim_posterior_xz_with_nested_monte_carlo_one_sample,
+                    s_idx, **work,
+                )
+                for s_idx in range(ima['pps_z_total'])
+            ]
             rows = [f.result() for f in futures]
 
     p_h1_xz = pd.concat(rows, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = pps_H1_def
-    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
-    p_h1_xz['S'] = pps_z_total
+    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
+    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['S'] = ima['pps_z_total']
 
-    if save_to_file:
-        pkl_path = f"{output_file_prefix}_p_h1_xz.pkl"
+    if ima['save_to_file'] and ima['output_file_prefix'] is not None:
+        pkl_path = f"{ima['output_file_prefix']}_p_h1_xz.pkl"
         p_h1_xz.to_pickle(pkl_path)
         vprint(f"\nSaved P(H_1 | x, z) samples to: {pkl_path}")
 
     return p_h1_xz
 
 
-def fit_interim_importance_sampling_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
+def fit_interim_posterior_xz_from_z_with_IS_reweight(
+    model,
     zi: pd.DataFrame,
-    dit: pd.DataFrame,
+    interim_method_args: dict,
     draws=None,
     draws_file: Optional[str] = None,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    x_formula: str = "~ time - 1",
-    eval_loglik=eval_loglik_partial_credit_model_ncats,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
 ):
     """
-    Importance-sampling estimate of p(H_1 | x, z_s) for fixed x (Case A).
-
-    Instead of refitting the model for each future dataset z_s (cf.
-    :func:`fit_interim_MC_of_posterior_xz`), reuse the existing x-posterior
-    draws ``theta_k ~ p(theta | x)`` and reweight them by the likelihood of the
-    future data (dev/amortised_decision_making.md, Step 7 Case A):
-
-        w_k^(s)  ∝ p(z_s | theta_k)
-        p(H_1 | x, z_s)_item ≈ (sum_k w_k^(s) 1[ratio_{k,item} > pps_H1_def])
-                               / (sum_k w_k^(s))
-
-    The per-draw improvement ratio (the H_1 basis) comes from
-    :func:`get_endpoints_per_draw` on the x-fit; the IS weights come from
-    ``eval_loglik``. Each z_s participant is a resampled x participant
-    (``zi['src_pid']``), so its latent factor exists in ``theta_k``.
+    Importance-sampling estimate of p(H_1 | x, z_s) for fixed x. Reweights
+    the x-posterior draws by ``softmax_k log p(z_s | theta_k)``; no per-s refit.
 
     Parameters
     ----------
-    xi : pd.DataFrame
-        Interim cohort the x-posterior was fit on.
+    model : :class:`model.Model`
+        Carries ``dit`` / ``dcati`` / ``x_formula`` and exposes
+        ``eval_loglik`` / ``get_endpoints_per_draw`` /
+        ``get_stacked_posterior`` / ``make_stan_data``.
     zi : pd.DataFrame
-        Future-data block from :func:`get_interim_z_from_ypredi` (must carry the
-        ``src_pid`` column + ``ypred_0 .. ypred_{pps_z_total-1}``).
-    dit : pd.DataFrame
-        Item metadata.
-    draws : arviz.InferenceData, optional
-        In-memory x-fit posterior (``fit['draws']``). Provide this or ``draws_file``.
-    draws_file : str, optional
-        Path to the x-fit zarr. Provide this or ``draws``.
-    pps_z_total, pps_H1_def, pps_ProbH1_thresh, categorical_threshold, x_formula
-        As in :func:`fit_interim_MC_of_posterior_xz`.
-    eval_loglik : callable, default ``eval_loglik_partial_credit_model_ncats``
-        ``(stan_data, params) -> array[N_total]`` pointwise log-likelihood used
-        for the IS weights (swap for the credit / ordered-logit equivalents).
-    output_file_prefix : str, optional
-        If given and ``save_to_file``, writes ``{prefix}_p_h1_xz_IS.pkl`` and
-        ``{prefix}_is_perf.csv``.
+        Future-data block from
+        :meth:`Model.get_interim_z_from_ypredi`; must carry ``src_pid`` +
+        ``ypred_0 .. ypred_{S-1}`` columns.
+    interim_method_args : dict
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
+        ``pps_ProbH1_thresh``, ``output_file_prefix``,
+        ``save_to_file``, ``verbose``. No ``fit_method_args`` -- IS does
+        not refit.
+    draws, draws_file
+        Supply one. The x-fit posterior arviz object or its zarr.
 
     Returns
     -------
     (p_h1_xz, is_perf) : tuple of pd.DataFrame
-        - ``p_h1_xz``: one row per (item, sample s) with ``p_h1_xz``, ``s`` and
-          the recorded ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
-        - ``is_perf``: one row per sample s with IS diagnostics ``N`` (number of
-          particles), ``ess`` (effective sample size = 1/sum(w^2)),
-          ``ess_over_n`` (ESS / N) and ``ew2`` (the second-order weight moment
-          E(w^2) = mean(w^2) — the weight-degeneracy diagnostic).
     """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
@@ -436,61 +214,36 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
         draws = az.from_zarr(draws_file)
     if 'src_pid' not in zi.columns:
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
-    vprint = print if verbose else (lambda *args, **kwargs: None)
 
-    # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k below
-    # (both flatten the (chain, draw) axes in C order).
-    x_ratio = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
-        categorical_threshold=categorical_threshold,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=verbose,
-    )
-    x_ratio = x_ratio.assign(ind=(x_ratio['ratio'] > pps_H1_def).astype(float))
+    ima = interim_method_args
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
 
-    # Stack the posterior draws each loglik back-end may consume; include only
-    # the params present so partial-credit/credit (skill_thresholds) and
-    # ordered-logit (skill_thresholds_1 / skill_thresholds_incs) all work.
-    post = draws.posterior
-    theta_names = (
-        'latent_factor_unit', 'latent_factor_beta',
-        'skill_thresholds', 'skill_thresholds_1', 'skill_thresholds_incs',
-        'loadings_questions_m1',
+    # Per-draw H_1 ratios from the x-posterior; 'draw' aligns with theta_k
+    # below. param_name + categorical_threshold come from model defaults.
+    x_ratio = model.get_endpoints_per_draw(
+        draws=draws, endpoint_type='items',
     )
-    theta = {
-        name: jnp.asarray(np.asarray(post[name].values).reshape(-1, *post[name].shape[2:]))
-        for name in theta_names if name in post
-    }
-    n_draw = int(theta['latent_factor_beta'].shape[0])
+    x_ratio = x_ratio.assign(
+        ind=(x_ratio['ratio'] > ima['pps_H1_def']).astype(float),
+    )
+
+    theta = model.get_stacked_posterior(draws)
+    n_draw = int(next(iter(theta.values())).shape[0])
 
     p_h1_xz = []
     perf_rows = []
-    for s_idx in range(pps_z_total):
+    for s_idx in range(ima['pps_z_total']):
         s_label = s_idx + 1
-        vprint(f"\n--- IS sample {s_label}/{pps_z_total} ---")
+        vprint(f"\n--- IS sample {s_label}/{ima['pps_z_total']} ---")
 
-        # z_s: resampled x participants (unit = src_pid) carrying this draw's
-        # predicted outcomes; rebuild oid/oidt for the stan_data builder.
-        zcol = f'ypred_{s_idx}'
-        z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
-        z_dcati['y'] = z_dcati['y_stan'] - 1
-        z_dcati = z_dcati.sort_values(
-            ['item_type_id', 'pid', 'time', 'item_label']
-        ).reset_index(drop=True)
-        z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
-        z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
-        z_stan = _fit_partial_credit_make_stan_data(
-            dit=dit, dcati=z_dcati, x_formula=x_formula, verbose=False,
-        )
+        # z_s stan_data via the model hook (IRT does sort + oid/oidt rebuild
+        # + make_stan_data; Binomial overrides per its data shape).
+        z_stan = model.make_stan_data_from_zi(zi, s_idx)
 
         # log p(z_s | theta_k) for every draw via vmap over the stacked params.
-        loglik = jax.vmap(lambda p: eval_loglik(z_stan, p))(theta)  # (K, N_total_z)
-        # Normalised weights via the numerically-stable softmax (= exp(logw -
-        # logsumexp(logw))); keeps the numerator in log-space throughout.
-        w = np.asarray(jax.nn.softmax(loglik.sum(axis=1)))  # (K,) sums to 1
+        loglik = jax.vmap(lambda p: model.eval_loglik(z_stan, p))(theta)
+        w = np.asarray(jax.nn.softmax(loglik.sum(axis=1)))
 
-        # IS performance diagnostics for this sample. ess = 1/sum(w^2);
-        # ew2 = E(w^2) = mean(w^2), the second-order moment of the weights.
         sum_w2 = float(np.sum(w ** 2))
         perf_rows.append({
             's': s_label,
@@ -500,7 +253,6 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
             'ew2': float(np.mean(w ** 2)),
         })
 
-        # Self-normalised IS estimate of P(H_1 | x, z_s) per item.
         wdf = pd.DataFrame({'draw': np.arange(n_draw), 'w': w})
         m = x_ratio.merge(wdf, on='draw')
         sample_p = (
@@ -512,15 +264,15 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
         p_h1_xz.append(sample_p)
 
     p_h1_xz = pd.concat(p_h1_xz, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = pps_H1_def
-    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
-    p_h1_xz['S'] = pps_z_total
+    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
+    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['S'] = ima['pps_z_total']
     is_perf = pd.DataFrame(perf_rows)
 
-    if save_to_file and output_file_prefix is not None:
-        pkl_path = f"{output_file_prefix}_p_h1_xz_IS.pkl"
+    if ima['save_to_file'] and ima['output_file_prefix'] is not None:
+        pkl_path = f"{ima['output_file_prefix']}_p_h1_xz_IS.pkl"
         p_h1_xz.to_pickle(pkl_path)
-        is_perf.to_csv(f"{output_file_prefix}_is_perf.csv", index=False)
+        is_perf.to_csv(f"{ima['output_file_prefix']}_is_perf.csv", index=False)
         vprint(f"\nSaved IS P(H_1 | x, z) samples to: {pkl_path}")
 
     return p_h1_xz, is_perf
@@ -539,136 +291,34 @@ def fit_interim_importance_sampling_of_posterior_xz_from_x(
 #     a large x -> x,z gap, at the cost of many tempering steps).
 
 
-def _stack_posterior_theta(draws) -> dict:
-    """Flatten the (chain, draw) axes of an arviz posterior and return the
-    parameter arrays any partial-credit-family log-likelihood consumes (only the
-    params present are returned, so credit / ordered-logit draws also work)."""
-    post = draws.posterior
-    names = (
-        'latent_factor_unit', 'latent_factor_beta',
-        'skill_thresholds', 'skill_thresholds_1', 'skill_thresholds_incs',
-        'loadings_questions_m1',
-    )
-    return {
-        name: jnp.asarray(np.asarray(post[name].values).reshape(-1, *post[name].shape[2:]))
-        for name in names if name in post
-    }
-
-
-def _interim_make_x_stan(xi: pd.DataFrame, dit: pd.DataFrame, x_formula: str) -> dict:
-    """stan_data for the x cohort (the full p(x | theta) factor)."""
-    x_dcati = xi.copy()
-    if 'y_stan' not in x_dcati:
-        x_dcati['y_stan'] = x_dcati['y'] + 1
-    x_dcati = x_dcati.sort_values(
-        ['item_type_id', 'pid', 'time', 'item_label']
-    ).reset_index(drop=True)
-    x_dcati['oid'] = np.arange(1, len(x_dcati) + 1)
-    x_dcati['oidt'] = x_dcati.groupby('item_type').cumcount() + 1
-    return _fit_partial_credit_make_stan_data(
-        dit=dit, dcati=x_dcati, x_formula=x_formula, verbose=False,
-    )
-
-
-def _interim_make_z_stan(zi: pd.DataFrame, dit: pd.DataFrame, s_idx: int, x_formula: str) -> dict:
-    """stan_data for future-data sample s (mirrors the IS function)."""
-    zcol = f'ypred_{s_idx}'
-    z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
-    z_dcati['y'] = z_dcati['y_stan'] - 1
-    z_dcati = z_dcati.sort_values(
-        ['item_type_id', 'pid', 'time', 'item_label']
-    ).reset_index(drop=True)
-    z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
-    z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
-    return _fit_partial_credit_make_stan_data(
-        dit=dit, dcati=z_dcati, x_formula=x_formula, verbose=False,
-    )
-
-
-def _ratio_per_draw_from_params(theta_batch, x_stan, xi, dit, categorical_threshold,
-                                ordered_prob_eval=get_ordered_prob_of_partial_credit_model_ncats):
-    """Per-(draw, item) improvement ratio for an arbitrary batch of parameter sets.
-
-    Evaluates ``ordered_prob_by_cat_qu_fit`` for every draw in ``theta_batch``
-    (dict of ``(K, ...)`` jnp arrays) on the x-cohort design ``x_stan``, wraps the
-    result as an arviz posterior and runs :func:`get_endpoints_per_draw`. Lets
-    reweighted (moment-matched) draws or moved (SMC) particles be scored for
-    p(H_1 | x, z) exactly like a refit, rather than reusing the frozen x-ratio.
-    """
-    ordprob = np.asarray(jax.vmap(lambda p: ordered_prob_eval(x_stan, p))(theta_batch))  # (K, L)
-    idata = az.from_dict(posterior={'ordered_prob_by_cat_qu_fit': ordprob[None, ...]})
-    return get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=idata,
-        categorical_threshold=categorical_threshold,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=False,
-    )
-
-
-def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
+def fit_interim_posterior_xz_with_IS_moment_matching(
+    model,
     zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    fitting_method_args: dict,
+    interim_method_args: dict,
     draws=None,
     draws_file: Optional[str] = None,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
 ):
     """
-    Moment-matching importance sampling (Paananen et al. 2021, mean-match step)
-    for p(H_1 | x, z) at a fixed x (Case A), as a *mitigation experiment* for the
-    weight degeneracy of
-    :func:`fit_interim_importance_sampling_of_posterior_xz_from_x`.
+    Mean-match IS for p(H_1 | x, z) (Paananen 2021).
 
-    Method. Work in a "match space" ``u`` where the ``positive_params`` are
-    log-transformed and everything else is identity. Approximate the proposal
-    p(theta | x) by a diagonal Gaussian ``q(u) = N(u; mu_p, diag sd_p^2)`` fit to
-    the x-posterior draws (this Gaussian approximation is intrinsic to applying
-    MMIS without the exact variational density). The match-space weights are
-
-        log w(u) = logprior(theta(u)) + loglik_x(theta(u)) + loglik_z(theta(u))
-                   + sum(u_positive)          # Jacobian of the log-transform
-                   - logq(u)
-
-    The mean-match step shifts every draw by ``(mu_weighted - mu_proposal)`` and
-    recomputes the weights. **Finding:** when the base weights already collapse
-    onto a single draw (early interims), ``mu_weighted`` *is* that draw, so the
-    shift only piles the particles onto it and ESS does not recover.
+    Reads ``eval_loglik`` / ``eval_log_prior`` / ``positive_params`` /
+    ``x_formula`` from ``model``.
 
     Parameters
     ----------
-    fitting_method_args : dict
-        Method tuning (required; specify at the call site). Defaults are applied
-        for any missing keys:
-        ``x_formula`` (design formula, default ``"~ time - 1"``),
-        ``eval_loglik`` (pointwise log-lik callable, default
-        ``eval_loglik_partial_credit_model_ncats``),
-        ``logprior`` (callable ``params -> scalar``; default the partial credit
-        prior ``get_prior_of_partial_credit_model_ncats``),
-        ``positive_params`` (params log-transformed into match space, default
-        ``('loadings_questions_m1',)``).
+    model : :class:`model.Model`
+    zi : pd.DataFrame
+        Future-data block (must carry ``src_pid`` + ``ypred_*`` columns).
+    interim_method_args : dict
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
+        ``pps_ProbH1_thresh``, ``output_file_prefix``,
+        ``save_to_file``, ``verbose``.
+    draws, draws_file
+        Supply one. The x-fit posterior or its zarr.
 
     Returns
     -------
     (p_h1_xz, mm) : tuple of pd.DataFrame
-        - ``p_h1_xz``: one row per (item, sample s) with the mean-match estimate
-          ``p_h1_xz`` = sum_k w1_k 1[ratio(theta*_k) > pps_H1_def] / sum_k w1_k,
-          where ``theta*`` are the shifted draws (so the improvement ratio is
-          re-evaluated on the shifted params, not the frozen x-ratio), plus
-          ``s`` / ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
-        - ``mm``: one row per s with ``N``, ``ess_over_n_base``,
-          ``ess_over_n_meanmatch``, ``basew_vs_exact_corr`` (Pearson corr of the
-          diagonal-Gaussian base log-weights against the exact IS log-weights
-          ``loglik_z`` — a check that the Gaussian proposal approximation is sound)
-          and ``mins`` (wall-clock minutes for the whole call). ESS and E(w^2)
-          derive from ``ess_over_n_* `` and ``N``: ess = ess_over_n*N,
-          E(w^2) = 1/(N^2 * ess_over_n).
     """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
@@ -676,23 +326,16 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
         draws = az.from_zarr(draws_file)
     if 'src_pid' not in zi.columns:
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
-    vprint = print if verbose else (lambda *args, **kwargs: None)
+    ima = interim_method_args
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
 
-    fitting_method_args = {
-        'x_formula': "~ time - 1",
-        'eval_loglik': eval_loglik_partial_credit_model_ncats,
-        'logprior': get_prior_of_partial_credit_model_ncats,
-        'positive_params': ('loadings_questions_m1',),
-        **fitting_method_args,
-    }
-    x_formula = fitting_method_args['x_formula']
-    eval_loglik = fitting_method_args['eval_loglik']
-    logprior = fitting_method_args['logprior']
-    positive_params = fitting_method_args['positive_params']
+    eval_loglik = model.eval_loglik
+    eval_log_prior = model.eval_log_prior
+    positive_params = model.positive_params
 
-    theta = _stack_posterior_theta(draws)
-    n_draw = int(theta['latent_factor_beta'].shape[0])
-    x_stan = _interim_make_x_stan(xi, dit, x_formula)
+    theta = model.get_stacked_posterior(draws)
+    n_draw = int(next(iter(theta.values())).shape[0])
+    x_stan = model.make_stan_data_from_xi()
 
     # Build the match-space matrix Theta_u (K, D) and its block layout.
     layout, blocks = [], []
@@ -725,13 +368,13 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     # -- is invariant within an interim). Passing z_y as the only traced arg and
     # closing over the rest avoids the 200x JIT-recompile that previously
     # dominated MM wall time at ~10 min/interim.
-    z_stan_template = _interim_make_z_stan(zi, dit, 0, x_formula)
+    z_stan_template = model.make_stan_data_from_zi(zi, 0)
 
     def _logw_inner(u, z_y):
         z_stan_local = {**z_stan_template, 'y': z_y}
         pr = _u_to_params(u)
         jac = u[pos_cols].sum() if pos_cols.size else 0.0
-        lt = (logprior(pr)
+        lt = (eval_log_prior(pr)
               + eval_loglik(x_stan, pr).sum()
               + eval_loglik(z_stan_local, pr).sum()
               + jac)
@@ -755,8 +398,8 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     rows = []
     p_h1_xz = []
     t_all = time.time()
-    for s_idx in range(pps_z_total):
-        z_stan = _interim_make_z_stan(zi, dit, s_idx, x_formula)
+    for s_idx in range(ima['pps_z_total']):
+        z_stan = model.make_stan_data_from_zi(zi, s_idx)
         z_y = jnp.asarray(z_stan['y']).astype(jnp.int32)
 
         logw0 = np.asarray(logw_batch(Theta_u_j, z_y))
@@ -780,12 +423,15 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
                f"(base-weight vs exact corr={corr:.2f})")
 
         # p(H_1 | x, z_s): improvement ratio re-evaluated on the SHIFTED draws,
-        # then averaged with the mean-match weights w1.
-        ratio = _ratio_per_draw_from_params(
-            _u_batch_to_params(jnp.asarray(Theta_u_star)),
-            x_stan, xi, dit, categorical_threshold,
+        # then averaged with the mean-match weights w1. Delegated to the model
+        # so the param-name + posterior-shape stays model-aware.
+        theta_batch = _u_batch_to_params(jnp.asarray(Theta_u_star))
+        ratio = model.get_endpoints_per_draw_from_theta_batch(
+            theta_batch, x_stan, endpoint_type='items',
         )
-        ratio = ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
+        ratio = ratio.assign(
+            ind=(ratio['ratio'] > ima['pps_H1_def']).astype(float),
+        )
         wdf = pd.DataFrame({'draw': np.arange(n_draw), 'w': w1})
         m = ratio.merge(wdf, on='draw')
         sample_p = (
@@ -799,77 +445,51 @@ def fit_interim_IS_moment_matching_of_posterior_xz_from_x(
     mm = pd.DataFrame(rows)
     mm['mins'] = round((time.time() - t_all) / 60.0, 4)
     p_h1_xz = pd.concat(p_h1_xz, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = pps_H1_def
-    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
-    p_h1_xz['S'] = pps_z_total
+    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
+    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['S'] = ima['pps_z_total']
 
-    if save_to_file and output_file_prefix is not None:
-        mm.to_csv(f"{output_file_prefix}_momentmatch.csv", index=False)
-        p_h1_xz.to_pickle(f"{output_file_prefix}_p_h1_xz_MM.pkl")
-        vprint(f"\nSaved moment-matching diagnostics to: {output_file_prefix}_momentmatch.csv")
+    out_prefix = ima['output_file_prefix']
+    if ima['save_to_file'] and out_prefix is not None:
+        mm.to_csv(f"{out_prefix}_momentmatch.csv", index=False)
+        p_h1_xz.to_pickle(f"{out_prefix}_p_h1_xz_MM.pkl")
+        vprint(f"\nSaved moment-matching diagnostics to: {out_prefix}_momentmatch.csv")
     return p_h1_xz, mm
 
 
-def fit_interim_SMC_resample_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
+def fit_interim_posterior_xz_from_x_with_SMC_resampling(
+    model,
     zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    fitting_method_args: dict,
+    interim_method_args: dict,
+    fit_method_args: dict,
     draws=None,
     draws_file: Optional[str] = None,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
 ):
     """
-    SMC sampler with resample-move for p(theta | x, z_s) at a fixed x (Case A),
-    the mitigation that actually crosses a large proposal/target gap.
+    SMC sampler with resample-move for p(theta | x, z_s).
 
-    Bridges ``pi_beta ∝ p(theta|x) p(z_s|theta)^beta`` from beta=0 (the proposal,
-    = the x-posterior draws) to beta=1 (the target). Each tempering step:
-
-      1. adaptively pick the next beta so the tempering ESS ≈ ``ess_frac_target``
-         * ``n_particles`` (bisection on the incremental weights),
-      2. systematic-resample the particles by the incremental weights,
-      3. MOVE them with ``n_move_steps`` MALA (Metropolis-adjusted Langevin) steps
-         invariant to ``pi_beta`` — the relocation that plain reweighting (and
-         moment matching) cannot do. The step size adapts toward ``target_accept``.
-
-    Compile-once kernel. The move is a hand-rolled vectorised MALA in pure JAX
-    with ``beta`` (and the step size) as *traced* arguments, so the gradient/step
-    function compiles once and is reused for every temperature (numpyro's
-    multi-chain NUTS instead vmaps model args inconsistently between init and
-    sample, which a per-temperature beta cannot satisfy). The annealed z-term is
-    evaluated through ``eval_loglik_annealed`` with the temperature in ``params``.
-
-    Notes. Specialised to the partial credit ncats model (priors hard-coded). The
-    move works in a partly-unconstrained space (loadings via ``log``); the
-    ``latent_factor_unit`` prior uses the plain ``Normal(0, 1/sqrt(1-1/U))``
-    ZeroSumNormal marginal, dropping only the (here immaterial) sum-to-zero
-    identifiability.
+    Reads ``eval_loglik`` / ``eval_loglik_annealed`` / ``eval_log_prior`` /
+    ``get_stacked_posterior`` from ``model``. The PCM-specific param layout
+    (latent_factor_unit / latent_factor_beta / skill_thresholds /
+    loadings_questions_m1) is currently still hard-coded here.
 
     Parameters
     ----------
-    fitting_method_args : dict
-        Method tuning (required; specify at the call site). Defaults are applied
-        for any missing keys: ``s_idx`` (future-data
-        sample, default 0), ``n_particles`` (default 128), ``ess_frac_target``
-        (default 0.5), ``n_move_steps`` (MALA steps per temperature, default 20),
-        ``init_step_size`` (default 0.02), ``target_accept`` (default 0.574),
-        ``max_temps`` (default 150), ``x_formula`` (default ``"~ time - 1"``),
-        ``eval_loglik`` (default ``eval_loglik_partial_credit_model_ncats``),
-        ``eval_loglik_annealed`` (default
-        ``eval_loglik_partial_credit_model_ncats_with_annealing``),
-        ``seed`` (default 123).
+    model : :class:`model.Model`
+    zi : pd.DataFrame
+    interim_method_args : dict
+        ALL keys required (no defaults): ``output_file_prefix``,
+        ``save_to_file``, ``verbose``.
+    fit_method_args : dict
+        ALL keys required: ``s_idx``, ``n_particles``, ``ess_frac_target``,
+        ``n_move_steps``, ``init_step_size``, ``target_accept``,
+        ``max_temps``, ``seed``.
+    draws, draws_file
+        Supply one.
 
     Returns
     -------
-    (schedule, particles) : (pd.DataFrame, dict)
-        - ``schedule``: one row per tempering step with ``temp``, ``beta``,
-          ``d_beta``, ``ess_frac_temper`` and ``move_secs``.
-        - ``particles``: the final move-step particles (dict of jnp arrays,
-          shape ``(n_particles, *event)``), approximately ~ pi_beta at the
-          last beta reached.
+    (schedule, particles) : tuple
     """
     if draws is None and draws_file is None:
         raise ValueError("Provide either draws or draws_file.")
@@ -877,43 +497,32 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
         draws = az.from_zarr(draws_file)
     if 'src_pid' not in zi.columns:
         raise ValueError("zi must carry 'src_pid' (use get_interim_z_from_ypredi).")
-    vprint = print if verbose else (lambda *args, **kwargs: None)
+    ima = interim_method_args
+    fma = fit_method_args
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
 
-    fitting_method_args = {
-        's_idx': 0,
-        'n_particles': 128,
-        'ess_frac_target': 0.5,
-        'n_move_steps': 20,
-        'init_step_size': 0.02,
-        'target_accept': 0.574,
-        'max_temps': 150,
-        'x_formula': "~ time - 1",
-        'eval_loglik': eval_loglik_partial_credit_model_ncats,
-        'eval_loglik_annealed': eval_loglik_partial_credit_model_ncats_with_annealing,
-        'seed': 123,
-        **fitting_method_args,
-    }
-    s_idx = fitting_method_args['s_idx']
-    n_particles = fitting_method_args['n_particles']
-    ess_frac_target = fitting_method_args['ess_frac_target']
-    n_move_steps = fitting_method_args['n_move_steps']
-    init_step_size = fitting_method_args['init_step_size']
-    target_accept = fitting_method_args['target_accept']
-    max_temps = fitting_method_args['max_temps']
-    x_formula = fitting_method_args['x_formula']
-    eval_loglik = fitting_method_args['eval_loglik']
-    eval_loglik_annealed = fitting_method_args['eval_loglik_annealed']
-    seed = fitting_method_args['seed']
+    s_idx = fma['s_idx']
+    n_particles = fma['n_particles']
+    ess_frac_target = fma['ess_frac_target']
+    n_move_steps = fma['n_move_steps']
+    init_step_size = fma['init_step_size']
+    target_accept = fma['target_accept']
+    max_temps = fma['max_temps']
+    seed = fma['seed']
 
-    theta = _stack_posterior_theta(draws)
+    eval_loglik = model.eval_loglik
+    eval_loglik_annealed = model.eval_loglik_annealed
+    eval_log_prior = model.eval_log_prior
+
+    theta = model.get_stacked_posterior(draws)
     n_draw = int(theta['latent_factor_beta'].shape[0])
     U = int(theta['latent_factor_unit'].shape[1])
     P = int(theta['latent_factor_beta'].shape[1])
     L = int(theta['skill_thresholds'].shape[1])
     Ld = int(theta['loadings_questions_m1'].shape[1])
 
-    x_stan = _interim_make_x_stan(xi, dit, x_formula)
-    z_stan = _interim_make_z_stan(zi, dit, s_idx, x_formula)
+    x_stan = model.make_stan_data_from_xi()
+    z_stan = model.make_stan_data_from_zi(zi, s_idx)
     pcm_keys = ('latent_factor_unit', 'latent_factor_beta',
                 'skill_thresholds', 'loadings_questions_m1')
 
@@ -933,7 +542,7 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
 
     def _logpost(u, beta):
         pr = _u_to_params(u)
-        return (get_prior_of_partial_credit_model_ncats(pr)
+        return (eval_log_prior(pr)
                 + eval_loglik(x_stan, pr).sum()
                 + eval_loglik_annealed(z_stan, {**pr, 'temperature': beta}).sum()
                 + u[sl_l].sum())          # Jacobian of the log-transform
@@ -1039,30 +648,50 @@ def fit_interim_SMC_resample_of_posterior_xz_from_x(
         'loadings_questions_m1': jnp.exp(u[:, sl_l]),
     }
     vprint(f"\n[SMC] reached beta={beta:.4f} in {len(schedule)} steps, {mins_total:.2f} min total")
-    if save_to_file and output_file_prefix is not None:
-        schedule.to_csv(f"{output_file_prefix}_smc_schedule.csv", index=False)
-        vprint(f"Saved SMC schedule to: {output_file_prefix}_smc_schedule.csv")
+    out_prefix = ima['output_file_prefix']
+    if ima['save_to_file'] and out_prefix is not None:
+        schedule.to_csv(f"{out_prefix}_smc_schedule.csv", index=False)
+        vprint(f"Saved SMC schedule to: {out_prefix}_smc_schedule.csv")
     return schedule, particles
 
 
 def _fit_interim_SMC_one_sample(
-    s_idx, xi, zi, dit, draws_file, fitting_method_args,
-    pps_H1_def, categorical_threshold, verbose,
+    s_idx,
+    xi,
+    zi,
+    dit,
+    model_cls,
+    draws_file,
+    interim_method_args,
+    fit_method_args,
 ):
     """Run the SMC sampler for a single future-data sample and return its
-    per-item p(H_1 | x, z_s) plus a one-row schedule summary. Module-level so it
-    is picklable for process-based parallelism. The post-move particles are
-    uniformly weighted, so p(H_1 | x, z_s) is the fraction with ratio > pps_H1_def.
+    per-item p(H_1 | x, z_s) plus a one-row schedule summary. Module-level so
+    it is picklable for process-based parallelism. The post-move particles are
+    uniformly weighted, so p(H_1 | x, z_s) is the fraction with
+    ``ratio > pps_H1_def``. Inherits the two arg dicts from
+    :func:`fit_interim_SMC_PPS`.
     """
-    fma = {**fitting_method_args, 's_idx': s_idx}
-    schedule, particles = fit_interim_SMC_resample_of_posterior_xz_from_x(
-        xi=xi, zi=zi, dit=dit, draws_file=draws_file,
-        fitting_method_args=fma, save_to_file=False, verbose=verbose,
+    ima = interim_method_args
+    fma = {**fit_method_args, 's_idx': s_idx}
+    x_formula = fma.pop('x_formula')   # KeyError if caller omits
+
+    model = model_cls(dit=dit, dcati=xi, x_formula=x_formula)
+    schedule, particles = fit_interim_posterior_xz_from_x_with_SMC_resampling(
+        model=model, zi=zi, draws_file=draws_file,
+        interim_method_args={
+            'verbose': ima['verbose'],
+            'save_to_file': False,
+            'output_file_prefix': None,
+        },
+        fit_method_args=fma,
     )
-    x_stan = _interim_make_x_stan(xi, dit, fma.get('x_formula', "~ time - 1"))
-    ratio = _ratio_per_draw_from_params(particles, x_stan, xi, dit, categorical_threshold)
+    x_stan = model.make_stan_data_from_xi()
+    ratio = model.get_endpoints_per_draw_from_theta_batch(
+        particles, x_stan, endpoint_type='items',
+    )
     sample_p = (
-        ratio.assign(ind=(ratio['ratio'] > pps_H1_def).astype(float))
+        ratio.assign(ind=(ratio['ratio'] > ima['pps_H1_def']).astype(float))
         .groupby(['item_label', 'item_type', 'item_high_label'])['ind']
         .mean().reset_index(name='p_h1_xz')
     )
@@ -1077,228 +706,91 @@ def _fit_interim_SMC_one_sample(
     return sample_p, summary
 
 
-def fit_interim_SMC_PPS_of_posterior_xz_from_x(
-    xi: pd.DataFrame,
+def _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample(
+    model,
     zi: pd.DataFrame,
-    dit: pd.DataFrame,
-    fitting_method_args: dict,
     draws_file: str,
-    pps_z_total: int = 10,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    cpu_n: int = 1,
-    output_file_prefix: Optional[str] = None,
-    save_to_file: bool = True,
-    verbose: bool = True,
+    interim_method_args: dict,
+    fit_method_args: dict,
 ):
     """
     SMC resample-move PPS over S future datasets at a fixed x (Case A).
 
-    Runs :func:`fit_interim_SMC_resample_of_posterior_xz_from_x` for each future
-    sample z_s and scores p(H_1 | x, z_s) as the fraction of the moved particles
-    whose per-item improvement ratio exceeds ``pps_H1_def`` (the particles are
-    uniformly weighted). The S SMC runs are independent and parallelised over
-    ``cpu_n`` ``spawn`` workers (each re-imports JAX and reloads ``draws_file``),
-    mirroring :func:`fit_interim_MC_of_posterior_xz`.
+    Runs :func:`fit_interim_posterior_xz_from_x_with_SMC_resampling` for each
+    future sample z_s and scores p(H_1 | x, z_s) as the fraction of the moved
+    particles whose per-item improvement ratio exceeds ``pps_H1_def``. The S
+    SMC runs are independent and parallelised over ``cpu_n`` ``spawn``
+    workers (each re-imports JAX and reloads ``draws_file``).
 
     Parameters
     ----------
-    fitting_method_args : dict
-        SMC tuning forwarded to the per-sample sampler (``n_particles``,
-        ``ess_frac_target``, ``n_move_steps``, ``init_step_size``,
-        ``target_accept``, ``max_temps``, ``x_formula``, ``seed`` ...); ``s_idx``
-        is set per sample. Must be picklable (no in-memory callables) when
-        ``cpu_n > 1``.
+    model : :class:`model.Model`
+    zi : pd.DataFrame
+        Future-data block (must carry ``src_pid`` + ``ypred_*``).
     draws_file : str
-        Path to the x-fit zarr (passed instead of in-memory draws so workers can
-        reload it).
-    cpu_n : int, default 1
-        Worker processes for the S SMC runs.
+        Path to the x-fit zarr (passed instead of in-memory draws so workers
+        can reload it).
+    interim_method_args : dict
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
+        ``pps_ProbH1_thresh``, ``cpu_n``, ``output_file_prefix``,
+        ``save_to_file``, ``verbose``.
+    fit_method_args : dict
+        SMC tuning forwarded to
+        :func:`fit_interim_posterior_xz_from_x_with_SMC_resampling`.
+        ALL keys required: ``n_particles``, ``ess_frac_target``,
+        ``n_move_steps``, ``init_step_size``, ``target_accept``,
+        ``max_temps``, ``seed``, ``x_formula``. ``s_idx`` is set per sample.
 
     Returns
     -------
     (p_h1_xz, smc_summary) : tuple of pd.DataFrame
-        - ``p_h1_xz``: one row per (item, sample s) with ``p_h1_xz``, ``s`` and
-          the recorded ``pps_H1_def`` / ``pps_ProbH1_thresh`` / ``S``.
-        - ``smc_summary``: one row per s with ``n_particles``, ``n_steps``,
-          ``beta_final`` and ``mins`` (per-sample SMC wall time).
     """
-    vprint = print if verbose else (lambda *args, **kwargs: None)
+    ima = interim_method_args
+    fma = fit_method_args
+
+    vprint = print if ima['verbose'] else (lambda *args, **kwargs: None)
     work = dict(
-        xi=xi, zi=zi, dit=dit, draws_file=draws_file,
-        fitting_method_args=fitting_method_args, pps_H1_def=pps_H1_def,
-        categorical_threshold=categorical_threshold, verbose=False,
+        xi=model.dcati, zi=zi, dit=model.dit,
+        model_cls=type(model),
+        draws_file=draws_file,
+        interim_method_args=ima, fit_method_args=fma,
     )
-    if cpu_n == 1:
-        results = [_fit_interim_SMC_one_sample(s, **work) for s in range(pps_z_total)]
+    if ima['cpu_n'] == 1:
+        results = [_fit_interim_SMC_one_sample(s, **work) for s in range(ima['pps_z_total'])]
     else:
         import multiprocessing as _mp
         from concurrent.futures import ProcessPoolExecutor
-        vprint(f"Running {pps_z_total} SMC samples over {cpu_n} worker processes...")
+        vprint(f"Running {ima['pps_z_total']} SMC samples over {ima['cpu_n']} worker processes...")
         ctx = _mp.get_context('spawn')
-        with ProcessPoolExecutor(max_workers=cpu_n, mp_context=ctx) as ex:
-            futures = [ex.submit(_fit_interim_SMC_one_sample, s, **work) for s in range(pps_z_total)]
+        with ProcessPoolExecutor(max_workers=ima['cpu_n'], mp_context=ctx) as ex:
+            futures = [ex.submit(_fit_interim_SMC_one_sample, s, **work) for s in range(ima['pps_z_total'])]
             results = [f.result() for f in futures]
 
     p_h1_xz = pd.concat([r[0] for r in results], ignore_index=True)
-    p_h1_xz['pps_H1_def'] = pps_H1_def
-    p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
-    p_h1_xz['S'] = pps_z_total
+    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
+    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['S'] = ima['pps_z_total']
     smc_summary = pd.DataFrame([r[1] for r in results])
 
-    if save_to_file and output_file_prefix is not None:
-        p_h1_xz.to_pickle(f"{output_file_prefix}_p_h1_xz_SMC.pkl")
-        smc_summary.to_csv(f"{output_file_prefix}_smc_summary.csv", index=False)
-        vprint(f"\nSaved SMC P(H_1 | x, z) samples to: {output_file_prefix}_p_h1_xz_SMC.pkl")
+    out_prefix = ima['output_file_prefix']
+    if ima['save_to_file'] and out_prefix is not None:
+        p_h1_xz.to_pickle(f"{out_prefix}_p_h1_xz_SMC.pkl")
+        smc_summary.to_csv(f"{out_prefix}_smc_summary.csv", index=False)
+        vprint(f"\nSaved SMC P(H_1 | x, z) samples to: {out_prefix}_p_h1_xz_SMC.pkl")
     return p_h1_xz, smc_summary
 
 
 # =============================================================================
 # Strong-Oakley regression-based label estimator (Case A)
 # =============================================================================
-# 1. ``get_interim_endpt_and_w_from_poi`` builds the per-item training set
-#    ``wa`` from the x-posterior draws: per-(item, draw) the actual endpoint
-#    ratio ``pps_ratio_x`` (and its H_1 indicator), and per-(item, draw) the
-#    posterior-predictive summary ``W(z^(s))_t`` at baseline / endline plus the
-#    direction-aware ``w_diff`` / ``w_ratio``.
+# 1. Callers build the per-item training set ``wa`` inline via
+#    ``model.get_interim_z_from_ypredi`` (keep_order=True) + ``model.get_w``
+#    + ``model.get_endpoints_per_draw`` + ``model.get_p_h1``.
 # 2. ``fit_interim_regress_H1x_on_wz`` fits a per-item binomial GLM
 #    ``pps_H1_x ~ w_ratio`` and predicts ``p_h1_xz`` = pi_hat(W(z^(s))) for
 #    every draw, plus per-item Pearson rho and Gaussian-GLM R^2 diagnostics.
 # 3. ``fit_interim_regress_H1x_on_wz_per_item_summary`` is the per-item helper
 #    used both inside (2) and by the diagnostic plot scripts.
-
-
-def get_interim_endpt_and_w_from_poi(
-    xi: pd.DataFrame,
-    dit: pd.DataFrame,
-    draws,
-    draws_file: str,
-    interim_m: int,
-    pps_z_total: int,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
-    categorical_threshold: int = 3,
-    seed: int = 123,
-) -> pd.DataFrame:
-    """
-    Per-(item, draw) endpoint ratio from the x-posterior + per-(item, draw)
-    summary ``W(z^(s))_t`` for the Strong-Oakley regression training set.
-
-    For each draw s = 0..pps_z_total-1 (in posterior order; see
-    :func:`_load_ypred` with ``keep_order=True``):
-
-    - load ``ypred[s]`` (the posterior-predictive at every xi observation) and
-      build a future-data block z by resampling ``interim_m`` xi participants
-      with replacement (seeded), inheriting their ypred values;
-    - compute per-(item, time) summary ``W(z^(s))_t``:
-        * ``out-of-7``  items -> mean of y_stan (1..7),
-        * ``categorical`` items -> proportion of responses
-          ``>= categorical_threshold``;
-    - pivot to ``w_baseline`` / ``w_endline`` and derive the direction-aware
-      ``w_diff`` and ``w_ratio`` (positive => improvement, matching the
-      endpoint-ratio convention).
-
-    The actual per-draw endpoint ratio ``pps_ratio_x`` and the H_1 indicator
-    ``pps_H1_x = 1{pps_ratio_x > pps_H1_def}`` come from
-    :func:`get_endpoints_per_draw` on the x-fit posterior; per-item summaries
-    ``pps_ProbH1_x`` and the decision indicator ``pps_H1_yes`` are also added.
-
-    Returns
-    -------
-    wa : pd.DataFrame
-        One row per (item, draw) with columns
-        ``item_label, item_type, item_high_label, draw,
-        w_baseline, w_endline, w_diff, w_ratio,
-        pps_ratio_x, pps_H1_x``.
-    """
-    # Load ypred in posterior-draw order so row s == posterior draw s.
-    ypred = _load_ypred(draws_file, pps_z_total, np.random.default_rng(seed), keep_order=True)
-    S = ypred.shape[0]
-
-    # Resample participants (with replacement, seeded) for the shadow z block.
-    rng = np.random.default_rng(seed)
-    tmp = pd.DataFrame({
-        'src_pid': rng.choice(xi['pid'].unique(), size=interim_m, replace=True),
-        'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
-    })
-    zi = (
-        tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
-        .sort_values(['pid', 'oid']).reset_index(drop=True)
-    )
-    ypred_cols = [f'ypred_{s}' for s in range(S)]
-    zi[ypred_cols] = ypred[:, zi['oid'].to_numpy() - 1].T
-
-    # Per-(item, time) summaries W(z^(s))_t, type-specific.
-    zi_o7 = zi[zi['item_type'] == 'out-of-7']
-    zi_cat = zi[zi['item_type'] == 'categorical']
-    w_o7 = (
-        zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
-        .mean().reset_index()
-    )
-    zi_cat_bin = zi_cat[ypred_cols].ge(categorical_threshold).astype(float)
-    zi_cat_bin = pd.concat(
-        [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
-         zi_cat_bin.reset_index(drop=True)], axis=1,
-    )
-    w_cat = (
-        zi_cat_bin.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
-        .mean().reset_index()
-    )
-    wa = pd.concat([w_o7, w_cat], ignore_index=True).melt(
-        id_vars=['item_label', 'item_type', 'time'],
-        value_vars=ypred_cols, var_name='s_col', value_name='w',
-    )
-    wa['draw'] = wa['s_col'].str.replace('ypred_', '').astype(int)
-    wa = wa.drop(columns='s_col')
-
-    t_min, t_max = wa['time'].min(), wa['time'].max()
-    wa = (
-        wa.pivot_table(index=['item_label', 'item_type', 'draw'],
-                       columns='time', values='w')
-        .reset_index()
-    )
-    wa.columns.name = None
-    wa = wa.rename(columns={t_min: 'w_baseline', t_max: 'w_endline'})
-
-    # Direction-aware diff / ratio (mirrors the endpoint-ratio computation).
-    wa = wa.merge(
-        dit[['item_label', 'item_high_label']].drop_duplicates(),
-        on='item_label', how='left',
-    )
-    wa['w_diff'] = np.nan
-    wa['w_ratio'] = np.nan
-    tmp = wa['item_high_label'] == 'lower_is_better'
-    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_baseline'] - wa.loc[tmp, 'w_endline']
-    wa.loc[tmp, 'w_ratio'] = 1 - wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline']
-    tmp = wa['item_high_label'] == 'higher_is_better'
-    wa.loc[tmp, 'w_diff'] = wa.loc[tmp, 'w_endline'] - wa.loc[tmp, 'w_baseline']
-    wa.loc[tmp, 'w_ratio'] = wa.loc[tmp, 'w_endline'] / wa.loc[tmp, 'w_baseline'] - 1
-
-    # Actual per-draw endpoint ratio from the x-fit posterior.
-    x_ratio = get_endpoints_per_draw(
-        dcati=xi, dit=dit, draws=draws,
-        categorical_threshold=categorical_threshold,
-        endpoint_type='items', param_name='ordered_prob_by_cat_qu_fit',
-        verbose=False,
-    )
-    x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
-    tmp = (
-        x_ratio.groupby(['item_type', 'item_label'])
-        .agg(pps_ProbH1_x=('pps_H1_x', 'mean'))
-        .reset_index()
-    )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
-    x_ratio = x_ratio.merge(
-        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']], on='item_label', how='left',
-    )
-
-    wa = wa.merge(
-        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
-        on=['draw', 'item_label', 'item_type'], how='inner',
-    )
-    return wa
 
 
 def fit_interim_regress_H1x_on_wz_per_item_summary(g: pd.DataFrame) -> pd.Series:

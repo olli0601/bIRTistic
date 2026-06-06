@@ -103,8 +103,7 @@ print(f"Saved combined comparison table to: {csv_path}")
 # %%
 
 # =============================================================================
-# Plot: ESS / ESS-per-particle / E(w^2) / time per interim, methods dodged in
-# Futurama colours (whisker outlier dots removed).
+# Plot: time per interim
 # =============================================================================
 
 dc2 = (

@@ -50,10 +50,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_colombia
-from fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_pyrosvi,
-)
-from get_endpoints import get_endpoints, get_endpoints_per_draw
+from model_pcm import PartialCreditModel
 from utils import _futurama_palette, _build_interim_dcati
 
 print("✓ Imports successful")
@@ -222,16 +219,15 @@ for i, row in di.iterrows():
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    result = fit_partial_credit_model_ncats_pyrosvi(
-        dit,
-        dcati,
+    _pcm = PartialCreditModel(
+        dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
+    )
+    result = _pcm.fit_pyro_svi(
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
         lr=0.01,
         num_steps=10000,
         output_samples=4000,
-        seed=seed,
-        x_formula="~ time - 1",
         resume=True,
         with_core_analyses=True,
         with_additional_analyses=False,
@@ -241,9 +237,7 @@ for i, row in di.iterrows():
     interim_dcati[interim_id] = dcati
     interim_zarr[interim_id] = zarr_path
 
-    pos = get_endpoints(
-        dp1=dcati,
-        dit=dit,
+    pos = _pcm.get_endpoints(
         draws_file=zarr_path,
         categorical_threshold=3,
         endpoint_type='items',
@@ -365,9 +359,8 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_zarr.items():
     dcati = interim_dcati[interim_id]
-    per_draw = get_endpoints_per_draw(
-        dcati=dcati,
-        dit=dit,
+    _pcm = PartialCreditModel(dit=dit, dcati=dcati)
+    per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=3,
         endpoint_type='items',

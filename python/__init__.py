@@ -13,26 +13,18 @@ __version__ = "0.1.0"
 __author__ = "bIRTistic Team"
 
 from .data_loading import read_data_colombia, read_data_ukraine
-from .fit_partial_credit_model import (
-    fit_partial_credit_model_ncats_stanhmc,
-    fit_partial_credit_model_ncats_stanadvi,
-)
-from .fit_ordered_logit_model import (
-    fit_ordered_logit_model_ncats_stanhmc,
-    fit_ordered_logit_model_ncats_stanadvi,
-)
-from .get_endpoints import get_endpoints
+from .model_pcm import PartialCreditModel
+from .model_credit import CreditModel
+from .model_ordered_logit import OrderedLogit
+from .model_binomial import BinomialModel
 
 __all__ = [
     'read_data_colombia',
     'read_data_ukraine',
-    'fit_partial_credit_model_ncats_stanhmc',
-    'fit_ordered_logit_model_ncats_stanhmc',
-    'fit_ordered_logit_model_ncats_stanadvi',
-    'fit_partial_credit_model_ncats_stanadvi',
-    'get_endpoints'
+    'PartialCreditModel',
+    'CreditModel',
+    'OrderedLogit',
+    'BinomialModel',
 ]
-
-__all__ = ['read_data_colombia', 'read_data_ukraine']
 
 # Package will be populated as modules are ported from R

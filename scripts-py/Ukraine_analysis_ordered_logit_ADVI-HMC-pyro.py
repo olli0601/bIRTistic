@@ -62,12 +62,7 @@ import warnings
 warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_ukraine
-from fit_ordered_logit_model import (
-    fit_ordered_logit_model_ncats_stanadvi,
-    fit_ordered_logit_model_ncats_stanhmc,
-    fit_ordered_logit_model_ncats_pyrosvi,
-)
-from get_endpoints import get_endpoints
+from model_ordered_logit import OrderedLogit
 from utils import _summarize_ordered_prob_quantiles
 
 print("✓ Imports successful")
@@ -178,15 +173,18 @@ tmp = os.path.join(dir_out_pcm, "ol_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
 pd.to_pickle({'dp1': dp1_ukr, 'dit': dit_ukr, 'dmeta': dmeta_ukr}, tmp)
 
+# Build the Model instance once; all fit_* calls below dispatch through it.
+_ol = OrderedLogit(
+    dit=dit_ukr, dcati=dp1_ukr, x_formula="~ time - 1", seed=seed,
+)
+
 # %%
 
 # =============================================================================
 # Model Fitting - HMC
 # =============================================================================
 
-result_hmc = fit_ordered_logit_model_ncats_stanhmc(
-    dit_ukr,
-    dp1_ukr,
+result_hmc = _ol.fit_stan_hmc(
     output_file_prefix=output_file_prefix_hmc,
     stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     chains=4,
@@ -194,8 +192,6 @@ result_hmc = fit_ordered_logit_model_ncats_stanhmc(
     threads_per_chain=1,
     iter_warmup=500,
     iter_sampling=1000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -212,17 +208,13 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 # Model Fitting - ADVI
 # =============================================================================
 
-result_advi = fit_ordered_logit_model_ncats_stanadvi(
-    dit_ukr,
-    dp1_ukr,
+result_advi = _ol.fit_stan_svi(
     output_file_prefix=output_file_prefix_advi,
     stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -238,16 +230,12 @@ print(f"  Draws file: {output_file_prefix_advi}_draws.zarr")
 # Model Fitting - SVI AutoDiagonalNormal
 # =============================================================================
 
-result_svi_autodiagnormal = fit_ordered_logit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autodiagnormal = _ol.fit_pyro_svi(
     output_file_prefix=output_file_svi_autodiagnormal,
     algorithm=svi_algorithm_autodiagnormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -263,16 +251,12 @@ print(f"  Draws file: {output_file_svi_autodiagnormal}_draws.zarr")
 # Model Fitting - SVI AutoLaplaceApproximation
 # =============================================================================
 
-result_svi_autolaplaceapproximation = fit_ordered_logit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autolaplaceapproximation = _ol.fit_pyro_svi(
     output_file_prefix=output_file_svi_autolaplaceapproximation,
     algorithm=svi_algorithm_autolaplaceapproximation,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -288,16 +272,12 @@ print(f"  Draws file: {output_file_svi_autolaplaceapproximation}_draws.zarr")
 # Model Fitting - SVI AutoMultivariateNormal
 # =============================================================================
 
-result_svi_automultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_automultivariatenormal = _ol.fit_pyro_svi(
     output_file_prefix=output_file_svi_automultivariatenormal,
     algorithm=svi_algorithm_automultivariatenormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -313,16 +293,12 @@ print(f"  Draws file: {output_file_svi_automultivariatenormal}_draws.zarr")
 # Model Fitting - SVI AutoLowRankMultivariateNormal
 # =============================================================================
 
-result_svi_autolowrankmultivariatenormal = fit_ordered_logit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autolowrankmultivariatenormal = _ol.fit_pyro_svi(
     output_file_prefix=output_file_svi_autolowrankmultivariatenormal,
     algorithm=svi_algorithm_autolowrankmultivariatenormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -338,16 +314,12 @@ print(f"  Draws file: {output_file_svi_autolowrankmultivariatenormal}_draws.zarr
 # Model Fitting - SVI Auto IAF Normal
 # =============================================================================
 
-result_svi_autoiafnormal = fit_ordered_logit_model_ncats_pyrosvi(
-    dit_ukr,
-    dp1_ukr,
+result_svi_autoiafnormal = _ol.fit_pyro_svi(
     output_file_prefix=output_file_svi_autoiafnormal,
     algorithm=svi_algorithm_autoiafnormal,
     lr=0.01,
     num_steps=10000,
     output_samples=4000,
-    seed=seed,
-    x_formula="~ time - 1",
     resume=True,
     with_core_analyses=True,
     with_additional_analyses=True,
@@ -406,8 +378,6 @@ endpoints_by_method = {}
 for method, cfg in method_cfg.items():
     print(f"\nComputing {method} endpoints...")
     ep_kwargs = {
-        'dp1': dp1_ukr,
-        'dit': dit_ukr,
         'draws_file': cfg['draws_file'],
         'categorical_threshold': categorical_threshold,
         'endpoint_type': 'items',
@@ -415,7 +385,7 @@ for method, cfg in method_cfg.items():
     if cfg['param_name'] is not None:
         ep_kwargs['param_name'] = cfg['param_name']
 
-    pos = get_endpoints(**ep_kwargs)
+    pos = _ol.get_endpoints(**ep_kwargs)
     pos['method'] = method
     endpoints_by_method[method] = pos
 

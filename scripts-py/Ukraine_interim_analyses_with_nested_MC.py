@@ -48,9 +48,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
-from fit_partial_credit_model import fit_partial_credit_model_ncats_pyrosvi
-from get_endpoints import get_endpoints, get_endpoints_per_draw
-from fit_interim import get_interim_z_from_ypredi, fit_interim_MC_of_posterior_xz, get_interim_x
+from model_pcm import PartialCreditModel
+from fit_interim import fit_interim_posterior_xz_with_nested_monte_carlo
 from utils import _futurama_palette
 
 print("✓ Imports successful")
@@ -67,7 +66,7 @@ seed = 123
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-260526"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-nested-MC-260526"
 dir_logs = os.path.join(dir_out, "logs")
 os.makedirs(dir_out, exist_ok=True)
 os.makedirs(dir_logs, exist_ok=True)
@@ -297,23 +296,22 @@ for i in range(len(di)):
     interim_id = int(di.iloc[i]['interim_id'])
     print(f"\n--- Interim {interim_id}: {di.iloc[i]['interim_date'].date()} ---")
 
-    dcati = get_interim_x(dp1, di.iloc[i]['interim_date'])
+    dcati = PartialCreditModel.get_interim_data_x(dp1, di.iloc[i]['interim_date'])
     if dcati.empty or dcati['pid'].nunique() < 2:
         print(f"  Skipping (insufficient complete participants)")
         continue
     print(f"  n_obs={len(dcati):,} | n_pid={dcati['pid'].nunique()} | n_items={dcati['item_label'].nunique()}")
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
-    fit = fit_partial_credit_model_ncats_pyrosvi(
-        dit,
-        dcati,
+    _pcm = PartialCreditModel(
+        dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
+    )
+    fit = _pcm.fit_pyro_svi(
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
         lr=0.01,
         num_steps=10000,
         output_samples=4000,
-        seed=seed,
-        x_formula="~ time - 1",
         resume=True,
         with_core_analyses=True,
         with_additional_analyses=False,
@@ -324,9 +322,7 @@ for i in range(len(di)):
     interim_x_dict[interim_id] = dcati
     interim_x_draws_dict[interim_id] = zarr_path
 
-    pos = get_endpoints(
-        dp1=dcati,
-        dit=dit,
+    pos = _pcm.get_endpoints(
         draws=fit['draws'],
         categorical_threshold=2,
         endpoint_type='items',
@@ -449,9 +445,8 @@ print("\nComputing per-draw relative improvement per interim...")
 rel_rows = []
 for interim_id, zarr_path in interim_x_draws_dict.items():
     dcati = interim_x_dict[interim_id]
-    per_draw = get_endpoints_per_draw(
-        dcati=dcati,
-        dit=dit,
+    _pcm = PartialCreditModel(dit=dit, dcati=dcati)
+    per_draw = _pcm.get_endpoints_per_draw(
         draws_file=zarr_path,
         categorical_threshold=2,
         endpoint_type='items',
@@ -565,28 +560,35 @@ for interim_id in di['interim_id']:
     print(f"\n{'='*70}\nPPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
 
     t0 = time.time()
-    zi = get_interim_z_from_ypredi(xi, draws_file, interim_m, pps_z_total=pps_z_total, seed=seed)
-    tmp = fit_interim_MC_of_posterior_xz(
-        xi=xi,
-        zi=zi,
-        dit=dit,
-        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def,
-        pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=2,
-        fitting_method=fit_partial_credit_model_ncats_pyrosvi,
-        fitting_method_args={
+    model = PartialCreditModel(dit=dit,
+                               dcati=xi,
+                               x_formula="~ time - 1",
+                               seed=seed,
+                               categorical_threshold=2)
+    zi = model.get_interim_z_from_ypredi(
+        draws_file, interim_m, pps_z_total=pps_z_total, seed=seed,
+    )
+    tmp = fit_interim_posterior_xz_with_nested_monte_carlo(
+        model,
+        zi,
+        interim_method_args={
+            'pps_z_total': pps_z_total,
+            'pps_H1_def': pps_H1_def,
+            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'fit_method': 'fit_pyro_svi',
+            'seed': seed,
+            'save_to_file': False,
+            'verbose': False,
+            'cpu_n': pps_cpu_n,
+            'output_file_prefix': os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
+        },
+        fit_method_args={
             'algorithm': svi_algorithm,
             'x_formula': "~ time - 1",
             'lr': 0.01,
             'num_steps': 10000,
             'output_samples': 4000,
         },
-        seed=seed,
-        save_to_file=False,
-        verbose=False,
-        cpu_n=pps_cpu_n,
     )
     mins_interim_id = (time.time() - t0) / 60.0
     tmp['interim_id'] = interim_id
