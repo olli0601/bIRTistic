@@ -38,7 +38,7 @@ class Model(ABC):
     # ---- 2.1 Subclass-declared metadata --------------------------------
     param_names: tuple = ()
     """Posterior parameter names this model exposes. Used by
-    :meth:`stack_posterior_theta` to flatten arviz draws into a
+    :meth:`get_stacked_posterior` to flatten arviz draws into a
     ``(K, ...)`` jnp array dict."""
 
     positive_params: tuple = ()
@@ -95,7 +95,7 @@ class Model(ABC):
         )
 
     # ---- 2.4 Posterior <-> params --------------------------------------
-    def stack_posterior_theta(self, draws) -> dict:
+    def get_stacked_posterior(self, draws) -> dict:
         """Flatten the (chain, draw) dims of ``draws.posterior[name]`` for
         every ``name in self.param_names`` into a dict of ``(K, ...)`` jnp
         arrays. Only the parameters declared by the subclass are returned.
@@ -151,6 +151,35 @@ class Model(ABC):
             .groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
             .apply(lambda endpt: float((endpt > pps_H1_def).mean()))
             .reset_index(name='p_h1')
+        )
+
+    # ---- 2.6b IS / SMC scoring helpers ---------------------------------
+    def make_stan_data_from_xi(self) -> dict:
+        """Build stan_data for the x cohort (``self.dcati``). Default
+        delegates to :meth:`make_stan_data`; IRT subclasses override to
+        re-index oid/oidt/item_type sort first."""
+        return self.make_stan_data(self.dcati, self.x_formula)
+
+    def make_stan_data_from_zi(self, zi: pd.DataFrame, s_idx: int) -> dict:
+        """Build stan_data for the future-data sample s drawn from ``zi``.
+        Default raises ``NotImplementedError``; IRT subclasses do the
+        ``ypred_s -> y_stan`` rename + index rebuild + sort + make_stan_data
+        path. Binomial subclasses override per their data shape."""
+        raise NotImplementedError(
+            f"{type(self).__name__}.make_stan_data_from_zi"
+        )
+
+    def get_endpoints_per_draw_from_theta_batch(
+        self, theta_batch, x_stan, endpoint_type: str = 'items',
+    ) -> pd.DataFrame:
+        """Score a batch of parameter dicts (each leaf shape ``(K, ...)``)
+        on the x-cohort design ``x_stan`` and return the per-(item, draw)
+        endpoint frame. Default raises ``NotImplementedError``; IRT
+        subclasses vmap ``eval_outcome_for_endpoint`` -> arviz idata with
+        ``ordered_prob_by_cat_qu_pr`` -> :meth:`get_endpoints_per_draw`.
+        Binomial subclasses override per their posterior parameterisation."""
+        raise NotImplementedError(
+            f"{type(self).__name__}.get_endpoints_per_draw_from_theta_batch"
         )
 
     # ---- 2.7 Generic posterior-predictive utilities --------------------

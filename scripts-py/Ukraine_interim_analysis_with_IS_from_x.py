@@ -48,7 +48,7 @@ warnings.filterwarnings('ignore')
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
 from fit_interim import (
-    fit_interim_IS_reweight,
+    fit_interim_posterior_xz_from_z_with_IS_reweight,
 )
 from utils import _futurama_palette
 
@@ -173,7 +173,8 @@ for interim_id in di['interim_id']:
     t0 = time.time()
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
     model = PartialCreditModel(dit=dit, dcati=xi,
-                                    x_formula="~ time - 1", seed=seed)
+                                    x_formula="~ time - 1", seed=seed,
+                                    categorical_threshold=2)
     fit = model.fit_pyro_svi(
         output_file_prefix=interim_prefix,
         algorithm=svi_algorithm,
@@ -183,15 +184,17 @@ for interim_id in di['interim_id']:
     )
     zi = model.get_interim_z_from_ypredi(f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
     )
-    p, is_perf = fit_interim_IS_reweight(
-        model=model, zi=zi, draws=fit['draws'],
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def,
-        pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=2,
-        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
-        save_to_file=False,
-        verbose=False,
+    p, is_perf = fit_interim_posterior_xz_from_z_with_IS_reweight(
+        model, zi,
+        draws=fit['draws'],
+        interim_method_args={
+            'pps_z_total': pps_z_total,
+            'pps_H1_def': pps_H1_def,
+            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'output_file_prefix': os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
+            'save_to_file': False,
+            'verbose': False,
+        },
     )
     mins_interim_id = (time.time() - t0) / 60.0
     p['interim_id'] = interim_id

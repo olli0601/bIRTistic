@@ -83,14 +83,24 @@ class BinomialModel(Model):
 
         If a ``y_stan`` column is present (rows arriving from the
         nested-MC ``zi`` block carry the sampled future outcomes here),
-        it is renamed to ``y`` so the augmented cohort feeds
+        it is coalesced into ``y`` so the augmented ``pd.concat([xi,
+        zi])`` cohort (where xi has ``y`` only and zi has ``y_stan``
+        only, with NaN in the missing column per row) feeds
         :meth:`make_stan_data` uniformly."""
         dcati = df
         if interim_date is not None and 'submission_date' in dcati.columns:
             dcati = dcati[dcati['submission_date'] <= interim_date]
         dcati = dcati.reset_index(drop=True)
         if 'y_stan' in dcati.columns:
-            dcati = dcati.rename(columns={'y_stan': 'y'})
+            dcati = dcati.copy()
+            if 'y' in dcati.columns:
+                dcati['y'] = dcati['y'].where(
+                    dcati['y'].notna(), dcati['y_stan'],
+                )
+            else:
+                dcati['y'] = dcati['y_stan']
+            dcati = dcati.drop(columns=['y_stan'])
+        dcati['y'] = dcati['y'].astype(int)
         dcati['oid'] = np.arange(1, len(dcati) + 1, dtype=int)
         return dcati
 

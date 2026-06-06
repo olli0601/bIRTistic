@@ -10,7 +10,7 @@ adaptive data tempering + compile-once MALA moves, and score p(H_1 | x, z_s) as
 the fraction of moved particles with item improvement ratio > pps_H1_def. The S
 SMC runs per interim are parallelised over ``pps_cpu_n`` spawn workers (mirrors
 the HMC ``Ukraine_interim_analyses.py``), via
-``fit_interim_SMC_PPS_of_posterior_xz_from_x``.
+``fit_interim_SMC_PPS``.
 
 Process-based parallelism (spawn) requires the executable body to run under
 ``if __name__ == '__main__'`` (here wrapped in ``main()``), else each worker
@@ -51,7 +51,7 @@ warnings.filterwarnings('ignore')
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
 from fit_interim import (
-    fit_interim_SMC_PPS,
+    _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample,
 )
 from utils import _futurama_palette
 
@@ -81,6 +81,7 @@ fitting_method_args = dict(
     ess_frac_target=0.5,
     n_move_steps=20,
     init_step_size=0.02,
+    target_accept=0.574,
     max_temps=300,
     x_formula=x_formula,
     seed=seed,
@@ -169,7 +170,8 @@ def main():
         t0 = time.time()
         interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
         model = PartialCreditModel(dit=dit, dcati=xi,
-                                        x_formula=x_formula, seed=seed)
+                                        x_formula=x_formula, seed=seed,
+                                        categorical_threshold=categorical_threshold)
         model.fit_pyro_svi(
             output_file_prefix=interim_prefix,
             algorithm=svi_algorithm,
@@ -179,17 +181,19 @@ def main():
         )
         zi = model.get_interim_z_from_ypredi(f"{interim_prefix}_draws.zarr", interim_m, pps_z_total=pps_z_total, seed=seed,
         )
-        p, smc_summary = fit_interim_SMC_PPS(
-            model=model, zi=zi,
-            fitting_method_args=fitting_method_args,
+        p, smc_summary = _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample(
+            model, zi,
             draws_file=f"{interim_prefix}_draws.zarr",
-            pps_z_total=pps_z_total,
-            pps_H1_def=pps_H1_def,
-            pps_ProbH1_thresh=pps_ProbH1_thresh,
-            categorical_threshold=categorical_threshold,
-            cpu_n=pps_cpu_n,
-            save_to_file=False,
-            verbose=True,
+            interim_method_args={
+                'pps_z_total': pps_z_total,
+                'pps_H1_def': pps_H1_def,
+                'pps_ProbH1_thresh': pps_ProbH1_thresh,
+                'cpu_n': pps_cpu_n,
+                'save_to_file': False,
+                'verbose': True,
+                'output_file_prefix': None,
+            },
+            fit_method_args=fitting_method_args,
         )
         mins_interim_id = (time.time() - t0) / 60.0
         p['interim_id'] = interim_id

@@ -18,6 +18,7 @@ from typing import Literal, Optional
 import os
 
 import arviz as az
+import jax
 import numpy as np
 import pandas as pd
 
@@ -28,6 +29,45 @@ from utils import _map_cq_id_to_item_structure
 class IRTModel(Model):
     """Marker mixin for the IRT family. Provides per-draw + summary
     endpoint extraction from posterior ordered-prob arrays."""
+
+    def __init__(self, dit: pd.DataFrame, dcati: pd.DataFrame,
+                 x_formula: str = "~ time - 1", *,
+                 seed: int = 123, categorical_threshold: int = 3):
+        self.categorical_threshold = int(categorical_threshold)
+        super().__init__(dit=dit, dcati=dcati, x_formula=x_formula, seed=seed)
+
+    # ------------------------------------------------------------------
+    # IS / SMC scoring helpers (IRT-specific overrides of Model defaults)
+    # ------------------------------------------------------------------
+
+    def make_stan_data_from_xi(self) -> dict:
+        """stan_data for the x cohort. Sorts by (item_type_id, pid, time,
+        item_label) and re-indexes oid/oidt before delegating to
+        :meth:`make_stan_data`."""
+        x_dcati = self.dcati.copy()
+        if 'y_stan' not in x_dcati:
+            x_dcati['y_stan'] = x_dcati['y'] + 1
+        x_dcati = x_dcati.sort_values(
+            ['item_type_id', 'pid', 'time', 'item_label']
+        ).reset_index(drop=True)
+        x_dcati['oid'] = np.arange(1, len(x_dcati) + 1)
+        x_dcati['oidt'] = x_dcati.groupby('item_type').cumcount() + 1
+        return self.make_stan_data(x_dcati, self.x_formula)
+
+    def make_stan_data_from_zi(self, zi: pd.DataFrame, s_idx: int) -> dict:
+        """stan_data for the future-data sample ``s_idx`` drawn from
+        ``zi``. Promotes ``src_pid -> pid`` and ``ypred_s -> y_stan``,
+        rebuilds oid/oidt by the IRT (item_type_id, pid, time, item_label)
+        order, then delegates to :meth:`make_stan_data`."""
+        zcol = f'ypred_{s_idx}'
+        z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
+        z_dcati['y'] = z_dcati['y_stan'] - 1
+        z_dcati = z_dcati.sort_values(
+            ['item_type_id', 'pid', 'time', 'item_label']
+        ).reset_index(drop=True)
+        z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
+        z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
+        return self.make_stan_data(z_dcati, self.x_formula)
 
     # ------------------------------------------------------------------
     # IRT data builder
@@ -79,7 +119,7 @@ class IRTModel(Model):
     # ------------------------------------------------------------------
 
     def get_w(self, zi: pd.DataFrame,
-              categorical_threshold: int = 3) -> pd.DataFrame:
+              categorical_threshold: Optional[int] = None) -> pd.DataFrame:
         """Build the Strong-Oakley per-(item, draw) summary frame from
         the future-data block ``zi`` (must carry
         ``ypred_0 .. ypred_{S-1}`` columns).
@@ -95,13 +135,16 @@ class IRTModel(Model):
         dit = self.dit
         ypred_cols = [c for c in zi.columns if c.startswith('ypred_')]
 
+        cat_thresh = (categorical_threshold
+                      if categorical_threshold is not None
+                      else self.categorical_threshold)
         zi_o7 = zi[zi['item_type'] == 'out-of-7']
         zi_cat = zi[zi['item_type'] == 'categorical']
         w_o7 = (
             zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
             .mean().reset_index()
         )
-        zi_cat_bin = zi_cat[ypred_cols].ge(categorical_threshold).astype(float)
+        zi_cat_bin = zi_cat[ypred_cols].ge(cat_thresh).astype(float)
         zi_cat_bin = pd.concat(
             [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
              zi_cat_bin.reset_index(drop=True)], axis=1,
@@ -186,24 +229,43 @@ class IRTModel(Model):
     # Public endpoint methods
     # ------------------------------------------------------------------
 
+    def get_endpoints_per_draw_from_theta_batch(
+        self, theta_batch, x_stan, endpoint_type: str = 'items',
+    ) -> pd.DataFrame:
+        """vmap ``eval_outcome_for_endpoint`` over the parameter batch on
+        the x-cohort design, wrap into an arviz idata under
+        ``ordered_prob_by_cat_qu_pr`` and score via
+        :meth:`get_endpoints_per_draw`."""
+        ordprob = np.asarray(
+            jax.vmap(lambda p: self.eval_outcome_for_endpoint(x_stan, p))(theta_batch)
+        )
+        idata = az.from_dict(
+            posterior={'ordered_prob_by_cat_qu_pr': ordprob[None, ...]},
+        )
+        return self.get_endpoints_per_draw(draws=idata, endpoint_type=endpoint_type)
+
+
     def get_endpoints_per_draw(
         self,
         draws=None,
         draws_file: Optional[str] = None,
-        categorical_threshold: int = 3,
+        categorical_threshold: Optional[int] = None,
         endpoint_type: Literal["items", "item_groups"] = "items",
         param_name: str = "ordered_prob_by_cat_qu_pr",
         verbose: bool = False,
     ) -> pd.DataFrame:
         """Per-draw directional ``diff`` and ``ratio`` per item or
         item-group, computed from ``self.dcati`` + ``self.dit`` and the
-        supplied posterior."""
+        supplied posterior. ``categorical_threshold`` defaults to
+        ``self.categorical_threshold`` (set in the constructor)."""
         if endpoint_type not in ("items", "item_groups"):
             raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
         if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
             raise ValueError(
                 "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
             )
+        if categorical_threshold is None:
+            categorical_threshold = self.categorical_threshold
         po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
         po = self._make_po(po_arr)
 
@@ -268,7 +330,7 @@ class IRTModel(Model):
         self,
         draws=None,
         draws_file: Optional[str] = None,
-        categorical_threshold: int = 3,
+        categorical_threshold: Optional[int] = None,
         endpoint_type: Literal["items", "item_groups"] = "items",
         param_name: str = "ordered_prob_by_cat_qu_pr",
         verbose: bool = True,

@@ -26,7 +26,7 @@ from model import Model
 from fit_interim import (
     fit_interim_regress_H1x_on_wz,
     fit_interim_regress_endptx_on_wz,
-    fit_interim_IS_reweight,
+    fit_interim_posterior_xz_from_z_with_IS_reweight,
 )
 from model_pcm import PartialCreditModel
 
@@ -181,19 +181,26 @@ def test_fit_interim_regress_endptx_on_wz_deterministic(xi, dit, draws):
 
 def test_fit_interim_IS_reweight_deterministic(xi, dit, draws):
     model = PartialCreditModel(dit=dit, dcati=xi,
-                                    x_formula="~ time - 1", seed=_SEED)
+                                    x_formula="~ time - 1", seed=_SEED,
+                                    categorical_threshold=2)
     zi = model.get_interim_z_from_ypredi(
         _DRAWS_FILE, _INTERIM_M, pps_z_total=_PPS_Z_TOTAL, seed=_SEED,
     )
-    p_a, _ = fit_interim_IS_reweight(
-        model=model, zi=zi, draws=draws,
-        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
-        save_to_file=False, verbose=False,
+    is_kwargs = dict(
+        interim_method_args={
+            'pps_z_total': _PPS_Z_TOTAL,
+            'pps_H1_def': 0.5,
+            'pps_ProbH1_thresh': 0.89,
+            'output_file_prefix': None,
+            'save_to_file': False,
+            'verbose': False,
+        },
     )
-    p_b, _ = fit_interim_IS_reweight(
-        model=model, zi=zi, draws=draws,
-        pps_z_total=_PPS_Z_TOTAL, categorical_threshold=2,
-        save_to_file=False, verbose=False,
+    p_a, _ = fit_interim_posterior_xz_from_z_with_IS_reweight(
+        model, zi, draws=draws, **is_kwargs,
+    )
+    p_b, _ = fit_interim_posterior_xz_from_z_with_IS_reweight(
+        model, zi, draws=draws, **is_kwargs,
     )
     pd.testing.assert_frame_equal(p_a, p_b, check_dtype=True, check_exact=False,
                                   atol=1e-12, rtol=0)

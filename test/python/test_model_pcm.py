@@ -23,7 +23,6 @@ if str(_python_dir) not in sys.path:
     sys.path.insert(0, str(_python_dir))
 
 from model_pcm import PartialCreditModel, _model_namespace
-from fit_interim import _stack_posterior_theta  # legacy version, hard-coded
 
 _TEST_DATA = _repo_root / 'test' / 'test_data'
 _INTERIM_STEM = _TEST_DATA / 'pcm_1_interim_1'
@@ -60,7 +59,7 @@ def stan_data(model):
 def params_one(model, draws):
     """A single posterior-draw parameter dict (the first draw) for use
     with eval_loglik / eval_log_prior / eval_outcome."""
-    theta = model.stack_posterior_theta(draws)
+    theta = model.get_stacked_posterior(draws)
     return {k: v[0] for k, v in theta.items()}
 
 
@@ -158,17 +157,3 @@ def test_get_endpoints_per_draw_shape(model, draws):
     assert out['ratio'].notna().any()
 
 
-# ---------------------------------------------------------------------------
-# Posterior stacking
-# ---------------------------------------------------------------------------
-
-
-def test_stack_posterior_theta_matches_legacy(model, draws):
-    """The new param-name-driven stacker must produce identical arrays
-    to the hard-coded :func:`fit_interim._stack_posterior_theta`."""
-    legacy = _stack_posterior_theta(draws)
-    by_method = model.stack_posterior_theta(draws)
-    assert set(legacy.keys()) == set(by_method.keys())
-    for k in legacy:
-        np.testing.assert_array_equal(np.asarray(legacy[k]),
-                                      np.asarray(by_method[k]))

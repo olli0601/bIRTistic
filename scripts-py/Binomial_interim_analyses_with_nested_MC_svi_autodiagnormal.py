@@ -40,15 +40,15 @@ if python_path not in sys.path:
 import numpy as np
 import pandas as pd
 from plotnine import (
-    ggplot, aes, geom_density, geom_vline, geom_hline, geom_boxplot,
-    facet_wrap, scale_color_manual, scale_fill_manual, theme_bw, theme,
-    element_text, labs, position_dodge,
+    ggplot, aes, geom_col, geom_density, geom_errorbar, geom_vline, geom_hline,
+    geom_boxplot, facet_wrap, scale_color_manual, scale_fill_manual,
+    scale_x_datetime, theme_bw, theme, element_text, labs, position_dodge,
 )
 import warnings
 warnings.filterwarnings('ignore')
 
 from model_binomial import BinomialModel
-from fit_interim import fit_interim_nested_monte_carlo_of_posterior_xz
+from fit_interim import fit_interim_posterior_xz_with_nested_monte_carlo
 
 print("✓ Imports successful")
 
@@ -67,7 +67,7 @@ PRIOR_A = 1.0           # Beta(1,1) uniform
 PRIOR_B = 1.0
 P_0 = 0.5
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-260604"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-with-nested-MC-svi-autodiagnormal-260604"
 os.makedirs(dir_out, exist_ok=True)
 
 # %%
@@ -201,8 +201,8 @@ print(f"\n  Collected {len(po):,} fitted posterior draws across "
 # Persist tidy outputs
 # =============================================================================
 
-po.to_pickle(os.path.join(dir_out, 'posterior_draws.pkl'))
-pa.to_pickle(os.path.join(dir_out, 'analytic_posterior_draws.pkl'))
+po.to_pickle(os.path.join(dir_out, 'binomial_interim_posterior_draws.pkl'))
+pa.to_pickle(os.path.join(dir_out, 'binomial_interim_analytic_posterior_draws.pkl'))
 
 # %%
 
@@ -363,9 +363,9 @@ for i in range(len(di)):
     })
 
 ppsa = pd.DataFrame(ppsa)
-ppsa.to_pickle(os.path.join(dir_out, 'pps_closed_form.pkl'))
+ppsa.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_closed_form.pkl'))
 print(f"\nClosed-form PPS table saved to "
-      f"{os.path.join(dir_out, 'pps_closed_form.pkl')}")
+      f"{os.path.join(dir_out, 'binomial_interim_pps_closed_form.pkl')}")
 print(ppsa.to_string(index=False))
 
 # %%
@@ -388,7 +388,7 @@ print(ppsa.to_string(index=False))
 pps_z_total = 200
 fitting_output_samples = 4000
 
-p_h1_xz_rows = []
+dp_h1_xz = []
 t_all0 = time.time()
 for i in range(len(di)):
     interim_id = int(di.iloc[i]['interim_id'])
@@ -420,55 +420,55 @@ for i in range(len(di)):
         f"{interim_prefix}_x_draws.zarr", interim_m,
         pps_z_total=pps_z_total, seed=seed,
     )
-    sample_df = fit_interim_nested_monte_carlo_of_posterior_xz(
-        xi=model_x.dcati,
-        zi=zi,
-        dit=dit,
-        output_file_prefix=interim_prefix,
-        fitting_method_args={
+    tmp = fit_interim_posterior_xz_with_nested_monte_carlo(
+        model_x,
+        zi,
+        interim_method_args={
+            'pps_z_total': pps_z_total,
+            'pps_H1_def': pps_H1_def,
+            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'fit_method': 'fit_pyro_svi',
+            'seed': seed,
+            'save_to_file': False,
+            'verbose': False,
+            'cpu_n': 1,
+            'output_file_prefix': interim_prefix,
+        },
+        fit_method_args={
             'algorithm': 'AutoDiagonalNormal',
             'x_formula': "~ 1",
             'lr': 0.05,
             'num_steps': 4000,
             'output_samples': fitting_output_samples,
         },
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def,
-        pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=2,
-        model_cls=BinomialModel,
-        seed=seed,
-        save_to_file=False,
-        verbose=False,
-        cpu_n=1,
     )
-    sample_df['interim_id'] = interim_id
-    sample_df['interim_date'] = interim_date
-    sample_df['interim_month_year'] = interim_month_year
+    tmp['interim_id'] = interim_id
+    tmp['interim_date'] = interim_date
+    tmp['interim_month_year'] = interim_month_year
     mins_interim_id = (time.time() - t0) / 60.0
-    sample_df['interim_mins'] = round(mins_interim_id, 3)
-    p_h1_xz_rows.append(sample_df)
+    tmp['interim_mins'] = round(mins_interim_id, 3)
+    dp_h1_xz.append(tmp)
     print(f"  interim {interim_id} PPS done in {mins_interim_id:.2f} min")
 
-if not p_h1_xz_rows:
+if not dp_h1_xz:
     raise RuntimeError("[PPS] no interims with missing participants to evaluate.")
 
-p_h1_xz_df = pd.concat(p_h1_xz_rows, ignore_index=True)
-p_h1_xz_df.to_pickle(os.path.join(dir_out, 'pps_p_h1_xz.pkl'))
+dp_h1_xz = pd.concat(dp_h1_xz, ignore_index=True)
+dp_h1_xz.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_p_h1_xz.pkl'))
 
 # 4. Aggregate: PPS = mean over s of 1{p(H_1 | x, z_s) > eta}.
-pps_df = (
-    p_h1_xz_df
+tmp = (
+    dp_h1_xz
     .groupby(['interim_id', 'interim_date', 'interim_month_year',
               'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
     .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
     .reset_index(name='pps')
 )
-pps_df['eta'] = pps_ProbH1_thresh
-pps_df['S'] = pps_z_total
-pps_df.to_pickle(os.path.join(dir_out, 'pps_nested_mc.pkl'))
-print(f"\nNested-MC PPS table saved to {os.path.join(dir_out, 'pps_nested_mc.pkl')}")
-print(pps_df.to_string(index=False))
+tmp['eta'] = pps_ProbH1_thresh
+tmp['S'] = pps_z_total
+tmp.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_nested_mc.pkl'))
+print(f"\nNested-MC PPS table saved to {os.path.join(dir_out, 'binomial_interim_pps_nested_mc.pkl')}")
+print(tmp.to_string(index=False))
 print(f"\nTotal nested-MC PPS time: {(time.time() - t_all0) / 60.0:.2f} min")
 
 # %%
@@ -478,15 +478,15 @@ print(f"\nTotal nested-MC PPS time: {(time.time() - t_all0) / 60.0:.2f} min")
 # =============================================================================
 
 order = (
-    di[di['interim_id'].isin(p_h1_xz_df['interim_id'].unique())]
+    di[di['interim_id'].isin(dp_h1_xz['interim_id'].unique())]
     .sort_values('interim_date')['interim_month_year'].tolist()
 )
-p_h1_xz_df['interim_month_year'] = pd.Categorical(
-    p_h1_xz_df['interim_month_year'], categories=order, ordered=True,
+dp_h1_xz['interim_month_year'] = pd.Categorical(
+    dp_h1_xz['interim_month_year'], categories=order, ordered=True,
 )
 
-box_stats = (
-    p_h1_xz_df
+tmp = (
+    dp_h1_xz
     .groupby(['interim_month_year'], observed=True)['p_h1_xz']
     .agg(
         q025=lambda s: s.quantile(0.025),
@@ -497,17 +497,17 @@ box_stats = (
     )
     .reset_index()
 )
-box_stats.to_pickle(os.path.join(dir_out, 'pps_p_h1_xz_boxplot.pkl'))
+tmp.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_p_h1_xz_boxplot.pkl'))
 
 p = (
     ggplot(
-        box_stats,
+        tmp,
         aes(x='interim_month_year',
             ymin='q025', lower='q25', middle='q50',
             upper='q75', ymax='q975',
             group='interim_month_year'),
     )
-    + geom_boxplot(stat='identity', fill='#1f77b4')
+    + geom_boxplot(stat='identity', fill='#2ca02c', alpha=0.4, colour='#808080')
     + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
     + theme_bw()
     + theme(
@@ -517,11 +517,101 @@ p = (
     + labs(
         x='Interim', y='p(H_1 | x, z)',
         title=(f'Binomial nested-MC p(H_1 | x, z) distribution per interim '
-               f'(S = {pps_z_total}, eta = {pps_ProbH1_thresh})'),
+               f'(S = {pps_z_total}, eta = {pps_ProbH1_thresh}).'),
     )
 )
 tmp = os.path.join(dir_out, 'binomial_interim_pps_p_h1_xz_boxplot.pdf')
 p.save(tmp, verbose=False, limitsize=False)
 print(f"Saved nested-MC p(H_1 | x, z) boxplot to: {tmp}")
+
+# %%
+
+# =============================================================================
+# Bar chart: PPS per interim_date. Black bar = closed-form analytic PPS;
+# #2ca02c bar = SVI nested-MC PPS. Dodged side-by-side. Vertical bars on the
+# SVI bar = 95% bootstrap interval (B resamples with replacement of the S
+# MC samples per interim, q025/q975 over the resulting bootstrap PPS dist).
+# =============================================================================
+
+bs_B = 2000
+quantiles = [0.025, 0.25, 0.5, 0.75, 0.975]
+quantile_names = ['q025', 'q25', 'q50', 'q75', 'q975']
+
+wide = (
+    dp_h1_xz
+    .pivot_table(index=['interim_id', 'interim_date'],
+                 columns='s', values='p_h1_xz')
+    .sort_index()
+)
+bs = wide.to_numpy()                                      # (n_interim, S)
+n_interim, S = bs.shape
+rng = np.random.default_rng(seed)
+tmp = rng.integers(0, S, size=(n_interim, bs_B, S))         # (n_interim, B, S)
+bs = bs[np.arange(n_interim)[:, None, None], tmp]       # (n_interim, B, S)
+bs = (bs > pps_ProbH1_thresh).mean(axis=2)                # (n_interim, B)
+bs = pd.DataFrame(np.quantile(bs, quantiles, axis=1).T, 
+                  columns=quantile_names
+                  )
+bs['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
+bs['interim_date'] = pd.to_datetime(
+    wide.index.get_level_values('interim_date'),
+)
+bs['method'] = 'SVI'
+
+tmp = (
+    dp_h1_xz.groupby(
+        ['interim_id', 'interim_date', 'interim_month_year'],
+        observed=True,
+    )['p_h1_xz']
+    .apply(lambda s: float((s > pps_ProbH1_thresh).mean()))
+    .reset_index(name='pps')
+)
+tmp = pd.concat(
+    [
+        ppsa[['interim_id', 'interim_date', 'pps']].assign(method='analytic'),
+        tmp[['interim_id', 'interim_date', 'pps']].assign(method='SVI'),
+    ],
+    ignore_index=True,
+)
+tmp['interim_date'] = pd.to_datetime(tmp['interim_date'])
+tmp['method'] = pd.Categorical(
+    tmp['method'], categories=['analytic', 'SVI'], ordered=True,
+)
+tmp = tmp.merge(
+    bs[['interim_id', 'method', 'q025', 'q975']],
+    on=['method', 'interim_id'], how='left',
+)
+tmp.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_bootstrap.pkl'))
+
+_bar_colours = {'analytic': '#000000', 'SVI': '#2ca02c'}
+p = (
+    ggplot(
+        tmp,
+        aes(x='interim_date', y='pps', fill='method'),
+    )
+    + geom_col(position=position_dodge(width=20), width=18)
+    + geom_errorbar(
+        data=tmp,
+        mapping=aes(x='interim_date', ymin='q025', ymax='q975',
+                    group='method'),
+        position=position_dodge(width=20), width=8,
+        colour='black', size=0.5, inherit_aes=False,
+    )
+    + scale_fill_manual(values=_bar_colours)
+    + scale_x_datetime(date_breaks='1 month', date_labels='%Y-%b')
+    + theme_bw()
+    + theme(
+        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+        figure_size=(14, 5),
+        legend_position='top',
+    )
+    + labs(
+        x='interim date', y='PPS = P(p(H_1 | x, z) > eta)',
+        fill='method',    
+    )
+)
+tmp = os.path.join(dir_out, 'binomial_interim_pps_bars.pdf')
+p.save(tmp, verbose=False, limitsize=False)
+print(f"Saved PPS bar chart to: {tmp}")
 
 

@@ -49,7 +49,7 @@ warnings.filterwarnings('ignore')
 
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
-from fit_interim import fit_interim_nested_monte_carlo_of_posterior_xz
+from fit_interim import fit_interim_posterior_xz_with_nested_monte_carlo
 from utils import _futurama_palette
 
 print("✓ Imports successful")
@@ -560,34 +560,35 @@ for interim_id in di['interim_id']:
     print(f"\n{'='*70}\nPPS for interim {interim_id} ({interim_date.date()})\n{'='*70}")
 
     t0 = time.time()
-    model = PartialCreditModel(dit=dit, 
-                               dcati=xi, 
+    model = PartialCreditModel(dit=dit,
+                               dcati=xi,
                                x_formula="~ time - 1",
-                               seed=seed)
+                               seed=seed,
+                               categorical_threshold=2)
     zi = model.get_interim_z_from_ypredi(
         draws_file, interim_m, pps_z_total=pps_z_total, seed=seed,
     )
-    tmp = fit_interim_nested_monte_carlo_of_posterior_xz(
-        xi=xi,
-        zi=zi,
-        dit=dit,
-        output_file_prefix=os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
-        pps_z_total=pps_z_total,
-        pps_H1_def=pps_H1_def,
-        pps_ProbH1_thresh=pps_ProbH1_thresh,
-        categorical_threshold=2,
-        model_cls=PartialCreditModel,
-        fitting_method_args={
+    tmp = fit_interim_posterior_xz_with_nested_monte_carlo(
+        model,
+        zi,
+        interim_method_args={
+            'pps_z_total': pps_z_total,
+            'pps_H1_def': pps_H1_def,
+            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'fit_method': 'fit_pyro_svi',
+            'seed': seed,
+            'save_to_file': False,
+            'verbose': False,
+            'cpu_n': pps_cpu_n,
+            'output_file_prefix': os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
+        },
+        fit_method_args={
             'algorithm': svi_algorithm,
             'x_formula': "~ time - 1",
             'lr': 0.01,
             'num_steps': 10000,
             'output_samples': 4000,
         },
-        seed=seed,
-        save_to_file=False,
-        verbose=False,
-        cpu_n=pps_cpu_n,
     )
     mins_interim_id = (time.time() - t0) / 60.0
     tmp['interim_id'] = interim_id

@@ -58,8 +58,8 @@ def test_model_fit_closed_form_raises_by_default():
         stub.fit_closed_form('out_prefix')
 
 
-def test_stack_posterior_theta_uses_param_names():
-    """Base-class :meth:`stack_posterior_theta` reads from
+def test_get_stacked_posterior_uses_param_names():
+    """Base-class :meth:`get_stacked_posterior` reads from
     ``self.param_names`` -- subclasses only need to declare the tuple."""
     import numpy as np
     import xarray as xr
@@ -84,6 +84,6 @@ def test_stack_posterior_theta_uses_param_names():
         posterior = ds
 
     stub = _Stub(dit=pd.DataFrame(), dcati=pd.DataFrame())
-    theta = stub.stack_posterior_theta(_FakeDraws())
+    theta = stub.get_stacked_posterior(_FakeDraws())
     assert set(theta) == {'alpha'}
     assert theta['alpha'].shape == (6, 2)
