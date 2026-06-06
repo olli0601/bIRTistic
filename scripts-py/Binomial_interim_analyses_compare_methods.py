@@ -4,12 +4,14 @@ Binomial interim analyses: cross-method comparison.
 
 Loads the per-method artifacts produced by
 
-  - HMC nested-MC (refit) : ``Binomial_interim_analyses_with_nested_MC_hmc.py``
-  - SVI nested-MC (refit) : ``Binomial_interim_analyses_with_nested_MC_svi_autodiagnormal.py``
-  - IS (reweight)         : ``Binomial_interim_analyses_with_IS_from_x.py``
+  - HMC nested-MC (refit)        : ``Binomial_interim_analyses_with_nested_MC_hmc.py``
+  - SVI nested-MC (refit)        : ``Binomial_interim_analyses_with_nested_MC_svi_autodiagnormal.py``
+  - IS (reweight)                : ``Binomial_interim_analyses_with_IS_from_x.py``
+  - Regression H1x (Strong-Oakley): ``Binomial_interim_analysis_regression_H1x_on_wz.py``
+  - Regression endptx (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz.py``
 
 and emits four figures comparing them against the closed-form analytic PPS
-(common across all three runs):
+(common across all five runs):
 
   1. ``binomial_compare_methods_p_h1_xz_boxplot.pdf``: per-interim
      p(H_1 | x, z) quantile boxplot dodged by method.
@@ -67,10 +69,18 @@ _sandbox = "/Users/or105/sandbox/bIRTistic"
 dir_hmc = os.path.join(_sandbox, "py-binomial-interim-with-nested-MC-hmc-260605")
 dir_svi = os.path.join(_sandbox, "py-binomial-interim-with-nested-MC-svi-autodiagnormal-260604")
 dir_is = os.path.join(_sandbox, "py-binomial-interim-with-IS-260605")
+dir_rg = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-H1x-wz-260606")
+dir_rge = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-260606")
 dir_out = os.path.join(_sandbox, "py-binomial-interim-compare-methods-260606")
 os.makedirs(dir_out, exist_ok=True)
 
-method_order = ['nested-MC using HMC for each (x,z)', 'nested-MC using SVI for each (x,z)', 'IS reweighting of theta|x']
+method_order = [
+    'nested-MC using HMC for each (x,z)',
+    'nested-MC using SVI for each (x,z)',
+    'IS reweighting of theta|x',
+    'Regression of H1-x on w(z)',
+    'Regression of endpt-x on w(z)',
+]
 method_colours = dict(zip(method_order, _futurama_palette(len(method_order))))
 
 pps_ProbH1_thresh = 0.89
@@ -99,12 +109,16 @@ def _load_pps(d, fname):
 p_h1_xz_hmc = _load_p_h1_xz(dir_hmc, 'binomial_interim_pps_p_h1_xz.pkl')
 p_h1_xz_svi = _load_p_h1_xz(dir_svi, 'binomial_interim_pps_p_h1_xz.pkl')
 p_h1_xz_is = _load_p_h1_xz(dir_is, 'pps_p_h1_xz_IS.pkl')
+p_h1_xz_rg = _load_p_h1_xz(dir_rg, 'binomial_interim_pps_RG_p_h1_xz.pkl')
+p_h1_xz_rge = _load_p_h1_xz(dir_rge, 'binomial_interim_pps_RGE_p_h1_xz.pkl')
 
 p_h1_xz = pd.concat(
     [
         p_h1_xz_hmc.assign(method='nested-MC using HMC for each (x,z)'),
         p_h1_xz_svi.assign(method='nested-MC using SVI for each (x,z)'),
         p_h1_xz_is.assign(method='IS reweighting of theta|x'),
+        p_h1_xz_rg.assign(method='Regression of H1-x on w(z)'),
+        p_h1_xz_rge.assign(method='Regression of endpt-x on w(z)'),
     ],
     ignore_index=True,
 )
@@ -112,6 +126,13 @@ p_h1_xz = pd.concat(
 pps_hmc = _load_pps(dir_hmc, 'binomial_interim_pps_nested_mc.pkl')
 pps_svi = _load_pps(dir_svi, 'binomial_interim_pps_nested_mc.pkl')
 pps_is = _load_pps(dir_is, 'pps_IS.pkl')
+# Regression PPS tables are saved as CSV; load + project.
+pps_rg = pd.read_csv(os.path.join(dir_rg, 'binomial_interim_pps_RG.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
+pps_rge = pd.read_csv(os.path.join(dir_rge, 'binomial_interim_pps_RGE.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
 ppsa = pd.read_pickle(
     os.path.join(dir_hmc, 'binomial_interim_pps_closed_form.pkl')
 )[['interim_id', 'interim_date', 'interim_month_year', 'pps']]
@@ -122,6 +143,8 @@ pps = pd.concat(
         pps_hmc.assign(method='nested-MC using HMC for each (x,z)'),
         pps_svi.assign(method='nested-MC using SVI for each (x,z)'),
         pps_is.assign(method='IS reweighting of theta|x'),
+        pps_rg.assign(method='Regression of H1-x on w(z)'),
+        pps_rge.assign(method='Regression of endpt-x on w(z)'),
     ],
     ignore_index=True,
 )
@@ -139,23 +162,44 @@ def _hmc_svi_timing(d, fname, label):
 
 
 timing_hmc = _hmc_svi_timing(dir_hmc, 'binomial_interim_pps_p_h1_xz.pkl',
-                             'HMC nested-MC')
+                             'nested-MC using HMC for each (x,z)')
 timing_svi = _hmc_svi_timing(dir_svi, 'binomial_interim_pps_p_h1_xz.pkl',
-                             'SVI nested-MC')
+                             'nested-MC using SVI for each (x,z)')
 
-_timing_is = pd.read_csv(os.path.join(dir_is, 'pps_timing.csv'))
+def _csv_timing(d, fname, p_h1_xz_method, label):
+    """Regression / IS scripts save mins per interim in a small csv keyed by
+    interim_id; merge in the (interim_date, interim_month_year) metadata from
+    that method's p_h1_xz frame."""
+    meta = (
+        p_h1_xz_method[['interim_id', 'interim_date', 'interim_month_year']]
+        .drop_duplicates()
+    )
+    csv = pd.read_csv(os.path.join(d, fname))
+    return (
+        meta
+        .merge(csv[['interim_id', 'mins_interim_id']], on='interim_id')
+        .rename(columns={'mins_interim_id': 'mins'})
+        .assign(method=label)
+    )
+
+
+timing_is = _csv_timing(dir_is, 'pps_timing.csv',
+                        p_h1_xz_is, 'IS reweighting of theta|x')
+timing_rg = _csv_timing(dir_rg, 'binomial_interim_pps_RG_timing.csv',
+                        p_h1_xz_rg, 'Regression of H1-x on w(z)')
+timing_rge = _csv_timing(dir_rge, 'binomial_interim_pps_RGE_timing.csv',
+                         p_h1_xz_rge, 'Regression of endpt-x on w(z)')
+
+timing = pd.concat(
+    [timing_hmc, timing_svi, timing_is, timing_rg, timing_rge],
+    ignore_index=True,
+)
+
+# Reuse _meta_is for IS-perf merge below.
 _meta_is = (
     p_h1_xz_is[['interim_id', 'interim_date', 'interim_month_year']]
     .drop_duplicates()
 )
-timing_is = (
-    _meta_is
-    .merge(_timing_is[['interim_id', 'mins_interim_id']], on='interim_id')
-    .rename(columns={'mins_interim_id': 'mins'})
-    .assign(method='IS reweighting of theta|x')
-)
-
-timing = pd.concat([timing_hmc, timing_svi, timing_is], ignore_index=True)
 
 # IS perf: ESS + E(w^2) per (interim, s); attach interim metadata for facets.
 is_perf = pd.read_csv(os.path.join(dir_is, 'pps_is_perf.csv'))
@@ -344,7 +388,7 @@ is_ess = (
     .groupby(['interim_month_year'], observed=True)
     .agg(value=('ess_over_n', 'median'))
     .reset_index()
-    .assign(method='IS reweight')
+    .assign(method='IS reweighting of theta|x')
 )
 is_ess['method'] = pd.Categorical(
     is_ess['method'], categories=method_order, ordered=True,

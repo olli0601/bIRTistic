@@ -135,6 +135,16 @@ class Model(ABC):
         ``item_label, item_type, item_high_label, draw, ratio``. IRT
         subclasses inherit :class:`model_irt.IRTModel`'s implementation."""
 
+    @abstractmethod
+    def get_w(self, zi: pd.DataFrame) -> pd.DataFrame:
+        """Strong-Oakley per-(item, draw) summary frame W(z^(s)) from
+        the future-data block ``zi``. Must return at least columns
+        ``item_label, item_type, item_high_label, draw, w_ratio`` so
+        :func:`fit_interim.fit_interim_regress_endptx_on_wz` and the
+        H1x sibling can consume it. IRT subclasses inherit
+        :class:`model_irt.IRTModel`'s per-time pivot; Binomial overrides
+        with a per-draw mean-of-ypred summary."""
+
     def get_p_h1(self, ratio_xz: pd.DataFrame,
                  pps_H1_def: float = 0.5) -> pd.DataFrame:
         """Per-item ``mean(endpt > pps_H1_def)`` over draws.

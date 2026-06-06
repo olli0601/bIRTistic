@@ -52,6 +52,7 @@ def test_model_fit_closed_form_raises_by_default():
         def eval_outcome_for_endpoint(self, data, params): return None
         def get_endpoints_per_draw(self, draws, categorical_threshold,
                                    endpoint_type='items'): return None
+        def get_w(self, zi): return None
 
     stub = _Stub(dit=pd.DataFrame(), dcati=pd.DataFrame())
     with pytest.raises(NotImplementedError):
@@ -76,6 +77,7 @@ def test_get_stacked_posterior_uses_param_names():
         def eval_outcome_for_endpoint(self, data, params): return None
         def get_endpoints_per_draw(self, draws, categorical_threshold,
                                    endpoint_type='items'): return None
+        def get_w(self, zi): return None
 
     # Build a tiny fake arviz idata-like object.
     arr = np.arange(12, dtype=float).reshape(2, 3, 2)   # (chain, draw, d)

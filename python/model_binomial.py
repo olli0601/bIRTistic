@@ -155,6 +155,29 @@ class BinomialModel(Model):
             'ratio':            ratio,
         })
 
+    def get_w(self, zi: pd.DataFrame) -> pd.DataFrame:
+        """Strong-Oakley per-draw summary W(z^(s)) for the single Binomial
+        item.
+
+        For each draw column ``ypred_s`` in ``zi``:
+        - ``w`` = mean # successes per row of zi  (i.e. empirical Bernoulli
+          rate of the m future trials for that draw),
+        - ``w_ratio`` = ``1 - w / p_0`` (directional endpoint, same
+          convention as :meth:`get_endpoints_per_draw`)."""
+        ypred_cols = [c for c in zi.columns if c.startswith('ypred_')]
+        item_row = self.dit.iloc[0]
+        w_means = zi[ypred_cols].mean(axis=0).to_numpy()
+        S = len(ypred_cols)
+        df = pd.DataFrame({
+            'item_label':       [item_row['item_label']] * S,
+            'item_type':        [item_row['item_type']] * S,
+            'item_high_label':  [item_row['item_high_label']] * S,
+            'draw':             np.arange(S),
+            'w':                w_means,
+        })
+        df['w_ratio'] = 1.0 - df['w'] / self.p_0
+        return df
+
     def get_endpoints(self, draws,
                       categorical_threshold: int = 3,
                       endpoint_type: str = 'items',
