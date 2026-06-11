@@ -61,8 +61,9 @@ def _fit_interim_posterior_xz_with_nested_monte_carlo_one_sample(
         pd.concat([xi, tmp], ignore_index=True),
     )
 
+    extra_init = ima.get('model_init_kwargs', {})
     s_model = model_cls(dit=dit, dcati=xzi, x_formula=x_formula,
-                        seed=ima['seed'] + s_label)
+                        seed=ima['seed'] + s_label, **extra_init)
     # SVI-only post-fit IRT analyses are off by default in the driver.
     # HMC fit signatures absorb the with_* kwargs via **method_kwargs.
     out_prefix = ima['output_file_prefix']

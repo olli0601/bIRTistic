@@ -721,3 +721,23 @@ def _futurama_palette(n: int) -> list[str]:
         return base[:n]
     cmap = LinearSegmentedColormap.from_list('futurama_x', base, N=n)
     return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+
+def _material_palette(name: str, n: int) -> list[str]:
+    """Return n hex colours from the ggsci material ``name`` palette
+    (10-shade ramp). For ``n <= 10`` returns ``n`` evenly-spaced indices
+    from the 10-stop base so endpoints are picked first; for ``n > 10``
+    interpolates linearly. Typical ``name``: ``"teal"``, ``"red"``,
+    ``"blue"``, etc."""
+    import numpy as np
+    from ggsci import pal_material
+    from matplotlib.colors import LinearSegmentedColormap, to_hex
+
+    base = list(pal_material(name))
+    if n == 1:
+        return [base[5]]
+    if n <= 10:
+        idx = np.linspace(0, 9, n).round().astype(int)
+        return [base[i] for i in idx]
+    cmap = LinearSegmentedColormap.from_list(f'material_{name}_x', base, N=n)
+    return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]

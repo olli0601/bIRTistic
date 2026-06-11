@@ -12,7 +12,20 @@
       "Bash(tail -40 /tmp/birtistic-render/render.log)",
       "Read(//private/tmp/birtistic-render/**)",
       "Bash(grep -nE '^```\\\\{r make-supp-table-1' scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd)",
-      "Bash(pdftotext /Users/or105/.claude/projects/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/tool-results/webfetch-1780207799118-ij179j.pdf -)"
+      "Bash(pdftotext /Users/or105/.claude/projects/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/tool-results/webfetch-1780207799118-ij179j.pdf -)",
+      "Bash(rm -rf /tmp/_mvn_smoke* && pixi run python -c \" *)",
+      "Bash(kill 30208 30384)",
+      "Bash(awk '{print $2}')",
+      "Bash(xargs -r kill)",
+      "Bash(awk '{print \"PID:\",$2,\"CPU%:\",$3,\"MEM%:\",$4,\"START:\",$9,\"TIME:\",$10}')",
+      "Bash(xargs -r kill -TERM)",
+      "Bash(xargs -r kill -9)",
+      "Bash(awk '{print $9, $5}')",
+      "Bash(rm mvn_J*_interim_data.pkl && PYTHONUNBUFFERED=1 pixi run -e default python /Users/or105/git/bIRTistic/scripts-py/MVN_interim_analyses_make_interim_data.py 2>&1 | tail -25)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/Users/or105/sandbox/bIRTistic/py-mvn-interim-simulations-260609"
     ]
   }
 }

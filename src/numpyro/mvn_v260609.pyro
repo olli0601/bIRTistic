@@ -1,0 +1,95 @@
+"""
+NumPyro implementation of the multivariate normal (MVN) model with known
+correlation structure R and known noise scale sigma. Used by
+:class:`model_mvn.MVNModel` (§3.3 of dev/amortised_decision_making.md).
+
+Generative model:
+    K = R R^T  (known PSD, shape J x J)
+    sigma > 0  (known)
+    mu ~ MVN(prior_mu, prior_tau^2 * K)
+    y_i | mu ~ MVN(mu, sigma^2 * K),    i = 1, ..., N
+
+Closed-form posterior with the g-prior in K:
+    c_n      = 1/prior_tau^2 + n/sigma^2
+    mu_n     = (prior_mu/prior_tau^2 + sum_i y_i / sigma^2) / c_n
+    mu | x   ~ MVN(mu_n, K / c_n)
+
+The pyro file exposes:
+- ``mvn_model(data, compute_generated=True)``: the numpyro program. ``data``
+  keys ``N``, ``J``, ``Y`` (N x J), ``K_chol`` (J x J Cholesky of K), ``sigma``,
+  ``prior_mu`` (J,), ``prior_tau``. With ``compute_generated=True`` the program
+  emits ``ypred`` (flattened N*J posterior-predictive draws, row-major over
+  obs-then-component), ``log_lik`` (per-obs-vector log density, length N) and
+  ``mu_fit`` as deterministics.
+- ``get_log_likelihood_of_mvn(data, params)``: per-obs-vector log density (N,).
+- ``get_log_likelihood_of_mvn_with_annealing(data, params)``: temperature-scaled.
+- ``get_log_prior_of_mvn(params, prior_mu, prior_tau, K_chol)``: log MVN prior.
+- ``get_endpoint_of_mvn(params, mu_0_baseline)``: per-component endpoint
+  ``mu_j - mu_0_baseline``. H_1j: mu_j > mu_0_baseline  <=>  endpoint > 0.
+"""
+
+import jax.numpy as jnp
+import numpyro
+import numpyro.distributions as dist
+
+
+def mvn_model(data, compute_generated=True):
+    """MVN numpyro program. Parameters mirror the .stan counterpart so the
+    two HMC backends are interchangeable from :class:`MVNModel`."""
+    N = int(data['N'])
+    J = int(data['J'])
+    Y = jnp.asarray(data['Y'])                  # (N, J)
+    K_chol = jnp.asarray(data['K_chol'])        # (J, J) lower-triangular
+    sigma = float(data['sigma'])
+    prior_mu = jnp.asarray(data['prior_mu'])    # (J,)
+    prior_tau = float(data['prior_tau'])
+
+    prior_scale_tril = prior_tau * K_chol
+    mu = numpyro.sample(
+        'mu', dist.MultivariateNormal(prior_mu, scale_tril=prior_scale_tril),
+    )
+
+    obs_scale_tril = sigma * K_chol
+    obs_dist = dist.MultivariateNormal(mu, scale_tril=obs_scale_tril)
+
+    log_lik = obs_dist.log_prob(Y)              # (N,)
+    numpyro.factor('mvn_likelihood', jnp.sum(log_lik))
+
+    if compute_generated:
+        with numpyro.plate('obs_pred', N):
+            ypred_raw = numpyro.sample('ypred_raw', obs_dist)   # (N, J)
+        # Row-major flatten so flat index i*J + j matches the long dcati
+        # ordering ((pid, j) lex-sorted).
+        numpyro.deterministic('ypred', ypred_raw.reshape(-1))
+        numpyro.deterministic('log_lik', log_lik)
+        numpyro.deterministic('mu_fit', mu)
+
+
+def get_log_likelihood_of_mvn(data, params):
+    """Per-obs-vector log MVN density. Returns shape ``(N,)``. ``data`` must
+    carry ``Y``, ``K_chol``, ``sigma``."""
+    Y = jnp.asarray(data['Y'])
+    K_chol = jnp.asarray(data['K_chol'])
+    sigma = float(data['sigma'])
+    mu = params['mu']
+    return dist.MultivariateNormal(
+        mu, scale_tril=sigma * K_chol,
+    ).log_prob(Y)
+
+
+def get_log_likelihood_of_mvn_with_annealing(data, params):
+    """Temperature-annealed per-obs log-likelihood."""
+    return params['temperature'] * get_log_likelihood_of_mvn(data, params)
+
+
+def get_log_prior_of_mvn(params, prior_mu, prior_tau, K_chol):
+    """Log MVN(prior_mu, prior_tau^2 * K) prior at ``params['mu']``."""
+    return dist.MultivariateNormal(
+        jnp.asarray(prior_mu), scale_tril=float(prior_tau) * jnp.asarray(K_chol),
+    ).log_prob(params['mu'])
+
+
+def get_endpoint_of_mvn(params, mu_0_baseline=1.0):
+    """Per-component endpoint ``mu_j - mu_0_baseline``. H_1j: mu_j >
+    mu_0_baseline  <=>  endpoint > 0. Returns shape ``(J,)``."""
+    return params['mu'] - float(mu_0_baseline)

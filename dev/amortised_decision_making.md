@@ -235,7 +235,206 @@ p(k_1^m, \ldots, k_K^m \mid x) = \frac{m!}{k_1^m! \cdots k_K^m!} \frac{B(\alpha_
 
 where \(B(\cdot)\) is the multivariate Beta function. This is analytically computable but combinatorially more expensive than the Binomial case due to the larger state space of count vectors.
 
-## 3.3 Item-response model
+## 3.3 Multivariate Normal model with known correlation structure
+
+A canonical high-dimensional analytically tractable PPS benchmark for continuous outcomes is the multivariate normal model with structured covariance. Let
+
+\[
+y_n \mid \mu, \sigma^2 \;\sim\; \mathrm{MVN}(\mu, \sigma^2 K), \qquad n = 1, \ldots, N,
+\]
+
+where \(K = R R^\top \in \mathbb{R}^{J \times J}\) is a known positive-definite covariance shape (for example, \(R\) a Cholesky factor of an AR(1) or arbitrary correlation matrix), and the unknowns are the mean vector \(\mu \in \mathbb{R}^J\) and the scalar variance \(\sigma^2 > 0\).
+
+We test \(J\) component-wise alternative hypotheses,
+
+\[
+H_{1j} : \mu_j > \mu^0_j \quad \text{for all } j = 1, \ldots, J,
+\]
+
+with the baseline pinned at \(\mu^0_j := 1\) for concreteness. Using the relative-effect parameterisation,
+
+\[
+\rho_j \;:=\; 1 - \mu_j/\mu^0_j \;=\; 1 - \mu_j,
+\]
+
+the alternative is equivalently \(H_{1j} \Leftrightarrow \rho_j < 0\).
+
+**Conjugate prior** (Normal–Inverse-Gamma with metric \(K\)):
+
+\[
+\mu \mid \sigma^2 \;\sim\; \mathrm{MVN}(\mu_0,\, \sigma^2 \Lambda_0^{-1}), \qquad \sigma^2 \;\sim\; \mathrm{Inv\text{-}Gamma}(a_0, b_0),
+\]
+
+with hyperparameters \((\mu_0, \Lambda_0, a_0, b_0)\) known.
+
+**Exponential family and sufficient statistics.** With \(K\) known, the MVN likelihood is in the exponential family with natural parameters \(\eta(\mu, \sigma^2) = \big( K^{-1}\mu/\sigma^2,\, -1/(2\sigma^2) \big)\) and sufficient statistics for \(n\) current observations
+
+\[
+T_1(x_{1:n}) \;=\; \sum_{i=1}^n x_i, \qquad T_2(x_{1:n}) \;=\; \sum_{i=1}^n x_i^\top K^{-1} x_i,
+\]
+
+so the likelihood factors as \(p(x_{1:n} \mid \mu, \sigma^2) = h(x_{1:n})\, \exp\{\eta^\top T - n A(\mu, \sigma^2)\}\) with \(A(\mu, \sigma^2) = \tfrac{J}{2}\log\sigma^2 + \tfrac{1}{2\sigma^2}\mu^\top K^{-1} \mu\).
+
+**Posterior** after current data \(x_{1:n}\), writing \(\bar{x}_n = T_1(x_{1:n})/n\):
+
+$$
+\begin{aligned}
+\Lambda_n &= \Lambda_0 + n K^{-1},\\
+\mu_n &= \Lambda_n^{-1}\!\big( \Lambda_0 \mu_0 + n K^{-1} \bar{x}_n \big),\\
+a_n &= a_0 + nJ/2,\\
+b_n &= b_0 + \tfrac{1}{2}\!\left( T_2(x_{1:n}) + \mu_0^\top \Lambda_0 \mu_0 - \mu_n^\top \Lambda_n \mu_n \right).
+\end{aligned}
+$$
+
+Marginalising \(\sigma^2\) gives the multivariate Student-\(t\) marginal posterior of the mean,
+
+\[
+\mu \mid x \;\sim\; t_{2a_n}\!\big( \mu_n,\; (b_n/a_n)\,\Lambda_n^{-1} \big),
+\]
+
+with per-component marginals
+
+\[
+\mu_j \mid x \;\sim\; t_{2a_n}\!\big( \mu_{n,j},\; (b_n/a_n)\,[\Lambda_n^{-1}]_{jj} \big).
+\]
+
+The current posterior probability of the per-component hypothesis is therefore closed form,
+
+\[
+P(H_{1j} \mid x) \;=\; 1 - F_{t_{2a_n}}\!\left( \frac{1 - \mu_{n,j}}{\sqrt{(b_n/a_n)\,[\Lambda_n^{-1}]_{jj}}} \right),
+\]
+
+and the joint hypothesis \(P(H_1 \mid x) = P(\mu_j > 1 \;\forall j \mid x)\) is a multivariate-\(t\) orthant probability, evaluated by quasi-Monte Carlo (Genz QMC).
+
+**Posterior predictive of future data.** Suppose \(m\) additional observations \(z_{1:m}\) will be collected. Conditional on \(x\), the future data are jointly matrix-\(t\) distributed, and their joint distribution factors through the future sufficient statistics
+
+\[
+T_1(z_{1:m}) \;=\; \sum_{i=1}^m z_i, \qquad T_2(z_{1:m}) \;=\; \sum_{i=1}^m z_i^\top K^{-1} z_i,
+\]
+
+with \(\bar{z}_m := T_1(z_{1:m})/m\). The marginal predictive of \(\bar{z}_m\) integrating out \((\mu, \sigma^2)\) is multivariate \(t\),
+
+\[
+\bar{z}_m \mid x \;\sim\; t_{2a_n}\!\left( \mu_n,\; (b_n/a_n)\big( \tfrac{1}{m} K + \Lambda_n^{-1} \big) \right),
+\]
+
+and \(T_2(z_{1:m})\) conditional on \(\bar{z}_m\) is a quadratic form whose distribution is a scaled \(F\) (the future analogue of the residual sum of squares under NIG).
+
+**Posterior after current and future data.** With \(\bar{x}_{n+m} = (n\bar{x}_n + m \bar{z}_m)/(n+m)\):
+
+$$
+\begin{aligned}
+\Lambda_{n+m} &= \Lambda_0 + (n+m) K^{-1}, & a_{n+m} &= a_0 + (n+m) J / 2,\\
+\mu_{n+m} &= \Lambda_{n+m}^{-1}\!\big( \Lambda_0 \mu_0 + n K^{-1} \bar{x}_n + m K^{-1} \bar{z}_m \big),\\
+b_{n+m} &= b_0 + \tfrac{1}{2}\!\left( T_2(x_{1:n}) + T_2(z_{1:m}) + \mu_0^\top \Lambda_0 \mu_0 - \mu_{n+m}^\top \Lambda_{n+m} \mu_{n+m} \right).
+\end{aligned}
+$$
+
+Crucially, \(\Lambda_{n+m}\) and \(a_{n+m}\) are deterministic given the future cohort size \(m\); only \(\mu_{n+m}\) and \(b_{n+m}\) depend on the random future statistics \((\bar{z}_m, T_2(z_{1:m}))\).
+
+The final per-component success probability is
+
+\[
+P(H_{1j} \mid x, z) \;=\; 1 - F_{t_{2a_{n+m}}}\!\left( \frac{1 - \mu_{n+m, j}}{\sqrt{(b_{n+m}/a_{n+m})\,[\Lambda_{n+m}^{-1}]_{jj}}} \right).
+\]
+
+**Predictive probability of success.** The per-component decision rule \(d_j(x, z) = 1\{P(H_{1j} \mid x, z) > \eta\}\) depends on \(z\) only through the two sufficient statistics \((\bar{z}_m, T_2(z_{1:m}))\), so the PPS reduces to an integral against the closed-form predictive of these statistics. Define the critical region in sufficient-statistic space,
+
+\[
+A_j(x) \;=\; \left\{ (\bar{z}, S) \;:\; \frac{1 - \mu_{n+m,j}(\bar{z})}{\sqrt{(b_{n+m}(\bar{z}, S)/a_{n+m})\,[\Lambda_{n+m}^{-1}]_{jj}}} \;<\; F_{t_{2a_{n+m}}}^{-1}(1 - \eta) \right\}.
+\]
+
+Then
+
+\[
+PPS_j(x) \;=\; \int 1_{A_j(x)}(\bar{z}, S)\; p(\bar{z}, S \mid x)\; d\bar{z}\, dS,
+\]
+
+a two-dimensional quadrature against the marginal predictive of \((\bar{z}_m, T_2(z_{1:m}))\) derived above. The joint-hypothesis PPS replaces the per-component CDF by the multivariate-\(t\) orthant probability \(P(\mu > \mathbf{1} \mid x, z)\) and integrates against the same predictive.
+
+**Special case: \(\sigma^2\) known.** Fixing \(\sigma^2\), the conjugate prior collapses to MVN on \(\mu\) alone, posteriors and predictives are Gaussian, and the per-component PPS reduces to a Gaussian tail probability,
+
+\[
+PPS_j(x) \;=\; \Phi\!\left( \frac{\mu_{n,j} - 1 - z_\eta \sqrt{\sigma^2\,[\Lambda_{n+m}^{-1}]_{jj}}}{\sqrt{\sigma^2\,\big([\Lambda_n^{-1}]_{jj} - [\Lambda_{n+m}^{-1}]_{jj} + [K]_{jj}/m\big)}} \right),
+\]
+
+where \(z_\eta = \Phi^{-1}(\eta)\), i.e. a single \(\Phi\) evaluation per interim per component. The full NIG case differs only by replacing the inner Gaussian tails with Student-\(t\) tails and adding one \(F\)-distribution integration over the residual sum of squares.
+
+**Why this benchmark.** With \(K\) arbitrary known PSD and \(J\) arbitrary (here we target \(J\) up to several hundreds or thousands), the construction supplies a high-dimensional continuous-outcome decision problem whose PPS is closed-form, with which the nested-MC / IS / SMC / regression estimators of Section 6 can be validated.
+
+### 3.3.1 Concrete simulation setup
+
+We fix \(\sigma^2 = 1\) (units chosen so that the per-component noise has unit variance), use the Gaussian special case throughout, and run the benchmark at three problem dimensions
+
+\[
+J \in \{50, 100, 200\},
+\]
+
+with a total cohort \(N = 500\) accrued over 10 monthly interims of 50 units each, so the future cohort size at interim \(t\) is \(m_t = N - n_t\) with \(n_t = 50 t\). The decision threshold is \(\eta = 0.89\) and the baseline is \(\mu^0 = \mathbf{1}_J\).
+
+**Prior.** A weakly informative \(g\)-prior in the same metric \(K\) keeps the algebra closed,
+
+\[
+\mu \;\sim\; \mathrm{MVN}\!\big(\mathbf{1}_J,\; \tau_0^2\, K\big), \qquad \tau_0^2 = 100,
+\]
+
+so \(\Lambda_0^{-1} = \tau_0^2 K\) and \(\Lambda_0 = K^{-1}/\tau_0^2\). With \(\sigma^2 = 1\),
+
+\[
+\Lambda_n \;=\; (\tau_0^{-2} + n)\,K^{-1}, \qquad \Lambda_n^{-1} \;=\; \frac{K}{\tau_0^{-2} + n},
+\]
+
+so the per-component closed-form PPS specialises to a clean \(\Phi\)-tail with \(\Lambda_\bullet^{-1}\) replaced by a scaled \(K\).
+
+**True \(\mu\).** Half the components above baseline, half below, to stress-test the per-component decision:
+
+\[
+\mu_{\text{true}, j} \;=\; \begin{cases} 1 + \Delta & j \le J/2 \\ 1 - \Delta & j > J/2 \end{cases}, \qquad \Delta = 0.3.
+\]
+
+This sets the true component-wise rejection rate to exactly \(1/2\), so the benchmark probes both efficacy and futility regimes simultaneously across the \(J\) hypotheses.
+
+**Choice of \(R\).** We need a nontrivial known correlation structure: enough off-diagonal mass that components are correlated (so the closed-form predictive of \((\bar{z}_m, T_2(z))\) is non-trivial), but well-conditioned at all three \(J\). We propose three structures, used as a panel:
+
+1. **AR(1) Cholesky** (primary, ordered components):
+
+   \[
+   K^{(1)}_{ij} \;=\; \rho^{|i - j|}, \qquad \rho = 0.7.
+   \]
+
+   Cholesky factor \(R^{(1)}\) with \(R^{(1)} (R^{(1)})^\top = K^{(1)}\). Banded, PSD for any \(\rho \in (-1, 1)\), condition number bounded uniformly in \(J\) (\(\kappa(K^{(1)}) = (1+\rho)/(1-\rho) \approx 5.67\) for \(\rho = 0.7\)). Reflects a natural ordering (e.g.\ time or position along a scale).
+
+2. **Block equicorrelation** (mid difficulty, exchangeable within block):
+
+   \[
+   K^{(2)} \;=\; \begin{bmatrix} K_w & \rho_b \mathbf{1}\mathbf{1}^\top & \cdots \\ \rho_b \mathbf{1}\mathbf{1}^\top & K_w & \cdots \\ \vdots & & \ddots \end{bmatrix},
+   \]
+
+   with \(B = J/10\) blocks of size \(10\), intra-block correlation \(\rho_w = 0.8\) (so \(K_w = (1-\rho_w) I + \rho_w \mathbf{1}\mathbf{1}^\top\)), inter-block correlation \(\rho_b = 0.1\). PSD by construction (\(\rho_w > \rho_b \ge 0\)). Captures clustered (e.g.\ subscale) dependence.
+
+3. **Low-rank-plus-diagonal factor structure** (hard, dense long-range correlation):
+
+   \[
+   K^{(3)} \;=\; \beta \beta^\top + \psi I_J, \qquad \beta \in \mathbb{R}^{J \times r},\; r = 5,\; \psi = 0.1,
+   \]
+
+   with \(\beta_{jk} \sim \mathcal{N}(0, 1/r)\) drawn once and fixed, then \(K^{(3)}\) rescaled so \(\mathrm{diag}(K^{(3)}) = \mathbf{1}\). \(R^{(3)}\) is the Cholesky factor. Five-factor latent structure, dense correlations decaying smoothly with no banding.
+
+All three are scaled to unit diagonal so the per-component noise is comparable across \(J\) and across structures. The Cholesky factors \(R^{(\cdot)}\) are precomputed once per \((J, R\text{-type})\) cell and shared across the 10 interims.
+
+**What we compare.**
+
+| Cell            | Knobs                                           | Notes                                   |
+| --------------- | ----------------------------------------------- | --------------------------------------- |
+| Cell A (easy)   | \(R = R^{(1)}\) AR(1), \(J \in \{50,100,200\}\) | Banded, well-conditioned.               |
+| Cell B (medium) | \(R = R^{(2)}\) block, same \(J\)               | Block structure; eigenvalues clustered. |
+| Cell C (hard)   | \(R = R^{(3)}\) factor, same \(J\)              | Dense long-range; eigenvalue decay.     |
+
+For each cell and each interim \(t \in \{1, \ldots, 10\}\), we compare the closed-form per-component \(PPS_j(x)\) (from the \(\Phi\)-tail above) against the four estimators of Section 6 (nested-MC, self-normalised IS, moment-matching IS, SMC resample-move, regression on \(w(z)\)). Aggregate diagnostics: per-component absolute error and bias against the closed form; per-cell timing; ESS / \(\hat{k}\) for the IS variants; tempering steps \(T\) for SMC.
+
+---
+
+## 3.4 Item-response model
 
 In our applications, we are interested in Item Response Theory (IRT) models that can be fitted to real-time survey data collected about interventions in humanitarian and social science settings. 
 The data consist of responses to Likert-scale survey items collected from participants at baseline and endline. The data increases in size as more individuals are surveyed. The goal is to quantify intervention effectiveness based on the current data, and to quantify the predictive probability of success (PPS).
