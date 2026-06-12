@@ -21,7 +21,8 @@
       "Bash(xargs -r kill -TERM)",
       "Bash(xargs -r kill -9)",
       "Bash(awk '{print $9, $5}')",
-      "Bash(rm mvn_J*_interim_data.pkl && PYTHONUNBUFFERED=1 pixi run -e default python /Users/or105/git/bIRTistic/scripts-py/MVN_interim_analyses_make_interim_data.py 2>&1 | tail -25)"
+      "Bash(rm mvn_J*_interim_data.pkl && PYTHONUNBUFFERED=1 pixi run -e default python /Users/or105/git/bIRTistic/scripts-py/MVN_interim_analyses_make_interim_data.py 2>&1 | tail -25)",
+      "Bash(git ls-tree *)"
     ],
     "additionalDirectories": [
       "/tmp",

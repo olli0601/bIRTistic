@@ -6,11 +6,11 @@ Making Bayesian Item Response Theory models faster with amortised inference
 
 This repository contains tools for running Bayesian Item Response Theory (IRT)
 analyses end-to-end in both R and Python. The project supports three IRT
-models — partial credit, credit, and ordered logit — implemented twice for
-parity: once in Stan (HMC + ADVI via `cmdstanr` / `cmdstanpy`) and once in
-NumPyro (SVI with a choice of variational families). Helpers cover data
-loading, model fitting, posterior summarisation, endpoint estimation, and
-plotting, with optional parallel execution on HPC systems.
+models — partial credit, credit, and ordered logit — and Binomial and Multivariatenormal models 
+that are analytically tractable. Each model has methods implementing NUTS and SVI inference.
+For interim analyses, nested HMC is available; as
+well as importance sampling, importance sampling with moment matching, and SMC sampling of the 
+posterior over future data; and regression-based estimation of endpoints and the PPS.
 
 ## Installation
 
@@ -28,123 +28,62 @@ We strongly recommend to use Pixi for installation:
 
 ### Environment Options
 
-This repository supports two pixi environments:
+This repository's two analysis stacks live on separate branches:
 
-1. **`default`** (Python + R): Full stack with Python packages (JAX, NumPyro, etc.) and R packages
-2. **`r-only`**: Minimal R-only environment with CmdStan (no Python dependencies)
+1. **`main`** (default branch) — full Python stack (JAX, NumPyro,
+   cmdstanpy) for interim-analysis workflows. The
+   `default` pixi environment installs everything needed; the
+   `mps-experimental` environment adds the JAX MPS backend for Apple
+   Silicon.
+2. **`Colombia-analysis-pcm`** — R + Stan code for the Villaveces et al
+   preprint *'Parenting with Hope' program among bereaved families in
+   Colombia: A pre-post and quasi-experimental evaluation*. This branch
+   has its own R-only `pixi.toml`; check it out separately if you want
+   to reproduce the preprint analyses.
 
-Choose the environment that fits your needs.
-
-Option 1: Install default environment (Python + R)
+Option 1: Install default environment (Python full stack)
 
 ```bash
 # Clone the repository
 git clone https://github.com/olli0601/bIRTistic.git
 cd bIRTistic
 
-# Install all dependencies (Python + R)
+# Install Python + cmdstan (default branch is main).
 pixi install
 
-# Setup cmdstanr etc from CRAN/R-universe
-pixi run setup
-
-# Verify R installation (includes 8 schools model test)
-pixi run verify-r
-
-# Verify Python installation (includes CmdStanPy and 8 schools test)
+# Verify Python installation (includes CmdStanPy + 8 schools test).
 pixi run verify-python
 
-# Activate the environment
+# Activate the environment.
 pixi shell
 ```
 
-Option 2: Install R environment only
+Option 2: Reproduce the Villaveces et al Colombia PCM preprint (R + Stan)
+
+The preprint code lives on the `Colombia-analysis-pcm` branch and ships
+its own R-only `pixi.toml`. Check out the branch before installing so
+the `scripts-R/` Rmd vignettes and `R/` helpers are on disk.
 
 ```bash
-# Clone the repository
+# Clone the repository.
 git clone https://github.com/olli0601/bIRTistic.git
 cd bIRTistic
 
-# Install R-only dependencies (no Python)
-pixi install -e r-only
+# Switch to the preprint branch (R-only).
+git checkout Colombia-analysis-pcm
 
-# Setup cmdstanr etc from CRAN/R-universe
-pixi run -e r-only setup
+# Install R + CmdStan dependencies.
+pixi install
 
-# Verify installation (includes 8 schools model test)
-pixi run -e r-only verify-r
+# Setup cmdstanr etc from CRAN/R-universe.
+pixi run setup
 
-# Activate the R-only environment
-pixi shell -e r-only
+# Verify installation (includes Bernoulli model test).
+pixi run verify-r
+
+# Activate the environment.
+pixi shell
 ```
-
-<details>
-<summary>An alternative though slower installation routine with conda/mamba can be found here</summary>
-
-
-#### On Imperial HPC:
-```bash
-module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
-eval "$(~/miniforge3/bin/conda shell.bash hook)"
-eval "$(mamba shell hook --shell bash)"
-
-# Install cmdstan only once and expose to other environment files
-mamba create -n cmdstan-build -c conda-forge cmdstan=2.37.0 -y
-
-# Minimum conda environment to avoid installation from source
-mamba env create -f bIRTistic.yml -y
-mamba activate birtistic
-```
-
-#### Install python packages:
-
-```bash
-# Install core packages
-pip install numpy scipy pandas matplotlib
-pip install jax jaxlib flax optax
-pip install numpyro cmdstanpy
-pip install plotnine
-pip install pytest pytest-cov jupyterlab ipykernel
-
-# Verify installation
-python python/test_environment.py
-```
-
-#### Install R packages through R:
-
-After activating the environment, install R packages through R (possibly from source):
-
-```bash
-# Installing data.table (requires zlib, expose via module load)
-Rscript -e "packages <- c('data.table'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')"
-
-# Installing everything else (xml2 requires libxml2/2.11.5-GCCcore-13.2.0, expose via module load)
-Rscript -e "packages <- c('argparse', 'bayesplot', 'bookdown', 'formatR', 'GGally', 'ggpattern', 'ggplot2', 'ggsci', 'gridExtra', 'ggpubr', 'here', 'hexbin', 'jsonlite', 'kableExtra', 'knitr', 'loo', 'MatchIt', 'matrixStats', 'patchwork', 'polycor', 'posterior', 'purrr','rmarkdown', 'scales'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org', ask = false)"
-```
-
-#### Verify installation:
-
-The conda/mamba installation can be verified using the same tests that `pixi run verify-r` uses:
-
-```bash
-# Check CmdStan version
-Rscript -e "library(cmdstanr); cmdstanr::cmdstan_version()"
-
-# Check Bernoulli model compiles and runs
-Rscript -e "library(cmdstanr); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500);"
-```
-
-#### Running Examples with Conda/Mamba on HPC:
-
-```bash
-# Load modules and activate environment
-module load miniforge/3 tools/prod zlib libxml2/2.11.5-GCCcore-13.2.0
-eval "$(~/miniforge3/bin/conda shell.bash hook)"
-eval "$(mamba shell hook --shell bash)"
-mamba activate birtistic
-```
-
-</details>
 
 ## Quick Start
 
@@ -152,22 +91,13 @@ The Python helpers live in `python/` as plain modules (no `pip install`).
 Either run one of the end-to-end analysis scripts in `scripts-py/`, or load
 the helpers ad-hoc and call them yourself.
 
-### End-to-end script (one command)
-
-```bash
-pixi shell
-pixi run python scripts-py/Colombia_analysis_partial_credit_ADVI-HMC-pyro.py
-```
-
-This loads the Colombia CSV, fits the partial credit model with Stan HMC,
-Stan ADVI, and five NumPyro SVI variants (`AutoDiagonalNormal`,
-`AutoLaplaceApproximation`, `AutoMultivariateNormal`,
-`AutoLowRankMultivariateNormal`, `AutoIAFNormal`), then writes endpoint
-tables, comparison CSVs, posterior-predictive plots, and a timing chart to
-`/Users/or105/sandbox/bIRTistic/py-colombia-...`. Pass `resume=True` is
-already on, so re-runs only repeat post-fit comparisons.
 
 ### Ad-hoc API (interactive)
+
+Given a current data set ``dp_x`` (one row per Bernoulli trial), fit the
+Binomial x-posterior with NumPyro NUTS, then estimate the predictive
+probability of success (PPS) by nested-MC HMC over ``S`` hypothetical
+future data sets.
 
 ```python
 import os
@@ -178,94 +108,81 @@ from pathlib import Path
 sys.path.insert(0, str(Path("python").resolve()))
 
 import numpy as np
-from data_loading import read_data_colombia
-from fit_partial_credit_model_ncats_stanhmc import (
-    fit_partial_credit_model_ncats_stanhmc,
-)
-
-np.random.seed(42)
-
-data_file = (
-    "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/"
-    "OR_Work/2025/2025_project_Hope_Groups/data/"
-    "Colombia_data_baseline_endline_itemised_250927.csv"
-)
-raw = read_data_colombia(data_file)
-dp_col, dit_col = raw["dp"].copy(), raw["dit"].copy()
-
-# Preprocess: drop aggregate items, build item_time_id + oid + oidt.
-dp1 = dp_col[~dp_col["item_label"].str.contains("agg")].copy()
-dp1["y_stan"] = dp1["y"] + 1
-dp1 = dp1.merge(dit_col[["item_label", "item_type"]], on="item_label", how="left")
-
-item_time = (
-    dp1[["item_type", "item_label", "time"]]
-    .drop_duplicates()
-    .sort_values(["item_type", "time", "item_label"])
-    .reset_index(drop=True)
-)
-item_time["item_time_id"] = item_time.groupby("item_type").cumcount() + 1
-dp1 = dp1.merge(item_time, on=["item_label", "time", "item_type"], how="left")
-dp1 = dp1.merge(
-    dit_col[["item_type", "item_type_id"]].drop_duplicates(), on="item_type", how="left"
-)
-dp1 = dp1.sort_values(["item_type_id", "pid", "time", "item_label"]).reset_index(drop=True)
-dp1["oid"] = range(1, len(dp1) + 1)
-dp1["oidt"] = dp1.groupby("item_type").cumcount() + 1
+import pandas as pd
+from model_binomial import BinomialModel
+from fit_interim import fit_interim_posterior_xz_with_nested_monte_carlo
 
 out_dir = "/tmp/birtistic_quickstart"
 os.makedirs(out_dir, exist_ok=True)
+seed = 123
+rng = np.random.default_rng(seed)
 
-result_hmc = fit_partial_credit_model_ncats_stanhmc(
-    dit_col,
-    dp1,
-    output_file_prefix=os.path.join(out_dir, "pcm_1_hmc"),
-    stan_file="src/stan/partial_credit_model_ncats_v260413.stan",
-    chains=4,
-    parallel_chains=4,
-    threads_per_chain=1,
-    iter_warmup=500,
-    iter_sampling=1000,
-    seed=123,
-    x_formula="~ time - 1",
-    resume=True,
-    with_core_analyses=True,
-    with_additional_analyses=True,
-    show_messages=True,
+# Synthetic current cohort xi: 80 Bernoulli trials with true p = 0.4.
+n_obs = 80
+m_future = 200                            # remaining trials at end of trial
+dp_x = pd.DataFrame({
+    'pid': np.arange(n_obs),
+    'y':   rng.binomial(1, 0.4, size=n_obs),
+    'oid': np.arange(1, n_obs + 1),
+})
+dit = pd.DataFrame({
+    'item_label':       ['intervention'],
+    'item_type':        ['binomial'],
+    'item_high_label':  ['higher_is_better'],
+})
+
+# 1) Fit x-posterior via NumPyro NUTS.
+model = BinomialModel(
+    dit=dit, dcati=dp_x,
+    prior_a=1.0, prior_b=1.0, p_0=0.5, seed=seed,
+)
+prefix = os.path.join(out_dir, 'binomial_x')
+fit_x = model.fit_pyro_hmc(
+    output_file_prefix=prefix,
+    chains=2, iter_warmup=500, iter_sampling=1000,
+    save_to_file=True, resume=False, verbose=False,
 )
 
-print("Draws:", f"{out_dir}/pcm_1_hmc_draws.zarr")
-print("Good chains:", result_hmc["good_chains"])
+# 2) Expand to future data: draw S posterior-predictive samples zi_s of
+#    the m_future missing trials.
+S = 200
+zi = model.get_interim_z_from_ypredi(
+    f"{prefix}_draws.zarr", m_future,
+    pps_z_total=S, seed=seed,
+)
+
+# 3) Nested-MC PPS: for each s in 1..S refit the posterior on
+#    (xi + zi_s) and record P(H_1 | x, z_s).
+p_h1_xz = fit_interim_posterior_xz_with_nested_monte_carlo(
+    model, zi,
+    interim_method_args={
+        'pps_z_total':        S,
+        'pps_H1_def':         0.25,        # H_1: 1 - p/p_0 > 0.25
+        'pps_ProbH1_thresh':  0.89,
+        'fit_method':         'fit_pyro_hmc',
+        'seed':               seed,
+        'save_to_file':       False,
+        'verbose':            False,
+        'cpu_n':              1,
+        'output_file_prefix': os.path.join(out_dir, 'binomial_pps'),
+    },
+    fit_method_args={
+        'x_formula':     '~ 1',
+        'chains':        2,
+        'iter_warmup':   500,
+        'iter_sampling': 1000,
+    },
+)
+
+# 4) Aggregate: PPS = fraction of samples crossing the decision threshold.
+pps = float((p_h1_xz['p_h1_xz'] > 0.89).mean())
+print(f"PPS = {pps:.3f}")
 ```
 
-Swap `fit_partial_credit_model_ncats_stanhmc` for any of the other helpers
-in `python/` (Stan ADVI, NumPyro SVI, credit model, ordered logit model) —
-the call signature is the same. Endpoints and per-item probabilities can
-then be computed with `get_endpoints.get_endpoints(...)`.
-
-## Running R Analysis Examples
-
-```bash
-pixi shell
-
-# Run the R unit test suite (R + Stan correctness checks).
-Rscript test/run_all_tests.R
-
-# Render any Rmd in scripts-R/. Example:
-Rscript -e "rmarkdown::render('scripts-R/Colombia_analysis_for_HGpaper_pcm_v251224.Rmd')"
-```
-
-Available analyses (`scripts-R/`):
-
-- `Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd` — Hope Groups paper analysis using ordered logit model
-- `Colombia_analysis_for_HGpaper_pcm_v251224.Rmd` — Hope Groups paper analysis using partial credit model
-- `Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd` — Compare ADVI vs HMC for the ordered logit model
-- `Colombia_compare_models.Rmd` — Compare IRT models on the Colombia data (local)
-- `hpc_Colombia_compare_models.Rmd` — Same comparison, HPC-parallel version
-- `Colombia_interim_analyses_v251007.Rmd` — Interim analyses on the Colombia data
-- `Colombia_latent-factor-model_v250929.Rmd` — Latent factor model exploration
-- `Colombia_validate_credit_model.Rmd` — Train/test validation withholding participants
-- `hpc_Colombia_train_test_item_response_models.Rmd` — Train/test validation, HPC-parallel
+Swap `fit_pyro_hmc` for `fit_pyro_svi` (NumPyro SVI) or `fit_stan_hmc` /
+`fit_stan_svi` (cmdstan) for a different inference backend. The same
+pattern works with the IRT models (`PartialCreditModel`, `CreditModel`,
+`OrderedLogit`).
 
 ## Running Python Analysis Examples
 
@@ -276,20 +193,147 @@ pixi shell
 pixi run python -m pytest test/python -v
 
 # Run any analysis script end-to-end. Example:
-pixi run python scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py
+pixi run python scripts-py/Binomial_interim_analyses_with_nested_MC_hmc.py
 ```
 
-Available analyses (`scripts-py/`):
+### Binomial benchmark
 
-- `Colombia_analysis_partial_credit_ADVI-HMC-pyro.py` — Partial credit model on Colombia data; fits Stan HMC + Stan ADVI + 5 NumPyro SVI variants; saves endpoint, probability, ypred, timing and parameter comparisons.
-- `Colombia_analysis_ordered_logit_ADVI-HMC-pyro.py` — Same harness for the ordered logit model on Colombia data.
-- `Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py` — Partial credit model on Ukraine data (uses `categorical_threshold=2`).
-- `Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py` — Ordered logit model on Ukraine data.
-- `Colombia_analysis_ordered_logit_ADVI_vs_HMC.py` — Legacy ADVI vs HMC comparison (single comparison, no NumPyro).
+Beta-Bernoulli simulation: ``N = 500`` Bernoulli outcomes with true
+``p = 0.4`` over one year of monthly interim cutoffs. The closed-form
+Beta-Binomial tail sum is the analytic PPS reference; each script
+estimates the same PPS by a different algorithm.
 
-Each script writes a complete result directory under
-`/Users/or105/sandbox/bIRTistic/...` containing per-method `*_draws.zarr`,
-`*_timing.csv`, and `comparison_*.{csv,pdf}` artifacts.
+```bash
+pixi shell
+
+# Nested-MC HMC: per interim, refit the posterior on (xi + z_s) for S
+# future-data samples and average the decision indicator. ~30 min.
+pixi run python scripts-py/Binomial_interim_analyses_with_nested_MC_hmc.py
+
+# Same nested-MC pattern but with NumPyro SVI (AutoDiagonalNormal)
+# per refit (faster, slightly less accurate). ~10 min.
+pixi run python scripts-py/Binomial_interim_analyses_with_nested_MC_svi_autodiagnormal.py
+
+# Self-normalised IS: reweight the x-posterior draws by
+# softmax_k log p(z_s | theta_k); no refits. <1 min.
+pixi run python scripts-py/Binomial_interim_analyses_with_IS_from_x.py
+
+# Strong-Oakley binomial-GLM regression of 1{theta in H_1} on a
+# per-(item, draw) summary w(z). ~1 min.
+pixi run python scripts-py/Binomial_interim_analysis_regression_H1x_on_wz.py
+
+# Strong-Oakley Gaussian-GLM regression of the continuous endpoint
+# 1 - p/p_0 on w(z); Phi-tail conversion to label probability. ~1 min.
+pixi run python scripts-py/Binomial_interim_analysis_regression_endptx_on_wz.py
+
+# Cross-method comparison: PPS boxplot, PPS bars with bootstrap CI,
+# timing, ESS / particle for IS. <1 min.
+pixi run python scripts-py/Binomial_interim_analyses_compare_methods.py
+```
+
+### Multivariate normal benchmark 
+
+The MVN benchmark is split into a sequence of standalone scripts so each
+phase (simulation, interim-data construction, inference, plotting) can
+be run independently.
+
+```bash
+pixi shell
+
+# 1) Simulate one cohort per J in {20, 60, 100} under the block-
+#    equicorrelation K. Persists dp, closed-form per-component
+#    P(H_1j | x) and closed-form PPS, plus diagnostic + heatmap plots.
+#    <1 min.
+pixi run python scripts-py/MVN_interim_analyses_make_sim_data.py
+
+# 2) Fit the outer x-posterior per (J, interim) (resume from cached
+#    zarrs), expand to S future-data samples zi, persist the long-form
+#    zi + the first S posterior mu draws in mvn_J{J}_interim_data.pkl.
+#    First run: ~15 min (HMC across J=20/60/100, 7 interims). Resume:
+#    a few seconds.
+pixi run python scripts-py/MVN_interim_analyses_make_interim_data.py
+
+# 3) Nested-MC HMC PPS using the cached zi; emits per-J boxplot /
+#    bars / scatter / _all / analytic-vs-HMC plots. ~10 hours full
+#    deploy (J=20/60/100, S=200, 7 interims); reads cached pkl + only
+#    regenerates plots if mvn_pps_nested_mc.pkl exists.
+pixi run python scripts-py/MVN_interim_analyses_with_nested_MC_hmc.py
+
+# 4) Self-normalised IS using a fresh NumPyro SVI
+#    (AutoMultivariateNormal) variational posterior; vectorised
+#    sufficient-statistic implementation of log p(z_s | theta_k).
+#    ~1 min total (SVI fit + IS reweight per interim).
+pixi run python scripts-py/MVN_interim_analyses_with_IS_from_x.py
+
+# 5) Strong-Oakley Gaussian-GLM regression endpt-x on w(z); uses the
+#    cached zi + mu_draws. <1 min.
+pixi run python scripts-py/MVN_interim_analysis_regression_endptx_on_wz.py
+
+# 6) Cross-J / cross-method comparison: per-J PPS bars + boxplot +
+#    timing + ESS + cross-J MSE-vs-J plot. <1 min.
+pixi run python scripts-py/MVN_interim_analyses_compare_methods.py
+```
+
+Each script writes its artifacts to a dedicated directory under
+`/Users/or105/sandbox/bIRTistic/...` (sim / nested-MC / IS / RGE /
+compare). The Binomial and MVN scripts share the same
+`fit_interim_posterior_xz_with_nested_monte_carlo`,
+`fit_interim_regress_endptx_on_wz`, etc. drivers from `fit_interim.py`.
+
+### IRT analyses on Colombia Hope Groups data
+
+```bash
+pixi shell
+
+# Partial credit model: Stan HMC + Stan ADVI + 5 NumPyro SVI variants
+# (AutoDiagonalNormal, AutoLaplaceApproximation, AutoMultivariateNormal,
+# AutoLowRankMultivariateNormal, AutoIAFNormal). ~2 hours full sweep.
+pixi run python scripts-py/Colombia_analysis_partial_credit_ADVI-HMC-pyro.py
+
+# Same harness for the ordered logit model. ~2 hours.
+pixi run python scripts-py/Colombia_analysis_ordered_logit_ADVI-HMC-pyro.py
+
+# ADVI vs HMC comparison (single comparison, no NumPyro). ~15 min.
+pixi run python scripts-py/Colombia_analysis_ordered_logit_ADVI_vs_HMC.py
+
+# Interim analyses on the Colombia partial-credit case study. ~30 min.
+pixi run python scripts-py/Colombia_interim_analyses.py
+```
+
+### IRT analyses on Ukraine Hope Groups data
+
+```bash
+pixi shell
+
+# Partial credit fit harness (uses categorical_threshold=2). ~2 hours.
+pixi run python scripts-py/Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py
+
+# Ordered logit fit harness. ~2 hours.
+pixi run python scripts-py/Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py
+
+# Interim PPS pipeline (full case study):
+
+# Nested-MC HMC: fit on (xi + z_s). ~6 hours.
+pixi run python scripts-py/Ukraine_interim_analyses_with_nested_MC.py
+
+# Self-normalised IS reweighting. <5 min.
+pixi run python scripts-py/Ukraine_interim_analysis_with_IS_from_x.py
+
+# IS with moment matching (Paananen 2021). <10 min.
+pixi run python scripts-py/Ukraine_interim_analysis_with_IS_moment_matching_from_x.py
+
+# SMC sampler with resample-move (annealed). ~3 hours.
+pixi run python scripts-py/Ukraine_interim_analysis_with_SMC_resample_from_x.py
+
+# Strong-Oakley regression of 1{theta in H_1} on w(z). ~10 min.
+pixi run python scripts-py/Ukraine_interim_analysis_regression_H1x_on_wz.py
+
+# Strong-Oakley regression of endpoint on w(z). ~10 min.
+pixi run python scripts-py/Ukraine_interim_analysis_regression_endptx_on_wz.py
+
+# Cross-method comparison: PPS / boxplot / timing / ESS plots. <1 min.
+pixi run python scripts-py/Ukraine_interim_analysis_compare_methods.py
+```
 
 ## Testing
 
@@ -298,10 +342,11 @@ pixi shell
 
 # Python (NumPyro / Stan parity + Laplace Hessian eigenvalue checks).
 pixi run python -m pytest test/python -v
-
-# R (ncats correctness against legacy 2cats baselines).
-Rscript test/run_all_tests.R
 ```
+
+The R + Stan test suite for the PCM preprint lives on the
+`Colombia-analysis-pcm` branch; check out that branch and run
+``Rscript test/run_all_tests.R`` there.
 
 
 ## Project Structure
@@ -312,86 +357,73 @@ Rscript test/run_all_tests.R
 ```
 bIRTistic/
 ├── .vscode/                                 # VS Code workspace configuration
-├── R/                                       # R scripts and functions (ncats only)
-│   ├── fit_credit_model_ncats.R
-│   ├── fit_ordered_logit_model_ncats.R
-│   ├── fit_ordered_logit_model_ncats_advi.R
-│   ├── fit_partial_credit_model_ncats.R
-│   ├── get_endpoints.R                       # Compute endpoint stats from posteriors
-│   ├── read_data_colombia.R
-│   ├── read_data_ukraine.R
-│   ├── train_test_split_data.R
-│   ├── fit_item_response_models.Rscript      # Generic HPC fitting entrypoint
-│   ├── hpc_submit_generic_job.R              # HPC job submission helper
-│   ├── train_test_item_response_models.Rscript
-│   └── train_test_item_response_models_template.json
-├── python/                                   # Python implementation (CmdStanPy + NumPyro)
+├── python/                                   # Model classes + fitters + interim drivers
+│   ├── model.py                              # Abstract Model + IRTModel base
+│   ├── model_binomial.py                     # Beta-Bernoulli (§3.1) closed-form + HMC/SVI
+│   ├── model_mvn.py                          # Multivariate normal (§3.3) closed-form + HMC/SVI
+│   ├── model_irt.py                          # IRT mixin (per-time endpoints, w(z))
+│   ├── model_pcm.py                          # PartialCreditModel
+│   ├── model_credit.py                       # CreditModel
+│   ├── model_ordered_logit.py                # OrderedLogit
+│   ├── fit_interim.py                        # Interim drivers: nested-MC, IS, MM, SMC,
+│   │                                         # regression-H1x, regression-endptx
 │   ├── data_loading.py                       # read_data_colombia / read_data_ukraine
-│   ├── utils.py                              # Stan-data builders, summaries, plotting
-│   ├── get_endpoints.py                      # Endpoint computation from zarr draws
-│   ├── fit_partial_credit_model_ncats_stanhmc.py
-│   ├── fit_partial_credit_model_ncats_stanadvi.py
-│   ├── fit_partial_credit_model_ncats_pyrosvi.py
-│   ├── fit_credit_model_ncats_stanhmc.py
-│   ├── fit_credit_model_ncats_stanadvi.py
-│   ├── fit_credit_model_ncats_pyrosvi.py
-│   ├── fit_ordered_logit_model_ncats_stanhmc.py
-│   ├── fit_ordered_logit_model_ncats_stanadvi.py
-│   ├── fit_ordered_logit_model_ncats_pyrosvi.py
+│   ├── utils.py                              # Stan-data builders, autoguide factory,
+│   │                                         # palettes (futurama, material)
 │   └── requirements.txt
 ├── src/
-│   ├── stan/                                 # Stan ncats models + shared functions
+│   ├── stan/                                 # Stan model files
+│   │   ├── binomial_v260603.stan
 │   │   ├── credit_model_functions.stan
 │   │   ├── credit_model_ncats_v260413.stan
 │   │   ├── ordered_logit_functions.stan
 │   │   ├── ordered_logit_ncats_v260413.stan
 │   │   └── partial_credit_model_ncats_v260413.stan
-│   ├── numpyro/                              # NumPyro implementations of the ncats models
-│   │   ├── credit_model_ncats_v260413.pyro
-│   │   ├── ordered_logit_ncats_v260413.pyro
-│   │   ├── partial_credit_model_ncats_v260413.pyro
-│   │   └── partial_credit_model_2cats_v251224.pyro  # legacy 2cats baseline
-│   └── hpc/                                  # HPC submission scripts
-├── test/                                     # Test suite and legacy 2cats models
-│   ├── R/                                    # Legacy 2cats R helpers (for validation)
-│   ├── stan/                                 # Legacy 2cats Stan models (for validation)
-│   ├── python/                               # Python test suite
-│   │   ├── test_data_loading.py
-│   │   ├── test_utils.py
-│   │   ├── test_numpyro_pcm_ncats_stanhmc.py            # Stan parity (partial credit)
-│   │   ├── test_numpyro_credit_ncats_stanhmc.py         # Stan parity (credit)
-│   │   ├── test_numpyro_ordered_logit_ncats_stanhmc.py  # Stan parity (ordered logit)
-│   │   ├── test_numpyro_laplace_hessian.py              # AutoLaplace Hessian rank
-│   │   ├── test_numpyro_pcm_2cats.py
-│   │   ├── test_environment.py
-│   │   ├── conftest.py, pytest.ini, fixtures/, utils/
-│   │   ├── generate_baselines_colombia.py
-│   │   └── generate_r_baselines.py
-│   ├── test_credit_ncats_correctness.R
-│   ├── test_ordered_logit_ncats_correctness.R
-│   ├── test_pcm_ncats_correctness.R
-│   ├── run_all_tests.R
-│   └── README.md
-├── scripts-R/                                # R analysis scripts (Rmd vignettes)
-│   ├── Colombia_analysis_for_HGpaper_ordered_logit_v251224.Rmd
-│   ├── Colombia_analysis_for_HGpaper_pcm_v251224.Rmd
-│   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.Rmd
-│   ├── Colombia_compare_models.Rmd
-│   ├── Colombia_interim_analyses_v251007.Rmd
-│   ├── Colombia_latent-factor-model_v250929.Rmd
-│   ├── Colombia_validate_credit_model.Rmd
-│   ├── hpc_Colombia_compare_models.Rmd
-│   ├── hpc_Colombia_train_test_item_response_models.Rmd
-│   └── scripts-R-old/                        # Archived early prototypes
+│   └── numpyro/                              # NumPyro model programs
+│       ├── binomial_v260603.pyro
+│       ├── mvn_v260609.pyro
+│       ├── credit_model_ncats_v260413.pyro
+│       ├── ordered_logit_ncats_v260413.pyro
+│       └── partial_credit_model_ncats_v260413.pyro
+├── test/python/                              # Python test suite
+│   ├── test_model_abc.py                     # Model ABC contract
+│   ├── test_model_binomial.py                # BinomialModel + closed-form PPS
+│   ├── test_model_pcm.py                     # PartialCreditModel
+│   ├── test_model_credit_ordered_logit.py    # Credit + OrderedLogit
+│   ├── test_interim_alignment.py
+│   ├── test_interim_determinism.py
+│   ├── test_interim_helpers.py
+│   ├── test_get_endpoints.py
+│   └── test_no_legacy_imports.py
 ├── scripts-py/                               # Python analysis scripts
+│   ├── Binomial_interim_analyses_with_nested_MC_hmc.py
+│   ├── Binomial_interim_analyses_with_nested_MC_svi_autodiagnormal.py
+│   ├── Binomial_interim_analyses_with_IS_from_x.py
+│   ├── Binomial_interim_analysis_regression_H1x_on_wz.py
+│   ├── Binomial_interim_analysis_regression_endptx_on_wz.py
+│   ├── Binomial_interim_analyses_compare_methods.py
+│   ├── MVN_interim_analyses_make_sim_data.py
+│   ├── MVN_interim_analyses_make_interim_data.py
+│   ├── MVN_interim_analyses_with_nested_MC_hmc.py
+│   ├── MVN_interim_analyses_with_IS_from_x.py
+│   ├── MVN_interim_analysis_regression_endptx_on_wz.py
+│   ├── MVN_interim_analyses_compare_methods.py
+│   ├── Ukraine_interim_analyses_with_nested_MC.py
+│   ├── Ukraine_interim_analysis_with_IS_from_x.py
+│   ├── Ukraine_interim_analysis_with_IS_moment_matching_from_x.py
+│   ├── Ukraine_interim_analysis_with_SMC_resample_from_x.py
+│   ├── Ukraine_interim_analysis_regression_H1x_on_wz.py
+│   ├── Ukraine_interim_analysis_regression_endptx_on_wz.py
+│   ├── Ukraine_interim_analysis_compare_methods.py
 │   ├── Colombia_analysis_partial_credit_ADVI-HMC-pyro.py
 │   ├── Colombia_analysis_ordered_logit_ADVI-HMC-pyro.py
+│   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.py
+│   ├── Colombia_interim_analyses.py
 │   ├── Ukraine_analysis_partial_credit_ADVI-HMC-pyro.py
 │   ├── Ukraine_analysis_ordered_logit_ADVI-HMC-pyro.py
-│   ├── Colombia_analysis_ordered_logit_ADVI_vs_HMC.py  # legacy ADVI-vs-HMC
 │   └── README.md
-├── dev/                                      # Development documentation
-├── old/                                      # Archived Stan models (pre-ncats)
+├── dev/                                      # Development documentation, including
+│   │                                         # `amortised_decision_making.md` (§3.x specs)
 ├── pixi.toml                                 # Pixi environment specification
 ├── pixi.lock                                 # Pixi lock file
 ├── job_config.csv.example                    # Example HPC job configuration
@@ -416,13 +448,6 @@ cmdstanr::check_cmdstan_toolchain(fix = TRUE)
 
 # Reinstall CmdStan
 cmdstanr::install_cmdstan(overwrite = TRUE)
-```
-
-### Memory Issues on HPC
-
-Adjust memory allocation in `src/hpc/submit_hpc_job.sh`:
-```bash
-#PBS -l mem=32gb  # Increase as needed
 ```
 
 ### Compilation Errors

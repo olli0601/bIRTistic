@@ -6,83 +6,45 @@ channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
 # ============================================================================
-# Base R dependencies (shared by all environments)
+# Base dependencies (shared by all environments).
+#
+# Compilers + CmdStan are needed by ``cmdstanpy`` (Python bindings); no R is
+# installed on the ``main`` branch. The Villaveces et al PCM preprint
+# analyses live on the ``Colombia-analysis-pcm`` branch, which carries its
+# own R-only ``pixi.toml``.
 # ============================================================================
 [dependencies]
-# R and compiler toolchain
-r-base = ">=4.3"
 compilers = "*"
 make = "*"
 cmake = "*"
 
-# System libraries needed for spatial/geometry packages
-udunits2 = "*"
-abseil-cpp = "*"
-
-# CmdStan
+# CmdStan (driven from Python via ``cmdstanpy``).
 cmdstan = "==2.37.0"
 
-# Core R packages from conda-forge (pre-compiled, no source compilation needed)
-"r-data.table" = "*"
-"r-ggplot2" = "*"
-"r-here" = "*"
-"r-jsonlite" = "*"
-"r-knitr" = "*"
-"r-rmarkdown" = "*"
-"r-posterior" = "*"
-"r-bayesplot" = "*"
-"r-matrixstats" = "*"
-"r-scales" = "*"
-"r-patchwork" = "*"
-"r-bookdown" = "*"
-
-# Additional R packages
-"r-argparse" = "*"
-"r-formatr" = "*"
-"r-ggally" = "*"
-"r-ggsci" = "*"
-"r-gridextra" = "*"
-"r-ggpubr" = "*"
-"r-hexbin" = "*"
-"r-kableextra" = "*"
-"r-loo" = "*"
-"r-matchit" = "*"
-"r-polycor" = "*"
-"r-purrr" = "*"
-
-# Spatial packages (pre-compiled from conda-forge)
-"r-sf" = "*"
-"r-s2" = "*"
-"r-units" = "*"
+# Python's xarray / arviz ecosystem.
 zarr = ">=2.5,<3"
 h5netcdf = ">=1.8.1,<2"
 
-# cmdstanr needs to be installed from R-universe (see tasks below)
-# ggpattern may need special handling
-
 # ============================================================================
-# Python feature (optional - only in 'default' environment)
+# Python feature (used by both ``default`` and ``mps-experimental``)
 # ============================================================================
 [feature.python.dependencies]
-# Python and packages
 python = ">=3.13,<3.14"
 pip = "*"
 
-# Python core scientific stack (pinning scipy for JAX compatibility)
+# Core scientific stack (scipy pinned for JAX compatibility).
 numpy = "*"
 scipy = ">=1.12"
 pandas = "*"
 matplotlib = "*"
 
-# JAX/Flax ecosystem
-
-# Probabilistic programming
+# Probabilistic programming.
 cmdstanpy = "*"
 
-# Plotting
+# Plotting.
 plotnine = "*"
 
-# Testing and development
+# Testing + interactive use.
 pytest = "*"
 pytest-cov = "*"
 jupyterlab = "*"
@@ -127,47 +89,24 @@ optax = ">=0.2.4"
 # Environment definitions
 # ============================================================================
 [environments]
-# Default environment: Full Python + R stack
+# Default: full Python stack (Python + JAX + NumPyro + cmdstanpy) for
+# the interim-analysis benchmarks (§3.1 Binomial, §3.3 MVN) and the IRT
+# analyses.
 default = { features = ["python"], solve-group = "default" }
 
-# Experimental environment: Python + R stack with JAX MPS backend
+# Experimental: same Python stack with the JAX MPS backend.
 mps-experimental = { features = ["python-mps"], solve-group = "mps-experimental" }
-
-# R-only environment: Just R and CmdStan (inherits base dependencies)
-r-only = { solve-group = "r-only" }
 
 # ============================================================================
 # Tasks
 # ============================================================================
-# Note: Use '-e <environment>' to run tasks in specific environments:
-#   - pixi run <task>              # Runs in default (Python + R) environment
-#   - pixi run -e r-only <task>    # Runs in R-only environment
 
 [tasks]
-# --------------------------------------------------------------------------
-# R environment setup tasks (available in both environments)
-# --------------------------------------------------------------------------
 
-# Post-installation task to install cmdstanr from R-universe
-install-cmdstanr = """Rscript -e "install.packages('cmdstanr', repos = c('https://stan-dev.r-universe.dev', 'https://cloud.r-project.org'))" """
-
-# Install any remaining packages not in conda-forge
-install-extra = """Rscript -e "packages <- c('ggpattern'); install.packages(packages[!packages %in% installed.packages()[,'Package']], repos = 'https://cloud.r-project.org')" """
-
-# Verify R/CmdStan installation with 8 schools example
-verify-r = """Rscript -e "library(cmdstanr); cat('CmdStan version:', cmdstan_version(), '\\n\\n'); cat('Testing 8 schools model compilation and sampling...\\n'); file <- file.path(cmdstan_path(), 'examples', 'bernoulli', 'bernoulli.stan'); mod <- cmdstan_model(file, force_recompile = TRUE); data_list <- list(N = 10, y = c(0,1,0,0,0,0,0,0,0,1)); fit <- mod\\$sample(data = data_list, seed = 123, chains = 2, parallel_chains = 1, refresh = 500); cat('\\n✓ R Installation verified successfully!\\n')" """
-
-# Complete R setup (run all R post-install tasks)
-setup = { depends-on = ["install-cmdstanr", "install-extra", "verify-r"] }
-
-# --------------------------------------------------------------------------
-# Python environment tasks (only available in default environment)
-# --------------------------------------------------------------------------
-
-# Verify Python environment with CmdStan and 8 schools example
+# Verify Python environment with CmdStan + 8 schools example.
 verify-python = """python test/python/test_environment.py"""
 
-# Complete Python setup
+# Complete Python setup.
 setup-python = { depends-on = ["verify-python"] }
 
 # Install JAX MPS plugin in the mps-experimental environment.

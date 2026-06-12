@@ -38,12 +38,13 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
-from numpyro.infer import MCMC, NUTS, Predictive
+from numpyro.infer import MCMC, NUTS, Predictive, SVI, Trace_ELBO
 import pandas as pd
 from scipy.stats import norm as _scipy_norm
 import xarray as xr
 
 from model import Model
+from utils import _get_autoguide_factory
 
 
 _MODEL_NS = None
@@ -672,12 +673,103 @@ class MVNModel(Model):
     # Abstract Model overrides for fitters we don't implement.
     # ------------------------------------------------------------------
 
-    def fit_pyro_svi(self, output_file_prefix, *, save_to_file=True,
-                     resume=False, verbose=True, **method_kwargs):
-        raise NotImplementedError(
-            "MVNModel: fit_pyro_svi not implemented (HMC + closed-form cover "
-            "the validation surface used in the MVN benchmark)."
+    def fit_pyro_svi(
+        self,
+        output_file_prefix: Optional[str] = None,
+        *,
+        algorithm: str = 'AutoMultivariateNormal',
+        lr: float = 0.05,
+        num_steps: int = 2000,
+        output_samples: int = 4000,
+        save_to_file: bool = False,
+        resume: bool = False,
+        verbose: bool = True,
+        **method_kwargs,
+    ) -> Dict[str, Any]:
+        """NumPyro SVI on the MVN program. ``algorithm`` selects the
+        autoguide (default ``AutoMultivariateNormal``; pass
+        ``AutoDiagonalNormal`` / ``AutoLowRankMultivariateNormal`` etc).
+        Mirrors :meth:`BinomialModel.fit_pyro_svi`. When ``save_to_file``
+        and ``resume`` are True and the ``{prefix}_draws.zarr`` +
+        ``{prefix}_timing.csv`` artifacts exist, the cached posterior is
+        returned instead of refitting."""
+        t0 = time.time()
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
         )
+        if can_resume:
+            if verbose:
+                print(f"[MVNModel] pyro SVI ({algorithm}) RESUME from"
+                      f" {draws_file}")
+            idata = az.from_zarr(draws_file)
+            mu_samples = np.asarray(idata.posterior['mu'].values).reshape(
+                -1, self.J,
+            )
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            return {
+                'draws': idata,
+                'posterior_samples': {'mu': mu_samples},
+                'timing': timing,
+            }
+
+        model_fn = self._numpyro_model_fn()
+        model_for_svi = partial(model_fn, compute_generated=False)
+
+        rng = jax.random.PRNGKey(self.seed)
+        guide_factory = _get_autoguide_factory(algorithm)
+        guide = guide_factory(model_for_svi)
+        svi = SVI(model_for_svi, guide,
+                  numpyro.optim.Adam(lr), Trace_ELBO())
+        rng, sub = jax.random.split(rng)
+        run = svi.run(sub, num_steps, self.stan_data, progress_bar=False)
+        rng, sub = jax.random.split(rng)
+        if hasattr(svi, 'get_posterior'):
+            post = svi.get_posterior(run.state).sample(
+                sub, sample_shape=(output_samples,),
+            )
+        else:
+            params = svi.get_params(run.state)
+            post = guide.sample_posterior(sub, params,
+                                          sample_shape=(output_samples,))
+        mu_samples = np.asarray(post['mu'])
+        rng, sub = jax.random.split(rng)
+        N = int(self.stan_data['N'])
+        predictions = self._pyro_predictive(
+            {'mu': mu_samples}, sub, N,
+        )
+        n_draw = mu_samples.shape[0]
+        ds = xr.Dataset({
+            'mu':      (('chain', 'draw', 'j'), mu_samples[None, :, :]),
+            'ypred':   (('chain', 'draw', 'obs'),
+                        predictions['ypred'].reshape(1, n_draw, N * self.J)),
+            'log_lik': (('chain', 'draw', 'obs_vec'),
+                        predictions['log_lik'].reshape(1, n_draw, N)),
+        })
+        draws = az.InferenceData(posterior=ds)
+        timing = {'mins': (time.time() - t0) / 60.0,
+                  'final_elbo': float(-run.losses[-1]),
+                  'algorithm': algorithm}
+        if verbose:
+            print(f"[MVNModel] pyro SVI ({algorithm}): {num_steps}"
+                  f" steps, final ELBO={timing['final_elbo']:.1f},"
+                  f" {output_samples} posterior draws in"
+                  f" {timing['mins']:.4f} min")
+        if save_to_file and output_file_prefix is not None:
+            os.makedirs(os.path.dirname(output_file_prefix) or '.',
+                        exist_ok=True)
+            draws.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
+        return {
+            'draws': draws,
+            'posterior_samples': {'mu': mu_samples},
+            'timing': timing,
+        }
 
     def fit_stan_svi(self, output_file_prefix, *, save_to_file=True,
                      resume=False, verbose=True, **method_kwargs):
