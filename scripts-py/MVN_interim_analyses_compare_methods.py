@@ -50,7 +50,8 @@ import numpy as np
 import pandas as pd
 from plotnine import (
     ggplot, aes, geom_boxplot, geom_col, geom_errorbar, geom_hline,
-    geom_text, facet_wrap,
+    geom_text,
+    facet_grid, facet_wrap,
     scale_fill_manual, scale_y_continuous, scale_y_sqrt,
     position_dodge, theme_bw, theme, element_text, element_blank, labs,
 )
@@ -493,5 +494,103 @@ p = (
 pdf_path = os.path.join(DIR_OUT, 'mvn_compare_methods_mse.pdf')
 p.save(pdf_path, verbose=False, limitsize=False)
 print(f"Saved cross-J MSE plot to {pdf_path}")
+
+# %%
+
+# =============================================================================
+# Regression-only: violin plot of per-response R^2 (top row) and
+# empirical rho (bottom row) across all J responses j, faceted by J in
+# columns ordered J=20, 60, 100. Source: rge_stats pkls written by the
+# regression-endptx script.
+# =============================================================================
+
+rge_stats_parts = []
+for J in J_GRID:
+    pkl = os.path.join(DIR_RGE, f'mvn_J{J}_pps_RGE_stats.pkl')
+    if not os.path.exists(pkl):
+        print(f"[rge_stats] missing {pkl}; skipping J={J}.")
+        continue
+    rge_stats_parts.append(pd.read_pickle(pkl))
+
+if rge_stats_parts:
+    rge_stats_all = pd.concat(rge_stats_parts, ignore_index=True)
+    rge_stats_all['interim_date'] = pd.to_datetime(
+        rge_stats_all['interim_date'],
+    )
+    _stats_interim_order = (
+        rge_stats_all[['interim_date', 'interim_month_year']]
+        .drop_duplicates()
+        .sort_values('interim_date')['interim_month_year'].tolist()
+    )
+    rge_stats_all['interim_month_year'] = pd.Categorical(
+        rge_stats_all['interim_month_year'],
+        categories=_stats_interim_order, ordered=True,
+    )
+    rge_stats_all['J_label'] = pd.Categorical(
+        'J=' + rge_stats_all['J'].astype(str),
+        categories=[f'J={J}' for J in J_GRID], ordered=True,
+    )
+
+    long = rge_stats_all.melt(
+        id_vars=['J', 'J_label', 'interim_id', 'interim_date',
+                 'interim_month_year', 'j'],
+        value_vars=['r2', 'rho'],
+        var_name='metric', value_name='value',
+    )
+    long['metric'] = pd.Categorical(
+        long['metric'].map({'r2': 'R^2', 'rho': 'rho'}),
+        categories=['R^2', 'rho'], ordered=True,
+    )
+
+    # Pre-compute (q025, q25, q50, q75, q975) per (J, metric, interim) for
+    # the stat='identity' boxplot pattern used elsewhere in this codebase.
+    rge_box_stats = (
+        long.groupby(['J_label', 'metric', 'interim_month_year'],
+                     observed=True)['value']
+        .agg(
+            q025=lambda s: s.quantile(0.025),
+            q25 =lambda s: s.quantile(0.25),
+            q50 =lambda s: s.quantile(0.50),
+            q75 =lambda s: s.quantile(0.75),
+            q975=lambda s: s.quantile(0.975),
+        )
+        .reset_index()
+    )
+    rge_box_stats['grp'] = (
+        rge_box_stats['J_label'].astype(str) + '|'
+        + rge_box_stats['metric'].astype(str) + '|'
+        + rge_box_stats['interim_month_year'].astype(str)
+    )
+    rge_box_stats.to_pickle(os.path.join(
+        DIR_OUT, 'mvn_compare_methods_rge_stats_box.pkl',
+    ))
+
+    p = (
+        ggplot(rge_box_stats,
+               aes(x='interim_month_year',
+                   ymin='q025', lower='q25', middle='q50',
+                   upper='q75', ymax='q975', group='grp'))
+        + geom_boxplot(stat='identity',
+                       fill='#197EC0', alpha=0.6,
+                       colour='#404040', size=0.3)
+        + facet_grid('metric ~ J_label', scales='free_y')
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='none',
+            figure_size=(5 * len(J_GRID), 8),
+            strip_background=element_blank(),
+            strip_text=element_text(face='bold'),
+        )
+        + labs(
+            x='Interim date',
+            y='regression statistic (across responses j)',
+        )
+    )
+    pdf_path = os.path.join(
+        DIR_OUT, 'mvn_compare_methods_rge_stats_box.pdf',
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved RGE rho / R^2 boxplot to {pdf_path}")
 
 print(f"\nCross-method comparison complete. Outputs in: {DIR_OUT}")

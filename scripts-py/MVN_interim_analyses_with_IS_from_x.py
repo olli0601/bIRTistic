@@ -277,7 +277,7 @@ for J in J_GRID:
         # downstream comparison plots.
         an = model_x.fit_closed_form_pH1(zi_sorted[
             [c for c in zi_sorted.columns if not c.startswith('ypred_')]
-            + ypred_cols
+            + zi_cols
         ])
         an['J'] = J
         an['interim_id'] = interim_id
@@ -326,8 +326,17 @@ for J in J_GRID:
     dp_h1_xz.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS_p_h1_xz.pkl'))
     is_perf.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS_perf.csv'),
                    index=False)
-    timing_all.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS_timing.csv'),
-                      index=False)
+    # Write timing csv only if it does not already exist: subsequent
+    # re-runs (e.g. plot tweaks) would otherwise overwrite the fresh-run
+    # wall times that are the actual quantity of interest for the
+    # cross-method comparison.
+    timing_csv = os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS_timing.csv')
+    if not os.path.exists(timing_csv):
+        timing_all.to_csv(timing_csv, index=False)
+        print(f"J={J}: wrote fresh-run timing to {timing_csv}")
+    else:
+        print(f"J={J}: timing csv exists at {timing_csv}; skipping"
+              f" overwrite to preserve the original fresh-run wall times.")
     pps_df.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS.csv'), index=False)
     an_all.to_pickle(os.path.join(DIR_OUT,
                                   f'mvn_J{J}_pps_IS_p_h1_xz_analytic.pkl'))

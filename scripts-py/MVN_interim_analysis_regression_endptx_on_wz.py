@@ -698,7 +698,33 @@ for J in J_GRID:
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE vs analytic scatter to {pdf_path}")
 
-    # ---- 6f. Diagnostic: w_ratio vs pps_ratio_x per (response, interim) ----
+    # ---- 6f. Diagnostic: w_ratio vs pps_ratio_x per (response, interim).
+    # ---- Build rge_stats first: per-(J, interim, j) rho + r2 across ALL
+    # ---- responses (for the cross-method violin plot); annotate the
+    # ---- diagnostic only on the j_repr subset. ----
+    rge_stats_rows = []
+    for (im_id, im, im_my, jj), g in wa_all.groupby(
+            ['interim_id', 'interim_date', 'interim_month_year', 'j'],
+            observed=True):
+        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
+        rge_stats_rows.append({
+            'J':                  J,
+            'interim_id':         int(im_id),
+            'interim_date':       im,
+            'interim_month_year': im_my,
+            'j':                  int(jj),
+            'item_label':         g['item_label'].iloc[0],
+            'rho':                float(s['rho']),
+            'r2':                 float(s['r2']),
+            'x_left':             float(s['x_left']),
+            'x_right':            float(s['x_right']),
+            'y_top':              float(s['y_top']),
+        })
+    rge_stats = pd.DataFrame(rge_stats_rows)
+    rge_stats.to_pickle(
+        os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_stats.pkl'),
+    )
+
     wa_small = wa_all[wa_all['j'].isin(j_repr)].copy()
     wa_small['response_label'] = 'response mu_' + wa_small['j'].astype(str)
     wa_small['interim_month_year'] = pd.Categorical(
@@ -708,25 +734,20 @@ for J in J_GRID:
         wa_small['response_label'], categories=j_label_cats, ordered=True,
     )
 
-    ann_rows = []
-    for (resp, im), g in wa_small.groupby(
-            ['response_label', 'interim_month_year'], observed=True):
-        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
-        ann_rows.append({
-            'response_label':     resp,
-            'interim_month_year': im,
-            'rho_label':          f"rho={float(s['rho']):.2f}",
-            'r2_label':           f"R2={100 * float(s['r2']):.1f}%",
-            'x_left':             float(s['x_left']),
-            'x_right':            float(s['x_right']),
-            'y_top':              float(s['y_top']),
-        })
-    ann = pd.DataFrame(ann_rows)
-    ann['response_label'] = pd.Categorical(
-        ann['response_label'], categories=j_label_cats, ordered=True,
+    rge_stats_small = rge_stats[rge_stats['j'].isin(j_repr)].copy()
+    rge_stats_small['response_label'] = pd.Categorical(
+        'response mu_' + rge_stats_small['j'].astype(str),
+        categories=j_label_cats, ordered=True,
     )
-    ann['interim_month_year'] = pd.Categorical(
-        ann['interim_month_year'], categories=order, ordered=True,
+    rge_stats_small['interim_month_year'] = pd.Categorical(
+        rge_stats_small['interim_month_year'],
+        categories=order, ordered=True,
+    )
+    rge_stats_small['rho_label'] = rge_stats_small['rho'].map(
+        lambda r: f"rho={r:.2f}",
+    )
+    rge_stats_small['r2_label'] = rge_stats_small['r2'].map(
+        lambda r: f"R2={100 * r:.1f}%",
     )
 
     p = (
@@ -734,9 +755,11 @@ for J in J_GRID:
         + geom_point(alpha=0.3, size=0.6, colour='#009392')
         + geom_smooth(method='glm', method_args={'family': 'gaussian'},
                       se=True, colour='black', size=0.7)
-        + geom_text(ann, aes(x='x_left', y='y_top', label='rho_label'),
+        + geom_text(rge_stats_small,
+                    aes(x='x_left', y='y_top', label='rho_label'),
                     ha='left', va='top', size=8, inherit_aes=False)
-        + geom_text(ann, aes(x='x_right', y='y_top', label='r2_label'),
+        + geom_text(rge_stats_small,
+                    aes(x='x_right', y='y_top', label='r2_label'),
                     ha='right', va='top', size=8, inherit_aes=False)
         + facet_grid('response_label ~ interim_month_year', scales='free')
         + theme_bw()
