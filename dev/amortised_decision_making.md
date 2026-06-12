@@ -590,7 +590,7 @@ $$
 PPS(x) \approx \frac{1}{S} \sum_{s=1}^S 1\{ y^{(s)} > \eta_H\}
 $$
 
-Instead of the binary labels $y^{(s)}$, it is advantageous to consider the continuous $\rho^{(s)}$ that underlie the alternative hypothesis, $H_1 : \rho^{(s)} > \eta_0$. This leads to the steps
+Instead of the binary labels $y^{(s)}$, it is advantageous to consider the continuous $\rho^{(s)}$ that underlie the alternative hypothesis, $H_1 : \rho^{(s)} > \eta_0$. A simple approach would be:
 
 1.  **Joint sampling.** For $s=1,\dotsc,S$, draw
     $$
@@ -609,16 +609,37 @@ Instead of the binary labels $y^{(s)}$, it is advantageous to consider the conti
     $$
     \hat\psi=\arg\min_\psi \frac{1}{S}\sum_{s=1}^S\big(\rho^{(s)} - q_\psi(w^{(s)})\big)^2,
     $$
-    using a a GAM for $d\le 6$ or a GP for higher $d$.
-3.  **Predict** the conditional success probability for any new future sample $z^{(s)}$ from the learned regressor's predictive distribution at $w(z^{(s)})$. With the GAM/GP-predicted mean $\hat\rho(z^{(s)}) = q_{\hat\psi}\big(w(z^{(s)})\big)$ and predictive standard deviation $\hat\sigma(z^{(s)})$ (link-scale Gaussian for the GAM, posterior std for the GP), approximate
+    using linear regression, or GAM for $d\le 6$ or even a GP for higher $d$.
+3.  **Predict** the conditional success probability for any new future sample $z^{(s)}$ from the learned regressor's predictive distribution at $w(z^{(s)})$. With the predicted mean $q_{\hat\psi}\big(w(z^{(s)})\big)$ and predictive standard deviation $\hat\sigma(z^{(s)})$ (link-scale Gaussian for the GAM, posterior std for the GP), approximate the upper $\eta_0$ quantile of $\rho$ at $w(z^{(s)})$ with
     $$
-    \hat y(z^{(s)}) := P(H_1 \mid x, z^{(s)}) \approx \Phi\!\left( \frac{\hat\rho(z^{(s)}) - \eta_0}{\hat\sigma(z^{(s)})} \right),
+    \hat y(z^{(s)}) := P(H_1 \mid x, z^{(s)}) \approx \Phi\!\left( \frac{q_{\hat\psi}\big(w(z^{(s)})\big) - \eta_0}{\hat\sigma(z^{(s)})} \right),
     $$
     repeat over future samples, and estimate
     $$
     PPS(x) \approx \frac{1}{S} \sum_{s=1}^S 1\{ \hat y(z^{(s)}) > \eta_H \}.
     $$
-    The point-estimate decision $1\{\hat\rho(z^{(s)}) > \eta_0\}$ is the limit of the above as $\hat\sigma \to 0$ (no residual uncertainty about $\rho$ given $w$), which corresponds to an implicit $\eta_H = 1/2$ Bayes decision under symmetric predictive — it discards the $\eta_H$ degree of freedom and is biased when $\hat\sigma$ is non-negligible.
+
+The Gaussian step in 3 is fragile under skewed or heteroskedastic residuals of $\rho \mid w, x$. A more robust alternative replaces the conditional mean by a conditional quantile, removing all distributional assumptions on $\rho \mid w$ and folding $\eta_H$ directly into the regression target. The decision rule rewrites as
+$$
+\begin{align*}
+& P(H_1 \mid x, z) > \eta_H \\
+\Leftrightarrow \: & P(\rho \le \eta_0 \mid x, z) \leq 1 - \eta_H \\
+\Leftrightarrow \: & q_{1-\eta_H}(\rho \mid x, w(z)) > \eta_0,
+\end{align*}
+$$
+where $q_\tau(\rho \mid x, w)$ is the lower $\tau$-quantile of $\rho$ given $x, w$. So if we can estimate $q_{1-\eta_H}$ directly, the PPS decision collapses to one indicator with no Gaussian step.
+
+1.  **Joint sampling.** As in step 1 above, draw $\{(\rho^{(s)}, w^{(s)})\}_{s=1}^S$.
+2.  **Fit a conditional-quantile regressor** $q_\psi:\mathbb{R}^d\to\mathbb{R}$ to the pairs $\{(w^{(s)}, \rho^{(s)})\}_{s=1}^S$ at level $\tau = 1 - \eta_H$, by minimising the pinball loss $L_\tau$,
+    $$
+    \hat\psi = \arg\min_\psi \frac{1}{S}\sum_{s=1}^S L_\tau\!\big(\rho^{(s)} - q_\psi(w^{(s)})\big),
+    $$
+    where $L_\tau(u) = u\,\big(\tau - 1\{u < 0\}\big)$ and $q_\psi$ is
+    a quantile linear model, a quantile-GAM [@fasiolo2021qgam] for $d \le 6$ or even a quantile-GP / quantile-RF for higher $d$. 
+3.  **Predict and decide.** For any new future sample $z^{(s)}$, evaluate the quantile estimate $\hat q_{1-\eta_H}(z^{(s)}) = q_{\hat\psi}\big(w(z^{(s)})\big)$ and estimate
+    $$
+    PPS(x) \approx \frac{1}{S}\sum_{s=1}^S 1\{ \hat Q_{1-\eta_H}(z^{(s)}) > \eta_0 \}.
+    $$
 
 This scheme is guaranteed to create unbiased labels when $w$ is a sufficient statistic for $\theta$, as $S \to \infty$. Indeed, in that case there are $h$ and $g$ such that $p(z\mid \theta)=h(z)\,g\big(w(z);\theta\big),$ and further,
 $$
