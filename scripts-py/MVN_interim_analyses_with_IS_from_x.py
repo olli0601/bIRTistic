@@ -80,7 +80,7 @@ DIR_OUT = os.path.join(
 )
 os.makedirs(DIR_OUT, exist_ok=True)
 
-PPS_Z_TOTAL = 200
+PPS_Z_TOTAL = 4000
 svi_algorithm_automultivariatenormal = 'AutoMultivariateNormal'
 SVI_LR = 0.05
 SVI_NUM_STEPS = 2000

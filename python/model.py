@@ -140,7 +140,7 @@ class Model(ABC):
         """Strong-Oakley per-(item, draw) summary frame W(z^(s)) from
         the future-data block ``zi``. Must return at least columns
         ``item_label, item_type, item_high_label, draw, w_ratio`` so
-        :func:`fit_interim.fit_interim_regress_endptx_on_wz` and the
+        :func:`fit_interim.fit_interim_regress_endptx_on_wz_with_Gaussian_approx` and the
         H1x sibling can consume it. IRT subclasses inherit
         :class:`model_irt.IRTModel`'s per-time pivot; Binomial overrides
         with a per-draw mean-of-ypred summary."""

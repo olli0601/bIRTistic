@@ -1,38 +1,26 @@
 #!/usr/bin/env python3
 """
 MVN interim analysis: regression-based EVSI labels (Strong & Oakley,
-2014), continuous-endpoint variant. Standalone -- loads the simulated
-x cohort from ``mvn_sim_data.pkl``, the cached per-(J, interim) future-
-data block + outer mu draws from ``mvn_J{J}_interim_data.pkl``, and the
-closed-form analytic PPS from ``mvn_pps_closed_form.pkl`` -- all
-produced upstream in the simulations directory.
+2014), continuous-endpoint variant with **conditional-quantile regression**
+instead of the Gaussian mean + variance approximation used by
+``MVN_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``.
 
-Per interim, the training rows are
+Per interim, per response j, fit
 
-  - mu^(s)            from the cached outer HMC posterior (interim_data
-                       ['mu_draws'][s])
-  - y^(s) := mu_j^(s) - mu_0_baseline
-                       (per-component continuous endpoint from x; see
-                       :meth:`MVNModel.get_endpoints_per_draw`)
-  - z^(s) | mu^(s)     from the cached posterior-predictive ypred column
-                       ``ypred_s`` in ``zi`` (built with keep_order=True,
-                       so the draw index s matches ``mu_draws[s]``)
-  - W^(s) := (1/m) sum_i z_{i,j}^(s) - mu_0_baseline
-                       (per-(item j) sufficient-statistic summary of
-                       z^(s); see §3.3 "Exponential family and sufficient
-                       statistics" and :meth:`MVNModel.get_w`)
+    Q_{1 - eta_H}(mu_j - mu_0 | x, w_j(z))  ~  pinball loss on S rows
 
-Per item we fit a Gaussian GLM ``pps_ratio_x ~ w_ratio`` on the S
-training rows and convert the predictive distribution of ratio | W(z)
-into a label probability via the residual-SD Phi-tail.
+with a linear ``statsmodels.QuantReg`` at tau = 1 - eta_H, so
+``P(H_1j | x, z) > eta_H`` is equivalent to ``Q_hat > pps_H1_def`` — no
+Gaussian step, no plug-in variance.
 
-Outputs per J (``_RGE_`` suffix, mirroring the Binomial script) and the
-matching set of plots adapted from the nested-MC HMC layout plus the
-Binomial-style w_ratio vs pps_ratio_x diagnostic.
+Outputs per J (``_RGEQ_`` suffix so compare-methods can load them next to
+the Gaussian ``_RGE_`` variant) plus the same set of plots as the Gaussian
+variant, with the diagnostic scatter drawing a QuantReg line at
+tau = 1 - eta_H rather than a Gaussian GLM smoother.
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/MVN_interim_analysis_regression_endptx_on_wz.py
+    pixi run python scripts-py/MVN_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py
 """
 
 # %%
@@ -68,9 +56,10 @@ from plotnine import (
 
 warnings.filterwarnings('ignore')
 
+import statsmodels.api as sm
 from model_mvn import MVNModel
 from fit_interim import (
-    fit_interim_regress_endptx_on_wz_with_Gaussian_approx,
+    fit_interim_regress_endptx_on_wz_with_quantile_regr,
     fit_interim_regress_H1x_on_wz_per_item_summary,
 )
 from utils import _material_palette
@@ -89,7 +78,7 @@ DIR_SIM = os.path.join(
 )
 DIR_OUT = os.path.join(
     "/Users/or105/sandbox/bIRTistic",
-    "py-mvn-interim-with-regression-on-endptx-wz-260611",
+    "py-mvn-interim-with-regression-on-endptx-wz-quantile-regr-260702",
 )
 os.makedirs(DIR_OUT, exist_ok=True)
 
@@ -201,10 +190,11 @@ for J in J_GRID:
         wa['interim_date'] = interim_date
         wa_rows.append(wa)
 
-        p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(
+        p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_quantile_regr(
             wa.drop(columns=['J', 'interim_id', 'interim_month_year',
                              'interim_date']),
             pps_H1_def=pps_H1_def,
+            pps_ProbH1_thresh=pps_ProbH1_thresh,
         )
         p_h1_xz_interim['J'] = J
         p_h1_xz_interim['interim_id'] = interim_id
@@ -268,16 +258,16 @@ for J in J_GRID:
     pps_df['eta'] = pps_ProbH1_thresh
     pps_df['S'] = PPS_Z_TOTAL
 
-    dp_h1_xz.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_p_h1_xz.pkl'))
-    perf_all.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_perf.csv'),
+    dp_h1_xz.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_p_h1_xz.pkl'))
+    perf_all.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_perf.csv'),
                     index=False)
-    timing_all.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_timing.csv'),
+    timing_all.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_timing.csv'),
                       index=False)
-    pps_df.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE.csv'),
+    pps_df.to_csv(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ.csv'),
                   index=False)
-    wa_all.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_wa.pkl'))
+    wa_all.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_wa.pkl'))
     an_all.to_pickle(os.path.join(DIR_OUT,
-                                  f'mvn_J{J}_pps_RGE_p_h1_xz_analytic.pkl'))
+                                  f'mvn_J{J}_pps_RGEQ_p_h1_xz_analytic.pkl'))
     rge_artifacts[J] = {
         'dp_h1_xz': dp_h1_xz, 'perf': perf_all,
         'timing':   timing_all, 'pps': pps_df, 'wa': wa_all,
@@ -295,7 +285,7 @@ for J in J_GRID:
 # =============================================================================
 
 bs_B = 2000
-METHOD_LABEL = 'Regression of endpt-x on w(z)'
+METHOD_LABEL = 'Regression of endpt-x on w(z) - quantile'
 
 for J in J_GRID:
     if J not in rge_artifacts:
@@ -377,7 +367,7 @@ for J in J_GRID:
         box['interim_month_year'].astype(str) + '|'
         + box['fill_key'].astype(str)
     )
-    box.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_p_h1_xz_box.pkl'))
+    box.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_p_h1_xz_box.pkl'))
 
     p = (
         ggplot(box, aes(x='interim_month_year',
@@ -406,7 +396,7 @@ for J in J_GRID:
         + labs(x='Interim',
                y='p(H_1j | x, z) for predicted z samples')
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_p_h1_xz.pdf')
+    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_p_h1_xz.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE p(H_1 | x, z) boxplot to {pdf_path}")
 
@@ -455,7 +445,7 @@ for J in J_GRID:
         categories=['analytic'] + [f'mu_{j}' for j in j_repr],
         ordered=True,
     )
-    bar.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_bars.pkl'))
+    bar.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_bars.pkl'))
 
     p = (
         ggplot(bar, aes(x='interim_date', y='pps', fill='fill_key'))
@@ -484,7 +474,7 @@ for J in J_GRID:
         + labs(x='interim date',
                y='PPS = int P(p(H_1j | x, z) > eta) dz')
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_bars.pdf')
+    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_bars.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE PPS bar chart to {pdf_path}")
 
@@ -582,7 +572,7 @@ for J in J_GRID:
         + labs(x='interim date',
                y='PPS = int P(p(H_1j | x, z) > eta) dz')
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_bars_all.pdf')
+    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_bars_all.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE 'all' PPS bar chart to {pdf_path}")
 
@@ -642,7 +632,7 @@ for J in J_GRID:
         + labs(x='Interim',
                y='p(H_1j | x, z) for predicted z samples')
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_p_h1_xz_all.pdf')
+    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_p_h1_xz_all.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE 'all' p(H_1 | x, z) boxplot to {pdf_path}")
 
@@ -666,7 +656,7 @@ for J in J_GRID:
     from ggsci import pal_simpsons
     simpsons_colours = pal_simpsons()(len(order))
     scatter.to_pickle(
-        os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_scatter.pkl'),
+        os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_scatter.pkl'),
     )
 
     p = (
@@ -694,7 +684,7 @@ for J in J_GRID:
         + labs(x='p(H_1j | x, z) analytic',
                y='p(H_1j | x, z) RGE')
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_scatter.pdf')
+    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_scatter.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved RGE vs analytic scatter to {pdf_path}")
 
@@ -722,7 +712,7 @@ for J in J_GRID:
         })
     rge_stats = pd.DataFrame(rge_stats_rows)
     rge_stats.to_pickle(
-        os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGE_stats.pkl'),
+        os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEQ_stats.pkl'),
     )
 
     wa_small = wa_all[wa_all['j'].isin(j_repr)].copy()
@@ -750,11 +740,49 @@ for J in J_GRID:
         lambda r: f"R2={100 * r:.1f}%",
     )
 
+    # Precompute per-facet QuantReg line at tau = 1 - eta_H so we can
+    # overlay via geom_line (plotnine's geom_smooth has no 'quantile' method).
+    tau_used = 1.0 - pps_ProbH1_thresh
+    from plotnine import geom_line
+    _line_parts = []
+    for (imy, resp_lab), gg in wa_small.groupby(
+            ['interim_month_year', 'response_label'], observed=True):
+        mask = np.isfinite(gg['w_ratio']) & np.isfinite(gg['pps_ratio_x'])
+        ggf = gg[mask]
+        if len(ggf) < 3:
+            continue
+        w = ggf['w_ratio'].to_numpy()
+        y = ggf['pps_ratio_x'].to_numpy()
+        X_fit = sm.add_constant(w)
+        try:
+            res = sm.QuantReg(y, X_fit).fit(q=tau_used, max_iter=5000)
+        except Exception:
+            continue
+        w_grid = np.linspace(float(w.min()), float(w.max()), 50)
+        X_pred = sm.add_constant(w_grid)
+        y_pred = np.asarray(res.predict(X_pred), dtype=float)
+        _line_parts.append(pd.DataFrame({
+            'interim_month_year': imy,
+            'response_label':     resp_lab,
+            'w_ratio':            w_grid,
+            'pps_ratio_x':        y_pred,
+        }))
+    _qline = pd.concat(_line_parts, ignore_index=True) if _line_parts else pd.DataFrame()
+    if not _qline.empty:
+        _qline['interim_month_year'] = pd.Categorical(
+            _qline['interim_month_year'], categories=order, ordered=True,
+        )
+        _qline['response_label'] = pd.Categorical(
+            _qline['response_label'], categories=j_label_cats, ordered=True,
+        )
+
     p = (
         ggplot(wa_small, aes(x='w_ratio', y='pps_ratio_x'))
         + geom_point(alpha=0.3, size=0.6, colour='#009392')
-        + geom_smooth(method='glm', method_args={'family': 'gaussian'},
-                      se=True, colour='black', size=0.7)
+        + geom_line(_qline, aes(x='w_ratio', y='pps_ratio_x'),
+                    colour='black', size=0.7, inherit_aes=False)
+        + geom_hline(yintercept=pps_H1_def, colour='#009392',
+                     linetype='dashed', size=0.5)
         + geom_text(rge_stats_small,
                     aes(x='x_left', y='y_top', label='rho_label'),
                     ha='left', va='top', size=8, inherit_aes=False)
@@ -768,8 +796,8 @@ for J in J_GRID:
                 strip_text=element_text(face='bold'),
                 legend_position='none')
         + labs(x='empirical endpoint summary w(z) = mean(z_j) - mu_0',
-               y='endpoint mu_j - mu_0 from posterior draws')
+               y=f'endpoint mu_j - mu_0 (quantile line at tau={tau_used:.3f})')
     )
     pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_endpointratio_vs_wratio.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
-    print(f"J={J}: saved RGE diagnostic scatter to {pdf_path}")
+    print(f"J={J}: saved RGEQ diagnostic scatter to {pdf_path}")

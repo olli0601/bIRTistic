@@ -8,7 +8,9 @@ Loads the per-method artifacts produced by
   - SVI nested-MC (refit)        : ``Binomial_interim_analyses_with_nested_MC_svi_autodiagnormal.py``
   - IS (reweight)                : ``Binomial_interim_analyses_with_IS_from_x.py``
   - Regression H1x (Strong-Oakley): ``Binomial_interim_analysis_regression_H1x_on_wz.py``
-  - Regression endptx (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz.py``
+  - Regression endptx (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``
+  - Regression endptx quantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py``
+  - Regression endptx mquantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py``
 
 and emits four figures comparing them against the closed-form analytic PPS
 (common across all five runs):
@@ -71,6 +73,8 @@ dir_svi = os.path.join(_sandbox, "py-binomial-interim-with-nested-MC-svi-autodia
 dir_is = os.path.join(_sandbox, "py-binomial-interim-with-IS-260605")
 dir_rg = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-H1x-wz-260606")
 dir_rge = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-260606")
+dir_rgeq = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-quantile-regr-260702")
+dir_rgem = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
 dir_out = os.path.join(_sandbox, "py-binomial-interim-compare-methods-260606")
 os.makedirs(dir_out, exist_ok=True)
 
@@ -79,7 +83,9 @@ method_order = [
     'nested-MC using SVI for each (x,z)',
     'IS reweighting of theta|x',
     'Regression of H1-x on w(z)',
-    'Regression of endpt-x on w(z)',
+    'Regression of endpt-x on w(z) using Gaussian approx',
+    'Regression of endpt-x on w(z) - quantile',
+    'Regression of endpt-x on w(z) - mquantile',
 ]
 method_colours = dict(zip(method_order, _futurama_palette(len(method_order))))
 
@@ -111,6 +117,8 @@ p_h1_xz_svi = _load_p_h1_xz(dir_svi, 'binomial_interim_pps_p_h1_xz.pkl')
 p_h1_xz_is = _load_p_h1_xz(dir_is, 'pps_p_h1_xz_IS.pkl')
 p_h1_xz_rg = _load_p_h1_xz(dir_rg, 'binomial_interim_pps_RG_p_h1_xz.pkl')
 p_h1_xz_rge = _load_p_h1_xz(dir_rge, 'binomial_interim_pps_RGE_p_h1_xz.pkl')
+p_h1_xz_rgeq = _load_p_h1_xz(dir_rgeq, 'binomial_interim_pps_RGEQ_p_h1_xz.pkl')
+p_h1_xz_rgem = _load_p_h1_xz(dir_rgem, 'binomial_interim_pps_RGEM_p_h1_xz.pkl')
 
 p_h1_xz = pd.concat(
     [
@@ -118,7 +126,9 @@ p_h1_xz = pd.concat(
         p_h1_xz_svi.assign(method='nested-MC using SVI for each (x,z)'),
         p_h1_xz_is.assign(method='IS reweighting of theta|x'),
         p_h1_xz_rg.assign(method='Regression of H1-x on w(z)'),
-        p_h1_xz_rge.assign(method='Regression of endpt-x on w(z)'),
+        p_h1_xz_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
+        p_h1_xz_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
+        p_h1_xz_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
     ],
     ignore_index=True,
 )
@@ -133,6 +143,12 @@ pps_rg = pd.read_csv(os.path.join(dir_rg, 'binomial_interim_pps_RG.csv'))[
 pps_rge = pd.read_csv(os.path.join(dir_rge, 'binomial_interim_pps_RGE.csv'))[
     ['interim_id', 'interim_date', 'interim_month_year', 'pps']
 ]
+pps_rgeq = pd.read_csv(os.path.join(dir_rgeq, 'binomial_interim_pps_RGEQ.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
+pps_rgem = pd.read_csv(os.path.join(dir_rgem, 'binomial_interim_pps_RGEM.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
 ppsa = pd.read_pickle(
     os.path.join(dir_hmc, 'binomial_interim_pps_closed_form.pkl')
 )[['interim_id', 'interim_date', 'interim_month_year', 'pps']]
@@ -144,7 +160,9 @@ pps = pd.concat(
         pps_svi.assign(method='nested-MC using SVI for each (x,z)'),
         pps_is.assign(method='IS reweighting of theta|x'),
         pps_rg.assign(method='Regression of H1-x on w(z)'),
-        pps_rge.assign(method='Regression of endpt-x on w(z)'),
+        pps_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
+        pps_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
+        pps_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
     ],
     ignore_index=True,
 )
@@ -188,10 +206,17 @@ timing_is = _csv_timing(dir_is, 'pps_timing.csv',
 timing_rg = _csv_timing(dir_rg, 'binomial_interim_pps_RG_timing.csv',
                         p_h1_xz_rg, 'Regression of H1-x on w(z)')
 timing_rge = _csv_timing(dir_rge, 'binomial_interim_pps_RGE_timing.csv',
-                         p_h1_xz_rge, 'Regression of endpt-x on w(z)')
+                         p_h1_xz_rge, 'Regression of endpt-x on w(z) using Gaussian approx')
+timing_rgeq = _csv_timing(dir_rgeq, 'binomial_interim_pps_RGEQ_timing.csv',
+                          p_h1_xz_rgeq,
+                          'Regression of endpt-x on w(z) - quantile')
+timing_rgem = _csv_timing(dir_rgem, 'binomial_interim_pps_RGEM_timing.csv',
+                          p_h1_xz_rgem,
+                          'Regression of endpt-x on w(z) - mquantile')
 
 timing = pd.concat(
-    [timing_hmc, timing_svi, timing_is, timing_rg, timing_rge],
+    [timing_hmc, timing_svi, timing_is, timing_rg, timing_rge, timing_rgeq,
+     timing_rgem],
     ignore_index=True,
 )
 
@@ -240,8 +265,18 @@ timing['method'] = pd.Categorical(
 # Futurama fill colours. Quantiles q025/q25/q50/q75/q975 per (interim, method).
 # =============================================================================
 
+# Drop quantile method: its p_h1_xz is a hard 0/1 label, not a probability,
+# so the boxplot mixes semantically-different quantities. The quantile method
+# still appears in the PPS bar chart and timing plot below.
+p_h1_xz_for_box = p_h1_xz[
+    p_h1_xz['method'] != 'Regression of endpt-x on w(z) - quantile'
+].copy()
+p_h1_xz_for_box['method'] = (
+    p_h1_xz_for_box['method'].cat.remove_unused_categories()
+)
+
 box_stats = (
-    p_h1_xz
+    p_h1_xz_for_box
     .groupby(['interim_month_year', 'method'], observed=True)['p_h1_xz']
     .agg(
         q025=lambda s: s.quantile(0.025),

@@ -62,10 +62,10 @@ DIR_OUT = os.path.join(
 )
 SIM_PKL = os.path.join(DIR_OUT, 'mvn_sim_data.pkl')
 
-PPS_Z_TOTAL = 200
-HMC_CHAINS = 2
-HMC_ITER_WARMUP = 200
-HMC_ITER_SAMPLING = 300
+PPS_Z_TOTAL = 4000
+HMC_CHAINS = 4
+HMC_ITER_WARMUP = 500
+HMC_ITER_SAMPLING = 1000
 
 # %%
 

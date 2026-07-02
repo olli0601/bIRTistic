@@ -14,20 +14,20 @@ binomial GLM, here we fit a Gaussian GLM on the continuous ``pps_ratio_x``:
   - W^(s) := per-item summary of z^(s) at baseline and endline (see
              :func:`get_interim_endpt_and_w_from_poi` for details).
 
-Per item we fit ``pps_ratio_x ~ w_ratio`` and convert the predictive
-distribution of ratio | W(z) into a label probability via
-``p_h1_xz = P(ratio > pps_H1_def | W) = 1 - Phi((pps_H1_def - mu_hat) / sigma_hat)``,
-using the fitted residual SD. The PPS is the Monte-Carlo average
+Per item we fit a linear conditional-quantile regression
+``Q_{1-eta_H}(pps_ratio_x | w_ratio)`` via ``statsmodels.QuantReg``
+(pinball loss), then set the label indicator ``p_h1_xz = 1{Q_hat > pps_H1_def}``
+— no Gaussian step, no plug-in variance. The PPS is the Monte-Carlo average
 ``S^-1 sum_s 1{p_h1_xz(W(z^(s))) > pps_ProbH1_thresh}``.
 
-Outputs (``_RGE_`` suffix to distinguish from the H1x ``_RG_`` variant):
+Outputs (``_RGEQ_`` suffix to distinguish from the H1x ``_RG_`` variant):
 p_h1_xz pkl, PPS csv, box-stats pkl, p_h1_xz boxplot, perf long-form pkl
 (rho / R^2 / time(min)), timing csv, plus a per-interim diagnostic scatter
 (w_ratio vs pps_ratio_x with Gaussian-GLM smoother + rho / R^2 annotations).
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Ukraine_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py
+    pixi run python scripts-py/Ukraine_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py
 """
 
 # %%
@@ -63,7 +63,7 @@ warnings.filterwarnings('ignore')
 from data_loading import read_data_ukraine
 from model_pcm import PartialCreditModel
 from fit_interim import (
-    fit_interim_regress_endptx_on_wz_with_Gaussian_approx,
+    fit_interim_regress_endptx_on_wz_with_quantile_regr,
     fit_interim_regress_H1x_on_wz_per_item_summary,
 )
 from utils import _futurama_palette
@@ -81,7 +81,7 @@ seed = 123
 
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
 file_data = os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv")
-dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-regression-on-endptx-wz-260601"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-regression-on-endptx-wz-quantile-regr-260702"
 os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "pcm_1_interim"
@@ -227,8 +227,8 @@ for interim_id in di['interim_id']:
     print(f"  saved training pkl: {pkl_path}")
 
     # do regression of endpoint on w(x)
-    p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(
-        wa, pps_H1_def=pps_H1_def,
+    p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_quantile_regr(
+        wa, pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
     )
     p_h1_xz_interim['interim_id'] = interim_id
     p_h1_xz_interim['interim_date'] = interim_date
@@ -262,11 +262,11 @@ pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round(mins_total, 3)
 print(f"\nAll interims RGE-PPS done in {mins_total:.2f} min")
 
-perf_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf.csv"), index=False)
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz.pkl")
+perf_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_perf.csv"), index=False)
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz.pkl")
 p_h1_xz.to_pickle(pkl_path)
 print(f"Saved RGE P(H_1 | x, z) samples to: {pkl_path}")
-pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_timing.csv"), index=False)
+pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_timing.csv"), index=False)
 
 pps_df = (
     p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type',
@@ -276,7 +276,7 @@ pps_df = (
 )
 pps_df['eta'] = pps_ProbH1_thresh
 pps_df['S'] = pps_z_total
-pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE.csv"), index=False)
+pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ.csv"), index=False)
 print(pps_df.head(10).to_string(index=False))
 
 perf = perf_all.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
@@ -298,8 +298,8 @@ perf_long['metric'] = pd.Categorical(
     perf_long['metric'].map(metric_labels),
     categories=list(metric_labels.values()), ordered=True,
 )
-perf_long['method'] = 'Regression endpt (Strong-Oakley)'
-perf_long.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf_long.pkl"))
+perf_long['method'] = 'Regression endpt quantile (Strong-Oakley)'
+perf_long.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_perf_long.pkl"))
 print(f"Saved RGE performance long-form pkl.")
 
 # %%
@@ -336,7 +336,7 @@ box_stats = (
     )
     .reset_index()
 )
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pkl")
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz_boxplot.pkl")
 box_stats.to_pickle(pkl_path)
 print(f"Saved RGE p(H_1 | x, z) box-stats to: {pkl_path}")
 
@@ -367,7 +367,7 @@ p = (
     )
     + labs(x='Interim', y='p(H_1 | x, z)  [Regression endpt (Strong-Oakley)]')
 )
-box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pdf")
+box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz_boxplot.pdf")
 p.save(box_pdf, verbose=False, limitsize=False)
 print(f"Saved RGE p(H_1 | x, z) boxplot to: {box_pdf}")
 
@@ -420,4 +420,4 @@ for interim_id in di['interim_id']:
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"  saved diagnostic plot: {pdf_path}")
 
-print("\n✓ regression-endptx PPS + diagnostic plots complete for all interims")
+print("\n✓ regression-endptx-quantile PPS + diagnostic plots complete for all interims")

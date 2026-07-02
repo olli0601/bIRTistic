@@ -871,7 +871,7 @@ def fit_interim_regress_H1x_on_wz(wa: pd.DataFrame):
     return p_h1_xz, perf
 
 
-def fit_interim_regress_endptx_on_wz(wa: pd.DataFrame, pps_H1_def: float = 0.5):
+def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_H1_def: float = 0.5):
     """
     Per-item Strong-Oakley regression label using the continuous endpoint ratio
     as the target (more discriminative than binarising to ``pps_H1_x``).
@@ -932,6 +932,198 @@ def fit_interim_regress_endptx_on_wz(wa: pd.DataFrame, pps_H1_def: float = 0.5):
         gout['p_h1_xz'] = pi_hat
         gout['mu_hat'] = mu_hat
         gout['sigma_hat'] = sigma
+        gout['s'] = gout['draw'].astype(int) + 1
+        p_rows.append(gout.drop(columns='draw'))
+
+        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
+        perf_rows.append({
+            'item_label': item, 'item_type': g['item_type'].iloc[0],
+            'rho': float(s['rho']), 'r2': float(s['r2']),
+        })
+
+    p_h1_xz = pd.concat(p_rows, ignore_index=True)
+    perf = pd.DataFrame(perf_rows)
+    return p_h1_xz, perf
+
+
+def fit_interim_regress_endptx_on_wz_with_quantile_regr(
+    wa: pd.DataFrame,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+):
+    """
+    Per-item Strong-Oakley regression label using the continuous endpoint ratio
+    as the target, but with a conditional-quantile regressor at level
+    ``tau = 1 - pps_ProbH1_thresh`` instead of the mean + Gaussian approximation.
+
+    The decision rule
+    ``P(H_1 | x, z) > eta_H``
+    is equivalent (for a continuous predictive distribution) to
+    ``Q_{1 - eta_H}(rho | x, w(z)) > eta_0``,
+    where ``Q_tau`` is the lower ``tau``-quantile of the effect ratio ``rho``
+    conditional on ``x`` and ``w(z)``. Estimating the quantile directly folds
+    ``pps_ProbH1_thresh`` into the regression target and removes any
+    Gaussian / homoskedastic assumption on the residuals.
+
+    Fit a linear quantile regression ``pps_ratio_x ~ w_ratio`` at
+    ``tau = 1 - pps_ProbH1_thresh`` via ``statsmodels.QuantReg`` (pinball loss).
+    The predicted quantile at each row is compared to ``pps_H1_def`` and the
+    resulting 0/1 label is stored in ``p_h1_xz``. Downstream Monte-Carlo
+    averaging ``mean(p_h1_xz > pps_ProbH1_thresh) == mean(p_h1_xz == 1) == PPS``
+    works unchanged because 1 > any threshold in (0,1) and 0 <= any threshold
+    in (0,1).
+
+    When ``w_ratio`` is degenerate or the quantile fit fails, falls back to
+    the unconditional empirical quantile of ``pps_ratio_x``.
+
+    Returns
+    -------
+    (p_h1_xz, perf) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, draw) with ``item_label``,
+          ``item_type``, ``item_high_label``, ``p_h1_xz`` (0 or 1),
+          ``q_hat`` (predicted conditional quantile), ``tau`` (level used),
+          ``s`` (= draw + 1).
+        - ``perf``: one row per item with ``item_label``, ``item_type``,
+          ``rho`` and ``r2`` (shared summary with the Gaussian variant).
+    """
+    tau = 1.0 - float(pps_ProbH1_thresh)
+
+    p_rows = []
+    perf_rows = []
+    for item in wa['item_label'].unique():
+        g = wa[wa['item_label'] == item].copy()
+        mask = np.isfinite(g['w_ratio']) & np.isfinite(g['pps_ratio_x'])
+        g_ok = g[mask]
+        if len(g_ok) < 3:
+            q_const = (float(g['pps_ratio_x'].quantile(tau))
+                       if len(g) else np.nan)
+            q_hat = np.full(len(g), q_const, dtype=float)
+        else:
+            X_fit = sm.add_constant(g_ok['w_ratio'].to_numpy())
+            try:
+                res = sm.QuantReg(
+                    g_ok['pps_ratio_x'].to_numpy(), X_fit,
+                ).fit(q=tau, max_iter=5000)
+                w_fill = float(np.nanmedian(g['w_ratio']))
+                X_all = sm.add_constant(g['w_ratio'].fillna(w_fill).to_numpy())
+                q_hat = np.asarray(res.predict(X_all), dtype=float)
+            except Exception:
+                q_hat = np.full(
+                    len(g),
+                    float(g_ok['pps_ratio_x'].quantile(tau)),
+                    dtype=float,
+                )
+
+        pi_hat = (q_hat > pps_H1_def).astype(float)
+
+        gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
+        gout['p_h1_xz'] = pi_hat
+        gout['q_hat'] = q_hat
+        gout['tau'] = tau
+        gout['s'] = gout['draw'].astype(int) + 1
+        p_rows.append(gout.drop(columns='draw'))
+
+        s = fit_interim_regress_H1x_on_wz_per_item_summary(g)
+        perf_rows.append({
+            'item_label': item, 'item_type': g['item_type'].iloc[0],
+            'rho': float(s['rho']), 'r2': float(s['r2']),
+        })
+
+    p_h1_xz = pd.concat(p_rows, ignore_index=True)
+    perf = pd.DataFrame(perf_rows)
+    return p_h1_xz, perf
+
+
+def fit_interim_regress_endptx_on_wz_with_mquantile_regr(
+    wa: pd.DataFrame,
+    pps_H1_def: float = 0.5,
+    pps_ProbH1_thresh: float = 0.89,
+    taus=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95),
+):
+    """
+    Rao-Blackwellised multi-quantile-regression variant of
+    :func:`fit_interim_regress_endptx_on_wz_with_quantile_regr`.
+
+    Fits one linear quantile regression ``pps_ratio_x ~ w_ratio`` per level in
+    ``taus`` via ``statsmodels.QuantReg``. For each row, the fitted quantiles
+    are stacked into a monotone-non-decreasing predicted CDF grid (quantile
+    crossings fixed by cumulative maximum along tau); the conditional CDF at
+    ``pps_H1_def`` is obtained by linear interpolation. The output
+    ``p_h1_xz = 1 - F_hat(pps_H1_def | w) in [0, 1]`` is a **continuous**
+    Monte-Carlo label with lower variance than the single-tau binary
+    indicator, at the cost of ``len(taus)`` QuantReg fits per item.
+
+    Downstream ``mean(p_h1_xz > pps_ProbH1_thresh)`` still gives the PPS.
+
+    When ``w_ratio`` is degenerate or a fit fails, falls back to the
+    unconditional empirical CDF of ``pps_ratio_x`` at ``pps_H1_def``.
+
+    Returns
+    -------
+    (p_h1_xz, perf) : tuple of pd.DataFrame
+        - ``p_h1_xz``: one row per (item, draw) with ``item_label``,
+          ``item_type``, ``item_high_label``, ``p_h1_xz`` in [0, 1],
+          ``q_hat`` (predicted median at that row), ``s`` (= draw + 1).
+        - ``perf``: one row per item with ``item_label``, ``item_type``,
+          ``rho`` and ``r2`` (shared summary with the Gaussian variant).
+    """
+    taus_arr = np.asarray(sorted(float(t) for t in taus), dtype=float)
+    if taus_arr.min() <= 0 or taus_arr.max() >= 1:
+        raise ValueError("taus must lie strictly in (0, 1).")
+    med_idx = int(np.argmin(np.abs(taus_arr - 0.5)))
+
+    p_rows = []
+    perf_rows = []
+    for item in wa['item_label'].unique():
+        g = wa[wa['item_label'] == item].copy()
+        mask = np.isfinite(g['w_ratio']) & np.isfinite(g['pps_ratio_x'])
+        g_ok = g[mask]
+        if len(g_ok) < 3:
+            ecdf = (float((g['pps_ratio_x'] <= pps_H1_def).mean())
+                    if len(g) else np.nan)
+            pi_hat = np.full(len(g), 1.0 - ecdf, dtype=float)
+            q_hat = np.full(
+                len(g),
+                float(g['pps_ratio_x'].quantile(0.5)) if len(g) else np.nan,
+                dtype=float,
+            )
+        else:
+            w_fit = g_ok['w_ratio'].to_numpy()
+            y_fit = g_ok['pps_ratio_x'].to_numpy()
+            X_fit = sm.add_constant(w_fit)
+            w_fill = float(np.nanmedian(g['w_ratio']))
+            X_all = sm.add_constant(g['w_ratio'].fillna(w_fill).to_numpy())
+            try:
+                preds = np.empty((X_all.shape[0], len(taus_arr)), dtype=float)
+                for k, tau_k in enumerate(taus_arr):
+                    res_k = sm.QuantReg(y_fit, X_fit).fit(
+                        q=float(tau_k), max_iter=5000,
+                    )
+                    preds[:, k] = np.asarray(
+                        res_k.predict(X_all), dtype=float,
+                    )
+                # Fix quantile crossings by cumulative max along tau.
+                preds = np.maximum.accumulate(preds, axis=1)
+                # F(eta_0 | w) via linear interp over (q_hat, tau) grid.
+                F = np.array([
+                    float(np.interp(pps_H1_def, row, taus_arr,
+                                    left=0.0, right=1.0))
+                    for row in preds
+                ])
+                pi_hat = 1.0 - F
+                q_hat = preds[:, med_idx]
+            except Exception:
+                ecdf = float((g_ok['pps_ratio_x'] <= pps_H1_def).mean())
+                pi_hat = np.full(len(g), 1.0 - ecdf, dtype=float)
+                q_hat = np.full(
+                    len(g),
+                    float(g_ok['pps_ratio_x'].quantile(0.5)),
+                    dtype=float,
+                )
+
+        gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
+        gout['p_h1_xz'] = pi_hat
+        gout['q_hat'] = q_hat
         gout['s'] = gout['draw'].astype(int) + 1
         p_rows.append(gout.drop(columns='draw'))
 

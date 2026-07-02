@@ -7,7 +7,9 @@ Standalone. Loads per-J per-method artifacts from:
 
   - HMC nested-MC : ``MVN_interim_analyses_with_nested_MC_hmc.py``
   - IS reweighting : ``MVN_interim_analyses_with_IS_from_x.py``
-  - Regression endpt-x : ``MVN_interim_analysis_regression_endptx_on_wz.py``
+  - Regression endpt-x (Gaussian approx)  : ``MVN_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``
+  - Regression endpt-x (quantile regr)    : ``MVN_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py``
+  - Regression endpt-x (multi-quantile)   : ``MVN_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py``
 
 and the closed-form analytic PPS from the simulations directory. Emits
 four PDFs per J:
@@ -72,14 +74,18 @@ _sandbox = "/Users/or105/sandbox/bIRTistic"
 DIR_SIM = os.path.join(_sandbox, "py-mvn-interim-simulations-260609")
 DIR_HMC = os.path.join(_sandbox, "py-mvn-interim-with-nested-MC-hmc-260609")
 DIR_IS  = os.path.join(_sandbox, "py-mvn-interim-with-IS-260611")
-DIR_RGE = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-260611")
-DIR_OUT = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
+DIR_RGE  = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-260611")
+DIR_RGEQ = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-quantile-regr-260702")
+DIR_RGEM = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
+DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
 METHOD_ORDER = [
     'nested-MC using HMC for each (x,z)',
     'IS reweighting of theta|x',
-    'Regression of endpt-x on w(z)',
+    'Regression of endpt-x on w(z) using Gaussian approx',
+    'Regression of endpt-x on w(z) - quantile',
+    'Regression of endpt-x on w(z) - mquantile',
 ]
 method_colours = dict(zip(METHOD_ORDER, _futurama_palette(len(METHOD_ORDER))))
 pps_colours = {'analytic': '#000000', **method_colours}
@@ -166,7 +172,7 @@ for J in J_GRID:
     )[['interim_id', 'interim_date', 'interim_month_year', 's',
        'ess', 'ess_over_n']].copy()
 
-    # ---- RGE per-J slices ----
+    # ---- RGE per-J slices (Gaussian approx) ----
     rge_p = pd.read_pickle(
         os.path.join(DIR_RGE, f'mvn_J{J}_pps_RGE_p_h1_xz.pkl'),
     )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
@@ -180,13 +186,43 @@ for J in J_GRID:
     )[['interim_id', 'interim_date', 'interim_month_year',
        'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
 
+    # ---- RGEQ per-J slices (quantile regression) ----
+    rgeq_p = pd.read_pickle(
+        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rgeq_pps = pd.read_csv(
+        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rgeq_timing = pd.read_csv(
+        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
+    # ---- RGEM per-J slices (multi-quantile regression) ----
+    rgem_p = pd.read_pickle(
+        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rgem_pps = pd.read_csv(
+        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rgem_timing = pd.read_csv(
+        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
     # ---- Stack methods ----
     p_h1_xz = pd.concat(
         [
-            an_p .assign(method='analytic'),
-            hmc_p.assign(method='nested-MC using HMC for each (x,z)'),
-            is_p .assign(method='IS reweighting of theta|x'),
-            rge_p.assign(method='Regression of endpt-x on w(z)'),
+            an_p  .assign(method='analytic'),
+            hmc_p .assign(method='nested-MC using HMC for each (x,z)'),
+            is_p  .assign(method='IS reweighting of theta|x'),
+            rge_p .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
+            rgeq_p.assign(method='Regression of endpt-x on w(z) - quantile'),
+            rgem_p.assign(method='Regression of endpt-x on w(z) - mquantile'),
         ],
         ignore_index=True,
     )
@@ -195,17 +231,21 @@ for J in J_GRID:
             pps_cf[pps_cf['J'] == J][[
                 'interim_id', 'interim_date', 'interim_month_year', 'j', 'pps',
             ]].assign(method='analytic'),
-            hmc_pps.assign(method='nested-MC using HMC for each (x,z)'),
-            is_pps .assign(method='IS reweighting of theta|x'),
-            rge_pps.assign(method='Regression of endpt-x on w(z)'),
+            hmc_pps .assign(method='nested-MC using HMC for each (x,z)'),
+            is_pps  .assign(method='IS reweighting of theta|x'),
+            rge_pps .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
+            rgeq_pps.assign(method='Regression of endpt-x on w(z) - quantile'),
+            rgem_pps.assign(method='Regression of endpt-x on w(z) - mquantile'),
         ],
         ignore_index=True,
     )
     timing = pd.concat(
         [
-            hmc_timing.assign(method='nested-MC using HMC for each (x,z)'),
-            is_timing .assign(method='IS reweighting of theta|x'),
-            rge_timing.assign(method='Regression of endpt-x on w(z)'),
+            hmc_timing .assign(method='nested-MC using HMC for each (x,z)'),
+            is_timing  .assign(method='IS reweighting of theta|x'),
+            rge_timing .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
+            rgeq_timing.assign(method='Regression of endpt-x on w(z) - quantile'),
+            rgem_timing.assign(method='Regression of endpt-x on w(z) - mquantile'),
         ],
         ignore_index=True,
     )
@@ -244,9 +284,18 @@ for J in J_GRID:
             categories=response_label_cats, ordered=True,
         )
 
-    # ---- Plot 1: p(H_1j | x, z) boxplot, faceted by response, dodged by method ----
+    # ---- Plot 1: p(H_1j | x, z) boxplot, faceted by response, dodged by method.
+    # ---- Drop quantile method: its p_h1_xz is a hard 0/1 label, not a
+    # ---- probability, so the boxplot would mix semantically-different quantities.
+    # ---- Quantile method still appears in PPS bars, timing, and MSE below.
+    p_h1_xz_g_box = p_h1_xz_g[
+        p_h1_xz_g['method'] != 'Regression of endpt-x on w(z) - quantile'
+    ].copy()
+    p_h1_xz_g_box['method'] = (
+        p_h1_xz_g_box['method'].cat.remove_unused_categories()
+    )
     box_stats = (
-        p_h1_xz_g
+        p_h1_xz_g_box
         .groupby(['response_label', 'interim_month_year', 'method'],
                  observed=True)['p_h1_xz']
         .agg(

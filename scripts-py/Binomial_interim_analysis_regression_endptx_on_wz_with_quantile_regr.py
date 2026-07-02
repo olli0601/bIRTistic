@@ -1,36 +1,28 @@
 #!/usr/bin/env python3
 """
 Binomial interim analysis: regression-based EVSI labels (Strong & Oakley,
-2014), continuous-target variant.
+2014), continuous-target variant with **conditional-quantile regression**
+instead of the Gaussian mean + variance approximation used by
+``Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``.
 
-Mirrors ``Ukraine_interim_analysis_regression_endptx_on_wz.py`` but on the
-§3.1 Beta-Bernoulli example (``N = 500`` Bernoulli observations with true
-``p = 0.4`` over one year of monthly interim cutoffs). Per interim:
+Fits, per interim,
 
-  - draw  p^(s) ~ p(p | x)             (x-fit posterior draws; numpyro NUTS)
-  - draw  z^(s) ~ p(z | p^(s))         (posterior-predictive ypred)
-  - y^(s) := 1 - p^(s) / p_0           (continuous endpoint ratio from x)
-  - W^(s) := 1 - mean(ypred^(s)) / p_0 (per-draw summary of z^(s))
+    Q_{1 - eta_H}(rho | x, w(z))  ~  pinball loss on {(w^(s), rho^(s))}
 
-Per item we fit a Gaussian GLM ``pps_ratio_x ~ w_ratio`` on the S training
-rows and convert the predictive distribution of ratio | W(z) into a label
-probability via
-``p_h1_xz = P(ratio > pps_H1_def | W) = 1 - Phi((pps_H1_def - mu_hat) / sigma_hat)``,
-using the fitted residual SD. The PPS is the Monte-Carlo average
-``S^-1 sum_s 1{p_h1_xz(W(z^(s))) > pps_ProbH1_thresh}``.
+with a linear ``statsmodels.QuantReg`` at tau = 1 - eta_H, so
+``P(H_1 | x, z) > eta_H`` is equivalent to ``Q_hat > eta_0`` — no Gaussian
+step, no plug-in variance.
 
-A closed-form analytic PPS reference (``model.fit_closed_form_pps``) is
-also computed.
-
-Outputs (``_RGE_`` suffix; matches the Ukraine regression script):
+Outputs (``_RGEQ_`` suffix so compare-methods can load them next to the
+Gaussian ``_RGE_`` variant):
 p_h1_xz pkl, PPS csv, box-stats pkl, p_h1_xz boxplot, PPS bars with 95%
 bootstrap CI vs analytic, perf long-form pkl (rho / R^2 / time(min)),
-timing csv, plus a per-interim diagnostic scatter
-(w_ratio vs pps_ratio_x with Gaussian-GLM smoother + rho / R^2 annotations).
+timing csv, plus a per-interim diagnostic scatter (w_ratio vs pps_ratio_x
+with quantile-regression line + rho / R^2 annotations).
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py
+    pixi run python scripts-py/Binomial_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py
 """
 
 # %%
@@ -65,7 +57,7 @@ warnings.filterwarnings('ignore')
 
 from model_binomial import BinomialModel
 from fit_interim import (
-    fit_interim_regress_endptx_on_wz_with_Gaussian_approx,
+    fit_interim_regress_endptx_on_wz_with_quantile_regr,
     fit_interim_regress_H1x_on_wz_per_item_summary,
 )
 
@@ -94,7 +86,7 @@ hmc_chains = 4
 hmc_iter_warmup = 500
 hmc_iter_sampling = 1000
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-with-regression-on-endptx-wz-260606"
+dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-with-regression-on-endptx-wz-quantile-regr-260702"
 os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "binomial_interim"
@@ -191,7 +183,7 @@ print(f"\nClosed-form PPS table:\n{ppsa.to_string(index=False)}")
 #   1. fit x-posterior on xi (pyro_HMC, resume=True)
 #   2. build zi keeping posterior-draw order
 #   3. wa = model.get_w(zi) + model.get_endpoints_per_draw -> pps_ratio_x
-#   4. fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa) -> per-draw p_h1_xz
+#   4. fit_interim_regress_endptx_on_wz_with_quantile_regr(wa)
 # =============================================================================
 
 p_h1_xz_rows = []
@@ -210,7 +202,7 @@ for i in range(len(di)):
     interim_m = n_full - n_obs
     if interim_m <= 0:
         print(f"\n[interim {interim_id}] skipped: no missing participants"); continue
-    print(f"\n{'='*70}\nRegression-endptx for interim {interim_id} ({interim_date.date()})\n{'='*70}")
+    print(f"\n{'='*70}\nRegression-endptx (quantile) for interim {interim_id} ({interim_date.date()})\n{'='*70}")
     print(f"  n_obs={n_obs:,} | m={interim_m}")
 
     t0 = time.time()
@@ -262,9 +254,9 @@ for i in range(len(di)):
     wa.to_pickle(pkl_path)
     print(f"  saved training pkl: {pkl_path}")
 
-    # do regression of endpoint on w(x)
-    p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(
-        wa, pps_H1_def=pps_H1_def,
+    # quantile regression of endpoint on w(x) at tau = 1 - eta_H
+    p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_quantile_regr(
+        wa, pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
     )
     p_h1_xz_interim['interim_id'] = interim_id
     p_h1_xz_interim['interim_date'] = interim_date
@@ -278,10 +270,10 @@ for i in range(len(di)):
     mins_interim_id = (time.time() - t0) / 60.0
     pps_timing_rows.append({'interim_id': interim_id,
                             'mins_interim_id': round(mins_interim_id, 3)})
-    print(f"  interim {interim_id} regression-endptx done in {mins_interim_id:.2f} min")
+    print(f"  interim {interim_id} regression-endptx (quantile) done in {mins_interim_id:.2f} min")
 
 if not p_h1_xz_rows:
-    raise RuntimeError("[RGE-PPS] no interims with missing participants to evaluate.")
+    raise RuntimeError("[RGEQ-PPS] no interims with missing participants to evaluate.")
 
 # %%
 
@@ -297,14 +289,15 @@ perf_all = pd.concat(perf_rows, ignore_index=True)
 mins_total = (time.time() - t_all0) / 60.0
 pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round(mins_total, 3)
-print(f"\nAll interims RGE-PPS done in {mins_total:.2f} min")
+print(f"\nAll interims RGEQ-PPS done in {mins_total:.2f} min")
 
-perf_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf.csv"), index=False)
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz.pkl")
+perf_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_perf.csv"), index=False)
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz.pkl")
 dp_h1_xz.to_pickle(pkl_path)
-print(f"Saved RGE P(H_1 | x, z) samples to: {pkl_path}")
-pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_timing.csv"), index=False)
+print(f"Saved RGEQ P(H_1 | x, z) samples to: {pkl_path}")
+pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_timing.csv"), index=False)
 
+# PPS = mean(p_h1_xz > eta_H) = mean(p_h1_xz == 1) since p_h1_xz in {0, 1}.
 pps_df = (
     dp_h1_xz.groupby(['interim_id', 'interim_date', 'interim_month_year',
                       'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
@@ -313,7 +306,7 @@ pps_df = (
 )
 pps_df['eta'] = pps_ProbH1_thresh
 pps_df['S'] = pps_z_total
-pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE.csv"), index=False)
+pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ.csv"), index=False)
 print(pps_df.to_string(index=False))
 
 perf = perf_all.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
@@ -329,15 +322,17 @@ perf_long['metric'] = pd.Categorical(
     perf_long['metric'].map(metric_labels),
     categories=list(metric_labels.values()), ordered=True,
 )
-perf_long['method'] = 'Regression endpt (Strong-Oakley)'
-perf_long.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf_long.pkl"))
-print(f"Saved RGE performance long-form pkl.")
+perf_long['method'] = 'Regression endpt quantile (Strong-Oakley)'
+perf_long.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_perf_long.pkl"))
+print(f"Saved RGEQ performance long-form pkl.")
 
 # %%
 
 # =============================================================================
-# Plot: per-interim p(H_1 | x, z) boxplot (q025/q25/q50/q75/q975 over the
-# S Monte-Carlo samples), grey50 outline, regression Futurama-style fill.
+# Plot: per-interim p(H_1 | x, z) is a 0/1 label under quantile regression,
+# so the "distribution" degenerates to a stacked bar of the success fraction.
+# We keep the same box-shape output for consistency with the Gaussian pipeline
+# but the interquartile range will collapse to a single value.
 # =============================================================================
 
 order = (
@@ -360,7 +355,7 @@ box_stats = (
     )
     .reset_index()
 )
-box_stats.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pkl"))
+box_stats.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz_boxplot.pkl"))
 
 p = (
     ggplot(
@@ -370,7 +365,7 @@ p = (
             upper='q75', ymax='q975',
             group='interim_month_year'),
     )
-    + geom_boxplot(stat='identity', fill='#9467bd', alpha=0.4, colour='#808080')
+    + geom_boxplot(stat='identity', fill='#8c564b', alpha=0.4, colour='#808080')
     + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
     + theme_bw()
     + theme(
@@ -378,18 +373,18 @@ p = (
         figure_size=(14, 5),
     )
     + labs(
-        x='Interim', y='p(H_1 | x, z) per z draw',        
+        x='Interim', y='p(H_1 | x, z) per z draw (0/1 under quantile regr)',
     )
 )
-tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pdf")
+tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_p_h1_xz_boxplot.pdf")
 p.save(tmp, verbose=False, limitsize=False)
-print(f"Saved RGE p(H_1 | x, z) boxplot to: {tmp}")
+print(f"Saved RGEQ p(H_1 | x, z) boxplot to: {tmp}")
 
 # %%
 
 # =============================================================================
 # Bar chart: PPS per interim_date. Black bar = closed-form analytic PPS;
-# #9467bd bar = regression-endptx PPS. Errorbars = 95% bootstrap CI on the
+# #8c564b bar = quantile-regression PPS. Errorbars = 95% bootstrap CI on the
 # regression PPS (B resamples with replacement of the S MC samples per
 # interim).
 # =============================================================================
@@ -415,7 +410,7 @@ bs['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
 bs['interim_date'] = pd.to_datetime(
     wide.index.get_level_values('interim_date'),
 )
-bs['method'] = 'Regression endptx'
+bs['method'] = 'Regression endptx quantile'
 
 tmp = (
     dp_h1_xz.groupby(
@@ -428,21 +423,21 @@ tmp = (
 tmp = pd.concat(
     [
         ppsa[['interim_id', 'interim_date', 'pps']].assign(method='analytic'),
-        tmp[['interim_id', 'interim_date', 'pps']].assign(method='Regression endptx'),
+        tmp[['interim_id', 'interim_date', 'pps']].assign(method='Regression endptx quantile'),
     ],
     ignore_index=True,
 )
 tmp['interim_date'] = pd.to_datetime(tmp['interim_date'])
 tmp['method'] = pd.Categorical(
-    tmp['method'], categories=['analytic', 'Regression endptx'], ordered=True,
+    tmp['method'], categories=['analytic', 'Regression endptx quantile'], ordered=True,
 )
 tmp = tmp.merge(
     bs[['interim_id', 'method', 'q025', 'q975']],
     on=['method', 'interim_id'], how='left',
 )
-tmp.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_bootstrap.pkl"))
+tmp.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_bootstrap.pkl"))
 
-_bar_colours = {'analytic': '#000000', 'Regression endptx': '#9467bd'}
+_bar_colours = {'analytic': '#000000', 'Regression endptx quantile': '#8c564b'}
 p = (
     ggplot(
         tmp,
@@ -469,18 +464,18 @@ p = (
         fill='method',
     )
 )
-tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGE_bars.pdf")
+tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_bars.pdf")
 p.save(tmp, verbose=False, limitsize=False)
-print(f"Saved RGE PPS bar chart to: {tmp}")
+print(f"Saved RGEQ PPS bar chart to: {tmp}")
 
 # %%
 
 # =============================================================================
 # Diagnostic-plot loop: per-interim w_ratio vs pps_ratio_x scatter with
-# Gaussian-GLM smoother + rho / R^2 annotations.
+# quantile-regression line at tau = 1 - eta_H + rho / R^2 annotations.
 # =============================================================================
 
-print("\nBuilding diagnostic plot (Gaussian fit on pps_ratio_x), one facet per interim...")
+print("\nBuilding diagnostic plot (quantile fit on pps_ratio_x), one facet per interim...")
 wa_parts = []
 for interim_id in di['interim_id']:
     interim_id = int(interim_id)
@@ -511,11 +506,48 @@ _ann = (
 _ann['rho_label'] = _ann['rho'].apply(lambda r: f"ρ={r:.2f}")
 _ann['r2_label'] = _ann['r2'].apply(lambda r: f"R2={100 * r:.1f}%")
 
+tau_used = 1.0 - pps_ProbH1_thresh
+
+# Precompute the quantile-regression line per facet: fit QuantReg on
+# (w_ratio, pps_ratio_x) per (interim_month_year, item_label), then evaluate on
+# a 50-point grid spanning the observed w_ratio range within that facet.
+import statsmodels.api as sm
+_line_parts = []
+for (imy, item), gg in wa_all.groupby(['interim_month_year', 'item_label'],
+                                      observed=True):
+    mask = np.isfinite(gg['w_ratio']) & np.isfinite(gg['pps_ratio_x'])
+    ggf = gg[mask]
+    if len(ggf) < 3:
+        continue
+    w = ggf['w_ratio'].to_numpy()
+    y = ggf['pps_ratio_x'].to_numpy()
+    X_fit = sm.add_constant(w)
+    try:
+        res = sm.QuantReg(y, X_fit).fit(q=tau_used, max_iter=5000)
+    except Exception:
+        continue
+    w_grid = np.linspace(float(w.min()), float(w.max()), 50)
+    X_pred = sm.add_constant(w_grid)
+    y_pred = np.asarray(res.predict(X_pred), dtype=float)
+    _line_parts.append(pd.DataFrame({
+        'interim_month_year': imy,
+        'item_label': item,
+        'w_ratio': w_grid,
+        'pps_ratio_x': y_pred,
+    }))
+_qline = pd.concat(_line_parts, ignore_index=True) if _line_parts else pd.DataFrame()
+if not _qline.empty:
+    _qline['interim_month_year'] = pd.Categorical(
+        _qline['interim_month_year'], categories=order, ordered=True,
+    )
+
+from plotnine import geom_line
 p = (
     ggplot(wa_all, aes(x='w_ratio', y='pps_ratio_x'))
-    + geom_point(alpha=0.3, size=0.5, colour='#9467bd')
-    + geom_smooth(method='glm', method_args={'family': 'gaussian'},
-                  se=True, colour='black', size=0.8)
+    + geom_point(alpha=0.3, size=0.5, colour='#8c564b')
+    + geom_line(_qline, aes(x='w_ratio', y='pps_ratio_x'),
+                colour='black', size=0.8, inherit_aes=False)
+    + geom_hline(yintercept=pps_H1_def, colour='#8c564b', linetype='dashed', size=0.6)
     + geom_text(_ann, aes(x='x_left', y='y_top', label='rho_label'),
                 ha='left', va='top', size=8, inherit_aes=False)
     + geom_text(_ann, aes(x='x_right', y='y_top', label='r2_label'),
@@ -529,10 +561,10 @@ p = (
         legend_position='none',
     )
     + labs(x='empirical endpoint summary w(z)',
-           y='actual endpoint from posterior p(p | x) draws')
+           y=f'actual endpoint from posterior p(p | x) draws (quantile line at tau={tau_used:.3f})')
 )
 pdf_path = os.path.join(dir_out, f"{file_prefix}_endpointratio_vs_wratio.pdf")
 p.save(pdf_path, verbose=False, limitsize=False)
 print(f"  saved combined diagnostic plot: {pdf_path}")
 
-print("\n✓ Binomial regression-endptx PPS + diagnostic plot complete.")
+print("\n✓ Binomial regression-endptx-quantile PPS + diagnostic plot complete.")

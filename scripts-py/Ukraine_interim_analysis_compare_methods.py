@@ -58,12 +58,14 @@ print("✓ Imports successful")
 # %%
 
 _sandbox = "/Users/or105/sandbox/bIRTistic"
-dir_hmc = os.path.join(_sandbox, "py-ukraine-interim-260526")
+dir_hmc = os.path.join(_sandbox, "py-ukraine-interim-with-nested-MC-260526")
 dir_is = os.path.join(_sandbox, "py-ukraine-interim-with-IS-260526")
 dir_mm = os.path.join(_sandbox, "py-ukraine-interim-with-IS-moment-matching-260526")
 dir_smc = os.path.join(_sandbox, "py-ukraine-interim-with-SMC-resample-260526")
 dir_rg = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-H1x-wz-260601")
-dir_rge = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-260601")
+dir_rge  = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-260601")
+dir_rgeq = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-quantile-regr-260702")
+dir_rgem = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
 dir_out = os.path.join(_sandbox, "py-ukraine-interim-compare-methods-260526")
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
@@ -80,16 +82,26 @@ mm_long = pd.read_pickle(os.path.join(dir_mm, f"{file_prefix}_pps_perf_long.pkl"
 smc_long = pd.read_pickle(os.path.join(dir_smc, f"{file_prefix}_pps_perf_long.pkl"))
 rg_long = pd.read_pickle(os.path.join(dir_rg, f"{file_prefix}_pps_RG_perf_long.pkl"))
 rge_long = pd.read_pickle(os.path.join(dir_rge, f"{file_prefix}_pps_RGE_perf_long.pkl"))
+rgeq_long = pd.read_pickle(os.path.join(dir_rgeq, f"{file_prefix}_pps_RGEQ_perf_long.pkl"))
+rgem_long = pd.read_pickle(os.path.join(dir_rgem, f"{file_prefix}_pps_RGEM_perf_long.pkl"))
+
+# Rename Gaussian-approx label so it's explicit alongside the quantile variants.
+rge_long = rge_long.copy()
+rge_long['method'] = 'Regression endpt gauss-approx (Strong-Oakley)'
 
 cols = ['interim_month_year', 'metric', 'value', 'method']
 dc = pd.concat(
-    [is_long[cols], mm_long[cols], smc_long[cols], rg_long[cols], rge_long[cols]],
+    [is_long[cols], mm_long[cols], smc_long[cols], rg_long[cols],
+     rge_long[cols], rgeq_long[cols], rgem_long[cols]],
     ignore_index=True,
 )
 
 interim_order = list(pd.Categorical(is_long['interim_month_year']).categories)
 method_order = ['IS (reweight)', 'IS (moment-match)', 'SMC (resample-move)',
-                'Regression (Strong-Oakley)', 'Regression endpt (Strong-Oakley)']
+                'Regression (Strong-Oakley)',
+                'Regression endpt gauss-approx (Strong-Oakley)',
+                'Regression endpt quantile (Strong-Oakley)',
+                'Regression endpt mquantile (Strong-Oakley)']
 dc['interim_month_year'] = pd.Categorical(
     dc['interim_month_year'], categories=interim_order, ordered=True)
 dc['method'] = pd.Categorical(dc['method'], categories=method_order, ordered=True)
@@ -215,7 +227,11 @@ box_paths = {
     'IS (moment-match)': os.path.join(dir_mm, f"{file_prefix}_pps_p_h1_xz_boxplot.pkl"),
     'SMC (resample-move)': os.path.join(dir_smc, f"{file_prefix}_pps_p_h1_xz_boxplot.pkl"),
     'Regression H1(x) on w(z)': os.path.join(dir_rg, f"{file_prefix}_pps_RG_p_h1_xz_boxplot.pkl"),
-    'Regression endpt(x) on w(z)': os.path.join(dir_rge, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pkl"),
+    'Regression endpt(x) on w(z) gauss-approx': os.path.join(dir_rge, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pkl"),
+    'Regression endpt(x) on w(z) - mquantile': os.path.join(dir_rgem, f"{file_prefix}_pps_RGEM_p_h1_xz_boxplot.pkl"),
+    # Note: quantile method excluded from boxplot — its p_h1_xz is a hard 0/1
+    # label, not a probability, so the box mixes semantically different
+    # quantities. Still shown in perf_long / bar plots above.
 }
 tmp = []
 for m, bp in box_paths.items():
@@ -271,7 +287,9 @@ _boxplot_subset(
     'IS_methods',
 )
 _boxplot_subset(
-    ['HMC', 'Regression H1(x) on w(z)', 'Regression endpt(x) on w(z)'],
+    ['HMC', 'Regression H1(x) on w(z)',
+     'Regression endpt(x) on w(z) gauss-approx',
+     'Regression endpt(x) on w(z) - mquantile'],
     'regression_methods',
 )
 

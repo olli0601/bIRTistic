@@ -25,7 +25,7 @@ if str(_python_dir) not in sys.path:
 from model import Model
 from fit_interim import (
     fit_interim_regress_H1x_on_wz,
-    fit_interim_regress_endptx_on_wz,
+    fit_interim_regress_endptx_on_wz_with_Gaussian_approx,
     fit_interim_posterior_xz_from_z_with_IS_reweight,
 )
 from model_pcm import PartialCreditModel
@@ -168,8 +168,8 @@ def test_fit_interim_regress_H1x_on_wz_deterministic(xi, dit, draws):
 
 def test_fit_interim_regress_endptx_on_wz_deterministic(xi, dit, draws):
     wa = _build_wa(xi, dit, draws, _SEED)
-    p_a, perf_a = fit_interim_regress_endptx_on_wz(wa, pps_H1_def=0.5)
-    p_b, perf_b = fit_interim_regress_endptx_on_wz(wa, pps_H1_def=0.5)
+    p_a, perf_a = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_def=0.5)
+    p_b, perf_b = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_def=0.5)
     pd.testing.assert_frame_equal(p_a, p_b, check_dtype=True, check_exact=True)
     pd.testing.assert_frame_equal(perf_a, perf_b, check_dtype=True, check_exact=True)
 
