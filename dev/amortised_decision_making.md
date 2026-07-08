@@ -113,11 +113,11 @@ All three are scaled to unit diagonal so the per-component noise is comparable a
 
 **What we compare.**
 
-| Cell | Knobs | Notes |
-|----------------|-----------------------------|---------------------------|
-| Cell A (easy) | $R = R^{(1)}$ AR(1), $J \in \{50,100,200\}$ | Banded, well-conditioned. |
-| Cell B (medium) | $R = R^{(2)}$ block, same $J$ | Block structure; eigenvalues clustered. |
-| Cell C (hard) | $R = R^{(3)}$ factor, same $J$ | Dense long-range; eigenvalue decay. |
+| Cell            | Knobs                                       | Notes                                   |
+| --------------- | ------------------------------------------- | --------------------------------------- |
+| Cell A (easy)   | $R = R^{(1)}$ AR(1), $J \in \{50,100,200\}$ | Banded, well-conditioned.               |
+| Cell B (medium) | $R = R^{(2)}$ block, same $J$               | Block structure; eigenvalues clustered. |
+| Cell C (hard)   | $R = R^{(3)}$ factor, same $J$              | Dense long-range; eigenvalue decay.     |
 
 For each cell and each interim $t \in \{1, \ldots, 10\}$, we compare the closed-form per-component $PPS_j(x)$ (from the $\Phi$-tail above) against the four estimators of Section 6 (nested-MC, self-normalised IS, moment-matching IS, SMC resample-move, regression on $w(z)$). Aggregate diagnostics: per-component absolute error and bias against the closed form; per-cell timing; ESS / $\hat{k}$ for the IS variants; tempering steps $T$ for SMC.
 
@@ -179,7 +179,7 @@ and two partitions on the unknown true treatment effect, parameterised by the re
 We can define the loss matrix:
 
 | Action                  | $H_1$ true | $H_0$ true |
-|-------------------------|------------|------------|
+| ----------------------- | ---------- | ---------- |
 | Declare success ($a_1$) | 0          | $L_{FP}$   |
 | Declare failure ($a_0$) | $L_{FN}$   | 0          |
 
@@ -214,50 +214,15 @@ NB(x)
 
 # 6. State-of-the-art approaches to estimate PPS
 
-State-of-the-art approaches consider that we have observed a specific interim dataset $x_{1:n}$ and have access to the posterior distribution $p(\theta \mid x)$. The core task is to estimate $$y^{(s)} = y(z^{(s)}):= P(H_1 \mid x, z^{(s)}) = \int 1\{\theta \in H_1\} \, p(\theta \mid x, z^{(s)}) \, d\theta.$$ for fixed $x$ and for each simulated future data $z^{(s)} \sim p(\cdot \mid \theta^{(s)})$ where $\theta^{(s)} \sim p(\theta \mid x)$. From this, the PPS is straightforward to compute via $$PPS(x) \approx \frac{1}{S} \sum_{s=1}^S 1\{ y^{(s)} > \eta_H\}.$$ \### 6.1 Nested Monte Carlo
+State-of-the-art approaches consider that we have observed a specific interim dataset $x_{1:n}$ and have access to the posterior distribution $p(\theta \mid x)$. The core task is to estimate $$y^{(s)} = y(z^{(s)}):= P(H_1 \mid x, z^{(s)}) = \int 1\{\theta \in H_1\} \, p(\theta \mid x, z^{(s)}) \, d\theta.$$ for fixed $x$ and for each simulated future data $z^{(s)} \sim p(\cdot \mid \theta^{(s)})$ where $\theta^{(s)} \sim p(\theta \mid x)$. From this, the PPS is straightforward to compute via $$PPS(x) \approx \frac{1}{S} \sum_{s=1}^S 1\{ y^{(s)} > \eta_H\}.$$
+
+### 6.1 Nested Monte Carlo
 
 A computationally costly, but robust approach is to numerically estimate the new joint posterior $p(\theta \mid x, z^{(s)})$ and then simply obtain the label $y^{(s)}$ by evaluating the above integral over posterior draws from $p(\theta \mid x, z^{(s)})$.
 
-### 6.2 Importance sampling (self-normalized)
+### 6.2 Regression-based functional inference
 
-Since $p(\theta \mid x, z^{(s)}) \propto p(\theta \mid x)\, p(z^{(s)} \mid \theta)$, we can re-use all existing posterior draws $\theta_{k} \sim p(\theta \mid x)$ for $k=1,\dotsc,K$ and reweight these by the future-data likelihood.
-
-Working in log space for stability, for each $z^{(s)}$ separately, we compute for all $k=1,\dotsc,K$ the importance sampling weights $$\begin{aligned}
-\log w_k^{(s)} &= \log p(z^{(s)} \mid \theta_k) = \sum_{i=1}^m \log p\big(z^{(s)}_i \mid \theta_k\big), \\
-\tilde w_k^{(s)} &= \operatorname{softmax}_k\!\big(\log w_k^{(s)}\big) = \frac{\exp\!\big(\log w_k^{(s)} - \ell^{(s)}\big)}{\sum_j \exp\!\big(\log w_j^{(s)} - \ell^{(s)}\big)}, \quad \ell^{(s)} = \log\!\textstyle\sum_j \exp \log w_j^{(s)}, \\
-y^{(s)} &\approx \sum_{k=1}^K \tilde w_k^{(s)} \, 1_{\theta_k \in H_1}.
-\end{aligned}$$ The log-sum-exp / softmax map is the numerically stable form of $w / \sum w$: subtracting the maximum log-weight before exponentiating prevents overflow while leaving the normalized weights unchanged.
-
-Reliability is monitored by the effective sample size [@kong1992note; @liu2001monte] $\mathrm{ESS} = (\big(\sum_k w_k\big)^2)/(\sum_k w_k^2) = (\sum_k (\tilde w_k)^2)^{-1}$, equivalently the second-order weight moment $\mathbb{E}(\tilde w^2) = \tfrac{1}{K}\sum_k \tilde w_k^2$, with $\mathrm{ESS}/K = 1/\big(K^2\, \mathbb{E}(\tilde w^2)\big)$.
-
-Self-normalized IS is consistent but $O(1/K)$ biased, and its variance is finite only when $\mathbb{E}_{p(\theta \mid x)}\!\big[p(z \mid \theta)^2\big] < \infty$; the Pareto-smoothed importance sampling (PSIS) tail index $\hat k$ [@vehtari2024pareto] both estimates this and stabilizes the largest weights, with $\hat k > 0.7$ flagging an unreliable estimate.
-
-The main issue is that the proposal/target mismatch grows with the amount of assimilated future data: $\mathrm{KL}\big(p(\theta \mid x, z)\,\|\,p(\theta \mid x)\big)$ increases in $m$, so the weight mass concentrates on a single draw and $\mathrm{ESS} \to 1$. Empirically, at the earliest interim of our case study ($n \approx 48$ current vs $m \approx 455$ future units) the weights collapse to $\mathrm{ESS} \approx 1$ after even a *single* future participant, with PSIS $\hat k = \infty$. Plain IS labels are therefore trustworthy only when $z$ is small relative to $x$ (late interims). The two corrections below target this regime.
-
-### 6.3 Moment-matching importance sampling
-
-Moment-matching IS [@paananen2021implicitly] repairs a mild proposal/target mismatch without new model fits, by transforming the draws so the transformed cloud better covers the target and reweighting with the change-of-variables Jacobian. Starting from the IS weights $\tilde w_k$ of 6.1, compute the weighted and proposal moments $\hat\mu_w = \sum_k \tilde w_k\, \theta_k, \qquad \hat\mu_q = \tfrac{1}{K}\sum_k \theta_k, \qquad (\text{optionally } \hat\Sigma_w,\ \hat\Sigma_q),$ and apply an invertible affine map $T$ that matches them. The mean-match step uses $$T(\theta) = \theta + (\hat\mu_w - \hat\mu_q), \qquad \theta_k^* = T(\theta_k),$$ while the covariance-match variant uses $$T(\theta) = \hat\mu_w + L_w L_q^{-1}(\theta - \hat\mu_q)$$ with $\hat\Sigma_\bullet = L_\bullet L_\bullet^\top$. The transformed draws are reweighted against the target with the Jacobian of $T^{-1}$, $$w_k^* = \frac{p(\theta_k^* \mid x, z^{(s)})}{q^*(\theta_k^*)}, \qquad q^*(\theta^*) = q\big(T^{-1}\theta^*\big)\,\big|\det \nabla T^{-1}\big|,$$ where $q$ is the proposal density $p(\theta \mid x)$ (in practice a diagonal-Gaussian fit to the base draws in an unconstrained reparameterisation, with positive parameters mapped through $\log$). One iterates over a small family of transforms and keeps the one maximizing $\mathrm{ESS}$ (or minimizing $\hat k$).
-
-We found that when the base $\mathrm{ESS} \approx 1$, the weighted mean $\hat\mu_w$ *equals* the single dominating draw, so the affine shift only relocates the whole cloud onto that point and $\mathrm{ESS}$ does not recover. Moment matching corrects mild mismatch but cannot manufacture the support the fixed base draws lack — it never moves a particle to a region the proposal failed to sample. In our case study it leaves the early-interim $\mathrm{ESS}/K$ unchanged at $\approx 1/K$.
-
-### 6.4 Sequential Monte Carlo with resample-move
-
-To cross an arbitrarily large $x \to (x, z)$ gap, another idea is to bridge the proposal to the target through a tempered sequence (annealed importance sampling [@neal2001annealed]; SMC samplers [@delmoral2006smc; @chopin2002sequential]), $$\pi_t(\theta) \;\propto\; p(\theta \mid x)\; p(z^{(s)} \mid \theta)^{\beta_t},$$ for $0 = \beta_0 < \beta_1 < \dots < \beta_T = 1$, so $\pi_0 = p(\theta \mid x)$ and $\pi_T = p(\theta \mid x, z^{(s)})$ (the target).
-
-Initialise particles $\theta_k \sim p(\theta \mid x)$ with uniform weights; at step $t$:
-
-1.  **Reweight** by the incremental likelihood, $\tilde w_k = \operatorname{softmax}_k\!\Big( (\beta_t - \beta_{t-1})\, \log p(z^{(s)} \mid \theta_k) \Big).$
-2.  **Adapt** $\Delta\beta = \beta_t - \beta_{t-1}$ by bisection so the tempering $\mathrm{ESS}/K$ hits a target (e.g. $\tfrac12$), which is an automatic schedule [@jasra2011inference; @zhou2016toward].
-3.  **Resample** the particles by $\tilde w_k$ (systematic resampling) and reset weights to $1/K$.
-4.  **Move** each particle with an MCMC kernel $M_t$ leaving $\pi_t$ invariant (resample-move [@gilks2001following]). We use Metropolis-adjusted Langevin (MALA [@roberts1996exponential]) in the unconstrained reparameterisation, adapting the step size toward the optimal acceptance $\approx 0.574$ [@roberts1998optimal].
-
-Because the temperature enters only as an exponent, the move kernel's log-density $\log p(\theta \mid x) + \beta_t \log p(z^{(s)} \mid \theta)$ only need to be compiled once with $\beta_t$ a traced argument and reused across all temperatures. The final particles approximate $\pi_T$ with uniform weights, giving the label $y^{(s)} \approx \frac{1}{K} \sum_{k=1}^K 1_{\theta_k^{(T)} \in H_1}.$ Unlike IS and moment matching, the move step relocates particles into the target's typical set, so SMC crosses an arbitrarily large gap; the cost is $T$ tempering steps, each a short MCMC sweep.
-
-We found that at the worst (earliest) interim the adaptive schedule reaches $\beta = 1$ in $\approx 40$ steps and restores $\mathrm{ESS}/K \approx 1$ at a wall-clock cost dominated by the per-step move rather than the one-off compile. The overall computational cost was 7-8 times larger than SVI estimation of the posterior $p(\theta | x, z^{(s)})$.
-
-### 6.5 Regression-based functional inference
-
-The estimators 6.1–6.4 all approximate the conditional posterior $p(\theta \mid x, z^{(s)})$ once per future sample $z^{(s)}$. The regression-based approach [@strong2014estimating] instead learns a function $q_\psi$ with tuning parameters $\psi$ that produces the label as a function of a low-dimensional summary of the future data directly.
+Inefficient estimators in 13.1.1–13.1.4 all approximate the conditional posterior $p(\theta \mid x, z^{(s)})$ once per future sample $z^{(s)}$. The regression-based approach [@strong2014estimating] instead learns a function $q_\psi$ with tuning parameters $\psi$ that produces the label as a function of a low-dimensional summary of the future data directly.
 
 Pick a summary statistic $w:\mathcal{Z}\to\mathbb{R}^d$ of the future data and proceed as follows.
 
@@ -316,7 +281,9 @@ In partial-credit / IRT models with per-unit random effects no finite-dimensiona
 
 # 7. Amortized inference workflow
 
-Rather than learning a neural posterior of high dimensional model parameters, an initial step might be to learn the function $$z \rightarrow 𝑃( H_1 \mid x,z ),$$ because this is the key component in the decision rules and PPS above. Here $x$ is today's fixed observed data, but it is undesirable to repeat learning for every $x$. This motivates me to learn a neural function $$(x_{1:n},z_{1:m}) \rightarrow q_\phi(x_{1:n},z_{1:m}) \approx P(H_1 \mid x_{1:n},z_{1:m}) \in [0,1]$$ for arbitrary data $x$ with $n$ data points today and for arbitrary future data $z$ with remaining $m$ data points until the end of the scheduled intervention. In my setting, the posterior always factorizes, $p(\theta \mid x,z) \propto p(\theta) \prod_{i=1}^n p(x_i \mid \theta) \prod_{i=1}^m p(z_i \mid \theta).$
+Rather than learning a neural posterior of high dimensional model parameters, an initial step might be to learn the function $$z \rightarrow 𝑃( H_1 \mid x,z ),$$ because this is the key component in the decision rules and PPS above. Here $x$ is today's fixed observed data, but it is undesirable to repeat learning for every $x$, and in addition we do not always have a pre-specified summary $w$ as in Section 6.2 and wish to optimize.
+
+The task is to learn a neural function $$(x_{1:n},z_{1:m}) \rightarrow q_\phi(x_{1:n},z_{1:m}) \approx P(H_1 \mid x_{1:n},z_{1:m}) \in [0,1]$$ for arbitrary data $x$ with $n$ data points today and for arbitrary future data $z$ with remaining $m$ data points until the end of the scheduled intervention. In my setting, the posterior always factorizes, $$p(\theta \mid x,z) \propto p(\theta) \prod_{i=1}^n p(x_i \mid \theta) \prod_{i=1}^m p(z_i \mid \theta).$$
 
 I can re-frame this learning task as $$\begin{aligned}
 q_\phi(x,z) 
@@ -333,129 +300,146 @@ We always have that the data $x_i$ and $z_{i^*}$ are permutation invariant, and 
 
 There are three steps:
 
-- Workflow Step 1: generating labelled training data
-- Workflow Step 2: learning neural architectures
-- Workflow Step 3: deployment, amortise PPS
+- Workflow Step 1: generating labelled training data (§8)
+- Workflow Step 2: learning neural architectures (§9)
+- Workflow Step 3: deployment, amortise PPS (§10)
 
 ------------------------------------------------------------------------
 
-# 8. Step 1: generating labelled training data
+# 8. Step 1: generating labeled training data
 
-Generating training data is more challenging than in neural posterior estimation (NPE). We consider two distinct cases depending on whether the current data $x$ is fixed or variable.
+The regression-based scheme of §6.2 is *training-data-free*: labels are constructed on the fly from the model by drawing $\theta^{(s)}$ (from the posterior in §6.2), simulating $x^{(s)}, z^{(s)} \sim p(\cdot \mid \theta^{(s)})$, and reading off the endpoint $\rho^{(s)} := \rho(\theta^{(s)})$. The same trick extends immediately to the amortised setting: replace the posterior draw of $\theta$ by a prior draw and simulate $(x, z)$ jointly. No external labels, no importance sampling, no SMC — the model *is* the label generator.
 
-## Case A: Fixed $x$ with access to the posterior
+**Algorithm (amortised joint sampling).** For $s = 1, \ldots, S$:
 
-These are the same approaches as in Step 6.
+1.  **Draw sizes** $n^{(s)}, m^{(s)}$ from the operational distribution over interim schedules (e.g. uniform over the accrual grid, or Poisson around the design cohort size).
+2.  **Draw parameter** $\theta^{(s)} \sim p(\theta)$ from the *prior*.
+3.  **Simulate current data** $x^{(s)}_{1:n^{(s)}} \sim p(\cdot \mid \theta^{(s)})$.
+4.  **Simulate future data** $z^{(s)}_{1:m^{(s)}} \sim p(\cdot \mid \theta^{(s)})$.
+5.  **Continuous label** $\rho^{(s)} := \rho(\theta^{(s)})$ (the relative-effect endpoint used throughout §3 and §6.2).
 
-## Case B: Variable $x$
+The triple $(x^{(s)}, z^{(s)}, \rho^{(s)})$ plays the same role at the amortised scale that the pair $(w^{(s)}, \rho^{(s)})$ plays for a single fixed $x$ in §6.2.
 
-In the more general setting, we want to learn a function that works for arbitrary interim data $x$, not just a single fixed dataset. This enables true real-time decision-making as data accumulates.
+**Why the population minimiser is still the target.** Marginalising over $\theta$, the training pairs have marginal distribution $$p(x, z, \rho) = \int p(x, z \mid \theta)\, \delta(\rho - \rho(\theta))\, p(\theta)\, d\theta.$$ The population minimiser of the least-squares loss on $\rho$ given $(x, z)$ is the conditional expectation $$\arg\min_\phi \mathbb{E}\big[(\rho - q_\phi(x, z))^2\big] \;=\; \mathbb{E}[\rho \mid x, z] \;=\; \int \rho(\theta)\, p(\theta \mid x, z)\, d\theta,$$ the posterior mean of the endpoint under $p(\theta \mid x, z)$. This is the amortised analogue of the §6.2 identity $\mathbb{E}[y \mid w, x] = q^\star(w; x)$, with the joint pair $(x, z)$ in place of the fixed-$x$ summary $w(z)$. Any consistent regression family $q_\phi$ recovers the true $\mathbb{E}[\rho \mid x, z]$ as $S \to \infty$. Replacing the least-squares loss by the pinball loss at level $\tau$ makes the same population minimiser argument recover the conditional quantile $Q_\tau(\rho \mid x, z)$; §9 uses this for the multi-quantile head.
 
-The key challenge is that for each training example, we need to approximate $p(\theta \mid x^{(s)}, z^{(s)})$, but this posterior varies for every simulated dataset pair. We exploit that when we generate data from $\theta^{(s)} \sim p(\theta)$, this parameter lies in a high-likelihood region for both $x^{(s)}$ and $z^{(s)}$ generated from it, making $\theta^{(s)}$ a natural anchor point for approximating the joint posterior.
+**Deployment vs training coverage.** During deployment we generate $z \sim p(z \mid x^{\text{obs}})$ from the posterior predictive at the observed $x^{\text{obs}}$. The training-time joint has $x$ and $z$ sharing $\theta$ from the prior, whereas the deployment joint has $x$ observed and $z$ from the posterior predictive. In the amortised setting with sufficient prior-predictive coverage of the operational-$x$ region, the deployment-time conditional $\mathbb{E}[\rho \mid x^{\text{obs}}, z]$ is recovered pointwise — no re-weighting or SMC step required.
 
-**Option 1: Local importance sampling**
+## 8.1 Prior-coverage caveats
 
-This approach uses a local proposal distribution centered at the data-generating parameter $\theta^{(s)}$ to approximate the joint posterior $p(\theta \mid x^{(s)}, z^{(s)})$.
+The amortised regression is only as good as the prior-predictive coverage of the operational $(x, z)$ region:
 
-**Algorithm:**
-
-For each $s = 1, \ldots, S$, do:
-
-1.  Sample from prior: $\theta^{(s)} \sim p(\theta)$.
-
-2.  Generate current data: $x^{(s)} \sim p(\cdot \mid \theta^{(s)})$.
-
-3.  Generate future data: sample future observations from the same parameter $z^{(s)} \sim p(\cdot \mid \theta^{(s)})$. Both $x^{(s)}$ and $z^{(s)}$ are generated from $\theta^{(s)}$, so $\theta^{(s)}$ has high likelihood for both datasets.
-
-4.  Construct local proposal: $q(\theta \mid \theta^{(s)}) = \mathcal{N}(\theta; \theta^{(s)}, \sigma^2 I)$ where $\sigma^2$ controls the local exploration radius, e.g., $\sigma = 0.1$ times the prior standard deviation.
-
-5.  Sample particles locally: Sample $K$ particles around $\theta^{(s)}$: $\theta_k \sim q(\cdot \mid \theta^{(s)}), \quad k = 1, \ldots, K.$ Optionally include $\theta^{(s)}$ itself as $\theta_1 = \theta^{(s)}$ to ensure at least one high-likelihood particle.
-
-6.  Compute importance weights: Calculate weights for the joint posterior $p(\theta \mid x^{(s)}, z^{(s)})$: $$\begin{aligned}
-    w_k & = \frac{p(\theta_k \mid x^{(s)}, z^{(s)})}{q(\theta_k \mid \theta^{(s)})} \\
-    & \propto \frac{p(\theta_k) \, p(x^{(s)} \mid \theta_k) \, p(z^{(s)} \mid \theta_k)}{q(\theta_k \mid \theta^{(s)})},
-    \end{aligned}$$ and normalize to $$\tilde{w}_k = w_k / \sum_{j=1}^K w_j.$$
-
-7.  Estimate the label by $$y^{(s)} := P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_k \, 1_{\theta_k \in H_1}.$$
-
-**Option 2: Sequential Monte Carlo**
-
-An alternative approach uses sequential importance sampling, which processes data incrementally and reuses the same $K$ particles across both $x^{(s)}$ and $z^{(s)}$.
-
-**Algorithm:**
-
-For each $s = 1, \ldots, S$, do:
-
-1.  Sample generating parameter: Sample $\theta^{(s)} \sim p(\theta)$.
-
-2.  Initialize particle system: Create $K$ particles by including $\theta^{(s)}$ and sampling $K-1$ additional particles from the prior: $\{\theta_{s,1} = \theta^{(s)}, \theta_{s,2}, \ldots, \theta_{s,K}\}, \quad \theta_{s,k} \sim p(\theta) \text{ for } k \geq 2$ with initial uniform weights $w_{s,k}^{(0)} = 1/K$ for all $k$. Including $\theta^{(s)}$ as a particle ensures at least one particle has high likelihood.
-
-3.  Generate current data: Sample one dataset $x^{(s)} \sim p(\cdot \mid \theta^{(s)})$.
-
-4.  Update particle weights for $x^{(s)}$: Compute importance weights to approximate $p(\theta \mid x^{(s)})$ by evaluating how well each of the $K$ particles explains the observed $x^{(s)}$: $$\begin{aligned}
-    w_{s,k}^{(x)} & \propto w_{s,k}^{(0)} \cdot p(x^{(s)} \mid \theta_{s,k}) \\
-    \tilde{w}_{s,k}^{(x)} & = w_{s,k}^{(x)} / \sum_{j=1}^K w_{s,j}^{(x)}
-    \end{aligned}$$ The normalized weights $\{\theta_{s,k}, \tilde{w}_{s,k}^{(x)}\}_{k=1}^K$ now represent $p(\theta \mid x^{(s)})$. Resample particles if the effective sample size $1/\sum_k (\tilde{w}_{s,k}^{(x)})^2$ is too small.
-
-5.  Generate future data from posterior predictive: Sample one future dataset from the weighted particle system: $z^{(s)} \sim \sum_{k=1}^K \tilde{w}_{s,k}^{(x)} \, p(\cdot \mid \theta_{s,k}).$ In practice, select a particle index $\kappa \sim \text{Categorical}(\tilde{w}_{s,1}^{(x)}, \ldots, \tilde{w}_{s,K}^{(x)})$ and generate $z^{(s)} \sim p(\cdot \mid \theta_{s,\kappa})$.
-
-6.  Sequential update for $z^{(s)}$: Update the weights again to approximate $p(\theta \mid x^{(s)}, z^{(s)})$ by evaluating how well each particle explains the joint data: $$\begin{aligned}
-    w_{s,k}^{(x,z)} & \propto \tilde{w}_{s,k}^{(x)} \cdot p(z^{(s)} \mid \theta_{s,k}) \\
-    \tilde{w}_{s,k}^{(x,z)} & = w_{s,k}^{(x,z)} / \sum_{j=1}^K w_{s,j}^{(x,z)}
-    \end{aligned}$$
-
-7.  Estimate label: $$y^{(s)} = P(H_1 \mid x^{(s)}, z^{(s)}) \approx \sum_{k=1}^K \tilde{w}_{s,k}^{(x,z)} \, 1_{\theta_{s,k} \in H_1}$$
-
-**Comparing Options 1 and 2**
-
-I was motivated to consider an alternative to option 1 because in option 1, both $x^{(s)}$ and $z^{(s)}$ are generated from the same $\theta^{(s)} \sim p(\theta)$. The joint distribution is $p^{\text{prior}}(x,z) = \int p(x \mid \theta) p(z \mid \theta) p(\theta) \, d\theta.$ However during deployment, for a fixed observed $x$, we generate $z \sim p(z \mid x)$ from the posterior predictive to evaluate PPS, and thus the corresponding joint distribution is tighter. In option 2, after generating $x^{(s)} \sim p(\cdot \mid \theta^{(s)})$, the future data $z^{(s)}$ is sampled from the posterior predictive $p(z \mid x^{(s)})$ via the particle approximation in step 4. The joint distribution is $p^{\text{post}}(z \mid x) p^{\text{prior}}(x) = \left[\int p(z \mid \theta) p(\theta \mid x) \, d\theta\right] p(x),$ and this matches the deployment distribution.
+- **Informative-prior mismatch.** If the prior places most mass on a region of $\theta$-space that generates data unlike the operational trial data, few training samples fall near the observed $x$ and $q_\phi(x^{\text{obs}}, \cdot)$ is essentially an extrapolation.
+- **Size coverage.** Fix a broad distribution over $(n, m)$ to span the full interim schedule; oversample the earliest interims (largest $m$) where the PPS is most decision-relevant.
+- **Sanity check.** On the analytically tractable benchmarks §3.1 (Binomial) and §3.3 (MVN), compare the amortised $q_\phi(x^{\text{obs}}, z^{(s)})$ to the closed-form $P(H_1 \mid x^{\text{obs}}, z^{(s)})$ on a held-out grid of $(x^{\text{obs}}, z^{(s)})$.
 
 ------------------------------------------------------------------------
 
 # 9. Step 2: learning neural architectures
 
-Given the training data $(\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)})$, the current idea is to learn end-to-end two neural models $q_\tau$ and $q_\psi$ that respectively learn low-dimensional summaries and the decision target, $$(x^{(s)},z^{(s)}) \mapsto q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) \approx y^{(s)} = P(H_1|x^{(s)},z^{(s)}).$$ Since $y^{(s)}$ are probabilities, perhaps set the loss function to logit mean square error, $$\mathrm{arg\,min}_{\psi, \tau} \frac{1}{S} \sum_{s=1}^S \bigg[ q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg) - \text{logit} \: y^{(s)} \bigg]^2.$$ The specifics of our core application (Hope Groups intervention) are as follows: our data are ordered categorical responses, so each person $i$ provides $J$ item responses $x_{ij} \in \{1, \ldots, K\}$ where $K$ is the number of ordered categories. The typical scale of our data sets is $N \approx 1000$ persons, $J \approx 20$ items, $K \approx 8$ categories. The data are permutation invariant over participants $i$, but not over survey items $j$.
+The training data is $\{(x^{(s)}, z^{(s)}, \rho^{(s)})\}_{s=1}^S$ with variable set sizes $n^{(s)}, m^{(s)}$. Since $x$ and $z$ are permutation-invariant sets of observations, the DeepSets decomposition of §7 applies: $$q_\phi(x, z) \;=\; q_\psi\bigg( \sum_{i=1}^n q_\tau(x_i) + \sum_{i^*=1}^m q_\tau(z_{i^*}) \bigg).$$ The encoder $q_\tau$ maps a single observation to a $d$-dimensional embedding; the head $q_\psi$ maps the summed embedding to the target (a real number for the endpoint, or a vector for the multi-quantile head below).
 
-**Option 1: unrestricted embeddings**
+## 9.1 Choice of target: continuous $\rho$ with a quantile head
 
-Learn $q_\psi$ and $q_\tau$ without constraints, starting with a simple MLP architecture?
+The natural target at the amortised layer is the endpoint $\rho$, not the binary indicator $1\{\rho > \eta_0\}$. Continuous targets carry more information per sample and reduce Monte-Carlo variance in the same way that the §6.2 endpoint regression outperformed the $y = 1\{\theta \in H_1\}$ variant. We consider three heads for $q_\psi$, mirroring the three variants of §6.2:
 
-**Option 2: minimum embeddings**
+1.  **Gaussian mean-and-scale head** (amortised analogue of the §6.2 Gaussian variant). Output two scalars $\hat\rho_\phi(x, z)$ and $\log \hat\sigma_\phi(x, z)$. Train by Gaussian negative-log-likelihood $$\ell_\phi^{\text{NLL}}(x, z, \rho) = \tfrac{1}{2} \log \big(2\pi \hat\sigma_\phi^2 \big) + \frac{(\rho - \hat\rho_\phi)^2}{2 \hat\sigma_\phi^2}.$$ Convert to the label via the Gaussian tail $\hat y_\phi(x, z) = \Phi\big((\hat\rho_\phi - \eta_0)/\hat\sigma_\phi\big)$ and threshold by $\eta_H$ as in §6.2.
 
-There are two simple, relevant models in the exponential family. First, the categorical model assuming that participants and responses are iid, and in this case the sufficient statistics are the $K-1$ dimensional vector of counts, which can be written as the sum of $K-1$ dimensional one-hot encodings for each $i,j$. This suggests that the network $q_\tau$ should be at least into $\mathbb{R}^{K-1}$, and that the first $K-1$ should be one-hot embeddings.
+2.  **Single-quantile head** (amortised analogue of the single-$\tau$ §6.2 quantile variant). Output one scalar $\hat Q_\phi^{1-\eta_H}(x, z)$. Train by the pinball loss at $\tau = 1 - \eta_H$ $$\ell_\phi^{\text{pinball}}(x, z, \rho) = L_\tau\big(\rho - \hat Q_\phi^{1-\eta_H}(x, z)\big).$$ Deploy the decision $1\{\hat Q_\phi^{1-\eta_H}(x, z) > \eta_0\}$ — no Gaussian step, no plug-in variance. Under $S \to \infty$ and a consistent regression class, $\hat Q_\phi^{1-\eta_H}(x, z) \to Q_{1-\eta_H}(\rho \mid x, z)$ and the decision is exact.
 
-**Option 3: minimum restricted embeddings**
+3.  **Multi-quantile head (recommended)** — amortised analogue of the mquantile variant of §6.2 / §6.5. Output a vector of predicted quantiles at a grid $\tau_1 < \tau_2 < \ldots < \tau_K$ spanning $(0, 1)$ (e.g. $\{0.05, 0.1, 0.2, \ldots, 0.9, 0.95\}$). Train by the summed pinball loss $$\ell_\phi^{\text{mq}}(x, z, \rho) = \sum_{k=1}^K L_{\tau_k}\big(\rho - \hat Q_\phi^{\tau_k}(x, z)\big),$$ optionally with a monotone-non-decreasing penalty across the $\tau_k$ index or a $\operatorname{cummax}$ post-processor at inference to fix quantile crossings. From the predicted quantile grid, obtain a continuous conditional success probability by linear interpolation of the CDF at $\eta_0$ $$\hat P_\phi(H_1 \mid x, z) \;=\; 1 - \hat F_\phi(\eta_0 \mid x, z), \qquad \hat F_\phi(\eta_0 \mid x, z) \;=\; \operatorname{interp}\big(\eta_0;\, \hat Q_\phi^{\tau_1}, \ldots, \hat Q_\phi^{\tau_K};\, \tau_1, \ldots, \tau_K\big),$$ then threshold by $\eta_H$.
 
-Second, the other extreme is a categorical model that assumes that participants are identical but responses are indpendent, in which case the sufficient statistics are the sum of $JK-J$ dimensional one-hot encodings for each $i$. This suggests that the network $q_\tau$ should at most be into $\mathbb{R}^{JK-J}$.
+The multi-quantile head carries the same Rao-Blackwell advantage over the single-quantile binary decision (lower Monte-Carlo variance in the PPS estimator) and the same distribution-free advantage over the Gaussian head (no plug-in variance, no Normal-tail assumption).
 
-**Additional points on the training strategy**
+## 9.2 DeepSets encoder for the IRT application
 
-- Hold out a 20% of the simulated examples $(\theta^{(s)}, x^{(s)}, z^{(s)}, y^{(s)})$ as test set
-- Mini-batching: With $S \sim 10^4$ to $10^5$ training examples, use stochastic gradient descent with mini-batches of size 32-256.
-- Since $y^{(s)} \in [0,1]$ is a probability, set the output layer to sigmoid activation
-- Vary $n$ and $m$ (number of persons in current and future data) within training examples to improve generalization
+For the Hope Groups intervention (§3.4), each observation carries a hierarchical structure — one participant provides $J$ ordered-categorical item responses at baseline and endline. The data are permutation-invariant over participants $i$ but not over items $j$ or times $t$. The nested DeepSets pattern $$q_\tau(\text{person}_i) \;=\; \rho_{\text{inner}}\bigg( \sum_{j=1}^J \phi_{\text{embed}}(x_{ij}, j, t) \bigg)$$ respects this: the inner MLP $\phi_{\text{embed}}$ sees a triple (response, item id, time id), and the person-level embedding is a sum over items with the item identity as a positional token. The outer sum aggregates across persons.
 
-**Nested DeepSets architecture:**
+**Sufficient-statistic hardcoding.** In the exponential-family benchmarks of §3.1 (Binomial), §3.2 (Categorical) and §3.3 (MVN), the sufficient statistic $T$ is known analytically and finite-dimensional. Setting the first layer of $q_\tau$ to the identity on $T(x_i)$ (or on a fixed non-linear function of the raw response chosen to match $T$) guarantees exact sufficiency at that layer; only $q_\psi$ then needs to learn the map from the sum-of-$T$s to the endpoint. This matches the exp-fam reduction $P(H_1 \mid x, z) = g(\sum T(x_i) + \sum T(z_{i^*}))$ of §7 and reduces the network's degrees of freedom to those of $q_\psi$ alone. It also allows a strict correctness test on the exp-fam benchmarks: hardcoded-$T$ + multi-quantile head should match the analytic PPS to Monte-Carlo precision.
 
-Respect the hierarchical structure with person-level and dataset-level aggregation: $q_\psi(x) = \rho_{\text{outer}}\left(\sum_{i=1}^N \rho_{\text{inner}}\left(\sum_{j=1}^J \phi_{\text{embed}}(x_{ij}, j)\right)\right)$ This first aggregates item responses within each person, then aggregates across persons.
+**Architectural variants.** The plain DeepSets sum can be swapped for a Set Transformer [@lee2019set] (ISAB blocks with self-attention) when sum-pooling is a bottleneck. For our IRT model the per-item interactions are weak once the item-position embedding is included, so plain DeepSets is the natural first pass; Set Transformer is a fallback if the DeepSets model plateaus.
+
+## 9.3 Training practicalities
+
+- **Sample budget.** Cover the joint $(\theta, n, m, x, z)$ space. In the low-dimensional benchmarks (§3.1, §3.3) $S \sim 10^4$ suffices; for the IRT model expect $S \sim 10^5$–$10^6$.
+- **Loss weighting.** The multi-quantile grid can be weighted to emphasise the operational-decision quantile $\tau = 1 - \eta_H$ (e.g. $w_k = 1 + \lambda \exp(-(\tau_k - (1 - \eta_H))^2 / \nu^2)$ with $\lambda, \nu$ small).
+- **Held-out set.** Reserve 10–20% of $(x^{(s)}, z^{(s)}, \rho^{(s)})$ tuples as a validation split for early stopping and quantile-crossing diagnostics.
+- **Vary** $n, m$. Sample $n^{(s)}, m^{(s)}$ uniformly across the interim grid (or from the operational distribution) so the network generalises across accrual states.
+
+**Exact sufficient statistics for hardcoding** $q_\tau$ in the exp-fam benchmarks.
+
+- **Binomial (§3.1)**: the likelihood $p(x_i \mid p) = p^{x_i}(1-p)^{1-x_i}$ has natural parameter $\eta(p) = \log\!\big(p/(1-p)\big)$ and canonical scalar sufficient statistic
+  $$  T(x_i) = x_i \in \{0, 1\}.
+    $$ Set $q_\tau(x_i) := x_i$ (identity, dimension 1). The DeepSets sum is $\sum_{i=1}^n T(x_i) + \sum_{i^* = 1}^m T(z_{i^*}) = k^n + k^m$, the total number of successes. The head $q_\psi$ then only needs to learn the map $(k^n + k^m, n, m) \mapsto Q_\tau^{\tau_k}\!\big(\rho \mid k^n + k^m, n, m\big)$; feeding the cohort sizes $(n, m)$ as extra scalar inputs to $q_\psi$ preserves the exact-sufficiency of $q_\tau$.
+
+- **MVN with** $\sigma^2$ known (§3.3, Gaussian special case): with the natural parameter $\eta(\mu) = K^{-1} \mu / \sigma^2$ and $\sigma^2$ fixed, only the first-order statistic is needed,
+  $$  T(x_i) = x_i \in \mathbb{R}^J.
+    $$ Set $q_\tau(x_i) := x_i$ (identity, dimension $J$). The DeepSets sum recovers $T_1(x_{1:n}) + T_1(z_{1:m}) = \sum_{i=1}^n x_i + \sum_{i^*=1}^m z_{i^*}$; $q_\psi$ takes this $J$-vector together with $(n, m)$ as inputs.
+
+- **MVN with** $\sigma^2$ unknown (§3.3, full NIG): the likelihood adds a second natural parameter $-1/(2\sigma^2)$ against the quadratic-form statistic. Per-observation sufficient statistics are
+  $$  T(x_i) = \big(x_i,\; x_i^\top K^{-1} x_i\big) \in \mathbb{R}^{J+1}.
+    $$ Set $q_\tau(x_i) := \operatorname{concat}\!\big(x_i,\; x_i^\top K^{-1} x_i\big)$ (dimension $J + 1$; $K^{-1}$ is precomputed once per $(J, R\text{-type})$ cell in the sim setup of §3.3.1). The DeepSets sum recovers $\big(T_1(x_{1:n}) + T_1(z_{1:m}),\; T_2(x_{1:n}) + T_2(z_{1:m})\big)$, exactly the two sufficient statistics of §3.3.
+
+Since $\rho = \rho(\theta)$ in each case depends only on these sufficient statistics of the pooled cohort (via the closed-form posterior of §3.1 / §3.3), a network with $q_\tau = T$ and any consistent scalar/vector regression $q_\psi$ is model-optimal: it matches the analytic PPS as $S \to \infty$. This gives the strict correctness test named in §9.2.
 
 ------------------------------------------------------------------------
 
 # 10. Step 3: Deployment, amortising PPS
 
-After training,
+At deployment for observed data $x^{\text{obs}}_{1:n}$:
 
-- for any observed data $x_{1:n}$ we can compute $\sum_{i=1}^n q_\tau(x^{(s)}_i)$.
-- give interim data $x_{1:n}$, in practice we will estimate today's posterior $p(\theta | x)$ with some Monte Carlo algorithm, and compute the first target objective, have we already won, $1\{ P(H_1 \mid x ) > \eta_H$. It is cheap to generate posterior predictions $z^\star_{1:m}$. Then we can compute $\sum_{i^\star=1}^m q_\tau(z^{(s)}_{i^\star})$ for the corresponding $m = N - n$.
-- Next we can compute the PPS approximation $$q_\psi\bigg(\sum_{i=1}^n q_\tau(x^{(s)}_i) + \sum_{i^* =1}^m q_\tau(z^{(s)}_{i^*})\bigg).$$ ------------------------------------------------------------------------
+1.  **Sample future data.** Draw $S$ posterior-predictive samples $z^{(s)}_{1:m} \sim p(z \mid x^{\text{obs}})$ from any convenient posterior fit on $x^{\text{obs}}$ (SVI, HMC). This is the same $z$-generation step as in §6.
+2.  **Amortised label.** For each $s$, forward-pass $(x^{\text{obs}}, z^{(s)})$ through the trained network to obtain either
+    - the Gaussian $(\hat\rho_\phi, \hat\sigma_\phi)$ → $\hat y^{(s)} = \Phi((\hat\rho_\phi - \eta_0)/\hat\sigma_\phi)$;
+    - the single quantile $\hat Q_\phi^{1-\eta_H}$ → $\hat y^{(s)} = 1\{\hat Q_\phi^{1-\eta_H} > \eta_0\}$;
+    - or the multi-quantile grid $\{\hat Q_\phi^{\tau_k}\}$ → $\hat y^{(s)} = 1 - \operatorname{interp}(\eta_0; \{\hat Q_\phi^{\tau_k}\}; \{\tau_k\})$.
+3.  **Aggregate.** The PPS estimator is $\widehat{\text{PPS}}(x^{\text{obs}}) = S^{-1} \sum_{s=1}^S 1\{ \hat y^{(s)} > \eta_H \}$.
 
-# 11. Tasks
+Because the encoder sums are linear in the observations, $\sum_i q_\tau(x^{\text{obs}}_i)$ can be pre-computed once per interim and reused across all $z^{(s)}$ draws. The per-sample cost of the amortised PPS is one forward pass of the head $q_\psi$ per $z^{(s)}$.
 
-- Generate functions to compute the exact $PPS(x)$ in the case of simple Binomial and Categorial models
-- Generate a case study that illustrates contracting posterior distributions with additional data, and evolving $PPS(x)$ with additional data under the simple Binomial model. Illustrate stopping early for futility/safety and for efficacy.
-- Generate functions that implement Case A and B in generating labelled training data.
-- Test these functions against the analytical formula under the simple Binomial and Categorial model.
-- Test these functions against the analytical formula under the Categorial model.
+**Current-decision target.** The same network trivially covers $P(H_1 \mid x^{\text{obs}}) \approx q_\phi(x^{\text{obs}}, \varnothing)$ by passing an empty $z$. To include this at training time, augment the training triples with samples at $m^{(s)} = 0$.
+
+------------------------------------------------------------------------
+
+# 11. Codebase recommendation
+
+The amortised extension slots into the existing pipeline as one new module and one new script per model, mirroring the existing gauss-approx / quantile / mquantile ladder.
+
+## 11.1 New Python module: `python/amortised_pps.py`
+
+- `class AmortisedPPSNet` — DeepSets encoder + multi-quantile head. Constructor arguments: `input_dim`, `embed_dim`, `hidden_dims`, `taus` (list of quantile levels), optional `T_fn` for hardcoded sufficient statistics. Flax module (consistent with the rest of the JAX stack in the repo).
+- `fit_amortised_pps(model, prior_sampler, data_sampler, taus, n_samples, ...)` — training loop. `prior_sampler` returns $\theta$; `data_sampler(theta, n, m)` returns $(x, z, \rho)$. Reuses the existing `Model.prior_predictive` / `Model.get_endpoints_per_draw` interfaces.
+- `fit_interim_regress_endptx_on_wz_with_amortised_pps(wa_or_xz_pairs, pps_H1_def, pps_ProbH1_thresh, taus, model_ckpt=...)` — deployment forward pass, returns a `p_h1_xz` frame with the same schema as the existing `fit_interim_regress_endptx_on_wz_with_mquantile_regr` (adds an `amortised=True` column). Drops in downstream without further changes.
+
+## 11.2 New scripts (mirror the mquantile ladder)
+
+- `scripts-py/Binomial_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
+- `scripts-py/MVN_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
+- `scripts-py/Ukraine_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
+
+Each mirrors the mquantile script layout: fit (or load) the amortised network once at the top, then loop over interims to produce `p_h1_xz` predictions and the standard downstream artifacts (`_RGEA_` suffix). Reuse the existing `model.get_interim_z_from_ypredi`, `model.get_endpoints_per_draw`, `model.get_w`.
+
+## 11.3 Training-data cache
+
+- `scripts-py/{Binomial, MVN, Ukraine}_amortised_pps_make_training_data.py` — generates and caches the training samples $(x^{(s)}, z^{(s)}, \rho^{(s)})$ at a specified sample budget. Reuses the model classes and `prior_predictive` methods. Training-data generation is the expensive step; separating it from the neural fit lets us iterate on architectures cheaply. The cached tuples are indexed by `(sample_id, n_id, m_id)` so the training loop can subsample size regimes.
+
+## 11.4 Compare-methods integration
+
+- Add `dir_rgea = ..._amortised_pps_260702` to `{Binomial, MVN, Ukraine}_interim_analyses_compare_methods.py`.
+- Add `'Regression of endpt-x on w(z) - amortised (mquantile)'` to `method_order` and the concat lists.
+- Multi-quantile deployment gives continuous $\hat P_\phi(H_1 \mid x, z) \in [0, 1]$ so the amortised method joins the p(H_1 \| x, z) boxplot without filtering; only the single-quantile deployment mode (binary output) needs the same filter as the `- quantile` method.
+
+## 11.5 Correctness tests
+
+- Add tests under `test/python/test_amortised_pps_correctness.py`:
+  - Binomial exp-fam benchmark: amortised PPS vs closed-form Beta-Binomial PPS at 8 interim states. Tolerance ≤ 0.02 in absolute error.
+  - MVN benchmark: same at $J \in \{20, 60, 100\}$.
+  - Deterministic sample draw + fixed weights → deterministic output (mirrors `test/python/test_interim_determinism.py`).
+
+## 11.6 Suggested first prototype
+
+Start with the Binomial model, hardcoded sufficient statistic $T(x_i) = x_i$ (sum of successes), multi-quantile head with the same 11-level grid used in §6.5. Verify against the closed-form Beta-Binomial PPS on the fully-observed month-by-month interim grid used in `Binomial_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py`. If the amortised network matches the analytic PPS to within Monte-Carlo noise across all 12 interims and across 100 randomly drawn $x^{\text{obs}}$, the approach is validated; extend to MVN and then to the IRT model.
+
+------------------------------------------------------------------------
 
 # 12. References
 
@@ -468,3 +452,44 @@ Bibliography is in dev/amortised_decision_making.bib. Render with pandoc:
 The list below is auto-generated by --citeproc from the inline [@key] citations.
 -->
 ```
+
+# 13. Appendix
+
+## 13.1 Inefficient sampling schemes to estimate PPS
+
+### 13.1.1 Importance sampling (self-normalized)
+
+Since $p(\theta \mid x, z^{(s)}) \propto p(\theta \mid x)\, p(z^{(s)} \mid \theta)$, we can re-use all existing posterior draws $\theta_{k} \sim p(\theta \mid x)$ for $k=1,\dotsc,K$ and reweight these by the future-data likelihood.
+
+Working in log space for stability, for each $z^{(s)}$ separately, we compute for all $k=1,\dotsc,K$ the importance sampling weights $$\begin{aligned}
+\log w_k^{(s)} &= \log p(z^{(s)} \mid \theta_k) = \sum_{i=1}^m \log p\big(z^{(s)}_i \mid \theta_k\big), \\
+\tilde w_k^{(s)} &= \operatorname{softmax}_k\!\big(\log w_k^{(s)}\big) = \frac{\exp\!\big(\log w_k^{(s)} - \ell^{(s)}\big)}{\sum_j \exp\!\big(\log w_j^{(s)} - \ell^{(s)}\big)}, \quad \ell^{(s)} = \log\!\textstyle\sum_j \exp \log w_j^{(s)}, \\
+y^{(s)} &\approx \sum_{k=1}^K \tilde w_k^{(s)} \, 1_{\theta_k \in H_1}.
+\end{aligned}$$ The log-sum-exp / softmax map is the numerically stable form of $w / \sum w$: subtracting the maximum log-weight before exponentiating prevents overflow while leaving the normalized weights unchanged.
+
+Reliability is monitored by the effective sample size [@kong1992note; @liu2001monte] $\mathrm{ESS} = (\big(\sum_k w_k\big)^2)/(\sum_k w_k^2) = (\sum_k (\tilde w_k)^2)^{-1}$, equivalently the second-order weight moment $\mathbb{E}(\tilde w^2) = \tfrac{1}{K}\sum_k \tilde w_k^2$, with $\mathrm{ESS}/K = 1/\big(K^2\, \mathbb{E}(\tilde w^2)\big)$.
+
+Self-normalized IS is consistent but $O(1/K)$ biased, and its variance is finite only when $\mathbb{E}_{p(\theta \mid x)}\!\big[p(z \mid \theta)^2\big] < \infty$; the Pareto-smoothed importance sampling (PSIS) tail index $\hat k$ [@vehtari2024pareto] both estimates this and stabilizes the largest weights, with $\hat k > 0.7$ flagging an unreliable estimate.
+
+The main issue is that the proposal/target mismatch grows with the amount of assimilated future data: $\mathrm{KL}\big(p(\theta \mid x, z)\,\|\,p(\theta \mid x)\big)$ increases in $m$, so the weight mass concentrates on a single draw and $\mathrm{ESS} \to 1$. Empirically, at the earliest interim of our case study ($n \approx 48$ current vs $m \approx 455$ future units) the weights collapse to $\mathrm{ESS} \approx 1$ after even a *single* future participant, with PSIS $\hat k = \infty$. Plain IS labels are therefore trustworthy only when $z$ is small relative to $x$ (late interims). The two corrections below target this regime.
+
+### 13.1.2 Moment-matching importance sampling
+
+Moment-matching IS [@paananen2021implicitly] repairs a mild proposal/target mismatch without new model fits, by transforming the draws so the transformed cloud better covers the target and reweighting with the change-of-variables Jacobian. Starting from the IS weights $\tilde w_k$ of 6.1, compute the weighted and proposal moments $\hat\mu_w = \sum_k \tilde w_k\, \theta_k, \qquad \hat\mu_q = \tfrac{1}{K}\sum_k \theta_k, \qquad (\text{optionally } \hat\Sigma_w,\ \hat\Sigma_q),$ and apply an invertible affine map $T$ that matches them. The mean-match step uses $$T(\theta) = \theta + (\hat\mu_w - \hat\mu_q), \qquad \theta_k^* = T(\theta_k),$$ while the covariance-match variant uses $$T(\theta) = \hat\mu_w + L_w L_q^{-1}(\theta - \hat\mu_q)$$ with $\hat\Sigma_\bullet = L_\bullet L_\bullet^\top$. The transformed draws are reweighted against the target with the Jacobian of $T^{-1}$, $$w_k^* = \frac{p(\theta_k^* \mid x, z^{(s)})}{q^*(\theta_k^*)}, \qquad q^*(\theta^*) = q\big(T^{-1}\theta^*\big)\,\big|\det \nabla T^{-1}\big|,$$ where $q$ is the proposal density $p(\theta \mid x)$ (in practice a diagonal-Gaussian fit to the base draws in an unconstrained reparameterisation, with positive parameters mapped through $\log$). One iterates over a small family of transforms and keeps the one maximizing $\mathrm{ESS}$ (or minimizing $\hat k$).
+
+We found that when the base $\mathrm{ESS} \approx 1$, the weighted mean $\hat\mu_w$ *equals* the single dominating draw, so the affine shift only relocates the whole cloud onto that point and $\mathrm{ESS}$ does not recover. Moment matching corrects mild mismatch but cannot manufacture the support the fixed base draws lack — it never moves a particle to a region the proposal failed to sample. In our case study it leaves the early-interim $\mathrm{ESS}/K$ unchanged at $\approx 1/K$.
+
+### 13.1.3 Sequential Monte Carlo with resample-move
+
+To cross an arbitrarily large $x \to (x, z)$ gap, another idea is to bridge the proposal to the target through a tempered sequence (annealed importance sampling [@neal2001annealed]; SMC samplers [@delmoral2006smc; @chopin2002sequential]), $$\pi_t(\theta) \;\propto\; p(\theta \mid x)\; p(z^{(s)} \mid \theta)^{\beta_t},$$ for $0 = \beta_0 < \beta_1 < \dots < \beta_T = 1$, so $\pi_0 = p(\theta \mid x)$ and $\pi_T = p(\theta \mid x, z^{(s)})$ (the target).
+
+Initialise particles $\theta_k \sim p(\theta \mid x)$ with uniform weights; at step $t$:
+
+1.  **Reweight** by the incremental likelihood, $\tilde w_k = \operatorname{softmax}_k\!\Big( (\beta_t - \beta_{t-1})\, \log p(z^{(s)} \mid \theta_k) \Big).$
+2.  **Adapt** $\Delta\beta = \beta_t - \beta_{t-1}$ by bisection so the tempering $\mathrm{ESS}/K$ hits a target (e.g. $\tfrac12$), which is an automatic schedule [@jasra2011inference; @zhou2016toward].
+3.  **Resample** the particles by $\tilde w_k$ (systematic resampling) and reset weights to $1/K$.
+4.  **Move** each particle with an MCMC kernel $M_t$ leaving $\pi_t$ invariant (resample-move [@gilks2001following]). We use Metropolis-adjusted Langevin (MALA [@roberts1996exponential]) in the unconstrained reparameterisation, adapting the step size toward the optimal acceptance $\approx 0.574$ [@roberts1998optimal].
+
+Because the temperature enters only as an exponent, the move kernel's log-density $\log p(\theta \mid x) + \beta_t \log p(z^{(s)} \mid \theta)$ only need to be compiled once with $\beta_t$ a traced argument and reused across all temperatures. The final particles approximate $\pi_T$ with uniform weights, giving the label $y^{(s)} \approx \frac{1}{K} \sum_{k=1}^K 1_{\theta_k^{(T)} \in H_1}.$ Unlike IS and moment matching, the move step relocates particles into the target's typical set, so SMC crosses an arbitrarily large gap; the cost is $T$ tempering steps, each a short MCMC sweep.
+
+We found that at the worst (earliest) interim the adaptive schedule reaches $\beta = 1$ in $\approx 40$ steps and restores $\mathrm{ESS}/K \approx 1$ at a wall-clock cost dominated by the per-step move rather than the one-off compile. The overall computational cost was 7-8 times larger than SVI estimation of the posterior $p(\theta | x, z^{(s)})$.
