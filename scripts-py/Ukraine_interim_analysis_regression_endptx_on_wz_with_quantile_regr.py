@@ -5,7 +5,7 @@ continuous-target variant.
 
 This is the more discriminative sibling of
 ``Ukraine_interim_analysis_regression_H1x_on_wz.py``. Instead of binarising the
-endpoint ratio to ``pps_H1_x = 1{pps_ratio_x > pps_H1_def}`` and fitting a
+endpoint ratio to ``pps_H1_x = 1{pps_ratio_x > pps_H1_min_effect_size_thresh}`` and fitting a
 binomial GLM, here we fit a Gaussian GLM on the continuous ``pps_ratio_x``:
 
   - draw  theta^(s) ~ p(theta | x)               (x-fit posterior draws)
@@ -16,9 +16,9 @@ binomial GLM, here we fit a Gaussian GLM on the continuous ``pps_ratio_x``:
 
 Per item we fit a linear conditional-quantile regression
 ``Q_{1-eta_H}(pps_ratio_x | w_ratio)`` via ``statsmodels.QuantReg``
-(pinball loss), then set the label indicator ``p_h1_xz = 1{Q_hat > pps_H1_def}``
+(pinball loss), then set the label indicator ``p_h1_xz = 1{Q_hat > pps_H1_min_effect_size_thresh}``
 — no Gaussian step, no plug-in variance. The PPS is the Monte-Carlo average
-``S^-1 sum_s 1{p_h1_xz(W(z^(s))) > pps_ProbH1_thresh}``.
+``S^-1 sum_s 1{p_h1_xz(W(z^(s))) > pps_ProbH1_target_lwr_quantile}``.
 
 Outputs (``_RGEQ_`` suffix to distinguish from the H1x ``_RG_`` variant):
 p_h1_xz pkl, PPS csv, box-stats pkl, p_h1_xz boxplot, perf long-form pkl
@@ -89,8 +89,8 @@ svi_algorithm = 'AutoLowRankMultivariateNormal'
 x_formula = "~ time - 1"
 
 pps_z_total = 4000                   # one z-sample per x-posterior draw
-pps_H1_def = 0.5
-pps_ProbH1_thresh = 0.89
+pps_H1_min_effect_size_thresh = 0.5
+pps_ProbH1_target_lwr_quantile = 0.89
 categorical_threshold = 2
 
 
@@ -204,14 +204,14 @@ for interim_id in di['interim_id']:
 
     # calculate Prob(H1|x) ie mean over samples theta^s
     tmp = (
-        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        model.get_p_h1(x_ratio, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh)
         .rename(columns={'p_h1': 'pps_ProbH1_x'})
     )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_target_lwr_quantile).astype(int)
 
     # calculate 1{theta^s in H1} per draw
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh).astype(int)
     x_ratio = x_ratio.merge(
         tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
         on='item_label', how='left',
@@ -228,7 +228,7 @@ for interim_id in di['interim_id']:
 
     # do regression of endpoint on w(x)
     p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_quantile_regr(
-        wa, pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        wa, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh, pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
     )
     p_h1_xz_interim['interim_id'] = interim_id
     p_h1_xz_interim['interim_date'] = interim_date
@@ -253,8 +253,8 @@ if not p_h1_xz_rows:
 # =============================================================================
 
 p_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-p_h1_xz['pps_H1_def'] = pps_H1_def
-p_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+p_h1_xz['pps_H1_min_effect_size_thresh'] = pps_H1_min_effect_size_thresh
+p_h1_xz['pps_ProbH1_target_lwr_quantile'] = pps_ProbH1_target_lwr_quantile
 p_h1_xz['S'] = pps_z_total
 perf_all = pd.concat(perf_rows, ignore_index=True)
 mins_total = (time.time() - t_all0) / 60.0
@@ -271,10 +271,10 @@ pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_timing.csv"), i
 pps_df = (
     p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type',
                      'item_high_label'])['p_h1_xz']
-    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .apply(lambda p: float((p > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
-pps_df['eta'] = pps_ProbH1_thresh
+pps_df['eta'] = pps_ProbH1_target_lwr_quantile
 pps_df['S'] = pps_z_total
 pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ.csv"), index=False)
 print(pps_df.head(10).to_string(index=False))
@@ -350,7 +350,7 @@ p = (
             group='interim_month_year'),
         stat='identity',
     )
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.5)
     + facet_wrap('~ item_label_long', ncol=4)
     + scale_fill_manual(values=color_dict)
     + scale_y_continuous(

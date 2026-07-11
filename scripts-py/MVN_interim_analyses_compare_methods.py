@@ -101,7 +101,7 @@ simu_params = sim_data['simu_params']
 di = sim_data['interim_grid']
 J_GRID = list(simu_params['J_grid'])
 K_levels = simu_params['K_levels']
-pps_ProbH1_thresh = simu_params['pps_ProbH1_thresh']
+pps_ProbH1_target_lwr_quantile = simu_params['pps_ProbH1_target_lwr_quantile']
 
 pps_cf = pd.read_pickle(
     os.path.join(DIR_SIM, 'mvn_pps_closed_form.pkl'),
@@ -323,7 +323,7 @@ for J in J_GRID:
             stat='identity', position=position_dodge(width=0.8), width=0.7,
             colour='#404040', size=0.3,
         )
-        + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
         + scale_fill_manual(values=pps_colours)
         + scale_y_continuous(
             limits=[0, 1],
@@ -365,7 +365,7 @@ for J in J_GRID:
         n_rows, S = Parr.shape
         idx = rng_bs.integers(0, S, size=(n_rows, bs_B, S))
         Pbs = Parr[np.arange(n_rows)[:, None, None], idx]
-        pps_bs = (Pbs > pps_ProbH1_thresh).mean(axis=2)
+        pps_bs = (Pbs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
         q = np.quantile(pps_bs, [0.025, 0.975], axis=1).T
         part = pd.DataFrame(q, columns=['q025_bs', 'q975_bs'])
         part['j']          = wide.index.get_level_values('j').to_numpy()
@@ -389,7 +389,7 @@ for J in J_GRID:
             position=position_dodge(width=0.8), width=0.3,
             colour='black', size=0.4, inherit_aes=False,
         )
-        + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0,
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0,
                      linetype='dashed')
         + scale_fill_manual(values=pps_colours)
         + scale_y_continuous(

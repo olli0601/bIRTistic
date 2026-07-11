@@ -246,7 +246,7 @@ box_all['interim_month_year'] = pd.Categorical(
     box_all['interim_month_year'], categories=interim_order, ordered=True)
 box_all['grp'] = box_all['interim_month_year'].astype(str) + '|' + box_all['method'].astype(str)
 box_method_colors = dict(zip(box_method_order, _futurama_palette(len(box_method_order))))
-pps_ProbH1_thresh = 0.89
+pps_ProbH1_target_lwr_quantile = 0.89
 
 def _boxplot_subset(methods, suffix):
     tmp = box_all[box_all['method'].isin(methods)].copy()
@@ -260,7 +260,7 @@ def _boxplot_subset(methods, suffix):
             aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975', group='grp'),
             stat='identity', position=position_dodge(width=0.8),
         )
-        + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.5)
         + facet_wrap('~ item_label_long', ncol=4)
         + scale_fill_manual(values=sub_colors)
         + scale_y_continuous(

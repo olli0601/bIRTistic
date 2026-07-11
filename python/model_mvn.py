@@ -513,8 +513,8 @@ class MVNModel(Model):
         self,
         m: int,
         *,
-        pps_H1_def: float = 0.0,
-        pps_ProbH1_thresh: float = 0.89,
+        pps_H1_min_effect_size_thresh: float = 0.0,
+        pps_ProbH1_target_lwr_quantile: float = 0.89,
     ) -> pd.DataFrame:
         """Analytic per-component Phi-tail PPS (§3.3.1).
 
@@ -524,11 +524,11 @@ class MVNModel(Model):
             PPS_j(x) = Phi( sigma * sqrt(c_n * c_{n+m} / m) *
                             (mu_n,j - 1 - z_eta / sqrt(c_{n+m})) )
 
-        where z_eta = Phi^{-1}(pps_ProbH1_thresh). Returns a DataFrame
+        where z_eta = Phi^{-1}(pps_ProbH1_target_lwr_quantile). Returns a DataFrame
         with one row per item j carrying ``pps``, ``mu_n``, ``c_n``,
         ``c_n_plus_m``, plus the dit metadata columns.
 
-        ``pps_H1_def`` is accepted for interface parity but the H_1j
+        ``pps_H1_min_effect_size_thresh`` is accepted for interface parity but the H_1j
         threshold lives in ``mu_0_baseline`` (set on the model)."""
         if m < 0:
             raise ValueError("m must be non-negative.")
@@ -538,7 +538,7 @@ class MVNModel(Model):
         N = int(self.stan_data['N'])
         c_n = mom['c_n']
         c_np = 1.0 / self.prior_tau2 + (N + m) / self.sigma2
-        z_eta = float(_scipy_norm.ppf(pps_ProbH1_thresh))
+        z_eta = float(_scipy_norm.ppf(pps_ProbH1_target_lwr_quantile))
         K_diag = self.K_diag
         # Decision rule: P(H_{1j} | x, z) > eta  <=>
         #     mu_{n+m,j} > mu_0_baseline + z_eta * sqrt(K_jj / c_{n+m}).
@@ -558,7 +558,7 @@ class MVNModel(Model):
             'item_high_label':  dit['item_high_label'].to_numpy(),
             'm':                int(m),
             'pps':              pps.astype(np.float64),
-            'eta':              float(pps_ProbH1_thresh),
+            'eta':              float(pps_ProbH1_target_lwr_quantile),
             'mu_n':             mom['mu_n'].astype(np.float64),
             'c_n':              float(c_n),
             'c_n_plus_m':       float(c_np),

@@ -326,8 +326,8 @@ print(f"Saved per-interim endpoint boxplot to: {tmp}")
 # returns the analytic Beta-Binomial tail sum: P(P(H_1 | x, z) > eta).
 # =============================================================================
 
-pps_H1_def = 0.25
-pps_ProbH1_thresh = 0.89
+pps_H1_min_effect_size_thresh = 0.25
+pps_ProbH1_target_lwr_quantile = 0.89
 n_full = len(dp)
 
 ppsa = []
@@ -347,8 +347,8 @@ for i in range(len(di)):
     )
     pps = model.fit_closed_form_pps(
         m,
-        pps_H1_def=pps_H1_def,
-        pps_ProbH1_thresh=pps_ProbH1_thresh,
+        pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh,
+        pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
     )
     ppsa.append({
         'interim_id': interim_id,
@@ -359,7 +359,7 @@ for i in range(len(di)):
         'item_high_label': dit.iloc[0]['item_high_label'],
         'm': m,
         'pps': float(pps),
-        'eta': pps_ProbH1_thresh,
+        'eta': pps_ProbH1_target_lwr_quantile,
     })
 
 ppsa = pd.DataFrame(ppsa)
@@ -380,9 +380,9 @@ print(ppsa.to_string(index=False))
 #      missing trials: p_s ~ posterior(p | xi); k_m_s ~ Binomial(interim_m, p_s).
 #   3. For each s, refit the posterior on (xi, zi_s) via NumPyro SVI
 #      (AutoDiagonalNormal) and record p(H_1 | x, z_s) = fraction of posterior
-#      draws with endpoint 1 - p/p_0 > pps_H1_def (equivalently ratio
-#      = p/p_0 < 1 - pps_H1_def).
-#   4. PPS = mean over s of 1{p(H_1 | x, z_s) > pps_ProbH1_thresh}.
+#      draws with endpoint 1 - p/p_0 > pps_H1_min_effect_size_thresh (equivalently ratio
+#      = p/p_0 < 1 - pps_H1_min_effect_size_thresh).
+#   4. PPS = mean over s of 1{p(H_1 | x, z_s) > pps_ProbH1_target_lwr_quantile}.
 # =============================================================================
 
 pps_z_total = 200
@@ -425,8 +425,8 @@ for i in range(len(di)):
         zi,
         interim_method_args={
             'pps_z_total': pps_z_total,
-            'pps_H1_def': pps_H1_def,
-            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'pps_H1_min_effect_size_thresh': pps_H1_min_effect_size_thresh,
+            'pps_ProbH1_target_lwr_quantile': pps_ProbH1_target_lwr_quantile,
             'fit_method': 'fit_pyro_svi',
             'seed': seed,
             'save_to_file': False,
@@ -461,10 +461,10 @@ tmp = (
     dp_h1_xz
     .groupby(['interim_id', 'interim_date', 'interim_month_year',
               'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .apply(lambda p: float((p > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
-tmp['eta'] = pps_ProbH1_thresh
+tmp['eta'] = pps_ProbH1_target_lwr_quantile
 tmp['S'] = pps_z_total
 tmp.to_pickle(os.path.join(dir_out, 'binomial_interim_pps_nested_mc.pkl'))
 print(f"\nNested-MC PPS table saved to {os.path.join(dir_out, 'binomial_interim_pps_nested_mc.pkl')}")
@@ -508,7 +508,7 @@ p = (
             group='interim_month_year'),
     )
     + geom_boxplot(stat='identity', fill='#2ca02c', alpha=0.4, colour='#808080')
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
@@ -517,7 +517,7 @@ p = (
     + labs(
         x='Interim', y='p(H_1 | x, z)',
         title=(f'Binomial nested-MC p(H_1 | x, z) distribution per interim '
-               f'(S = {pps_z_total}, eta = {pps_ProbH1_thresh}).'),
+               f'(S = {pps_z_total}, eta = {pps_ProbH1_target_lwr_quantile}).'),
     )
 )
 tmp = os.path.join(dir_out, 'binomial_interim_pps_p_h1_xz_boxplot.pdf')
@@ -548,7 +548,7 @@ n_interim, S = bs.shape
 rng = np.random.default_rng(seed)
 tmp = rng.integers(0, S, size=(n_interim, bs_B, S))         # (n_interim, B, S)
 bs = bs[np.arange(n_interim)[:, None, None], tmp]       # (n_interim, B, S)
-bs = (bs > pps_ProbH1_thresh).mean(axis=2)                # (n_interim, B)
+bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)                # (n_interim, B)
 bs = pd.DataFrame(np.quantile(bs, quantiles, axis=1).T, 
                   columns=quantile_names
                   )
@@ -563,7 +563,7 @@ tmp = (
         ['interim_id', 'interim_date', 'interim_month_year'],
         observed=True,
     )['p_h1_xz']
-    .apply(lambda s: float((s > pps_ProbH1_thresh).mean()))
+    .apply(lambda s: float((s > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
 tmp = pd.concat(

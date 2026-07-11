@@ -104,8 +104,8 @@ def test_load_ypred_random_subset_uses_rng(raw_ypred):
 def wa(xi, dit, draws):
     model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=123)
-    pps_H1_def = 0.5
-    pps_ProbH1_thresh = 0.89
+    pps_H1_min_effect_size_thresh = 0.5
+    pps_ProbH1_target_lwr_quantile = 0.89
     zi = model.get_interim_z_from_ypredi(
         _DRAWS_FILE, interim_m=10,
         pps_z_total=20, seed=123, keep_order=True,
@@ -115,12 +115,12 @@ def wa(xi, dit, draws):
         draws=draws, categorical_threshold=2, endpoint_type='items',
     )
     tmp = (
-        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        model.get_p_h1(x_ratio, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh)
         .rename(columns={'p_h1': 'pps_ProbH1_x'})
     )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_target_lwr_quantile).astype(int)
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh).astype(int)
     x_ratio = x_ratio.merge(
         tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
         on='item_label', how='left',

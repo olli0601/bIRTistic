@@ -7,7 +7,7 @@ Full analysis over every interim round (mirrors
 (resume) the interim cohort x, build the future block z, then for each future
 sample z_s run an SMC sampler that bridges p(theta|x) -> p(theta|x, z_s) with
 adaptive data tempering + compile-once MALA moves, and score p(H_1 | x, z_s) as
-the fraction of moved particles with item improvement ratio > pps_H1_def. The S
+the fraction of moved particles with item improvement ratio > pps_H1_min_effect_size_thresh. The S
 SMC runs per interim are parallelised over ``pps_cpu_n`` spawn workers (mirrors
 the HMC ``Ukraine_interim_analyses.py``), via
 ``fit_interim_SMC_PPS``.
@@ -70,8 +70,8 @@ svi_algorithm = 'AutoLowRankMultivariateNormal'
 x_formula = "~ time - 1"
 
 pps_z_total = 12           # TEST: match the HMC pps_z_total (=200 in production)
-pps_H1_def = 0.5
-pps_ProbH1_thresh = 0.89
+pps_H1_min_effect_size_thresh = 0.5
+pps_ProbH1_target_lwr_quantile = 0.89
 categorical_threshold = 2
 pps_cpu_n = 12             # parallel SMC runs per interim (spawn workers)
 
@@ -186,8 +186,8 @@ def main():
             draws_file=f"{interim_prefix}_draws.zarr",
             interim_method_args={
                 'pps_z_total': pps_z_total,
-                'pps_H1_def': pps_H1_def,
-                'pps_ProbH1_thresh': pps_ProbH1_thresh,
+                'pps_H1_min_effect_size_thresh': pps_H1_min_effect_size_thresh,
+                'pps_ProbH1_target_lwr_quantile': pps_ProbH1_target_lwr_quantile,
                 'cpu_n': pps_cpu_n,
                 'save_to_file': False,
                 'verbose': True,
@@ -223,10 +223,10 @@ def main():
 
     pps_df = (
         p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-        .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+        .apply(lambda p: float((p > pps_ProbH1_target_lwr_quantile).mean()))
         .reset_index(name='pps')
     )
-    pps_df['eta'] = pps_ProbH1_thresh
+    pps_df['eta'] = pps_ProbH1_target_lwr_quantile
     pps_df['S'] = pps_z_total
     csv_path = os.path.join(dir_out, f"{file_prefix}_pps.csv")
     pps_df.to_csv(csv_path, index=False)
@@ -278,7 +278,7 @@ def main():
                 group='interim_month_year'),
             stat='identity',
         )
-        + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.5)
         + facet_wrap('~ item_label_long', ncol=4)
         + scale_fill_manual(values=color_dict)
         + scale_y_continuous(

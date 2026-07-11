@@ -1,36 +1,30 @@
 #!/usr/bin/env python3
 """
-Binomial interim analysis: regression-based EVSI labels (Strong & Oakley,
-2014), continuous-target variant.
+Binomial interim analysis: **amortised** PPS via a DeepSets multi-quantile
+network (§11.6 of ``dev/amortised_decision_making.md``).
 
-Mirrors ``Ukraine_interim_analysis_regression_endptx_on_wz.py`` but on the
-§3.1 Beta-Bernoulli example (``N = 500`` Bernoulli observations with true
-``p = 0.4`` over one year of monthly interim cutoffs). Per interim:
+Prototype outlined in §11:
 
-  - draw  p^(s) ~ p(p | x)             (x-fit posterior draws; numpyro NUTS)
-  - draw  z^(s) ~ p(z | p^(s))         (posterior-predictive ypred)
-  - y^(s) := 1 - p^(s) / p_0           (continuous endpoint ratio from x)
-  - W^(s) := 1 - mean(ypred^(s)) / p_0 (per-draw summary of z^(s))
+- Model = Binomial (§3.1), hardcoded sufficient statistic
+  ``T(x_i) = x_i`` so the DeepSets sum is just the total number of
+  successes.
+- Prior-predictive training sampler: ``p ~ Beta(a, b);
+  kn ~ Binomial(n, p); km ~ Binomial(m, p); rho = 1 - p / p_0``.
+- Multi-quantile head at 11 tau levels (0.05 ... 0.95). Continuous
+  ``P(H_1 | x, z)`` obtained by monotone-corrected CDF interpolation at
+  ``pps_H1_min_effect_size_thresh``.
+- Deployment: at each interim, fit the x-posterior once (pyro HMC,
+  ``resume=True``), draw ``pps_z_total`` posterior-predictive z samples,
+  and forward-pass features ``(kn, km, n, m)`` through the trained net.
 
-Per item we fit a Gaussian GLM ``pps_ratio_x ~ w_ratio`` on the S training
-rows and convert the predictive distribution of ratio | W(z) into a label
-probability via
-``p_h1_xz = P(ratio > pps_H1_min_effect_size_thresh | W) = 1 - Phi((pps_H1_min_effect_size_thresh - mu_hat) / sigma_hat)``,
-using the fitted residual SD. The PPS is the Monte-Carlo average
-``S^-1 sum_s 1{p_h1_xz(W(z^(s))) > pps_ProbH1_target_lwr_quantile}``.
-
-A closed-form analytic PPS reference (``model.fit_closed_form_pps``) is
-also computed.
-
-Outputs (``_RGE_`` suffix; matches the Ukraine regression script):
+Outputs (``_RGEA_`` suffix; matches the compare-methods loader):
 p_h1_xz pkl, PPS csv, box-stats pkl, p_h1_xz boxplot, PPS bars with 95%
 bootstrap CI vs analytic, perf long-form pkl (rho / R^2 / time(min)),
-timing csv, plus a per-interim diagnostic scatter
-(w_ratio vs pps_ratio_x with Gaussian-GLM smoother + rho / R^2 annotations).
+timing csv, plus a per-interim diagnostic scatter.
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py
+    pixi run python scripts-py/Binomial_interim_analysis_amortise_endptx_on_wz_with_features_fixed_qpsi_MLP_loss_multiquantilehead.py
 """
 
 # %%
@@ -38,6 +32,7 @@ Usage:
 import os
 import sys
 import time
+from functools import partial
 from pathlib import Path
 
 try:
@@ -64,9 +59,15 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from model_binomial import BinomialModel
-from fit_interim import (
-    fit_interim_regress_endptx_on_wz_with_Gaussian_approx,
-    fit_interim_regress_H1x_on_wz_per_item_summary,
+from fit_interim import fit_interim_regress_H1x_on_wz_per_item_summary
+from amortiser_common import (
+    train,
+    save_trained_model,
+    load_fitted_model,
+)
+from amortiser_pps_features_fixed_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_fixed_qpsi_MLP_loss_multiquantilehead,
+    predict_amortised_p_h1_for_many_xz,
 )
 
 print("✓ Imports successful")
@@ -94,56 +95,53 @@ hmc_chains = 4
 hmc_iter_warmup = 500
 hmc_iter_sampling = 1000
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-with-regression-on-endptx-wz-260606"
+# Amortised net training config.
+NET_HIDDEN = (256, 256, 128)
+NET_TAUS = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
+NET_STEPS = 40000
+NET_BATCH = 8192
+NET_LR = 1e-3
+NET_SEED = seed
+NET_N_MAX = N
+
+dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-amortise-endptx-on-wz-with-features-fixed-qpsi-MLP-loss-multiquantilehead-260711"
 os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "binomial_interim"
+NET_CKPT = os.path.join(dir_out, f"{file_prefix}_amortised_pps_net.pkl")
+
+# Cached cohort + amortiser training data written by
+# ``Binomial_interim_analyses_make_sim_data.py``.
+SIM_DATA_DIR = (
+    "/Users/or105/sandbox/bIRTistic/py-binomial-interim-make-sim-data-260702"
+)
+COHORT_PKL = os.path.join(SIM_DATA_DIR, 'binomial_sim_cohort.pkl')
+TRAINING_PKL = os.path.join(SIM_DATA_DIR, 'binomial_amortiser_training_data.pkl')
 
 print(f"Output dir: {dir_out}")
 
 # %%
 
 # =============================================================================
-# Simulate Bernoulli data of size N = 500 spaced over one year
+# Load the cached simulated Bernoulli cohort (dp, dit, di).
 # =============================================================================
 
-start = pd.Timestamp('2025-01-01')
-end = pd.Timestamp('2025-12-31')
-dates = pd.date_range(start, end, periods=N)
-rng = np.random.default_rng(seed)
-y = rng.binomial(1, TRUE_P, size=N)
-
-dp = pd.DataFrame({
-    'pid': np.arange(N),
-    'submission_date': dates,
-    'y': y.astype(int),
-})
-
-dit = pd.DataFrame({
-    'item_label': ['intervention'],
-    'item_type': ['binomial'],
-    'item_high_label': ['higher_is_better'],
-})
-
-print(f"  Simulated {N} Bernoulli outcomes, true p={TRUE_P:.3f},"
-      f" observed k={int(y.sum())}.")
-
-# %%
-
-# =============================================================================
-# Interim grid: one cohort per calendar month
-# =============================================================================
-
-month_starts = pd.date_range(start, end, freq='MS')
-di = pd.DataFrame({
-    'interim_id': range(1, len(month_starts) + 1),
-    'month_start': month_starts,
-    'interim_date': month_starts + pd.offsets.MonthEnd(0),
-})
-di['interim_month_year'] = di['month_start'].dt.strftime('%Y-%b')
-
+if not os.path.exists(COHORT_PKL):
+    raise FileNotFoundError(
+        f"{COHORT_PKL} missing; run "
+        "scripts-py/Binomial_interim_analyses_make_sim_data.py first."
+    )
+cohort = pd.read_pickle(COHORT_PKL)
+dp = cohort['dp']
+dit = cohort['dit']
+di = cohort['di']
+assert cohort['N'] == N and cohort['TRUE_P'] == TRUE_P, (
+    "cohort config drift; regenerate the sim-data cache."
+)
 n_full = len(dp)
-print(f"  n_full={n_full} | looping over {len(di)} monthly interim rounds.")
+print(f"  Loaded cohort: N={n_full}, "
+      f"observed k={int(dp['y'].sum())}, "
+      f"{len(di)} monthly interim rounds.")
 
 # %%
 
@@ -187,11 +185,53 @@ print(f"\nClosed-form PPS table:\n{ppsa.to_string(index=False)}")
 # %%
 
 # =============================================================================
+# Train amortised net once (or load).
+# =============================================================================
+
+if os.path.exists(NET_CKPT):
+    print(f"\nLoading cached amortised net from {NET_CKPT}")
+    fit = load_fitted_model(NET_CKPT)
+else:
+    print(f"\nTraining amortised net "
+          f"({NET_STEPS} steps, batch {NET_BATCH}) ...")
+
+    # Feed batches from the model's training-data sampler. The BinomialModel
+    # instance carries prior_a / prior_b / p_0 so the sampler only needs
+    # ``n_max``. This keeps the amortiser data-generation model-agnostic.
+    _amortiser_model = BinomialModel(
+        dit=dit,
+        dcati=dp.assign(oid=np.arange(1, N + 1, dtype=int)),
+        prior_a=PRIOR_A, prior_b=PRIOR_B, p_0=P_0, seed=seed,
+    )
+    sample_fn = partial(
+        _amortiser_model.make_training_data_with_features,
+        n_max=NET_N_MAX,
+    )
+    fit = train(
+        sample_fn,
+        Amortiser_PPS_features_fixed_qpsi_MLP_loss_multiquantilehead,
+        net_kwargs={'hidden_dims': NET_HIDDEN},
+        pps_ProbH1_lwr_quantiles_mesh=NET_TAUS,
+        num_steps=NET_STEPS,
+        batch_size=NET_BATCH,
+        lr=NET_LR,
+        seed=NET_SEED,
+        verbose=True,
+    )
+    save_trained_model(fit, NET_CKPT)
+    print(f"Saved amortised net to {NET_CKPT}")
+mins_train = float(fit.get('training_mins', float('nan')))
+print(f"Amortised net trained in {mins_train:.2f} min "
+      f"(measured inside train loop; excludes JIT compilation, "
+      f"data-loading, and load-cache time).")
+
+# %%
+
+# =============================================================================
 # Per-interim loop:
 #   1. fit x-posterior on xi (pyro_HMC, resume=True)
 #   2. build zi keeping posterior-draw order
-#   3. wa = model.get_w(zi) + model.get_endpoints_per_draw -> pps_ratio_x
-#   4. fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa) -> per-draw p_h1_xz
+#   3. compute per-draw features (kn, km, n, m) and forward-pass net
 # =============================================================================
 
 p_h1_xz_rows = []
@@ -210,59 +250,66 @@ for i in range(len(di)):
     interim_m = n_full - n_obs
     if interim_m <= 0:
         print(f"\n[interim {interim_id}] skipped: no missing participants"); continue
-    print(f"\n{'='*70}\nRegression-endptx for interim {interim_id} ({interim_date.date()})\n{'='*70}")
+    print(f"\n{'='*70}\nAmortised PPS for interim {interim_id} "
+          f"({interim_date.date()})\n{'='*70}")
     print(f"  n_obs={n_obs:,} | m={interim_m}")
 
     t0 = time.time()
-
-    # fit model on today's data x
-    interim_prefix = os.path.join(dir_out, f"{file_prefix}_i{interim_id}_pyro_hmc")
+    
+    # in order to generate future data z
+    # fit model on today's data x (for the posterior-predictive z draws +
+    # per-draw endpoint frame; the amortised net itself does not use HMC).
+    interim_prefix = os.path.join(
+        dir_out, f"{file_prefix}_i{interim_id}_pyro_hmc",
+    )
     model = BinomialModel(
         dit=dit, dcati=dpi,
         prior_a=PRIOR_A, prior_b=PRIOR_B, p_0=P_0, seed=seed,
     )
-    fit = model.fit_closed_form_posterior(
+    hmc_fit = model.fit_closed_form_posterior(
         output_file_prefix=interim_prefix,
         save_to_file=True, resume=True, verbose=False,
     )
 
-    # expand to future data keeping draw index linked to posterior draws
     zi = model.get_interim_z_from_ypredi(
         f"{interim_prefix}_draws.zarr", interim_m,
         pps_z_total=pps_z_total, seed=seed, keep_order=True,
     )
     wa = model.get_w(zi)
 
-    # calculate endpoint on theta | x
-    x_ratio = model.get_endpoints_per_draw(draws=fit['draws'])
-
-    # calculate Prob(H1|x) ie mean over samples theta^s
-    tmp = (
-        model.get_p_h1(x_ratio, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh)
-        .rename(columns={'p_h1': 'pps_ProbH1_x'})
-    )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_target_lwr_quantile).astype(int)
-
-    # calculate 1{theta^s in H1} per draw
+    # calculate endpoint on theta | x (needed for the diagnostic perf table).
+    x_ratio = model.get_endpoints_per_draw(draws=hmc_fit['draws'])
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh).astype(int)
-    x_ratio = x_ratio.merge(
-        tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
-        on='item_label', how='left',
-    )
+    x_ratio['pps_H1_x'] = (
+        x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh
+    ).astype(int)
     wa = wa.merge(
-        x_ratio[['draw', 'item_label', 'item_type', 'pps_ratio_x', 'pps_H1_x']],
+        x_ratio[['draw', 'item_label', 'item_type',
+                 'pps_ratio_x', 'pps_H1_x']],
         on=['draw', 'item_label', 'item_type'], how='inner',
     )
 
-    # save data for regression
-    pkl_path = os.path.join(dir_out, f"{file_prefix}_i{interim_id}_regression_training.pkl")
-    wa.to_pickle(pkl_path)
-    print(f"  saved training pkl: {pkl_path}")
+    # ---- Amortised feature construction (hardcoded T(x_i) = x_i) ----
+    # ``zi`` was built above from ``model.fit_closed_form_posterior``, so
+    # the ``ypred`` columns already contain analytic (joint) posterior-
+    # predictive samples ``km_s = sum_i ypred_{s, i}``. ``wa['w']`` is the
+    # mean over rows, so ``km_s = w_s * m``.
+    kn = int(dpi['y'].sum())
+    n_val = int(n_obs)
+    m_val = int(interim_m)
+    wa['km'] = np.rint(wa['w'].to_numpy() * m_val).astype(np.int32)
+    # DeepSets pooling for hardcoded T(x_i) = x_i: sum the sufficient
+    # statistics of x and z before feeding the head. Feature scaling
+    # divides by NET_N_MAX so the training distribution is matched.
+    scale = float(NET_N_MAX)
+    wa['k_total'] = (kn + wa['km']) / scale
+    wa['n_total'] = (n_val + m_val) / scale
 
-    # do regression of endpoint on w(x)
-    p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(
-        wa, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh,
+    p_h1_xz_interim, perf_interim = predict_amortised_p_h1_for_many_xz(
+        wa, fit,
+        pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh,
+        pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
+        feature_cols=('k_total', 'n_total'),
     )
     p_h1_xz_interim['interim_id'] = interim_id
     p_h1_xz_interim['interim_date'] = interim_date
@@ -273,13 +320,22 @@ for i in range(len(di)):
     perf_interim['interim_date'] = interim_date
     perf_rows.append(perf_interim)
 
+    # save data for downstream diagnostics.
+    pkl_path = os.path.join(
+        dir_out, f"{file_prefix}_i{interim_id}_regression_training.pkl",
+    )
+    wa.to_pickle(pkl_path)
+
     mins_interim_id = (time.time() - t0) / 60.0
-    pps_timing_rows.append({'interim_id': interim_id,
-                            'mins_interim_id': round(mins_interim_id, 3)})
-    print(f"  interim {interim_id} regression-endptx done in {mins_interim_id:.2f} min")
+    pps_timing_rows.append({
+        'interim_id': interim_id,
+        'mins_interim_id': round(mins_interim_id, 3),
+    })
+    print(f"  interim {interim_id} amortised PPS done in "
+          f"{mins_interim_id:.2f} min")
 
 if not p_h1_xz_rows:
-    raise RuntimeError("[RGE-PPS] no interims with missing participants to evaluate.")
+    raise RuntimeError("[RGEA-PPS] no interims with missing participants to evaluate.")
 
 # %%
 
@@ -295,14 +351,19 @@ perf_all = pd.concat(perf_rows, ignore_index=True)
 mins_total = (time.time() - t_all0) / 60.0
 pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round(mins_total, 3)
-print(f"\nAll interims RGE-PPS done in {mins_total:.2f} min")
+print(f"\nAll interims RGEA-PPS done in {mins_total:.2f} min")
 
-perf_all.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf.csv"), index=False)
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz.pkl")
+perf_all.to_csv(
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEA_perf.csv"), index=False,
+)
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEA_p_h1_xz.pkl")
 dp_h1_xz.to_pickle(pkl_path)
-print(f"Saved RGE P(H_1 | x, z) samples to: {pkl_path}")
-pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE_timing.csv"), index=False)
+print(f"Saved RGEA P(H_1 | x, z) samples to: {pkl_path}")
+pps_timing.to_csv(
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEA_timing.csv"), index=False,
+)
 
+# PPS = mean(p_h1_xz > eta_H). p_h1_xz is continuous in [0, 1].
 pps_df = (
     dp_h1_xz.groupby(['interim_id', 'interim_date', 'interim_month_year',
                       'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
@@ -311,11 +372,33 @@ pps_df = (
 )
 pps_df['eta'] = pps_ProbH1_target_lwr_quantile
 pps_df['S'] = pps_z_total
-pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGE.csv"), index=False)
+pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEA.csv"), index=False)
 print(pps_df.to_string(index=False))
 
-perf = perf_all.merge(di[['interim_id', 'interim_month_year']], on='interim_id', how='left')
-perf = perf.merge(pps_timing[['interim_id', 'mins_interim_id']], on='interim_id', how='left')
+# Merge closed-form for comparison print.
+tab = pps_df[['interim_id', 'interim_month_year', 'pps']].rename(
+    columns={'pps': 'pps_amortised'},
+).merge(
+    ppsa[['interim_id', 'pps']].rename(columns={'pps': 'pps_analytic'}),
+    on='interim_id', how='left',
+)
+tab['abs_err'] = (tab['pps_amortised'] - tab['pps_analytic']).abs()
+print("\nAmortised vs analytic PPS (per interim):")
+print(tab.to_string(index=False))
+print(f"\nMax abs error: {tab['abs_err'].max():.4f}, mean: {tab['abs_err'].mean():.4f}")
+
+# %%
+
+# =============================================================================
+# Simple perf long-form pkl for compare-methods integration.
+# =============================================================================
+
+perf = perf_all.merge(
+    di[['interim_id', 'interim_month_year']], on='interim_id', how='left',
+)
+perf = perf.merge(
+    pps_timing[['interim_id', 'mins_interim_id']], on='interim_id', how='left',
+)
 perf['time_min'] = perf['mins_interim_id']
 metric_labels = {'rho': 'rho', 'r2': 'R^2', 'time_min': 'time (min)'}
 perf_long = perf.melt(
@@ -327,15 +410,17 @@ perf_long['metric'] = pd.Categorical(
     perf_long['metric'].map(metric_labels),
     categories=list(metric_labels.values()), ordered=True,
 )
-perf_long['method'] = 'Regression endpt (Strong-Oakley)'
-perf_long.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_perf_long.pkl"))
-print(f"Saved RGE performance long-form pkl.")
+perf_long['method'] = 'Regression endpt amortised (Strong-Oakley)'
+perf_long.to_pickle(
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEA_perf_long.pkl"),
+)
+print("Saved RGEA performance long-form pkl.")
 
 # %%
 
 # =============================================================================
 # Plot: per-interim p(H_1 | x, z) boxplot (q025/q25/q50/q75/q975 over the
-# S Monte-Carlo samples), grey50 outline, regression Futurama-style fill.
+# S Monte-Carlo samples).
 # =============================================================================
 
 order = (
@@ -358,7 +443,9 @@ box_stats = (
     )
     .reset_index()
 )
-box_stats.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pkl"))
+box_stats.to_pickle(
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEA_p_h1_xz_boxplot.pkl"),
+)
 
 p = (
     ggplot(
@@ -368,28 +455,24 @@ p = (
             upper='q75', ymax='q975',
             group='interim_month_year'),
     )
-    + geom_boxplot(stat='identity', fill='#9467bd', alpha=0.4, colour='#808080')
+    + geom_boxplot(stat='identity', fill='#17becf', alpha=0.5,
+                   colour='#808080')
     + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
         figure_size=(14, 5),
     )
-    + labs(
-        x='Interim', y='p(H_1 | x, z) per z draw',        
-    )
+    + labs(x='Interim', y='p(H_1 | x, z) per z draw (amortised, continuous)')
 )
-tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGE_p_h1_xz_boxplot.pdf")
+tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGEA_p_h1_xz_boxplot.pdf")
 p.save(tmp, verbose=False, limitsize=False)
-print(f"Saved RGE p(H_1 | x, z) boxplot to: {tmp}")
+print(f"Saved RGEA p(H_1 | x, z) boxplot to: {tmp}")
 
 # %%
 
 # =============================================================================
-# Bar chart: PPS per interim_date. Black bar = closed-form analytic PPS;
-# #9467bd bar = regression-endptx PPS. Errorbars = 95% bootstrap CI on the
-# regression PPS (B resamples with replacement of the S MC samples per
-# interim).
+# Bar chart: PPS per interim_date. Black = analytic, #17becf = amortised.
 # =============================================================================
 
 bs_B = 2000
@@ -402,18 +485,20 @@ wide = (
                  columns='s', values='p_h1_xz')
     .sort_index()
 )
-bs = wide.to_numpy()                                      # (n_interim, S)
+bs = wide.to_numpy()
 n_interim, S = bs.shape
-rng = np.random.default_rng(seed)
-tmp = rng.integers(0, S, size=(n_interim, bs_B, S))         # (n_interim, B, S)
+rng2 = np.random.default_rng(seed)
+tmp = rng2.integers(0, S, size=(n_interim, bs_B, S))
 bs = bs[np.arange(n_interim)[:, None, None], tmp]
-bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)                # (n_interim, B)
-bs = pd.DataFrame(np.quantile(bs, quantiles, axis=1).T, columns=quantile_names)
+bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
+bs = pd.DataFrame(
+    np.quantile(bs, quantiles, axis=1).T, columns=quantile_names,
+)
 bs['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
 bs['interim_date'] = pd.to_datetime(
     wide.index.get_level_values('interim_date'),
 )
-bs['method'] = 'Regression endptx'
+bs['method'] = 'Regression endptx amortised'
 
 tmp = (
     dp_h1_xz.groupby(
@@ -426,21 +511,26 @@ tmp = (
 tmp = pd.concat(
     [
         ppsa[['interim_id', 'interim_date', 'pps']].assign(method='analytic'),
-        tmp[['interim_id', 'interim_date', 'pps']].assign(method='Regression endptx'),
+        tmp[['interim_id', 'interim_date', 'pps']].assign(
+            method='Regression endptx amortised',
+        ),
     ],
     ignore_index=True,
 )
 tmp['interim_date'] = pd.to_datetime(tmp['interim_date'])
 tmp['method'] = pd.Categorical(
-    tmp['method'], categories=['analytic', 'Regression endptx'], ordered=True,
+    tmp['method'],
+    categories=['analytic', 'Regression endptx amortised'], ordered=True,
 )
 tmp = tmp.merge(
     bs[['interim_id', 'method', 'q025', 'q975']],
     on=['method', 'interim_id'], how='left',
 )
-tmp.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_RGE_bootstrap.pkl"))
+tmp.to_pickle(
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEA_bootstrap.pkl"),
+)
 
-_bar_colours = {'analytic': '#000000', 'Regression endptx': '#9467bd'}
+_bar_colours = {'analytic': '#000000', 'Regression endptx amortised': '#17becf'}
 p = (
     ggplot(
         tmp,
@@ -467,70 +557,8 @@ p = (
         fill='method',
     )
 )
-tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGE_bars.pdf")
+tmp = os.path.join(dir_out, f"{file_prefix}_pps_RGEA_bars.pdf")
 p.save(tmp, verbose=False, limitsize=False)
-print(f"Saved RGE PPS bar chart to: {tmp}")
+print(f"Saved RGEA PPS bar chart to: {tmp}")
 
-# %%
-
-# =============================================================================
-# Diagnostic-plot loop: per-interim w_ratio vs pps_ratio_x scatter with
-# Gaussian-GLM smoother + rho / R^2 annotations.
-# =============================================================================
-
-print("\nBuilding diagnostic plot (Gaussian fit on pps_ratio_x), one facet per interim...")
-wa_parts = []
-for interim_id in di['interim_id']:
-    interim_id = int(interim_id)
-    wa_pkl = os.path.join(dir_out, f"{file_prefix}_i{interim_id}_regression_training.pkl")
-    if not os.path.exists(wa_pkl):
-        continue
-    wa_i = pd.read_pickle(wa_pkl).copy()
-    wa_i['interim_id'] = interim_id
-    wa_i['interim_month_year'] = (
-        di.loc[di['interim_id'] == interim_id, 'interim_month_year'].iloc[0]
-    )
-    wa_parts.append(wa_i)
-wa_all = pd.concat(wa_parts, ignore_index=True)
-
-order = (
-    di[di['interim_id'].isin(wa_all['interim_id'].unique())]
-    .sort_values('interim_date')['interim_month_year'].tolist()
-)
-wa_all['interim_month_year'] = pd.Categorical(
-    wa_all['interim_month_year'], categories=order, ordered=True,
-)
-
-_ann = (
-    wa_all.groupby(['interim_month_year', 'item_label'], observed=True)
-    .apply(fit_interim_regress_H1x_on_wz_per_item_summary)
-    .reset_index()
-)
-_ann['rho_label'] = _ann['rho'].apply(lambda r: f"ρ={r:.2f}")
-_ann['r2_label'] = _ann['r2'].apply(lambda r: f"R2={100 * r:.1f}%")
-
-p = (
-    ggplot(wa_all, aes(x='w_ratio', y='pps_ratio_x'))
-    + geom_point(alpha=0.3, size=0.5, colour='#9467bd')
-    + geom_smooth(method='glm', method_args={'family': 'gaussian'},
-                  se=True, colour='black', size=0.8)
-    + geom_text(_ann, aes(x='x_left', y='y_top', label='rho_label'),
-                ha='left', va='top', size=8, inherit_aes=False)
-    + geom_text(_ann, aes(x='x_right', y='y_top', label='r2_label'),
-                ha='right', va='top', size=8, inherit_aes=False)
-    + facet_wrap('~ interim_month_year', ncol=4, scales='free')
-    + theme_bw()
-    + theme(
-        figure_size=(14, 10),
-        strip_background=element_rect(fill='none', colour='none'),
-        panel_background=element_rect(fill='none', colour='none'),
-        legend_position='none',
-    )
-    + labs(x='empirical endpoint summary w(z)',
-           y='actual endpoint from posterior p(p | x) draws')
-)
-pdf_path = os.path.join(dir_out, f"{file_prefix}_endpointratio_vs_wratio.pdf")
-p.save(pdf_path, verbose=False, limitsize=False)
-print(f"  saved combined diagnostic plot: {pdf_path}")
-
-print("\n✓ Binomial regression-endptx PPS + diagnostic plot complete.")
+print("\n✓ Binomial regression-endptx-amortised PPS complete.")

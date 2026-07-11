@@ -194,8 +194,8 @@ else:
                 model_x, zi,
                 interim_method_args={
                     'pps_z_total':        PPS_Z_TOTAL,
-                    'pps_H1_def':         simu_params['pps_H1_def'],
-                    'pps_ProbH1_thresh':  simu_params['pps_ProbH1_thresh'],
+                    'pps_H1_min_effect_size_thresh':         simu_params['pps_H1_min_effect_size_thresh'],
+                    'pps_ProbH1_target_lwr_quantile':  simu_params['pps_ProbH1_target_lwr_quantile'],
                     'fit_method':         'fit_pyro_hmc',
                     'seed':               simu_params['seed'],
                     'save_to_file':       False,
@@ -241,11 +241,11 @@ else:
         nm.groupby(['J', 'interim_id', 'interim_date', 'interim_month_year',
                     'j', 'item_label'], observed=True)['p_h1_xz']
           .apply(lambda p: float(
-              (p > simu_params['pps_ProbH1_thresh']).mean()
+              (p > simu_params['pps_ProbH1_target_lwr_quantile']).mean()
           ))
           .reset_index(name='pps')
     )
-    nm_pps['eta'] = simu_params['pps_ProbH1_thresh']
+    nm_pps['eta'] = simu_params['pps_ProbH1_target_lwr_quantile']
     nm_pps['S'] = PPS_Z_TOTAL
     pd.to_pickle({'p_h1_xz': nm, 'timing': nm_timing, 'pps': nm_pps}, nm_pkl)
     print(f"\nSaved nested-MC HMC artifacts to {nm_pkl};"
@@ -354,7 +354,7 @@ for J in sorted(set(nm['J'].unique()) & set(J_GRID)):
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=simu_params['pps_ProbH1_thresh'],
+        + geom_hline(yintercept=simu_params['pps_ProbH1_target_lwr_quantile'],
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values,
                             breaks=['analytic', hmc_repr_key],
@@ -389,7 +389,7 @@ for J in sorted(set(nm['J'].unique()) & set(J_GRID)):
     rng = np.random.default_rng(simu_params['seed'])
     idx = rng.integers(0, S, size=(n_rows, bs_B, S))
     bs = bs[np.arange(n_rows)[:, None, None], idx]
-    bs = (bs > simu_params['pps_ProbH1_thresh']).mean(axis=2)
+    bs = (bs > simu_params['pps_ProbH1_target_lwr_quantile']).mean(axis=2)
     ci = np.quantile(bs, [0.025, 0.975], axis=1).T
     ci_df = pd.DataFrame(ci, columns=['q025_bs', 'q975_bs'])
     ci_df['j']          = wide.index.get_level_values('j').to_numpy()
@@ -484,7 +484,7 @@ for J in sorted(set(nm['J'].unique()) & set(J_GRID)):
     rng = np.random.default_rng(simu_params['seed'])
     idx = rng.integers(0, S_a, size=(n_rows_a, bs_B, S_a))
     bs_all = bs_all[np.arange(n_rows_a)[:, None, None], idx]
-    bs_all = (bs_all > simu_params['pps_ProbH1_thresh']).mean(axis=2)
+    bs_all = (bs_all > simu_params['pps_ProbH1_target_lwr_quantile']).mean(axis=2)
     ci_all = np.quantile(bs_all, [0.025, 0.975], axis=1).T
     ci_df_all = pd.DataFrame(ci_all, columns=['q025_bs', 'q975_bs'])
     ci_df_all['j']          = wide_all.index.get_level_values('j').to_numpy()
@@ -633,7 +633,7 @@ for J in sorted(set(nm['J'].unique()) & set(J_GRID)):
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=simu_params['pps_ProbH1_thresh'],
+        + geom_hline(yintercept=simu_params['pps_ProbH1_target_lwr_quantile'],
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values_all,
                             breaks=['analytic', hmc_repr_key_all],

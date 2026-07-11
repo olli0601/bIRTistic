@@ -17,8 +17,8 @@ draws (``mu_draws``) from the simulations directory. No refits on
                 + m * theta_k^T K^{-1} theta_k``.
   3. ``w_k = softmax_k(-quad_k / (2 sigma^2))``.
   4. Self-normalised IS estimate per component j:
-     ``p(H_{1j} | x, z_s) = sum_k w_k * 1{theta_{k,j} - mu_0 > pps_H1_def}``.
-  5. PPS = mean over s of ``1{p(H_{1j} | x, z_s) > pps_ProbH1_thresh}``.
+     ``p(H_{1j} | x, z_s) = sum_k w_k * 1{theta_{k,j} - mu_0 > pps_H1_min_effect_size_thresh}``.
+  5. PPS = mean over s of ``1{p(H_{1j} | x, z_s) > pps_ProbH1_target_lwr_quantile}``.
 
 Outputs per J: ``mvn_J{J}_pps_IS_p_h1_xz.pkl``, ``mvn_J{J}_pps_IS.csv``,
 ``mvn_J{J}_pps_IS_perf.csv`` (ESS / particle, E(w^2)),
@@ -113,8 +113,8 @@ print(f"Loaded sim_data + {len(J_GRID)} interim_data J cells + pps_cf "
 
 K_levels  = simu_params['K_levels']
 seed      = simu_params['seed']
-pps_H1_def        = simu_params['pps_H1_def']
-pps_ProbH1_thresh = simu_params['pps_ProbH1_thresh']
+pps_H1_min_effect_size_thresh        = simu_params['pps_H1_min_effect_size_thresh']
+pps_ProbH1_target_lwr_quantile = simu_params['pps_ProbH1_target_lwr_quantile']
 mu_0_baseline     = simu_params['mu_0_baseline']
 sigma             = simu_params['sigma']
 sigma2            = sigma ** 2
@@ -191,12 +191,12 @@ for J in J_GRID:
         )
 
         # c) calculate endpoint on theta | x: ind_{k,j} = 1{ratio_{k,j}
-        #    = mu_{k,j} - mu_0 > pps_H1_def} via the per-(item, draw) frame
+        #    = mu_{k,j} - mu_0 > pps_H1_min_effect_size_thresh} via the per-(item, draw) frame
         #    (matches Binomial_interim_analyses_with_IS_from_x.py line 280).
         x_ratio = model_x.get_endpoints_per_draw(draws=fit_x['draws'])
         ind_K_J = (
             x_ratio.pivot_table(index='draw', columns='j', values='ratio')
-                   .sort_index().to_numpy() > pps_H1_def
+                   .sort_index().to_numpy() > pps_H1_min_effect_size_thresh
         ).astype(np.float64)                                       # (K, J)
         theta = model_x.get_stacked_posterior(fit_x['draws'])
         mu_K = np.asarray(theta['mu'], dtype=np.float64)            # (K, J)
@@ -303,8 +303,8 @@ for J in J_GRID:
         continue
 
     dp_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-    dp_h1_xz['pps_H1_def'] = pps_H1_def
-    dp_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+    dp_h1_xz['pps_H1_min_effect_size_thresh'] = pps_H1_min_effect_size_thresh
+    dp_h1_xz['pps_ProbH1_target_lwr_quantile'] = pps_ProbH1_target_lwr_quantile
     dp_h1_xz['S'] = PPS_Z_TOTAL
     is_perf = pd.concat(is_perf_rows, ignore_index=True)
     timing_all = pd.DataFrame(timing_rows)
@@ -316,11 +316,11 @@ for J in J_GRID:
                           'interim_month_year', 'item_label', 'item_type',
                           'item_high_label', 'j'], observed=True)['p_h1_xz']
         .apply(lambda p: float(
-            (p > pps_ProbH1_thresh).mean()
+            (p > pps_ProbH1_target_lwr_quantile).mean()
         ))
         .reset_index(name='pps')
     )
-    pps_df['eta'] = pps_ProbH1_thresh
+    pps_df['eta'] = pps_ProbH1_target_lwr_quantile
     pps_df['S'] = PPS_Z_TOTAL
 
     dp_h1_xz.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_IS_p_h1_xz.pkl'))
@@ -444,7 +444,7 @@ for J in J_GRID:
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=pps_ProbH1_thresh,
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values,
                             breaks=['analytic', method_repr_key],
@@ -479,7 +479,7 @@ for J in J_GRID:
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, S, size=(n_rows, bs_B, S))
     bs = bs[np.arange(n_rows)[:, None, None], idx]
-    bs = (bs > pps_ProbH1_thresh).mean(axis=2)
+    bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
     ci = np.quantile(bs, [0.025, 0.975], axis=1).T
     ci_df = pd.DataFrame(ci, columns=['q025_bs', 'q975_bs'])
     ci_df['j']          = wide.index.get_level_values('j').to_numpy()
@@ -577,7 +577,7 @@ for J in J_GRID:
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, S_a, size=(n_rows_a, bs_B, S_a))
     bs_a = bs_a[np.arange(n_rows_a)[:, None, None], idx]
-    bs_a = (bs_a > pps_ProbH1_thresh).mean(axis=2)
+    bs_a = (bs_a > pps_ProbH1_target_lwr_quantile).mean(axis=2)
     ci_a = np.quantile(bs_a, [0.025, 0.975], axis=1).T
     ci_df_a = pd.DataFrame(ci_a, columns=['q025_bs', 'q975_bs'])
     ci_df_a['j']          = wide_all.index.get_level_values('j').to_numpy()
@@ -678,7 +678,7 @@ for J in J_GRID:
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=pps_ProbH1_thresh,
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values_all,
                             breaks=['analytic', method_repr_key_all],

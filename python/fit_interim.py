@@ -80,12 +80,12 @@ def _fit_interim_posterior_xz_with_nested_monte_carlo_one_sample(
     # Per-item P(H_1 | x, z_s). Each model class supplies its own
     # ratio definition (IRT: 1 - p_end/p_base for lower_is_better;
     # Binomial: 1 - p/p_0) and shares the same get_p_h1 aggregator
-    # (right-tail r > pps_H1_def).
+    # (right-tail r > pps_H1_min_effect_size_thresh).
     ratio_xz = s_model.get_endpoints_per_draw(
         draws=fit['draws'], endpoint_type='items',
     )
     sample_p = (
-        s_model.get_p_h1(ratio_xz, pps_H1_def=ima['pps_H1_def'])
+        s_model.get_p_h1(ratio_xz, pps_H1_min_effect_size_thresh=ima['pps_H1_min_effect_size_thresh'])
         .rename(columns={'p_h1': 'p_h1_xz'})
     )
     sample_p['s'] = s_label
@@ -105,7 +105,7 @@ def fit_interim_posterior_xz_with_nested_monte_carlo(
     ``y_stan`` for the new participants; this is concatenated onto
     ``model.dcati`` and rebuilt via ``type(model).get_interim_data_x``. A fresh
     model is refit in memory (``save_to_file=False``) and the per-item
-    probability that the directional improvement ratio exceeds ``pps_H1_def``
+    probability that the directional improvement ratio exceeds ``pps_H1_min_effect_size_thresh``
     is recorded.
 
     Parameters
@@ -117,7 +117,7 @@ def fit_interim_posterior_xz_with_nested_monte_carlo(
         Future-data block (must hold ``ypred_0 .. ypred_{S-1}`` columns).
     interim_method_args : dict
         PPS-loop tuning. ALL keys are required (no defaults):
-        ``pps_z_total``, ``pps_H1_def``, ``pps_ProbH1_thresh``,
+        ``pps_z_total``, ``pps_H1_min_effect_size_thresh``, ``pps_ProbH1_target_lwr_quantile``,
         ``fit_method``, ``seed``, ``save_to_file``, ``verbose``,
         ``cpu_n``, ``output_file_prefix``.
     fit_method_args : dict
@@ -131,7 +131,7 @@ def fit_interim_posterior_xz_with_nested_monte_carlo(
     pd.DataFrame
         p_h1_xz: long form, one row per (item, sample) with columns
         ``item_label``, ``item_type``, ``item_high_label``, ``p_h1_xz``, ``s``,
-        plus the recorded ``pps_H1_def``, ``pps_ProbH1_thresh`` and ``S``.
+        plus the recorded ``pps_H1_min_effect_size_thresh``, ``pps_ProbH1_target_lwr_quantile`` and ``S``.
     """
     ima = interim_method_args
     fma = fit_method_args
@@ -164,8 +164,8 @@ def fit_interim_posterior_xz_with_nested_monte_carlo(
             rows = [f.result() for f in futures]
 
     p_h1_xz = pd.concat(rows, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
-    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['pps_H1_min_effect_size_thresh'] = ima['pps_H1_min_effect_size_thresh']
+    p_h1_xz['pps_ProbH1_target_lwr_quantile'] = ima['pps_ProbH1_target_lwr_quantile']
     p_h1_xz['S'] = ima['pps_z_total']
 
     if ima['save_to_file'] and ima['output_file_prefix'] is not None:
@@ -198,8 +198,8 @@ def fit_interim_posterior_xz_from_z_with_IS_reweight(
         :meth:`Model.get_interim_z_from_ypredi`; must carry ``src_pid`` +
         ``ypred_0 .. ypred_{S-1}`` columns.
     interim_method_args : dict
-        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
-        ``pps_ProbH1_thresh``, ``output_file_prefix``,
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_min_effect_size_thresh``,
+        ``pps_ProbH1_target_lwr_quantile``, ``output_file_prefix``,
         ``save_to_file``, ``verbose``. No ``fit_method_args`` -- IS does
         not refit.
     draws, draws_file
@@ -225,7 +225,7 @@ def fit_interim_posterior_xz_from_z_with_IS_reweight(
         draws=draws, endpoint_type='items',
     )
     x_ratio = x_ratio.assign(
-        ind=(x_ratio['ratio'] > ima['pps_H1_def']).astype(float),
+        ind=(x_ratio['ratio'] > ima['pps_H1_min_effect_size_thresh']).astype(float),
     )
 
     theta = model.get_stacked_posterior(draws)
@@ -265,8 +265,8 @@ def fit_interim_posterior_xz_from_z_with_IS_reweight(
         p_h1_xz.append(sample_p)
 
     p_h1_xz = pd.concat(p_h1_xz, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
-    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['pps_H1_min_effect_size_thresh'] = ima['pps_H1_min_effect_size_thresh']
+    p_h1_xz['pps_ProbH1_target_lwr_quantile'] = ima['pps_ProbH1_target_lwr_quantile']
     p_h1_xz['S'] = ima['pps_z_total']
     is_perf = pd.DataFrame(perf_rows)
 
@@ -311,8 +311,8 @@ def fit_interim_posterior_xz_with_IS_moment_matching(
     zi : pd.DataFrame
         Future-data block (must carry ``src_pid`` + ``ypred_*`` columns).
     interim_method_args : dict
-        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
-        ``pps_ProbH1_thresh``, ``output_file_prefix``,
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_min_effect_size_thresh``,
+        ``pps_ProbH1_target_lwr_quantile``, ``output_file_prefix``,
         ``save_to_file``, ``verbose``.
     draws, draws_file
         Supply one. The x-fit posterior or its zarr.
@@ -431,7 +431,7 @@ def fit_interim_posterior_xz_with_IS_moment_matching(
             theta_batch, x_stan, endpoint_type='items',
         )
         ratio = ratio.assign(
-            ind=(ratio['ratio'] > ima['pps_H1_def']).astype(float),
+            ind=(ratio['ratio'] > ima['pps_H1_min_effect_size_thresh']).astype(float),
         )
         wdf = pd.DataFrame({'draw': np.arange(n_draw), 'w': w1})
         m = ratio.merge(wdf, on='draw')
@@ -446,8 +446,8 @@ def fit_interim_posterior_xz_with_IS_moment_matching(
     mm = pd.DataFrame(rows)
     mm['mins'] = round((time.time() - t_all) / 60.0, 4)
     p_h1_xz = pd.concat(p_h1_xz, ignore_index=True)
-    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
-    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['pps_H1_min_effect_size_thresh'] = ima['pps_H1_min_effect_size_thresh']
+    p_h1_xz['pps_ProbH1_target_lwr_quantile'] = ima['pps_ProbH1_target_lwr_quantile']
     p_h1_xz['S'] = ima['pps_z_total']
 
     out_prefix = ima['output_file_prefix']
@@ -670,7 +670,7 @@ def _fit_interim_SMC_one_sample(
     per-item p(H_1 | x, z_s) plus a one-row schedule summary. Module-level so
     it is picklable for process-based parallelism. The post-move particles are
     uniformly weighted, so p(H_1 | x, z_s) is the fraction with
-    ``ratio > pps_H1_def``. Inherits the two arg dicts from
+    ``ratio > pps_H1_min_effect_size_thresh``. Inherits the two arg dicts from
     :func:`fit_interim_SMC_PPS`.
     """
     ima = interim_method_args
@@ -692,7 +692,7 @@ def _fit_interim_SMC_one_sample(
         particles, x_stan, endpoint_type='items',
     )
     sample_p = (
-        ratio.assign(ind=(ratio['ratio'] > ima['pps_H1_def']).astype(float))
+        ratio.assign(ind=(ratio['ratio'] > ima['pps_H1_min_effect_size_thresh']).astype(float))
         .groupby(['item_label', 'item_type', 'item_high_label'])['ind']
         .mean().reset_index(name='p_h1_xz')
     )
@@ -719,7 +719,7 @@ def _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample(
 
     Runs :func:`fit_interim_posterior_xz_from_x_with_SMC_resampling` for each
     future sample z_s and scores p(H_1 | x, z_s) as the fraction of the moved
-    particles whose per-item improvement ratio exceeds ``pps_H1_def``. The S
+    particles whose per-item improvement ratio exceeds ``pps_H1_min_effect_size_thresh``. The S
     SMC runs are independent and parallelised over ``cpu_n`` ``spawn``
     workers (each re-imports JAX and reloads ``draws_file``).
 
@@ -732,8 +732,8 @@ def _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample(
         Path to the x-fit zarr (passed instead of in-memory draws so workers
         can reload it).
     interim_method_args : dict
-        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_def``,
-        ``pps_ProbH1_thresh``, ``cpu_n``, ``output_file_prefix``,
+        ALL keys required (no defaults): ``pps_z_total``, ``pps_H1_min_effect_size_thresh``,
+        ``pps_ProbH1_target_lwr_quantile``, ``cpu_n``, ``output_file_prefix``,
         ``save_to_file``, ``verbose``.
     fit_method_args : dict
         SMC tuning forwarded to
@@ -768,8 +768,8 @@ def _fit_interim_posterior_xz_from_x_with_SMC_resampling_per_sample(
             results = [f.result() for f in futures]
 
     p_h1_xz = pd.concat([r[0] for r in results], ignore_index=True)
-    p_h1_xz['pps_H1_def'] = ima['pps_H1_def']
-    p_h1_xz['pps_ProbH1_thresh'] = ima['pps_ProbH1_thresh']
+    p_h1_xz['pps_H1_min_effect_size_thresh'] = ima['pps_H1_min_effect_size_thresh']
+    p_h1_xz['pps_ProbH1_target_lwr_quantile'] = ima['pps_ProbH1_target_lwr_quantile']
     p_h1_xz['S'] = ima['pps_z_total']
     smc_summary = pd.DataFrame([r[1] for r in results])
 
@@ -871,7 +871,7 @@ def fit_interim_regress_H1x_on_wz(wa: pd.DataFrame):
     return p_h1_xz, perf
 
 
-def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_H1_def: float = 0.5):
+def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_H1_min_effect_size_thresh: float = 0.5):
     """
     Per-item Strong-Oakley regression label using the continuous endpoint ratio
     as the target (more discriminative than binarising to ``pps_H1_x``).
@@ -879,12 +879,12 @@ def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_
     For each item we fit a Gaussian GLM (identity link)
     ``pps_ratio_x ~ w_ratio`` on the S training rows, then convert the
     predictive distribution of ratio | W(z) into a label probability via
-    ``p_h1_xz = P(ratio > pps_H1_def | W) = 1 - Phi((pps_H1_def - mu_hat) / sigma_hat)``,
+    ``p_h1_xz = P(ratio > pps_H1_min_effect_size_thresh | W) = 1 - Phi((pps_H1_min_effect_size_thresh - mu_hat) / sigma_hat)``,
     where ``sigma_hat = sqrt(res.scale)`` is the fitted residual SD.
 
     When ``w_ratio`` is degenerate or the GLM fails, falls back to a constant
     ``mu_hat = mean(pps_ratio_x)`` with the empirical SD; if the SD is not
-    positive/finite, returns the indicator ``1{mu_hat > pps_H1_def}``.
+    positive/finite, returns the indicator ``1{mu_hat > pps_H1_min_effect_size_thresh}``.
 
     Returns
     -------
@@ -924,9 +924,9 @@ def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_
                 sigma = float(g_ok['pps_ratio_x'].std(ddof=1))
 
         if not np.isfinite(sigma) or sigma <= 0:
-            pi_hat = (mu_hat > pps_H1_def).astype(float)
+            pi_hat = (mu_hat > pps_H1_min_effect_size_thresh).astype(float)
         else:
-            pi_hat = 1.0 - norm.cdf((pps_H1_def - mu_hat) / sigma)
+            pi_hat = 1.0 - norm.cdf((pps_H1_min_effect_size_thresh - mu_hat) / sigma)
 
         gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
         gout['p_h1_xz'] = pi_hat
@@ -948,13 +948,13 @@ def fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa: pd.DataFrame, pps_
 
 def fit_interim_regress_endptx_on_wz_with_quantile_regr(
     wa: pd.DataFrame,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
+    pps_H1_min_effect_size_thresh: float = 0.5,
+    pps_ProbH1_target_lwr_quantile: float = 0.89,
 ):
     """
     Per-item Strong-Oakley regression label using the continuous endpoint ratio
     as the target, but with a conditional-quantile regressor at level
-    ``tau = 1 - pps_ProbH1_thresh`` instead of the mean + Gaussian approximation.
+    ``tau = 1 - pps_ProbH1_target_lwr_quantile`` instead of the mean + Gaussian approximation.
 
     The decision rule
     ``P(H_1 | x, z) > eta_H``
@@ -962,14 +962,14 @@ def fit_interim_regress_endptx_on_wz_with_quantile_regr(
     ``Q_{1 - eta_H}(rho | x, w(z)) > eta_0``,
     where ``Q_tau`` is the lower ``tau``-quantile of the effect ratio ``rho``
     conditional on ``x`` and ``w(z)``. Estimating the quantile directly folds
-    ``pps_ProbH1_thresh`` into the regression target and removes any
+    ``pps_ProbH1_target_lwr_quantile`` into the regression target and removes any
     Gaussian / homoskedastic assumption on the residuals.
 
     Fit a linear quantile regression ``pps_ratio_x ~ w_ratio`` at
-    ``tau = 1 - pps_ProbH1_thresh`` via ``statsmodels.QuantReg`` (pinball loss).
-    The predicted quantile at each row is compared to ``pps_H1_def`` and the
+    ``tau = 1 - pps_ProbH1_target_lwr_quantile`` via ``statsmodels.QuantReg`` (pinball loss).
+    The predicted quantile at each row is compared to ``pps_H1_min_effect_size_thresh`` and the
     resulting 0/1 label is stored in ``p_h1_xz``. Downstream Monte-Carlo
-    averaging ``mean(p_h1_xz > pps_ProbH1_thresh) == mean(p_h1_xz == 1) == PPS``
+    averaging ``mean(p_h1_xz > pps_ProbH1_target_lwr_quantile) == mean(p_h1_xz == 1) == PPS``
     works unchanged because 1 > any threshold in (0,1) and 0 <= any threshold
     in (0,1).
 
@@ -986,7 +986,7 @@ def fit_interim_regress_endptx_on_wz_with_quantile_regr(
         - ``perf``: one row per item with ``item_label``, ``item_type``,
           ``rho`` and ``r2`` (shared summary with the Gaussian variant).
     """
-    tau = 1.0 - float(pps_ProbH1_thresh)
+    tau = 1.0 - float(pps_ProbH1_target_lwr_quantile)
 
     p_rows = []
     perf_rows = []
@@ -1014,7 +1014,7 @@ def fit_interim_regress_endptx_on_wz_with_quantile_regr(
                     dtype=float,
                 )
 
-        pi_hat = (q_hat > pps_H1_def).astype(float)
+        pi_hat = (q_hat > pps_H1_min_effect_size_thresh).astype(float)
 
         gout = g[['item_label', 'item_type', 'item_high_label', 'draw']].copy()
         gout['p_h1_xz'] = pi_hat
@@ -1036,8 +1036,8 @@ def fit_interim_regress_endptx_on_wz_with_quantile_regr(
 
 def fit_interim_regress_endptx_on_wz_with_mquantile_regr(
     wa: pd.DataFrame,
-    pps_H1_def: float = 0.5,
-    pps_ProbH1_thresh: float = 0.89,
+    pps_H1_min_effect_size_thresh: float = 0.5,
+    pps_ProbH1_target_lwr_quantile: float = 0.89,
     taus=(0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95),
 ):
     """
@@ -1048,15 +1048,15 @@ def fit_interim_regress_endptx_on_wz_with_mquantile_regr(
     ``taus`` via ``statsmodels.QuantReg``. For each row, the fitted quantiles
     are stacked into a monotone-non-decreasing predicted CDF grid (quantile
     crossings fixed by cumulative maximum along tau); the conditional CDF at
-    ``pps_H1_def`` is obtained by linear interpolation. The output
-    ``p_h1_xz = 1 - F_hat(pps_H1_def | w) in [0, 1]`` is a **continuous**
+    ``pps_H1_min_effect_size_thresh`` is obtained by linear interpolation. The output
+    ``p_h1_xz = 1 - F_hat(pps_H1_min_effect_size_thresh | w) in [0, 1]`` is a **continuous**
     Monte-Carlo label with lower variance than the single-tau binary
     indicator, at the cost of ``len(taus)`` QuantReg fits per item.
 
-    Downstream ``mean(p_h1_xz > pps_ProbH1_thresh)`` still gives the PPS.
+    Downstream ``mean(p_h1_xz > pps_ProbH1_target_lwr_quantile)`` still gives the PPS.
 
     When ``w_ratio`` is degenerate or a fit fails, falls back to the
-    unconditional empirical CDF of ``pps_ratio_x`` at ``pps_H1_def``.
+    unconditional empirical CDF of ``pps_ratio_x`` at ``pps_H1_min_effect_size_thresh``.
 
     Returns
     -------
@@ -1079,7 +1079,7 @@ def fit_interim_regress_endptx_on_wz_with_mquantile_regr(
         mask = np.isfinite(g['w_ratio']) & np.isfinite(g['pps_ratio_x'])
         g_ok = g[mask]
         if len(g_ok) < 3:
-            ecdf = (float((g['pps_ratio_x'] <= pps_H1_def).mean())
+            ecdf = (float((g['pps_ratio_x'] <= pps_H1_min_effect_size_thresh).mean())
                     if len(g) else np.nan)
             pi_hat = np.full(len(g), 1.0 - ecdf, dtype=float)
             q_hat = np.full(
@@ -1106,14 +1106,14 @@ def fit_interim_regress_endptx_on_wz_with_mquantile_regr(
                 preds = np.maximum.accumulate(preds, axis=1)
                 # F(eta_0 | w) via linear interp over (q_hat, tau) grid.
                 F = np.array([
-                    float(np.interp(pps_H1_def, row, taus_arr,
+                    float(np.interp(pps_H1_min_effect_size_thresh, row, taus_arr,
                                     left=0.0, right=1.0))
                     for row in preds
                 ])
                 pi_hat = 1.0 - F
                 q_hat = preds[:, med_idx]
             except Exception:
-                ecdf = float((g_ok['pps_ratio_x'] <= pps_H1_def).mean())
+                ecdf = float((g_ok['pps_ratio_x'] <= pps_H1_min_effect_size_thresh).mean())
                 pi_hat = np.full(len(g), 1.0 - ecdf, dtype=float)
                 q_hat = np.full(
                     len(g),

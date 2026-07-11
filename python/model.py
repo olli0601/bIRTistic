@@ -146,8 +146,8 @@ class Model(ABC):
         with a per-draw mean-of-ypred summary."""
 
     def get_p_h1(self, ratio_xz: pd.DataFrame,
-                 pps_H1_def: float = 0.5) -> pd.DataFrame:
-        """Per-item ``mean(endpt > pps_H1_def)`` over draws.
+                 pps_H1_min_effect_size_thresh: float = 0.5) -> pd.DataFrame:
+        """Per-item ``mean(endpt > pps_H1_min_effect_size_thresh)`` over draws.
 
         Both IRT (where ``endpt`` is the directional improvement
         ``1 - p_endline/p_baseline`` for ``lower_is_better`` items) and
@@ -159,7 +159,7 @@ class Model(ABC):
         return (
             ratio_xz
             .groupby(['item_label', 'item_type', 'item_high_label'])['ratio']
-            .apply(lambda endpt: float((endpt > pps_H1_def).mean()))
+            .apply(lambda endpt: float((endpt > pps_H1_min_effect_size_thresh).mean()))
             .reset_index(name='p_h1')
         )
 

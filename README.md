@@ -157,8 +157,8 @@ p_h1_xz = fit_interim_posterior_xz_with_nested_monte_carlo(
     model, zi,
     interim_method_args={
         'pps_z_total':        S,
-        'pps_H1_def':         0.25,        # H_1: 1 - p/p_0 > 0.25
-        'pps_ProbH1_thresh':  0.89,
+        'pps_H1_min_effect_size_thresh':         0.25,        # H_1: 1 - p/p_0 > 0.25
+        'pps_ProbH1_target_lwr_quantile':  0.89,
         'fit_method':         'fit_pyro_hmc',
         'seed':               seed,
         'save_to_file':       False,

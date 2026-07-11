@@ -104,8 +104,8 @@ def test_get_interim_z_from_ypredi_changes_with_seed(xi, dit):
 def _build_wa(xi, dit, draws, seed):
     model = PartialCreditModel(dit=dit, dcati=xi,
                                     x_formula="~ time - 1", seed=seed)
-    pps_H1_def = 0.5
-    pps_ProbH1_thresh = 0.89
+    pps_H1_min_effect_size_thresh = 0.5
+    pps_ProbH1_target_lwr_quantile = 0.89
     zi = model.get_interim_z_from_ypredi(
         _DRAWS_FILE, _INTERIM_M,
         pps_z_total=_PPS_Z_TOTAL, seed=seed, keep_order=True,
@@ -115,12 +115,12 @@ def _build_wa(xi, dit, draws, seed):
         draws=draws, categorical_threshold=2, endpoint_type='items',
     )
     tmp = (
-        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        model.get_p_h1(x_ratio, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh)
         .rename(columns={'p_h1': 'pps_ProbH1_x'})
     )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_target_lwr_quantile).astype(int)
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh).astype(int)
     x_ratio = x_ratio.merge(
         tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
         on='item_label', how='left',
@@ -168,8 +168,8 @@ def test_fit_interim_regress_H1x_on_wz_deterministic(xi, dit, draws):
 
 def test_fit_interim_regress_endptx_on_wz_deterministic(xi, dit, draws):
     wa = _build_wa(xi, dit, draws, _SEED)
-    p_a, perf_a = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_def=0.5)
-    p_b, perf_b = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_def=0.5)
+    p_a, perf_a = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_min_effect_size_thresh=0.5)
+    p_b, perf_b = fit_interim_regress_endptx_on_wz_with_Gaussian_approx(wa, pps_H1_min_effect_size_thresh=0.5)
     pd.testing.assert_frame_equal(p_a, p_b, check_dtype=True, check_exact=True)
     pd.testing.assert_frame_equal(perf_a, perf_b, check_dtype=True, check_exact=True)
 
@@ -189,8 +189,8 @@ def test_fit_interim_IS_reweight_deterministic(xi, dit, draws):
     is_kwargs = dict(
         interim_method_args={
             'pps_z_total': _PPS_Z_TOTAL,
-            'pps_H1_def': 0.5,
-            'pps_ProbH1_thresh': 0.89,
+            'pps_H1_min_effect_size_thresh': 0.5,
+            'pps_ProbH1_target_lwr_quantile': 0.89,
             'output_file_prefix': None,
             'save_to_file': False,
             'verbose': False,

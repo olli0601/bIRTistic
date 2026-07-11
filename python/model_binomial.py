@@ -155,6 +155,61 @@ class BinomialModel(Model):
             'ratio':            ratio,
         })
 
+    def get_interim_z_from_ypredi(
+        self, draws_file: str, interim_m: int,
+        pps_z_total: int = 10, seed: int = 123,
+        keep_order: bool = False,
+    ) -> pd.DataFrame:
+        """Build ``zi`` for the Binomial model.
+
+        Overrides the base class default so that ``m`` future outcomes
+        are sampled as **fresh** Bernoulli(``p_s``) draws per posterior
+        column, not by resampling from the interim cohort's ``n``
+        observed ypred values. When ``m > n`` (small interim, big future
+        cohort) the base-class resample-with-replacement scheme inflates
+        the per-draw ``km`` variance by ``m^2 / n * E[p(1-p)]`` on top
+        of the true Beta-Binomial variance; drawing fresh Bernoullis
+        removes that inflation and matches the exact posterior-
+        predictive marginal.
+
+        Reads ``p`` samples from ``draws_file``'s
+        ``posterior['p']`` and generates ``ypred`` at ``interim_m``
+        new participants. ``keep_order`` and ``pps_z_total`` follow the
+        base-class contract.
+        """
+        idata = az.from_zarr(draws_file)
+        p_all = np.asarray(idata.posterior['p'].values).reshape(-1)  # (S_total,)
+        S_total = p_all.shape[0]
+        if pps_z_total > S_total:
+            raise ValueError(
+                f"pps_z_total={pps_z_total} > cached S={S_total}",
+            )
+        rng = np.random.default_rng(seed)
+        if keep_order:
+            sel = np.arange(pps_z_total)
+        else:
+            sel = rng.choice(S_total, size=pps_z_total, replace=False)
+        p_sel = p_all[sel]                                          # (S,)
+        # Fresh Bernoulli(p_s) at each of the interim_m future positions.
+        ypred = rng.binomial(
+            1, np.broadcast_to(p_sel[:, None], (pps_z_total, interim_m)),
+        ).astype(np.int8).T                                         # (m, S)
+
+        xi = self.dcati
+        src_pids = rng.choice(xi['pid'].unique(), size=interim_m, replace=True)
+        tmp = pd.DataFrame({
+            'src_pid': src_pids,
+            'pid': np.arange(1, interim_m + 1) + int(xi['pid'].max()),
+        })
+        zi = tmp.merge(xi.rename(columns={'pid': 'src_pid'}), on='src_pid')
+        zi.sort_values(['pid', 'oid'], inplace=True)
+        zi.reset_index(drop=True, inplace=True)
+        ypred_df = pd.DataFrame(
+            ypred, columns=[f'ypred_{s}' for s in range(pps_z_total)],
+        )
+        zi = pd.concat([zi.reset_index(drop=True), ypred_df], axis=1)
+        return zi
+
     def get_w(self, zi: pd.DataFrame) -> pd.DataFrame:
         """Strong-Oakley per-draw summary W(z^(s)) for the single Binomial
         item.
@@ -214,6 +269,7 @@ class BinomialModel(Model):
         self,
         output_file_prefix: Optional[str] = None, *,
         save_to_file: bool = False,
+        resume: bool = False,
         verbose: bool = True,
         output_samples: int = 4000,
         **method_kwargs,
@@ -222,8 +278,43 @@ class BinomialModel(Model):
 
         Also produces ``ypred`` (per-draw Bernoulli(p_s) at every
         observation) and analytic pointwise ``log_lik`` so the returned
-        zarr matches the four numerical fit drivers."""
+        zarr matches the four numerical fit drivers.
+
+        When ``save_to_file`` and ``resume`` are True and the
+        ``{prefix}_draws.zarr`` + ``{prefix}_timing.csv`` artifacts
+        exist, the cached posterior is returned instead of resampling.
+        Matches the save/resume idiom of :meth:`fit_pyro_hmc` /
+        :meth:`fit_pyro_svi` so downstream scripts can swap this in as
+        a drop-in replacement.
+        """
         t0 = time.time()
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None
+            and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
+        )
+        if can_resume:
+            if verbose:
+                print(f"[BinomialModel] closed-form posterior RESUME from"
+                      f" {draws_file}")
+            idata = az.from_zarr(draws_file)
+            p_samples = np.asarray(idata.posterior['p'].values).reshape(-1)
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            k = int(self.stan_data['k'])
+            n = int(self.stan_data['N_total'])
+            return {
+                'draws': idata,
+                'posterior_samples': {'p': p_samples},
+                'timing': timing,
+                'a_post': self.prior_a + k,
+                'b_post': self.prior_b + (n - k),
+            }
+
         k = int(self.stan_data['k'])
         n = int(self.stan_data['N_total'])
         a_post = self.prior_a + k
@@ -251,6 +342,11 @@ class BinomialModel(Model):
             print(f"[BinomialModel] closed-form posterior: Beta({a_post:.2f},"
                   f" {b_post:.2f}); drew {output_samples} samples in"
                   f" {timing['mins']:.4f} min")
+        if save_to_file and output_file_prefix is not None:
+            os.makedirs(os.path.dirname(output_file_prefix) or '.',
+                        exist_ok=True)
+            draws.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
         return {
             'draws': draws,
             'posterior_samples': {'p': p_samples},
@@ -263,18 +359,18 @@ class BinomialModel(Model):
         self,
         m: int,
         *,
-        pps_H1_def: float = 0.5,
-        pps_ProbH1_thresh: float = 0.89,
+        pps_H1_min_effect_size_thresh: float = 0.5,
+        pps_ProbH1_target_lwr_quantile: float = 0.89,
     ) -> float:
         """Analytic Beta-Binomial PPS over ``m`` future trials (§3.1).
 
         H_1 is defined on the endpoint ``1 - p / p_0``:
-        ``H_1: 1 - p / p_0 > pps_H1_def``, equivalently
-        ``p < (1 - pps_H1_def) * p_0``.
+        ``H_1: 1 - p / p_0 > pps_H1_min_effect_size_thresh``, equivalently
+        ``p < (1 - pps_H1_min_effect_size_thresh) * p_0``.
 
-        ``pps_ProbH1_thresh`` is the decision threshold on
+        ``pps_ProbH1_target_lwr_quantile`` is the decision threshold on
         ``P(H_1 | x, z)``. Returns
-        ``P( P(H_1 | x, z) > pps_ProbH1_thresh )`` integrating zi
+        ``P( P(H_1 | x, z) > pps_ProbH1_target_lwr_quantile )`` integrating zi
         analytically over the Beta-Binomial(m, a_post, b_post)
         posterior-predictive.
         """
@@ -287,17 +383,136 @@ class BinomialModel(Model):
 
         # H_1: p < p_h1_threshold; P(H_1 | x, z) is decreasing in k_m
         # (more successes shift the posterior right, away from the threshold).
-        p_h1_threshold = (1.0 - pps_H1_def) * self.p_0
+        p_h1_threshold = (1.0 - pps_H1_min_effect_size_thresh) * self.p_0
         k_m_grid = np.arange(m + 1)
         a_z = a_post + k_m_grid
         b_z = b_post + (m - k_m_grid)
         p_h1_given_z = _scipy_beta.cdf(p_h1_threshold, a_z, b_z)
-        crosses = p_h1_given_z > pps_ProbH1_thresh
+        crosses = p_h1_given_z > pps_ProbH1_target_lwr_quantile
         if not crosses.any():
             return 0.0
         # Largest k_m where the decision still triggers; PPS = P(K_m <= k_star).
         k_star = int(k_m_grid[crosses][-1])
         return float(_scipy_betabinom.cdf(k_star, m, a_post, b_post))
+
+    # ------------------------------------------------------------------
+    # Amortiser training-data sampler
+    # ------------------------------------------------------------------
+
+    def _sample_binomial_prior_predictive(
+        self, rng, S, n_max, n_min, fixed_total, m_min, m_max,
+    ):
+        """Shared helper: draw ``(p, n, m, kn, km)`` per sample."""
+        p = rng.beta(self.prior_a, self.prior_b, size=S)
+        n = rng.integers(n_min, n_max, size=S)
+        if fixed_total:
+            m = n_max - n
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S)
+        kn = rng.binomial(n, p)
+        km = rng.binomial(m, p)
+        return p, n, m, kn, km
+
+    def make_training_data_with_features(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+    ):
+        """Prior-predictive joint sampler for the features-fixed amortiser
+        (§8 / §9.3).
+
+        DeepSets pooling for hardcoded ``T(x_i) = x_i`` collapses to
+        ``sum_T_x + sum_T_z = kn + km = k_total``. Features passed to
+        the head are ``(k_total, n_total) / n_max`` (both normalised to
+        ``[0, 1]``); this two-scalar input matches the true Binomial
+        sufficient statistic (§3.1).
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['features']``: shape ``(S, 2)``, dtype ``float32``.
+            - ``rho``: shape ``(S,)``, dtype ``float32``.
+        """
+        p, n, m, kn, km = self._sample_binomial_prior_predictive(
+            rng, S, n_max, n_min, fixed_total, m_min, m_max,
+        )
+        k_total = kn + km
+        n_total = n + m
+        features = np.stack(
+            [k_total, n_total], axis=-1,
+        ).astype(np.float32) / n_max
+        rho = (1.0 - p / self.p_0).astype(np.float32)
+        return {'features': features}, rho
+
+    def make_training_data_with_raw_sequences(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+    ):
+        """Prior-predictive joint sampler for the features-MLP amortiser.
+
+        Emits raw padded item sequences instead of pooled sufficient
+        statistics. Suitable for ``q_tau`` MLP encoders that must see
+        individual ``x_i`` observations. Padding is right-aligned; the
+        mask carries ``1`` for real items and ``0`` for padded slots.
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['x']``: shape ``(S, n_max, 1)``, dtype ``float32``,
+              padded Bernoulli current-data items.
+            - ``batch['mask_x']``: shape ``(S, n_max)``, dtype
+              ``float32``, ``1`` for real, ``0`` for padded.
+            - ``batch['z']``: shape ``(S, n_max, 1)``, dtype ``float32``,
+              padded Bernoulli future-data items.
+            - ``batch['mask_z']``: shape ``(S, n_max)``, dtype
+              ``float32``.
+            - ``batch['sizes']``: shape ``(S, 2)``, dtype ``float32``,
+              cohort sizes ``(n / n_max, m / n_max)``.
+            - ``rho``: shape ``(S,)``, dtype ``float32``.
+        """
+        p, n, m, kn, km = self._sample_binomial_prior_predictive(
+            rng, S, n_max, n_min, fixed_total, m_min, m_max,
+        )
+        # Build padded x. Slot 0..kn-1 = 1, slot kn..n-1 = 0, slot n..n_max-1 = padding.
+        x = np.zeros((S, n_max, 1), dtype=np.float32)
+        z = np.zeros((S, n_max, 1), dtype=np.float32)
+        mask_x = np.zeros((S, n_max), dtype=np.float32)
+        mask_z = np.zeros((S, n_max), dtype=np.float32)
+        col_idx = np.arange(n_max)[None, :]                       # (1, n_max)
+        # For x: 1 in slots [0, kn), 0 in [kn, n), padded in [n, n_max).
+        x[..., 0] = (col_idx < kn[:, None]).astype(np.float32)
+        mask_x[:] = (col_idx < n[:, None]).astype(np.float32)
+        z[..., 0] = (col_idx < km[:, None]).astype(np.float32)
+        mask_z[:] = (col_idx < m[:, None]).astype(np.float32)
+        sizes = np.stack(
+            [n / n_max, m / n_max], axis=-1,
+        ).astype(np.float32)
+        rho = (1.0 - p / self.p_0).astype(np.float32)
+        return (
+            {
+                'x': x,
+                'mask_x': mask_x,
+                'z': z,
+                'mask_z': mask_z,
+                'sizes': sizes,
+            },
+            rho,
+        )
 
     # ------------------------------------------------------------------
     # NumPyro SVI + HMC

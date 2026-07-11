@@ -139,7 +139,7 @@ def test_eval_log_prior_matches_beta(model):
 def test_eval_outcome_returns_ratio(model):
     """eval_outcome_for_endpoint returns the directional endpoint
     ``1 - p / p_0`` (default p_0 = 0.5), matching the H_1 convention
-    used by the IS / regression algorithms (``H_1: 1 - p/p_0 > pps_H1_def``).
+    used by the IS / regression algorithms (``H_1: 1 - p/p_0 > pps_H1_min_effect_size_thresh``).
     """
     p_val = jnp.asarray(0.42)
     out = model.eval_outcome_for_endpoint(model.stan_data, {'p': p_val})
@@ -183,8 +183,8 @@ def test_fit_closed_form_pps_matches_brute_force():
     """Brute-force compute the analytic PPS by enumerating k_m and verifying
     fit_closed_form_pps returns the same number.
 
-    H_1 convention: ``1 - p/p_0 > pps_H1_def`` (default ``p_0 = 0.5``)
-    ⇔ ``p < (1 - pps_H1_def) * p_0``. So
+    H_1 convention: ``1 - p/p_0 > pps_H1_min_effect_size_thresh`` (default ``p_0 = 0.5``)
+    ⇔ ``p < (1 - pps_H1_min_effect_size_thresh) * p_0``. So
     ``p_h1_given_z = Beta.cdf(threshold, a_z, b_z)`` is DECREASING in
     k_m → ``k_star`` is the LARGEST k_m where the decision still
     triggers; PPS = ``betabinom.cdf(k_star, m, a_post, b_post)``.
@@ -205,20 +205,20 @@ def test_fit_closed_form_pps_matches_brute_force():
         else:
             k_star = max(km for km, flag in enumerate(ok) if flag)
             expected = float(_scipy_betabinom.cdf(k_star, m, a_post, b_post))
-        actual = mdl.fit_closed_form_pps(m=m, pps_H1_def=p_h1_def,
-                                         pps_ProbH1_thresh=eta)
+        actual = mdl.fit_closed_form_pps(m=m, pps_H1_min_effect_size_thresh=p_h1_def,
+                                         pps_ProbH1_target_lwr_quantile=eta)
         assert actual == pytest.approx(expected, abs=1e-12)
 
 
 def test_fit_closed_form_pps_returns_zero_when_threshold_unreachable():
     """If no k_m crosses the decision threshold, PPS = 0.
 
-    H_1 is now ``p < (1 - pps_H1_def) * p_0 = 0.25`` and P(H_1 | x, z) is
+    H_1 is now ``p < (1 - pps_H1_min_effect_size_thresh) * p_0 = 0.25`` and P(H_1 | x, z) is
     decreasing in k_m. To make even ``k_m = 0`` fail, pick a posterior
     that already sits above the threshold (e.g. prior Beta(99, 1) +
     30 successes → posterior mean very close to 1)."""
     mdl = _make_model(n=30, k=30, prior_a=99.0, prior_b=1.0, seed=0)
-    pps = mdl.fit_closed_form_pps(m=10, pps_H1_def=0.5, pps_ProbH1_thresh=0.89)
+    pps = mdl.fit_closed_form_pps(m=10, pps_H1_min_effect_size_thresh=0.5, pps_ProbH1_target_lwr_quantile=0.89)
     assert pps == 0.0
 
 

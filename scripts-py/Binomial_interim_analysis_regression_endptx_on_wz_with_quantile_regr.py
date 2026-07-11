@@ -78,8 +78,8 @@ PRIOR_A = 1.0           # Beta(1,1) uniform
 PRIOR_B = 1.0
 P_0 = 0.5
 
-pps_H1_def = 0.25       # endpoint = 1 - p / p_0 > 0.25 (i.e. p < 0.375)
-pps_ProbH1_thresh = 0.89
+pps_H1_min_effect_size_thresh = 0.25       # endpoint = 1 - p / p_0 > 0.25 (i.e. p < 0.375)
+pps_ProbH1_target_lwr_quantile = 0.89
 pps_z_total = 200
 
 hmc_chains = 4
@@ -159,7 +159,7 @@ for i in range(len(di)):
         prior_a=PRIOR_A, prior_b=PRIOR_B, p_0=P_0, seed=seed,
     )
     pps = model.fit_closed_form_pps(
-        m, pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        m, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh, pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
     )
     ppsa.append({
         'interim_id': interim_id,
@@ -170,7 +170,7 @@ for i in range(len(di)):
         'item_high_label': dit.iloc[0]['item_high_label'],
         'm': m,
         'pps': float(pps),
-        'eta': pps_ProbH1_thresh,
+        'eta': pps_ProbH1_target_lwr_quantile,
     })
 ppsa = pd.DataFrame(ppsa)
 ppsa.to_pickle(os.path.join(dir_out, f"{file_prefix}_pps_closed_form.pkl"))
@@ -213,10 +213,8 @@ for i in range(len(di)):
         dit=dit, dcati=dpi,
         prior_a=PRIOR_A, prior_b=PRIOR_B, p_0=P_0, seed=seed,
     )
-    fit = model.fit_pyro_hmc(
+    fit = model.fit_closed_form_posterior(
         output_file_prefix=interim_prefix,
-        chains=hmc_chains, iter_warmup=hmc_iter_warmup,
-        iter_sampling=hmc_iter_sampling,
         save_to_file=True, resume=True, verbose=False,
     )
 
@@ -232,14 +230,14 @@ for i in range(len(di)):
 
     # calculate Prob(H1|x) ie mean over samples theta^s
     tmp = (
-        model.get_p_h1(x_ratio, pps_H1_def=pps_H1_def)
+        model.get_p_h1(x_ratio, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh)
         .rename(columns={'p_h1': 'pps_ProbH1_x'})
     )
-    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_thresh).astype(int)
+    tmp['pps_H1_yes'] = (tmp['pps_ProbH1_x'] > pps_ProbH1_target_lwr_quantile).astype(int)
 
     # calculate 1{theta^s in H1} per draw
     x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
-    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_def).astype(int)
+    x_ratio['pps_H1_x'] = (x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh).astype(int)
     x_ratio = x_ratio.merge(
         tmp[['item_label', 'pps_ProbH1_x', 'pps_H1_yes']],
         on='item_label', how='left',
@@ -256,7 +254,7 @@ for i in range(len(di)):
 
     # quantile regression of endpoint on w(x) at tau = 1 - eta_H
     p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_quantile_regr(
-        wa, pps_H1_def=pps_H1_def, pps_ProbH1_thresh=pps_ProbH1_thresh,
+        wa, pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh, pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
     )
     p_h1_xz_interim['interim_id'] = interim_id
     p_h1_xz_interim['interim_date'] = interim_date
@@ -282,8 +280,8 @@ if not p_h1_xz_rows:
 # =============================================================================
 
 dp_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-dp_h1_xz['pps_H1_def'] = pps_H1_def
-dp_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+dp_h1_xz['pps_H1_min_effect_size_thresh'] = pps_H1_min_effect_size_thresh
+dp_h1_xz['pps_ProbH1_target_lwr_quantile'] = pps_ProbH1_target_lwr_quantile
 dp_h1_xz['S'] = pps_z_total
 perf_all = pd.concat(perf_rows, ignore_index=True)
 mins_total = (time.time() - t_all0) / 60.0
@@ -301,10 +299,10 @@ pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ_timing.csv"), i
 pps_df = (
     dp_h1_xz.groupby(['interim_id', 'interim_date', 'interim_month_year',
                       'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .apply(lambda p: float((p > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
-pps_df['eta'] = pps_ProbH1_thresh
+pps_df['eta'] = pps_ProbH1_target_lwr_quantile
 pps_df['S'] = pps_z_total
 pps_df.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_RGEQ.csv"), index=False)
 print(pps_df.to_string(index=False))
@@ -366,7 +364,7 @@ p = (
             group='interim_month_year'),
     )
     + geom_boxplot(stat='identity', fill='#8c564b', alpha=0.4, colour='#808080')
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
@@ -404,7 +402,7 @@ n_interim, S = bs.shape
 rng = np.random.default_rng(seed)
 tmp = rng.integers(0, S, size=(n_interim, bs_B, S))         # (n_interim, B, S)
 bs = bs[np.arange(n_interim)[:, None, None], tmp]
-bs = (bs > pps_ProbH1_thresh).mean(axis=2)                # (n_interim, B)
+bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)                # (n_interim, B)
 bs = pd.DataFrame(np.quantile(bs, quantiles, axis=1).T, columns=quantile_names)
 bs['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
 bs['interim_date'] = pd.to_datetime(
@@ -417,7 +415,7 @@ tmp = (
         ['interim_id', 'interim_date', 'interim_month_year'],
         observed=True,
     )['p_h1_xz']
-    .apply(lambda s: float((s > pps_ProbH1_thresh).mean()))
+    .apply(lambda s: float((s > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
 tmp = pd.concat(
@@ -506,7 +504,7 @@ _ann = (
 _ann['rho_label'] = _ann['rho'].apply(lambda r: f"ρ={r:.2f}")
 _ann['r2_label'] = _ann['r2'].apply(lambda r: f"R2={100 * r:.1f}%")
 
-tau_used = 1.0 - pps_ProbH1_thresh
+tau_used = 1.0 - pps_ProbH1_target_lwr_quantile
 
 # Precompute the quantile-regression line per facet: fit QuantReg on
 # (w_ratio, pps_ratio_x) per (interim_month_year, item_label), then evaluate on
@@ -547,7 +545,7 @@ p = (
     + geom_point(alpha=0.3, size=0.5, colour='#8c564b')
     + geom_line(_qline, aes(x='w_ratio', y='pps_ratio_x'),
                 colour='black', size=0.8, inherit_aes=False)
-    + geom_hline(yintercept=pps_H1_def, colour='#8c564b', linetype='dashed', size=0.6)
+    + geom_hline(yintercept=pps_H1_min_effect_size_thresh, colour='#8c564b', linetype='dashed', size=0.6)
     + geom_text(_ann, aes(x='x_left', y='y_top', label='rho_label'),
                 ha='left', va='top', size=8, inherit_aes=False)
     + geom_text(_ann, aes(x='x_right', y='y_top', label='r2_label'),

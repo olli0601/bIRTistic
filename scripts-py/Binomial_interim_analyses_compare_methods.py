@@ -11,6 +11,7 @@ Loads the per-method artifacts produced by
   - Regression endptx (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``
   - Regression endptx quantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py``
   - Regression endptx mquantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py``
+  - Regression endptx amortised (Strong-Oakley, DeepSets net + MLP head): ``Binomial_interim_analysis_amortise_endptx_on_wz_with_features_fixed_qpsi_MLP_loss_multiquantilehead.py``
 
 and emits four figures comparing them against the closed-form analytic PPS
 (common across all five runs):
@@ -75,6 +76,8 @@ dir_rg = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-H1x-wz-2
 dir_rge = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-260606")
 dir_rgeq = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-quantile-regr-260702")
 dir_rgem = os.path.join(_sandbox, "py-binomial-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
+dir_rgea = os.path.join(_sandbox, "py-binomial-interim-amortise-endptx-on-wz-with-features-fixed-qpsi-MLP-loss-multiquantilehead-260711")
+dir_rgeb = os.path.join(_sandbox, "py-binomial-interim-amortise-endptx-on-wz-with-features-MLP-qpsi-MLP-loss-multiquantilehead-260711")
 dir_out = os.path.join(_sandbox, "py-binomial-interim-compare-methods-260606")
 os.makedirs(dir_out, exist_ok=True)
 
@@ -86,10 +89,12 @@ method_order = [
     'Regression of endpt-x on w(z) using Gaussian approx',
     'Regression of endpt-x on w(z) - quantile',
     'Regression of endpt-x on w(z) - mquantile',
+    'Regression of endpt-x on w(z) - amortised',
+    'Regression of endpt-x on w(z) - amortised MLP',
 ]
 method_colours = dict(zip(method_order, _futurama_palette(len(method_order))))
 
-pps_ProbH1_thresh = 0.89
+pps_ProbH1_target_lwr_quantile = 0.89
 
 # %%
 
@@ -119,6 +124,8 @@ p_h1_xz_rg = _load_p_h1_xz(dir_rg, 'binomial_interim_pps_RG_p_h1_xz.pkl')
 p_h1_xz_rge = _load_p_h1_xz(dir_rge, 'binomial_interim_pps_RGE_p_h1_xz.pkl')
 p_h1_xz_rgeq = _load_p_h1_xz(dir_rgeq, 'binomial_interim_pps_RGEQ_p_h1_xz.pkl')
 p_h1_xz_rgem = _load_p_h1_xz(dir_rgem, 'binomial_interim_pps_RGEM_p_h1_xz.pkl')
+p_h1_xz_rgea = _load_p_h1_xz(dir_rgea, 'binomial_interim_pps_RGEA_p_h1_xz.pkl')
+p_h1_xz_rgeb = _load_p_h1_xz(dir_rgeb, 'binomial_interim_pps_RGEB_p_h1_xz.pkl')
 
 p_h1_xz = pd.concat(
     [
@@ -129,6 +136,8 @@ p_h1_xz = pd.concat(
         p_h1_xz_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
         p_h1_xz_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
         p_h1_xz_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
+        p_h1_xz_rgea.assign(method='Regression of endpt-x on w(z) - amortised'),
+        p_h1_xz_rgeb.assign(method='Regression of endpt-x on w(z) - amortised MLP'),
     ],
     ignore_index=True,
 )
@@ -149,6 +158,12 @@ pps_rgeq = pd.read_csv(os.path.join(dir_rgeq, 'binomial_interim_pps_RGEQ.csv'))[
 pps_rgem = pd.read_csv(os.path.join(dir_rgem, 'binomial_interim_pps_RGEM.csv'))[
     ['interim_id', 'interim_date', 'interim_month_year', 'pps']
 ]
+pps_rgea = pd.read_csv(os.path.join(dir_rgea, 'binomial_interim_pps_RGEA.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
+pps_rgeb = pd.read_csv(os.path.join(dir_rgeb, 'binomial_interim_pps_RGEB.csv'))[
+    ['interim_id', 'interim_date', 'interim_month_year', 'pps']
+]
 ppsa = pd.read_pickle(
     os.path.join(dir_hmc, 'binomial_interim_pps_closed_form.pkl')
 )[['interim_id', 'interim_date', 'interim_month_year', 'pps']]
@@ -163,6 +178,8 @@ pps = pd.concat(
         pps_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
         pps_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
         pps_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
+        pps_rgea.assign(method='Regression of endpt-x on w(z) - amortised'),
+        pps_rgeb.assign(method='Regression of endpt-x on w(z) - amortised MLP'),
     ],
     ignore_index=True,
 )
@@ -213,10 +230,16 @@ timing_rgeq = _csv_timing(dir_rgeq, 'binomial_interim_pps_RGEQ_timing.csv',
 timing_rgem = _csv_timing(dir_rgem, 'binomial_interim_pps_RGEM_timing.csv',
                           p_h1_xz_rgem,
                           'Regression of endpt-x on w(z) - mquantile')
+timing_rgea = _csv_timing(dir_rgea, 'binomial_interim_pps_RGEA_timing.csv',
+                          p_h1_xz_rgea,
+                          'Regression of endpt-x on w(z) - amortised')
+timing_rgeb = _csv_timing(dir_rgeb, 'binomial_interim_pps_RGEB_timing.csv',
+                          p_h1_xz_rgeb,
+                          'Regression of endpt-x on w(z) - amortised MLP')
 
 timing = pd.concat(
     [timing_hmc, timing_svi, timing_is, timing_rg, timing_rge, timing_rgeq,
-     timing_rgem],
+     timing_rgem, timing_rgea, timing_rgeb],
     ignore_index=True,
 )
 
@@ -300,7 +323,7 @@ p = (
         stat='identity', position=position_dodge(width=0.8), width=0.7,
         colour='#808080', size=0.3,
     )
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0)
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
     + scale_fill_manual(values=method_colours)
     + scale_y_continuous(
         limits=[0, 1],
@@ -345,7 +368,7 @@ for m_label, g in p_h1_xz.groupby('method', observed=True):
     n_interim, S = P.shape
     idx = rng_bs.integers(0, S, size=(n_interim, bs_B, S))
     P_bs = P[np.arange(n_interim)[:, None, None], idx]
-    pps_bs = (P_bs > pps_ProbH1_thresh).mean(axis=2)
+    pps_bs = (P_bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
     q = np.quantile(pps_bs, [0.025, 0.975], axis=1).T
     part = pd.DataFrame(q, columns=['q025_bs', 'q975_bs'])
     part['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
@@ -364,7 +387,7 @@ p = (
         position=position_dodge(width=0.8), width=0.3,
         colour='black', size=0.4, inherit_aes=False,
     )
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.0,
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0,
                  linetype='dashed')
     + scale_fill_manual(values=_pps_colours)
     + theme_bw()

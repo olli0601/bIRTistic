@@ -76,8 +76,8 @@ simu_params = {
     'delta':             0.075,
     'mu_0_baseline':     1.0,
     'prior_tau':         10.0,
-    'pps_H1_def':        0.0,
-    'pps_ProbH1_thresh': 0.89,
+    'pps_H1_min_effect_size_thresh':        0.0,
+    'pps_ProbH1_target_lwr_quantile': 0.89,
     'N_full':            1050,
     'N_interims':        7,
 }
@@ -398,8 +398,8 @@ for J in simu_params['J_grid']:
         if m_future > 0:
             cf = model.fit_closed_form_pps(
                 m=m_future,
-                pps_H1_def=simu_params['pps_H1_def'],
-                pps_ProbH1_thresh=simu_params['pps_ProbH1_thresh'],
+                pps_H1_min_effect_size_thresh=simu_params['pps_H1_min_effect_size_thresh'],
+                pps_ProbH1_target_lwr_quantile=simu_params['pps_ProbH1_target_lwr_quantile'],
             ).assign(
                 J=J,
                 interim_id=interim_id,

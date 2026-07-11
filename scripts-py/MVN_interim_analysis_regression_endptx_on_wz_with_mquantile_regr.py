@@ -111,8 +111,8 @@ print(f"Loaded sim_data + {len(J_GRID)} interim_data J cells + pps_cf "
 
 K_levels  = simu_params['K_levels']
 seed      = simu_params['seed']
-pps_H1_def        = simu_params['pps_H1_def']
-pps_ProbH1_thresh = simu_params['pps_ProbH1_thresh']
+pps_H1_min_effect_size_thresh        = simu_params['pps_H1_min_effect_size_thresh']
+pps_ProbH1_target_lwr_quantile = simu_params['pps_ProbH1_target_lwr_quantile']
 
 # %%
 
@@ -177,7 +177,7 @@ for J in J_GRID:
         x_ratio = model_x.get_endpoints_per_draw(draws=fake_idata)
         x_ratio = x_ratio.rename(columns={'ratio': 'pps_ratio_x'})
         x_ratio['pps_H1_x'] = (
-            x_ratio['pps_ratio_x'] > pps_H1_def
+            x_ratio['pps_ratio_x'] > pps_H1_min_effect_size_thresh
         ).astype(int)
         wa = wa.merge(
             x_ratio[['draw', 'item_label', 'item_type',
@@ -193,8 +193,8 @@ for J in J_GRID:
         p_h1_xz_interim, perf_interim = fit_interim_regress_endptx_on_wz_with_mquantile_regr(
             wa.drop(columns=['J', 'interim_id', 'interim_month_year',
                              'interim_date']),
-            pps_H1_def=pps_H1_def,
-            pps_ProbH1_thresh=pps_ProbH1_thresh,
+            pps_H1_min_effect_size_thresh=pps_H1_min_effect_size_thresh,
+            pps_ProbH1_target_lwr_quantile=pps_ProbH1_target_lwr_quantile,
         )
         p_h1_xz_interim['J'] = J
         p_h1_xz_interim['interim_id'] = interim_id
@@ -234,8 +234,8 @@ for J in J_GRID:
         continue
 
     dp_h1_xz = pd.concat(p_h1_xz_rows, ignore_index=True)
-    dp_h1_xz['pps_H1_def'] = pps_H1_def
-    dp_h1_xz['pps_ProbH1_thresh'] = pps_ProbH1_thresh
+    dp_h1_xz['pps_H1_min_effect_size_thresh'] = pps_H1_min_effect_size_thresh
+    dp_h1_xz['pps_ProbH1_target_lwr_quantile'] = pps_ProbH1_target_lwr_quantile
     dp_h1_xz['S'] = PPS_Z_TOTAL
     dp_h1_xz['j'] = dp_h1_xz['item_label'].str.replace('mu_', '').astype(int)
     perf_all = pd.concat(perf_rows, ignore_index=True)
@@ -251,11 +251,11 @@ for J in J_GRID:
                           'interim_month_year', 'item_label', 'item_type',
                           'item_high_label', 'j'], observed=True)['p_h1_xz']
         .apply(lambda p: float(
-            (p > pps_ProbH1_thresh).mean()
+            (p > pps_ProbH1_target_lwr_quantile).mean()
         ))
         .reset_index(name='pps')
     )
-    pps_df['eta'] = pps_ProbH1_thresh
+    pps_df['eta'] = pps_ProbH1_target_lwr_quantile
     pps_df['S'] = PPS_Z_TOTAL
 
     dp_h1_xz.to_pickle(os.path.join(DIR_OUT, f'mvn_J{J}_pps_RGEM_p_h1_xz.pkl'))
@@ -377,7 +377,7 @@ for J in J_GRID:
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=pps_ProbH1_thresh,
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values,
                             breaks=['analytic', method_repr_key],
@@ -412,7 +412,7 @@ for J in J_GRID:
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, S, size=(n_rows, bs_B, S))
     bs = bs[np.arange(n_rows)[:, None, None], idx]
-    bs = (bs > pps_ProbH1_thresh).mean(axis=2)
+    bs = (bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
     ci = np.quantile(bs, [0.025, 0.975], axis=1).T
     ci_df = pd.DataFrame(ci, columns=['q025_bs', 'q975_bs'])
     ci_df['j']          = wide.index.get_level_values('j').to_numpy()
@@ -511,7 +511,7 @@ for J in J_GRID:
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, S_a, size=(n_rows_a, bs_B, S_a))
     bs_a = bs_a[np.arange(n_rows_a)[:, None, None], idx]
-    bs_a = (bs_a > pps_ProbH1_thresh).mean(axis=2)
+    bs_a = (bs_a > pps_ProbH1_target_lwr_quantile).mean(axis=2)
     ci_a = np.quantile(bs_a, [0.025, 0.975], axis=1).T
     ci_df_a = pd.DataFrame(ci_a, columns=['q025_bs', 'q975_bs'])
     ci_df_a['j']          = wide_all.index.get_level_values('j').to_numpy()
@@ -612,7 +612,7 @@ for J in J_GRID:
         + geom_boxplot(stat='identity',
                        position=position_dodge(width=0.8), width=0.7,
                        colour='#404040', size=0.3)
-        + geom_hline(yintercept=pps_ProbH1_thresh,
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
                      colour='black', size=1.0)
         + scale_fill_manual(values=fill_values_all,
                             breaks=['analytic', method_repr_key_all],
@@ -742,7 +742,7 @@ for J in J_GRID:
 
     # Precompute per-facet QuantReg line at tau = 1 - eta_H so we can
     # overlay via geom_line (plotnine's geom_smooth has no 'quantile' method).
-    tau_used = 1.0 - pps_ProbH1_thresh
+    tau_used = 1.0 - pps_ProbH1_target_lwr_quantile
     from plotnine import geom_line
     _line_parts = []
     for (imy, resp_lab), gg in wa_small.groupby(
@@ -781,7 +781,7 @@ for J in J_GRID:
         + geom_point(alpha=0.3, size=0.6, colour='#009392')
         + geom_line(_qline, aes(x='w_ratio', y='pps_ratio_x'),
                     colour='black', size=0.7, inherit_aes=False)
-        + geom_hline(yintercept=pps_H1_def, colour='#009392',
+        + geom_hline(yintercept=pps_H1_min_effect_size_thresh, colour='#009392',
                      linetype='dashed', size=0.5)
         + geom_text(rge_stats_small,
                     aes(x='x_left', y='y_top', label='rho_label'),

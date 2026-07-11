@@ -75,8 +75,8 @@ file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
 
 pps_z_total = 10
-pps_H1_def = 0.5            # 1 - p1 / p0 > pps_H1_def
-pps_ProbH1_thresh = 0.89   # decision threshold on p(H1 | data)
+pps_H1_min_effect_size_thresh = 0.5            # 1 - p1 / p0 > pps_H1_min_effect_size_thresh
+pps_ProbH1_target_lwr_quantile = 0.89   # decision threshold on p(H1 | data)
 
 print(f"Output dir: {dir_out}")
 
@@ -189,8 +189,8 @@ for interim_id in di['interim_id']:
         draws=fit['draws'],
         interim_method_args={
             'pps_z_total': pps_z_total,
-            'pps_H1_def': pps_H1_def,
-            'pps_ProbH1_thresh': pps_ProbH1_thresh,
+            'pps_H1_min_effect_size_thresh': pps_H1_min_effect_size_thresh,
+            'pps_ProbH1_target_lwr_quantile': pps_ProbH1_target_lwr_quantile,
             'output_file_prefix': os.path.join(dir_out, f"{file_prefix}_pps_i{interim_id}"),
             'save_to_file': False,
             'verbose': False,
@@ -226,10 +226,10 @@ pps_timing.to_csv(os.path.join(dir_out, f"{file_prefix}_pps_timing.csv"), index=
 
 pps_df = (
     p_h1_xz.groupby(['interim_id', 'interim_date', 'item_label', 'item_type', 'item_high_label'])['p_h1_xz']
-    .apply(lambda p: float((p > pps_ProbH1_thresh).mean()))
+    .apply(lambda p: float((p > pps_ProbH1_target_lwr_quantile).mean()))
     .reset_index(name='pps')
 )
-pps_df['eta'] = pps_ProbH1_thresh
+pps_df['eta'] = pps_ProbH1_target_lwr_quantile
 pps_df['S'] = pps_z_total
 
 csv_path = os.path.join(dir_out, f"{file_prefix}_pps.csv")
@@ -288,7 +288,7 @@ p = (
             group='interim_month_year'),
         stat='identity',
     )
-    + geom_hline(yintercept=pps_ProbH1_thresh, colour='black', size=1.5)
+    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.5)
     + facet_wrap('~ item_label_long', ncol = 4)
     + scale_fill_manual(values=color_dict)
     + scale_y_continuous(
