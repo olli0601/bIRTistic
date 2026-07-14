@@ -401,10 +401,25 @@ class BinomialModel(Model):
 
     def _sample_binomial_prior_predictive(
         self, rng, S, n_max, n_min, fixed_total, m_min, m_max,
+        n_dist='uniform',
     ):
-        """Shared helper: draw ``(p, n, m, kn, km)`` per sample."""
+        """Shared helper: draw ``(p, n, m, kn, km)`` per sample.
+
+        ``n_dist='uniform'`` (default) samples ``n`` uniformly on
+        ``{n_min, ..., n_max - 1}``. ``n_dist='log_uniform'`` samples
+        ``n`` log-uniformly over the same range to oversample the small-
+        ``n`` regime.
+        """
         p = rng.beta(self.prior_a, self.prior_b, size=S)
-        n = rng.integers(n_min, n_max, size=S)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
         if fixed_total:
             m = n_max - n
         else:
@@ -425,6 +440,7 @@ class BinomialModel(Model):
         fixed_total: bool = True,
         m_min: int = 0,
         m_max: int = None,
+        n_dist: str = 'uniform',
     ):
         """Prior-predictive joint sampler for the features-fixed amortiser
         (§8 / §9.3).
@@ -442,7 +458,7 @@ class BinomialModel(Model):
             - ``rho``: shape ``(S,)``, dtype ``float32``.
         """
         p, n, m, kn, km = self._sample_binomial_prior_predictive(
-            rng, S, n_max, n_min, fixed_total, m_min, m_max,
+            rng, S, n_max, n_min, fixed_total, m_min, m_max, n_dist,
         )
         k_total = kn + km
         n_total = n + m
@@ -462,6 +478,7 @@ class BinomialModel(Model):
         fixed_total: bool = True,
         m_min: int = 0,
         m_max: int = None,
+        n_dist: str = 'uniform',
     ):
         """Prior-predictive joint sampler for the features-MLP amortiser.
 
@@ -486,7 +503,7 @@ class BinomialModel(Model):
             - ``rho``: shape ``(S,)``, dtype ``float32``.
         """
         p, n, m, kn, km = self._sample_binomial_prior_predictive(
-            rng, S, n_max, n_min, fixed_total, m_min, m_max,
+            rng, S, n_max, n_min, fixed_total, m_min, m_max, n_dist,
         )
         # Build padded x. Slot 0..kn-1 = 1, slot kn..n-1 = 0, slot n..n_max-1 = padding.
         x = np.zeros((S, n_max, 1), dtype=np.float32)

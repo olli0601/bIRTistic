@@ -95,16 +95,62 @@ hmc_chains = 4
 hmc_iter_warmup = 500
 hmc_iter_sampling = 1000
 
-# Amortised net training config.
-NET_HIDDEN = (256, 256, 128)
+# Amortised net training config. Override any of the knobs below by
+# setting the environment variable ``AMORTISER_VARIANT`` to one of the
+# entries in ``_VARIANTS``; leaves the default deployment untouched.
+NET_HIDDEN = (64, 64)               # §12.4 ablation: 64x64 halves MSE
+                                    # at 3x-faster training vs
+                                    # (256, 256, 128).
 NET_TAUS = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95)
 NET_STEPS = 40000
 NET_BATCH = 8192
 NET_LR = 1e-3
 NET_SEED = seed
 NET_N_MAX = N
+N_DIST = 'uniform'
 
-dir_out = "/Users/or105/sandbox/bIRTistic/py-binomial-interim-amortise-endptx-on-wz-with-features-fixed-qpsi-MLP-loss-multiquantilehead-260711"
+_ROOT_DIR = (
+    "/Users/or105/sandbox/bIRTistic/"
+    "py-binomial-interim-amortise-endptx-on-wz-with-features-fixed-"
+    "qpsi-MLP-loss-multiquantilehead"
+)
+dir_out = f"{_ROOT_DIR}-260714"          # §12.4 default swap to 64x64.
+
+_VARIANTS = {
+    '64x64':                 dict(NET_HIDDEN=(64, 64),
+                                  dir_out=f"{_ROOT_DIR}-64x64_260713"),
+    'num_quantile_levels_5': dict(
+        NET_TAUS=(0.05, 0.25, 0.5, 0.75, 0.95),
+        dir_out=f"{_ROOT_DIR}-num_quantile_levels_5_260713",
+    ),
+    'num_quantile_levels_21': dict(
+        NET_TAUS=tuple(round(0.025 + 0.05 * i, 4) for i in range(20)) + (0.975,),
+        dir_out=f"{_ROOT_DIR}-num_quantile_levels_21_260713",
+    ),
+    'S_2000':                dict(pps_z_total=2000,
+                                  dir_out=f"{_ROOT_DIR}-S_2000_260713"),
+    'log_uniform_n':         dict(N_DIST='log_uniform',
+                                  dir_out=f"{_ROOT_DIR}-log_uniform_n_260713"),
+    'combo_64x64_qlv5_S2000': dict(
+        NET_HIDDEN=(64, 64),
+        NET_TAUS=(0.05, 0.25, 0.5, 0.75, 0.95),
+        pps_z_total=2000,
+        dir_out=f"{_ROOT_DIR}-combo_64x64_qlv5_S2000_260714",
+    ),
+}
+
+_variant = os.environ.get('AMORTISER_VARIANT', '')
+if _variant:
+    if _variant not in _VARIANTS:
+        raise ValueError(
+            f"unknown AMORTISER_VARIANT={_variant!r}; "
+            f"available: {list(_VARIANTS)}"
+        )
+    for k, v in _VARIANTS[_variant].items():
+        # Rebind the module-level knob for this run.
+        globals()[k] = v
+    print(f"[amortiser] variant = {_variant}")
+
 os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "binomial_interim"
@@ -205,7 +251,7 @@ else:
     )
     sample_fn = partial(
         _amortiser_model.make_training_data_with_features,
-        n_max=NET_N_MAX,
+        n_max=NET_N_MAX, n_dist=N_DIST,
     )
     fit = train(
         sample_fn,
