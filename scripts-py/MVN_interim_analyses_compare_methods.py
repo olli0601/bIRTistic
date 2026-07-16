@@ -77,6 +77,26 @@ DIR_IS  = os.path.join(_sandbox, "py-mvn-interim-with-IS-260611")
 DIR_RGE  = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-260611")
 DIR_RGEQ = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-quantile-regr-260702")
 DIR_RGEM = os.path.join(_sandbox, "py-mvn-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
+DIR_RGEA = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-fixed-"
+    "idcomp-qpsi-MLP-loss-multiquantilehead-260714",
+)
+DIR_RGEB = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-MLP-"
+    "idcomp-qpsi-MLP-loss-multiquantilehead-260714",
+)
+DIR_RGEC = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-MLP-"
+    "xcomp-qpsi-MLP-loss-multiquantilehead-260715",
+)
+DIR_RGED = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-MLP-"
+    "xcompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
+)
 DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
@@ -86,6 +106,10 @@ METHOD_ORDER = [
     'Regression of endpt-x on w(z) using Gaussian approx',
     'Regression of endpt-x on w(z) - quantile',
     'Regression of endpt-x on w(z) - mquantile',
+    'amortised idcomp',
+    'amortised MLP idcomp',
+    'amortised MLP xcomp',
+    'amortised MLP xcompAtt',
 ]
 method_colours = dict(zip(METHOD_ORDER, _futurama_palette(len(METHOD_ORDER))))
 pps_colours = {'analytic': '#000000', **method_colours}
@@ -101,7 +125,10 @@ simu_params = sim_data['simu_params']
 di = sim_data['interim_grid']
 J_GRID = list(simu_params['J_grid'])
 K_levels = simu_params['K_levels']
-pps_ProbH1_target_lwr_quantile = simu_params['pps_ProbH1_target_lwr_quantile']
+pps_ProbH1_target_lwr_quantile = float(simu_params.get(
+    'pps_ProbH1_target_lwr_quantile',
+    simu_params.get('pps_ProbH1_thresh', 0.89),
+))
 
 pps_cf = pd.read_pickle(
     os.path.join(DIR_SIM, 'mvn_pps_closed_form.pkl'),
@@ -214,6 +241,62 @@ for J in J_GRID:
     )[['interim_id', 'interim_date', 'interim_month_year',
        'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
 
+    # ---- RGEA per-J slices (amortised features-fixed) ----
+    rgea_p = pd.read_pickle(
+        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rgea_pps = pd.read_csv(
+        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rgea_timing = pd.read_csv(
+        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
+    # ---- RGEB per-J slices (amortised features-MLP) ----
+    rgeb_p = pd.read_pickle(
+        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rgeb_pps = pd.read_csv(
+        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rgeb_timing = pd.read_csv(
+        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
+    # ---- RGEC per-J slices (amortised features-MLP xcomp) ----
+    rgec_p = pd.read_pickle(
+        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rgec_pps = pd.read_csv(
+        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rgec_timing = pd.read_csv(
+        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
+    # ---- RGED per-J slices (amortised features-MLP xcompAtt) ----
+    rged_p = pd.read_pickle(
+        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED_p_h1_xz.pkl'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+       'p_h1_xz']].copy()
+    rged_pps = pd.read_csv(
+        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+       'pps']].copy()
+    rged_timing = pd.read_csv(
+        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED_timing.csv'),
+    )[['interim_id', 'interim_date', 'interim_month_year',
+       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+
     # ---- Stack methods ----
     p_h1_xz = pd.concat(
         [
@@ -223,6 +306,10 @@ for J in J_GRID:
             rge_p .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
             rgeq_p.assign(method='Regression of endpt-x on w(z) - quantile'),
             rgem_p.assign(method='Regression of endpt-x on w(z) - mquantile'),
+            rgea_p.assign(method='amortised idcomp'),
+            rgeb_p.assign(method='amortised MLP idcomp'),
+            rgec_p.assign(method='amortised MLP xcomp'),
+            rged_p.assign(method='amortised MLP xcompAtt'),
         ],
         ignore_index=True,
     )
@@ -236,6 +323,10 @@ for J in J_GRID:
             rge_pps .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
             rgeq_pps.assign(method='Regression of endpt-x on w(z) - quantile'),
             rgem_pps.assign(method='Regression of endpt-x on w(z) - mquantile'),
+            rgea_pps.assign(method='amortised idcomp'),
+            rgeb_pps.assign(method='amortised MLP idcomp'),
+            rgec_pps.assign(method='amortised MLP xcomp'),
+            rged_pps.assign(method='amortised MLP xcompAtt'),
         ],
         ignore_index=True,
     )
@@ -246,6 +337,10 @@ for J in J_GRID:
             rge_timing .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
             rgeq_timing.assign(method='Regression of endpt-x on w(z) - quantile'),
             rgem_timing.assign(method='Regression of endpt-x on w(z) - mquantile'),
+            rgea_timing.assign(method='amortised idcomp'),
+            rgeb_timing.assign(method='amortised MLP idcomp'),
+            rgec_timing.assign(method='amortised MLP xcomp'),
+            rged_timing.assign(method='amortised MLP xcompAtt'),
         ],
         ignore_index=True,
     )

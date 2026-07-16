@@ -104,6 +104,59 @@ def make_factor_chol(J: int, r: int = 5, psi: float = 0.1,
     return np.linalg.cholesky(K).astype(np.float64)
 
 
+def sample_random_K_chol(rng, J, families=None):
+    """Draw a random K_chol from a mixture of standard families.
+
+    Used at TRAINING for the K-family-invariant amortiser (§12.11). Each
+    call returns a fresh (J, J) Cholesky factor for a K matrix drawn
+    from one of ``families``:
+
+      - ``'identity'``           : K = I.
+      - ``'ar1'``                : K_{ij} = rho^|i-j|, rho ~ U(-0.9, 0.9).
+      - ``'block'``              : block-equicorrelation, block size
+                                    drawn from divisors of J in {5, 10,
+                                    20, 25, 50}, rho_w ~ U(0.3, 0.9),
+                                    rho_b ~ U(0, min(0.5, rho_w - 0.1)).
+      - ``'factor'``             : factor structure with r ~ {2, 5, 10},
+                                    psi ~ U(0.05, 0.5).
+
+    Default families: all four. All returned K have unit diagonal so
+    per-component posterior variance is invariant across families.
+    """
+    families = families or ('identity', 'ar1', 'block', 'factor')
+    fam = families[int(rng.integers(0, len(families)))]
+    if fam == 'identity':
+        K = np.eye(J, dtype=np.float64)
+    elif fam == 'ar1':
+        rho = float(rng.uniform(-0.9, 0.9))
+        idx = np.arange(J)
+        K = (rho ** np.abs(idx[:, None] - idx[None, :])).astype(np.float64)
+    elif fam == 'block':
+        candidates = [b for b in (5, 10, 20, 25, 50) if J % b == 0]
+        if not candidates:
+            candidates = [1]
+        block_size = int(candidates[int(rng.integers(0, len(candidates)))])
+        rho_w = float(rng.uniform(0.3, 0.9))
+        rho_b = float(rng.uniform(0, max(0, min(0.5, rho_w - 0.1))))
+        B = J // block_size
+        K = np.full((J, J), rho_b, dtype=np.float64)
+        for b in range(B):
+            i0 = b * block_size
+            i1 = i0 + block_size
+            K[i0:i1, i0:i1] = rho_w
+        np.fill_diagonal(K, 1.0)
+    elif fam == 'factor':
+        r = int(rng.choice([2, 5, 10]))
+        psi = float(rng.uniform(0.05, 0.5))
+        beta = rng.normal(scale=1.0 / np.sqrt(r), size=(J, r))
+        K = beta @ beta.T + psi * np.eye(J)
+        d = np.sqrt(np.diag(K))
+        K = K / np.outer(d, d)
+    else:
+        raise ValueError(f"unknown K family {fam!r}")
+    return np.linalg.cholesky(K).astype(np.float64), fam
+
+
 class MVNModel(Model):
     """Multivariate-normal model with known ``R`` (Cholesky of ``K``) and
     known noise scale ``sigma``. ``dit`` carries J item rows (one per
@@ -367,6 +420,7 @@ class MVNModel(Model):
         self,
         output_file_prefix: Optional[str] = None, *,
         save_to_file: bool = False,
+        resume: bool = False,
         verbose: bool = True,
         output_samples: int = 4000,
         **method_kwargs,
@@ -375,8 +429,41 @@ class MVNModel(Model):
         ``mu | x ~ MVN(mu_n, K / c_n)``. Also produces ``ypred`` (per-draw
         MVN(mu_s, sigma^2 K) at every obs) and analytic pointwise
         ``log_lik`` (per obs vector) so the returned zarr matches the
-        numerical HMC driver's interface."""
+        numerical HMC driver's interface.
+
+        When ``save_to_file`` and ``resume`` are True and the
+        ``{prefix}_draws.zarr`` + ``{prefix}_timing.csv`` artifacts
+        exist, the cached posterior is returned instead of resampling.
+        """
         t0 = time.time()
+        draws_file = (f"{output_file_prefix}_draws.zarr"
+                      if output_file_prefix is not None else None)
+        timing_file = (f"{output_file_prefix}_timing.csv"
+                       if output_file_prefix is not None else None)
+        can_resume = (
+            resume and save_to_file
+            and draws_file is not None
+            and os.path.exists(draws_file)
+            and timing_file is not None and os.path.exists(timing_file)
+        )
+        if can_resume:
+            if verbose:
+                print(f"[MVNModel] closed-form posterior RESUME from"
+                      f" {draws_file}")
+            idata = az.from_zarr(draws_file)
+            mu_samples = np.asarray(
+                idata.posterior['mu'].values,
+            ).reshape(-1, self.J)
+            timing = pd.read_csv(timing_file).iloc[0].to_dict()
+            mom_cached = self._posterior_moments()
+            return {
+                'draws': idata,
+                'posterior_samples': {'mu': mu_samples},
+                'timing': timing,
+                'mu_n': mom_cached['mu_n'],
+                'cov_n': mom_cached['cov_n'],
+                'c_n': mom_cached['c_n'],
+            }
         mom = self._posterior_moments()
         rng = np.random.default_rng(self.seed)
         # mu_s ~ MVN(mu_n, cov_n) drawn via Cholesky of cov_n = K/c_n.
@@ -421,10 +508,8 @@ class MVNModel(Model):
         if save_to_file and output_file_prefix is not None:
             os.makedirs(os.path.dirname(output_file_prefix) or '.',
                         exist_ok=True)
-            draws.to_zarr(f"{output_file_prefix}_draws.zarr")
-            pd.DataFrame([timing]).to_csv(
-                f"{output_file_prefix}_timing.csv", index=False,
-            )
+            draws.to_zarr(draws_file)
+            pd.DataFrame([timing]).to_csv(timing_file, index=False)
         return {
             'draws': draws,
             'posterior_samples': {'mu': mu_samples},
@@ -563,6 +648,464 @@ class MVNModel(Model):
             'c_n':              float(c_n),
             'c_n_plus_m':       float(c_np),
         })
+
+    # ------------------------------------------------------------------
+    # Amortiser training-data samplers
+    # ------------------------------------------------------------------
+
+    def _sample_mvn_prior_predictive_summary(
+        self, rng, S, n_max, n_min, fixed_total, m_min, m_max,
+        n_dist='uniform',
+    ):
+        """Fast per-component prior-predictive summary sampler.
+
+        Draws ``S`` per-component training rows and returns the
+        sufficient-statistic summary ``(mu, n, m, sum_y_x, sum_y_z)``
+        WITHOUT materialising the raw ``(N_max, J)`` observation tensor:
+
+          - Under the g-prior with unit-diagonal ``K``, the per-component
+            distribution of ``y_{i, j} | mu`` is
+            ``Normal(mu_j, sigma^2 * K_{jj})``, independent across i and
+            j given ``mu``.
+          - So ``sum_i y_{i, j} | mu`` is
+            ``Normal(N * mu_j, N * sigma^2 * K_{jj})`` — a scalar draw per
+            ``(sample, j)``, replacing the ``O(N_max * J^2)`` matmul in
+            the raw sampler.
+
+        Speedup on the MVN case study: 40000 training steps drop from
+        ~1000 s to ~10 s.
+
+        Returns
+        -------
+        mu        : (S, J) float64  -- prior draws MVN(prior_mu, prior_tau^2 K).
+        n         : (S,)  int64     -- observed-cohort size per sample.
+        m         : (S,)  int64     -- future-cohort size per sample.
+        sum_y_x   : (S, J) float64  -- sum_i y_{i, j} over the observed cohort.
+        sum_y_z   : (S, J) float64  -- sum_i y_{i, j} over the future cohort.
+        """
+        # Prior mu: MVN(prior_mu, prior_tau^2 K).
+        eps_mu = rng.standard_normal(size=(S, self.J))
+        mu = self.prior_mu[None, :] + self.prior_tau * (eps_mu @ self.K_chol.T)
+        # Cohort sizes.
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+        # Per-component sum draws: sum_i y_{i, j} ~ N(N * mu_j,
+        # N * sigma^2 * K_{jj}).
+        n_col = n.astype(np.float64)[:, None]              # (S, 1)
+        m_col = m.astype(np.float64)[:, None]
+        std_x = self.sigma * np.sqrt(
+            n_col * self.K_diag[None, :],
+        )                                                   # (S, J)
+        std_z = self.sigma * np.sqrt(
+            m_col * self.K_diag[None, :],
+        )
+        eps_sx = rng.standard_normal(size=(S, self.J))
+        eps_sz = rng.standard_normal(size=(S, self.J))
+        sum_y_x = n_col * mu + std_x * eps_sx
+        sum_y_z = m_col * mu + std_z * eps_sz
+        return mu, n, m, sum_y_x, sum_y_z
+
+    def _sample_mvn_prior_predictive_raw(
+        self, rng, S, n_max, n_min, fixed_total, m_min, m_max,
+        n_dist='uniform',
+    ):
+        """Prior-predictive sampler for the raw-sequences amortiser.
+
+        Under the g-prior with unit-diagonal K, ``y_{i, j} | mu ~
+        Normal(mu_j, sigma^2 * K_{jj})`` independent across i, j given
+        mu. Emitting per-component scalar sequences avoids the
+        ``(S, N_max, J) @ (J, J)`` matmul in the original raw sampler
+        while preserving the full raw-sequence signal the MLP q_tau
+        encoder consumes.
+
+        Returns
+        -------
+        mu        : (S, J) float64          -- prior draws.
+        n         : (S,)  int64             -- observed cohort size.
+        m         : (S,)  int64             -- future cohort size.
+        Y_x       : (S, J, n_max) float64   -- per-component observed sequences,
+                                               zero-padded beyond n.
+        Y_z       : (S, J, n_max) float64   -- per-component future sequences,
+                                               zero-padded beyond m.
+        mask_x    : (S, n_max) float32      -- shared mask.
+        mask_z    : (S, n_max) float32
+        """
+        # Prior mu via K_chol.
+        eps_mu = rng.standard_normal(size=(S, self.J))
+        mu = self.prior_mu[None, :] + self.prior_tau * (eps_mu @ self.K_chol.T)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+        std_per_j = self.sigma * np.sqrt(self.K_diag)      # (J,)
+        eps_x = rng.standard_normal(size=(S, self.J, n_max))
+        eps_z = rng.standard_normal(size=(S, self.J, n_max))
+        Y_x_full = mu[..., None] + std_per_j[None, :, None] * eps_x
+        Y_z_full = mu[..., None] + std_per_j[None, :, None] * eps_z
+        col_idx = np.arange(n_max)[None, :]
+        mask_x = (col_idx < n[:, None]).astype(np.float32)
+        mask_z = (col_idx < m[:, None]).astype(np.float32)
+        Y_x = Y_x_full * mask_x[:, None, :]
+        Y_z = Y_z_full * mask_z[:, None, :]
+        return mu, n, m, Y_x, Y_z, mask_x, mask_z
+
+    def make_training_data_with_features(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+    ):
+        """Prior-predictive joint sampler for the features-fixed MVN
+        amortiser (§8 / §9.3, MVN counterpart).
+
+        Under the conjugate MVN g-prior with known ``K``, ``sigma``,
+        ``prior_tau``, the posterior of ``mu_j | (x, z)`` depends on the
+        per-component sufficient statistic ``(sum_i y_{i,j}, n + m)``.
+        DeepSets pooling for hardcoded ``T(y_i) = y_i`` collapses to
+        ``sum_T_x + sum_T_z = sum_j y_j``. Features passed to the head
+        are ``(sum_y_j, n_total) / n_max`` (both normalised to
+        ``[0, 1]`` in expectation for ``sum_y_j`` when ``mu_j`` is near 1).
+        The amortiser is J-invariant: one net trained on flattened
+        per-component examples deploys across all J values.
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['features']``: shape ``(S * J, 2)`` float32.
+            - ``rho``: shape ``(S * J,)`` float32, per-component
+              ``mu_j - mu_0_baseline`` (matches
+              :meth:`get_endpoints_per_draw`'s ``ratio``).
+        """
+        mu, n, m, sum_y_x, sum_y_z = self._sample_mvn_prior_predictive_summary(
+            rng, S, n_max, n_min, fixed_total, m_min, m_max, n_dist,
+        )
+        sum_y = sum_y_x + sum_y_z                          # (S, J)
+        n_total = (n + m).astype(np.float32)               # (S,)
+        n_total_b = np.broadcast_to(n_total[:, None], (S, self.J))
+        features = np.stack(
+            [sum_y.astype(np.float32), n_total_b], axis=-1,
+        ) / float(n_max)                                   # (S, J, 2)
+        rho = (mu - self.mu_0_baseline).astype(np.float32) # (S, J)
+        features_flat = features.reshape(S * self.J, 2)
+        rho_flat = rho.reshape(S * self.J)
+        return {'features': features_flat}, rho_flat
+
+    def make_training_data_with_raw_sequences(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+    ):
+        """Prior-predictive joint sampler for the features-MLP MVN
+        amortiser.
+
+        Emits raw padded per-component sequences (``item_dim = 1`` scalar
+        per obs). One prior draw contributes ``J`` per-component training
+        examples, so the amortiser is J-invariant.
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['x']``: shape ``(S * J, n_max, 1)`` float32.
+            - ``batch['mask_x']``: shape ``(S * J, n_max)`` float32.
+            - ``batch['z']``: shape ``(S * J, n_max, 1)`` float32.
+            - ``batch['mask_z']``: shape ``(S * J, n_max)`` float32.
+            - ``batch['sizes']``: shape ``(S * J, 2)`` float32,
+              ``(n / n_max, m / n_max)``.
+            - ``rho``: shape ``(S * J,)`` float32.
+        """
+        mu, n, m, Y_x, Y_z, mask_x, mask_z = (
+            self._sample_mvn_prior_predictive_raw(
+                rng, S, n_max, n_min, fixed_total, m_min, m_max, n_dist,
+            )
+        )
+        # Y_x, Y_z are (S, J, n_max) already; add the item_dim=1 axis.
+        x = Y_x[..., None].astype(np.float32).reshape(S * self.J, n_max, 1)
+        z = Y_z[..., None].astype(np.float32).reshape(S * self.J, n_max, 1)
+        # Masks are shared across components -- tile per J.
+        mask_x_tiled = np.broadcast_to(
+            mask_x[:, None, :], (S, self.J, n_max),
+        ).reshape(S * self.J, n_max).astype(np.float32)
+        mask_z_tiled = np.broadcast_to(
+            mask_z[:, None, :], (S, self.J, n_max),
+        ).reshape(S * self.J, n_max).astype(np.float32)
+        sizes_row = np.stack(
+            [n / n_max, m / n_max], axis=-1,
+        ).astype(np.float32)                               # (S, 2)
+        sizes = np.broadcast_to(
+            sizes_row[:, None, :], (S, self.J, 2),
+        ).reshape(S * self.J, 2).astype(np.float32)
+        rho = (mu - self.mu_0_baseline).astype(np.float32).reshape(-1)
+        return (
+            {
+                'x': x,
+                'mask_x': mask_x_tiled,
+                'z': z,
+                'mask_z': mask_z_tiled,
+                'sizes': sizes,
+            },
+            rho,
+        )
+
+    def make_training_data_with_participant_sequences(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+        queries_per_sample: int = 4,
+    ):
+        """Prior-predictive joint sampler for the features-MLP **xcomp**
+        amortiser (§12.10).
+
+        Emits FULL participant vectors ``y_i in R^J`` (rather than the
+        per-component scalar sequences of
+        :meth:`make_training_data_with_raw_sequences`), plus the
+        queried component's K-row and K-diag entry so the amortiser can
+        exploit the known cross-component correlation ``K``.
+
+        For each of the ``S`` prior draws we draw ``queries_per_sample``
+        random query components ``j*`` and emit ``S * queries_per_sample``
+        training examples that share the same participant matrices but
+        differ in ``(k_row, k_diag, rho)``. This amortises the
+        expensive prior sampling across multiple queries per
+        gradient step.
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['x']``:      ``(B, n_max, J)`` float32.
+            - ``batch['mask_x']``: ``(B, n_max)``    float32.
+            - ``batch['z']``:      ``(B, n_max, J)`` float32.
+            - ``batch['mask_z']``: ``(B, n_max)``    float32.
+            - ``batch['sizes']``:  ``(B, 2)``        float32.
+            - ``batch['k_row']``:  ``(B, J)``        float32, ``K[j*, :]``.
+            - ``batch['k_diag']``: ``(B, 1)``        float32, ``K[j*, j*]``.
+            - ``rho``:             ``(B,)`` float32, ``mu_{j*} - mu_0``.
+
+            ``B = S * queries_per_sample``.
+        """
+        # Full participant matrices via K_chol (cross-component correlated).
+        eps_mu = rng.standard_normal(size=(S, self.J))
+        mu = self.prior_mu[None, :] + self.prior_tau * (eps_mu @ self.K_chol.T)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+        eps_x = rng.standard_normal(size=(S, n_max, self.J))
+        eps_z = rng.standard_normal(size=(S, n_max, self.J))
+        Y_x_full = mu[:, None, :] + self.sigma * (eps_x @ self.K_chol.T)
+        Y_z_full = mu[:, None, :] + self.sigma * (eps_z @ self.K_chol.T)
+        col_idx = np.arange(n_max)[None, :]
+        mask_x = (col_idx < n[:, None]).astype(np.float32)   # (S, n_max)
+        mask_z = (col_idx < m[:, None]).astype(np.float32)
+        Y_x = (Y_x_full * mask_x[..., None]).astype(np.float32)
+        Y_z = (Y_z_full * mask_z[..., None]).astype(np.float32)
+        Q = int(queries_per_sample)
+        j_star = rng.integers(0, self.J, size=(S, Q))        # (S, Q)
+        B = S * Q
+        # Broadcast participant matrices across the Q queries per sample.
+        x_rep = np.broadcast_to(
+            Y_x[:, None, :, :], (S, Q, n_max, self.J),
+        ).reshape(B, n_max, self.J).astype(np.float32)
+        z_rep = np.broadcast_to(
+            Y_z[:, None, :, :], (S, Q, n_max, self.J),
+        ).reshape(B, n_max, self.J).astype(np.float32)
+        mask_x_rep = np.broadcast_to(
+            mask_x[:, None, :], (S, Q, n_max),
+        ).reshape(B, n_max).astype(np.float32)
+        mask_z_rep = np.broadcast_to(
+            mask_z[:, None, :], (S, Q, n_max),
+        ).reshape(B, n_max).astype(np.float32)
+        sizes_row = np.stack(
+            [n / n_max, m / n_max], axis=-1,
+        ).astype(np.float32)                                  # (S, 2)
+        sizes = np.broadcast_to(
+            sizes_row[:, None, :], (S, Q, 2),
+        ).reshape(B, 2).astype(np.float32)
+        # K-row and K-diag for the queried component.
+        k_row = self.K[j_star].astype(np.float32)             # (S, Q, J)
+        k_diag = self.K_diag[j_star].astype(np.float32)       # (S, Q)
+        # Target rho_{j*} = mu[s, j_star[s, q]] - mu_0.
+        s_idx = np.arange(S)[:, None]
+        mu_query = mu[s_idx, j_star]                          # (S, Q)
+        rho = (mu_query - self.mu_0_baseline).astype(np.float32).reshape(B)
+        return (
+            {
+                'x': x_rep,
+                'mask_x': mask_x_rep,
+                'z': z_rep,
+                'mask_z': mask_z_rep,
+                'sizes': sizes,
+                'k_row': k_row.reshape(B, self.J),
+                'k_diag': k_diag.reshape(B, 1),
+            },
+            rho,
+        )
+
+    def make_training_data_with_component_summaries_random_K(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+        queries_per_sample: int = 4,
+        K_families=None,
+    ):
+        """Prior-predictive sampler for the K-family-invariant
+        attention amortiser (§12.11 xcompAtt).
+
+        Each of the ``S`` prior draws picks a random ``K_chol`` from
+        ``sample_random_K_chol`` (identity / AR(1) / block / factor by
+        default) so the amortiser learns to interpret ``K[j*, :]`` under
+        multiple correlation families. Per-component summaries
+        ``(sum_i y_{i, j}, sum_i z_{i, j})`` replace the raw participant
+        matrices of §12.10 -- the MVN sufficient statistic for
+        ``mu_j | (x, z)`` is preserved, and the encoder no longer needs
+        to run per-participant tokens.
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)``
+            - ``batch['x_sum']``: ``(B, J)`` float32,
+              ``sum_i y_{i, j} / n_max``.
+            - ``batch['z_sum']``: ``(B, J)`` float32,
+              ``sum_i z_{i, j} / n_max``.
+            - ``batch['k_row']``:  ``(B, J)`` float32, ``K[j*, :]``.
+            - ``batch['k_diag']``: ``(B, 1)`` float32.
+            - ``batch['sizes']``:  ``(B, 2)`` float32,
+              ``(n / n_max, m / n_max)``.
+            - ``rho``: ``(B,)`` float32, ``mu_{j*} - mu_0``.
+
+            ``B = S * queries_per_sample``.
+        """
+        Q = int(queries_per_sample)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+
+        # Loop per sample: draw K, then mu, sum_x, sum_z per component.
+        # sum_i y_{i, j} ~ Normal(n * mu_j, n * sigma^2 K_{jj}); since
+        # all K in the mixture have unit diagonal, K_{jj} = 1 always.
+        sum_x = np.empty((S, self.J), dtype=np.float64)
+        sum_z = np.empty((S, self.J), dtype=np.float64)
+        mu = np.empty((S, self.J), dtype=np.float64)
+        k_rows = np.empty((S, Q, self.J), dtype=np.float64)
+        k_diags = np.empty((S, Q), dtype=np.float64)
+        rho_out = np.empty((S, Q), dtype=np.float64)
+        j_star = rng.integers(0, self.J, size=(S, Q))
+        for s in range(S):
+            K_chol_s, _fam = sample_random_K_chol(rng, self.J, K_families)
+            K_s = K_chol_s @ K_chol_s.T
+            # mu ~ MVN(prior_mu, tau^2 K)
+            eps_mu = rng.standard_normal(self.J)
+            mu[s] = self.prior_mu + self.prior_tau * (K_chol_s @ eps_mu)
+            # Direct per-component sums (unit-diagonal K).
+            eps_x = rng.standard_normal(self.J)
+            eps_z = rng.standard_normal(self.J)
+            sum_x[s] = n[s] * mu[s] + self.sigma * np.sqrt(n[s]) * eps_x
+            sum_z[s] = m[s] * mu[s] + self.sigma * np.sqrt(m[s]) * eps_z
+            k_rows[s] = K_s[j_star[s]]
+            k_diags[s] = np.diag(K_s)[j_star[s]]
+            rho_out[s] = mu[s, j_star[s]] - self.mu_0_baseline
+
+        B = S * Q
+        # Broadcast x_sum, z_sum, sizes across the Q queries per sample.
+        x_sum_rep = np.broadcast_to(
+            sum_x[:, None, :], (S, Q, self.J),
+        ).reshape(B, self.J).astype(np.float32) / float(n_max)
+        z_sum_rep = np.broadcast_to(
+            sum_z[:, None, :], (S, Q, self.J),
+        ).reshape(B, self.J).astype(np.float32) / float(n_max)
+        sizes_row = np.stack(
+            [n / n_max, m / n_max], axis=-1,
+        ).astype(np.float32)
+        sizes = np.broadcast_to(
+            sizes_row[:, None, :], (S, Q, 2),
+        ).reshape(B, 2).astype(np.float32)
+        return (
+            {
+                'x_sum':  x_sum_rep,
+                'z_sum':  z_sum_rep,
+                'k_row':  k_rows.reshape(B, self.J).astype(np.float32),
+                'k_diag': k_diags.reshape(B, 1).astype(np.float32),
+                'sizes':  sizes,
+            },
+            rho_out.reshape(B).astype(np.float32),
+        )
 
     # ------------------------------------------------------------------
     # NumPyro NUTS
