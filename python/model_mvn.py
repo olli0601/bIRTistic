@@ -1096,15 +1096,147 @@ class MVNModel(Model):
         sizes = np.broadcast_to(
             sizes_row[:, None, :], (S, Q, 2),
         ).reshape(B, 2).astype(np.float32)
+        k_row_flat = k_rows.reshape(B, self.J).astype(np.float32)
+        k_diag_flat = k_diags.reshape(B, 1).astype(np.float32)
+        # Per (b, j) token: (x_sum[j], z_sum[j], K[j*, j]). The
+        # itemXcompAtt class handles query identification via a learned
+        # attention-score bias (see ``query_bias_alpha`` in the class)
+        # driven by ``query_idx``, so no explicit is_query token
+        # feature is needed here.
+        tokens = np.stack(
+            [x_sum_rep, z_sum_rep, k_row_flat], axis=-1,
+        ).astype(np.float32)                                    # (B, J, 3)
+        mask = np.ones((B, self.J), dtype=np.float32)
+        query_idx = j_star.reshape(B).astype(np.int32)
+        aux = np.concatenate(
+            [sizes, k_diag_flat], axis=-1,
+        ).astype(np.float32)                                    # (B, 3)
         return (
             {
-                'x_sum':  x_sum_rep,
-                'z_sum':  z_sum_rep,
-                'k_row':  k_rows.reshape(B, self.J).astype(np.float32),
-                'k_diag': k_diags.reshape(B, 1).astype(np.float32),
-                'sizes':  sizes,
+                'tokens':    tokens,
+                'mask':      mask,
+                'query_idx': query_idx,
+                'aux':       aux,
             },
             rho_out.reshape(B).astype(np.float32),
+        )
+
+    def make_training_data_with_participant_tokens_random_K(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+        queries_per_sample: int = 4,
+        K_families=None,
+    ):
+        """Prior-predictive sampler for the deepset{S,X}compAtt
+        amortisers (§12.14).
+
+        Emits RAW per-(participant, item) response scalars plus K-row
+        per-(item, query) as item metadata. K-family-invariant training
+        (random K per prior draw).
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)`` with
+            ``batch['x_responses']``:   ``(B, n_max, J, 1)`` float32.
+            ``batch['mask_x']``:        ``(B, n_max)``       float32.
+            ``batch['z_responses']``:   ``(B, n_max, J, 1)`` float32.
+            ``batch['mask_z']``:        ``(B, n_max)``       float32.
+            ``batch['item_metadata']``: ``(B, J, 1)`` float32, ``K[j*, :]``.
+            ``batch['query_idx']``:     ``(B,)`` int32.
+            ``batch['aux']``:           ``(B, 3)`` float32,
+                                        ``(n/N, m/N, K[j*, j*])``.
+            ``rho``:                    ``(B,)`` float32.
+            ``B = S * queries_per_sample``.
+        """
+        Q = int(queries_per_sample)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1)))
+            log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+
+        Y_x_full = np.zeros((S, n_max, self.J), dtype=np.float64)
+        Y_z_full = np.zeros((S, n_max, self.J), dtype=np.float64)
+        mu_all = np.empty((S, self.J), dtype=np.float64)
+        K_all = np.empty((S, self.J, self.J), dtype=np.float64)
+        for s in range(S):
+            K_chol_s, _fam = sample_random_K_chol(rng, self.J, K_families)
+            K_all[s] = K_chol_s @ K_chol_s.T
+            eps_mu = rng.standard_normal(self.J)
+            mu_all[s] = self.prior_mu + self.prior_tau * (K_chol_s @ eps_mu)
+            eps_x = rng.standard_normal((n_max, self.J))
+            eps_z = rng.standard_normal((n_max, self.J))
+            Y_x_full[s] = mu_all[s][None, :] + self.sigma * (eps_x @ K_chol_s.T)
+            Y_z_full[s] = mu_all[s][None, :] + self.sigma * (eps_z @ K_chol_s.T)
+
+        col_idx = np.arange(n_max)[None, :]
+        mask_x = (col_idx < n[:, None]).astype(np.float32)
+        mask_z = (col_idx < m[:, None]).astype(np.float32)
+        Y_x = (Y_x_full * mask_x[..., None]).astype(np.float32)
+        Y_z = (Y_z_full * mask_z[..., None]).astype(np.float32)
+        j_star = rng.integers(0, self.J, size=(S, Q))
+        B = S * Q
+        # Broadcast (S, n_max, J) to (S, Q, n_max, J) then reshape.
+        x_rep = np.broadcast_to(
+            Y_x[:, None, :, :], (S, Q, n_max, self.J),
+        ).reshape(B, n_max, self.J).astype(np.float32)
+        z_rep = np.broadcast_to(
+            Y_z[:, None, :, :], (S, Q, n_max, self.J),
+        ).reshape(B, n_max, self.J).astype(np.float32)
+        mask_x_rep = np.broadcast_to(
+            mask_x[:, None, :], (S, Q, n_max),
+        ).reshape(B, n_max).astype(np.float32)
+        mask_z_rep = np.broadcast_to(
+            mask_z[:, None, :], (S, Q, n_max),
+        ).reshape(B, n_max).astype(np.float32)
+        sizes_row = np.stack(
+            [n / n_max, m / n_max], axis=-1,
+        ).astype(np.float32)
+        sizes = np.broadcast_to(
+            sizes_row[:, None, :], (S, Q, 2),
+        ).reshape(B, 2).astype(np.float32)
+        # K-row per (S, Q) queried component: K_all[s, j_star[s, q], :].
+        s_idx = np.arange(S)[:, None]
+        k_row = K_all[s_idx, j_star]                    # (S, Q, J)
+        k_diag = np.take_along_axis(
+            np.diagonal(K_all, axis1=-2, axis2=-1)[:, None, :],
+            j_star[..., None], axis=-1,
+        ).squeeze(-1)                                    # (S, Q)
+        mu_query = mu_all[s_idx, j_star]                # (S, Q)
+        rho = (mu_query - self.mu_0_baseline).astype(np.float32).reshape(B)
+        return (
+            {
+                'x_responses':   x_rep.reshape(B, n_max, self.J, 1),
+                'mask_x':        mask_x_rep,
+                'z_responses':   z_rep.reshape(B, n_max, self.J, 1),
+                'mask_z':        mask_z_rep,
+                'item_metadata': k_row.reshape(B, self.J, 1).astype(np.float32),
+                'query_idx':     j_star.reshape(B).astype(np.int32),
+                'aux':           np.concatenate(
+                    [sizes, k_diag.reshape(B, 1).astype(np.float32)],
+                    axis=-1,
+                ).astype(np.float32),
+            },
+            rho,
         )
 
     # ------------------------------------------------------------------

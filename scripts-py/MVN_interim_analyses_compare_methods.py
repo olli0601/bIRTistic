@@ -7,25 +7,40 @@ Standalone. Loads per-J per-method artifacts from:
 
   - HMC nested-MC : ``MVN_interim_analyses_with_nested_MC_hmc.py``
   - IS reweighting : ``MVN_interim_analyses_with_IS_from_x.py``
-  - Regression endpt-x (Gaussian approx)  : ``MVN_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``
-  - Regression endpt-x (quantile regr)    : ``MVN_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py``
-  - Regression endpt-x (multi-quantile)   : ``MVN_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py``
+  - Regression endpt-x (Gaussian approx / quantile / mquantile) : the RGE
+    family of scripts.
+  - Amortiser (features-fixed / features-MLP / xcomp / xcompAtt): the four
+    ``MVN_interim_analysis_amortise_...`` scripts.
 
-and the closed-form analytic PPS from the simulations directory. Emits
-four PDFs per J:
+Family split (matches the Binomial compare-methods layout):
 
-  1. ``mvn_J{J}_compare_methods_p_h1_xz_all.pdf`` -- per-(response j,
-     interim) p(H_1j | x, z) quantile boxplots faceted in a
-     ``K_levels x n_per_level`` grid (same layout as
-     ``mvn_J{J}_pps_RGE_p_h1_xz_all.pdf``), dodged by method, Futurama
-     fill per method.
-  2. ``mvn_J{J}_compare_methods_pps_all.pdf`` -- PPS bar chart in the
-     same facet grid, analytic (black) + each method in a Futurama
-     colour; 95% bootstrap CIs on the Monte-Carlo bars.
-  3. ``mvn_J{J}_compare_methods_timing.pdf`` -- per-interim inference
-     time (mins) per method, Futurama colours, sqrt y-axis.
-  4. ``mvn_J{J}_compare_methods_ess.pdf`` -- median ESS / particle per
-     interim for the IS method (other methods don't have IS weights).
+  Regression-family plots (amortiser dropped to reduce clutter):
+    1. ``mvn_J{J}_compare_methods_p_h1_xz_all.pdf``
+    2. ``mvn_J{J}_compare_methods_pps_all.pdf``
+
+  Amortiser-focus plots (best regression baseline + amortiser variants):
+    3. ``mvn_J{J}_compare_methods_p_h1_xz_all_amortised.pdf``
+    4. ``mvn_J{J}_compare_methods_pps_all_amortised.pdf``
+
+  Shared timing plots (both amortiser + non-amortiser methods, one bar per
+  method; leftmost x-axis slot ``training`` shows the one-off training
+  time for amortiser methods; per-interim slots show deployment time only):
+    5. ``mvn_J{J}_compare_methods_timing.pdf``
+    6. ``mvn_J{J}_compare_methods_timing_amortised.pdf``  (train + deploy
+       stacked bar per method with two fill colours, coord_flip)
+
+  Cross-J summary:
+    7. ``mvn_compare_methods_mse.pdf``
+    8. ``mvn_compare_methods_rge_stats_box.pdf``
+
+  IS diagnostic:
+    9. ``mvn_J{J}_compare_methods_ess.pdf``
+
+Legend layouts single-column bottom; method → colour mapping is consistent
+across every plot in the file. Analytic PPS bar drawn WHITE with thin
+BLACK outline (size = 1.1) and forced first (leftmost) inside each dodge
+group so the ground-truth reference reads as distinct from Monte-Carlo
+estimates.
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -35,6 +50,7 @@ Usage:
 # %%
 
 import os
+import pickle
 import sys
 import warnings
 from pathlib import Path
@@ -51,11 +67,11 @@ sys.path.insert(0, str(project_root / 'python'))
 import numpy as np
 import pandas as pd
 from plotnine import (
-    ggplot, aes, geom_boxplot, geom_col, geom_errorbar, geom_hline,
-    geom_text,
-    facet_grid, facet_wrap,
-    scale_fill_manual, scale_y_continuous, scale_y_sqrt,
-    position_dodge, theme_bw, theme, element_text, element_blank, labs,
+    ggplot, aes, coord_flip, geom_boxplot, geom_col, geom_errorbar, geom_hline,
+    geom_text, facet_grid, facet_wrap,
+    scale_colour_manual, scale_fill_manual, scale_y_continuous, scale_y_sqrt,
+    position_dodge, position_stack, theme_bw, theme,
+    element_text, element_blank, labs, guides, guide_legend,
 )
 
 warnings.filterwarnings('ignore')
@@ -94,25 +110,97 @@ DIR_RGEC = os.path.join(
 )
 DIR_RGED = os.path.join(
     _sandbox,
-    "py-mvn-interim-amortise-endptx-on-wz-with-features-MLP-"
-    "xcompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-"
+    "itemScompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
+)
+DIR_RGEF = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-"
+    "itemXcompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
+)
+DIR_RGDS = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-"
+    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead_260803",
+)
+DIR_RGDX = os.path.join(
+    _sandbox,
+    "py-mvn-interim-amortise-endptx-on-wz-with-features-"
+    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803",
 )
 DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
-METHOD_ORDER = [
-    'nested-MC using HMC for each (x,z)',
-    'IS reweighting of theta|x',
-    'Regression of endpt-x on w(z) using Gaussian approx',
-    'Regression of endpt-x on w(z) - quantile',
-    'Regression of endpt-x on w(z) - mquantile',
-    'amortised idcomp',
-    'amortised MLP idcomp',
-    'amortised MLP xcomp',
-    'amortised MLP xcompAtt',
-]
-method_colours = dict(zip(METHOD_ORDER, _futurama_palette(len(METHOD_ORDER))))
-pps_colours = {'analytic': '#000000', **method_colours}
+# Method labels. Amortiser labels use the filename convention so the legend
+# is unambiguous when the family plot vs the amortiser-focus plot are read
+# side-by-side.
+LBL_HMC   = 'nested-MC using HMC for each (x,z)'
+LBL_IS    = 'IS reweighting of theta|x'
+LBL_RGE   = 'Regression of endpt-x on w(z) using Gaussian approx'
+LBL_RGEQ  = 'Regression of endpt-x on w(z) - quantile'
+LBL_RGEM  = 'Regression of endpt-x on w(z) - mquantile'
+LBL_RGEA  = 'Amortiser-features-fixed-idcomp-qpsi-MLP-loss-multiquantilehead'
+LBL_RGEB  = 'Amortiser-features-MLP-idcomp-qpsi-MLP-loss-multiquantilehead'
+LBL_RGEC  = 'Amortiser-features-MLP-xcomp-qpsi-MLP-loss-multiquantilehead'
+LBL_RGED  = 'Amortiser-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead'
+LBL_RGEF  = 'Amortiser-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead'
+LBL_RGDS  = 'Amortiser-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead'
+LBL_RGDX  = 'Amortiser-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead'
+
+non_amort_methods = [LBL_HMC, LBL_IS, LBL_RGE, LBL_RGEQ, LBL_RGEM]
+# RGEB (features-MLP idcomp) dropped: undertrained on MVN scale (§12.8).
+amort_focus_methods = [LBL_RGE, LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+timing_methods = non_amort_methods + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+
+# Ordered union used to derive the global palette so the same method reuses
+# the same colour on every plot.
+_all_methods = non_amort_methods + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+method_colours = dict(zip(_all_methods, _futurama_palette(len(_all_methods))))
+# Analytic drawn as white fill + black outline so it reads as ground-truth
+# reference, not a competing estimate.
+pps_colours = {'analytic': '#FFFFFF', **method_colours}
+pps_outline_colours = {'analytic': '#000000',
+                       **{m: c for m, c in method_colours.items()}}
+
+# Fill colours for the stacked train / deploy timing bar.
+_TRAIN_DEPLOY_COLOURS = {
+    'train (one-off)':      '#1f77b4',
+    'deploy (all interims)': '#ff7f0e',
+}
+
+
+def _load_training_mins(ckpt_path):
+    if not os.path.exists(ckpt_path):
+        return float('nan')
+    with open(ckpt_path, 'rb') as f:
+        payload = pickle.load(f)
+    return float(payload.get('training_mins', float('nan')))
+
+
+training_mins_by_method = {
+    LBL_RGEA: _load_training_mins(
+        os.path.join(DIR_RGEA, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGEC: _load_training_mins(
+        os.path.join(DIR_RGEC, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGED: _load_training_mins(
+        os.path.join(DIR_RGED, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGEF: _load_training_mins(
+        os.path.join(DIR_RGEF, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGDS: _load_training_mins(
+        os.path.join(DIR_RGDS, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGDX: _load_training_mins(
+        os.path.join(DIR_RGDX, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+}
+for lbl in non_amort_methods:
+    training_mins_by_method.setdefault(lbl, 0.0)
+print(f"Training mins per method: "
+      f"{ {k: round(v, 3) for k, v in training_mins_by_method.items()} }")
 
 # %%
 
@@ -144,6 +232,240 @@ hmc_timing_all  = hmc_artifacts['timing']
 print(f"Loaded analytic ({len(pps_cf)}) + HMC nested-MC artifacts."
       f" J_GRID = {J_GRID}.")
 
+
+# =============================================================================
+# Plot helpers (parallel to the Binomial compare-methods script).
+# =============================================================================
+
+
+def _boxplot_p_h1_xz(box_stats, methods, response_label_cats,
+                     n_per_level, pdf_path):
+    """Faceted dodged boxplot of ``p_h1_xz`` per (response, interim, method)."""
+    keep = [m for m in methods if m != LBL_RGEQ]
+    d = box_stats[box_stats['method'].isin(keep)].copy()
+    d['method'] = pd.Categorical(
+        d['method'].astype(str), categories=keep, ordered=True,
+    )
+    p = (
+        ggplot(d, aes(x='interim_month_year', fill='method'))
+        + geom_boxplot(
+            aes(ymin='q025', lower='q25', middle='q50', upper='q75',
+                ymax='q975', group='grp'),
+            stat='identity',
+            position=position_dodge(width=0.8, preserve='single'),
+            width=0.7, colour='#404040', size=0.3,
+        )
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
+                     colour='black', size=1.0)
+        + scale_fill_manual(values=method_colours,
+                            breaks=keep, limits=keep)
+        + scale_y_continuous(
+            limits=[0, 1],
+            breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+        )
+        + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
+        + guides(fill=guide_legend(ncol=1))
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=(3.0 * n_per_level, 2.5 * K_levels + 2),
+            strip_background=element_blank(),
+            strip_text=element_text(face='bold'),
+        )
+        + labs(x='Interim', y='p(H_1j | x, z) for predicted z samples',
+               fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved p(H_1 | x, z) boxplot to {pdf_path}")
+
+
+def _pps_bars(pps_g_ci, methods, n_per_level, pdf_path, width_scale=1.0):
+    """Faceted PPS bars per (response, interim, method) with bootstrap CI.
+
+    Analytic bar white + thin black outline (size = 1.1), forced first in
+    the dodge order so it lands leftmost inside each group. ``width_scale``
+    multiplies the figure width (default 1.0; caller passes >1 when a
+    single facet needs to fit more dodged bars).
+    """
+    keep_with_analytic = ['analytic', *methods]
+    d = pps_g_ci[pps_g_ci['method'].isin(keep_with_analytic)].copy()
+    # Re-apply Categorical AFTER any pandas ops so the level ordering is
+    # preserved end-to-end.
+    d['method'] = pd.Categorical(
+        d['method'].astype(str),
+        categories=keep_with_analytic, ordered=True,
+    )
+    d = d.sort_values(
+        ['response_label', 'interim_month_year', 'method']
+    ).reset_index(drop=True)
+    p = (
+        ggplot(d, aes(x='interim_month_year', y='pps', fill='method',
+                      colour='method', group='method'))
+        + geom_col(position=position_dodge(width=0.8, preserve='single'),
+                   width=0.7, size=1.1)
+        + geom_errorbar(
+            aes(x='interim_month_year', ymin='q025_bs', ymax='q975_bs',
+                group='method'),
+            position=position_dodge(width=0.8, preserve='single'),
+            width=0.3, colour='black', size=0.4, inherit_aes=False,
+        )
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
+                     colour='black', size=1.0, linetype='dashed')
+        # Fill + colour scales share the same ``name`` so plotnine merges
+        # them into ONE legend showing both aesthetics per entry -- the
+        # legend swatch for 'analytic' picks up its black outline.
+        + scale_fill_manual(values=pps_colours,
+                            breaks=keep_with_analytic,
+                            limits=keep_with_analytic,
+                            name='method')
+        + scale_colour_manual(values=pps_outline_colours,
+                              breaks=keep_with_analytic,
+                              limits=keep_with_analytic,
+                              name='method')
+        + scale_y_continuous(
+            limits=[0, 1.05],
+            breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+        )
+        + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
+        + guides(
+            fill=guide_legend(ncol=1),
+            colour=guide_legend(ncol=1),
+        )
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=(3.0 * n_per_level * width_scale,
+                         2.5 * K_levels + 2),
+            strip_background=element_blank(),
+            strip_text=element_text(face='bold'),
+        )
+        + labs(x='Interim',
+               y='PPS = int P(p(H_1j | x, z) > eta) dz', fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved PPS bars plot to {pdf_path}")
+
+
+def _timing_bars(timing_df, methods, interim_order_local, pdf_path,
+                 figure_size=(15, 8)):
+    """Two-panel-like layout on ONE x-axis:
+
+      - Leftmost slot ``training``: one-off amortiser training time.
+        Non-amortised methods have zero here (bar suppressed).
+      - Interim slots: per-interim DEPLOY time only.
+    """
+    d = timing_df[timing_df['method'].isin(methods)][
+        ['interim_month_year', 'method', 'mins']
+    ].copy()
+    d['slot'] = d['interim_month_year'].astype(str)
+    d = d[['slot', 'method', 'mins']]
+    train_rows = pd.DataFrame({
+        'slot':   ['training'] * len(methods),
+        'method': methods,
+        'mins':   [training_mins_by_method.get(m, 0.0) for m in methods],
+    })
+    slot_order = ['training'] + interim_order_local
+    long = pd.concat([train_rows, d], ignore_index=True)
+    full = pd.MultiIndex.from_product(
+        [methods, slot_order], names=['method', 'slot'],
+    ).to_frame(index=False)
+    long = full.merge(long, on=['method', 'slot'], how='left').fillna({'mins': 0.0})
+    long['slot'] = pd.Categorical(
+        long['slot'], categories=slot_order, ordered=True,
+    )
+    long['method'] = pd.Categorical(
+        long['method'], categories=methods, ordered=True,
+    )
+    long['value_label'] = long['mins'].map(
+        lambda v: f"{v:.2f}" if v > 0 else "",
+    )
+    p = (
+        ggplot(long, aes(x='slot', y='mins', fill='method'))
+        + geom_col(position=position_dodge(width=0.8, preserve='single'),
+                   width=0.7)
+        + geom_text(
+            aes(label='value_label'),
+            position=position_dodge(width=0.8, preserve='single'),
+            size=6, angle=30, ha='left', va='bottom',
+        )
+        + scale_fill_manual(values=method_colours,
+                            breaks=methods, limits=methods)
+        + scale_y_sqrt(expand=(0, 0, 0.15, 0))
+        + guides(fill=guide_legend(ncol=1))
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='training (one-off) | deployment (per interim)',
+               y='time (mins)',
+               fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved timing plot to {pdf_path}")
+
+
+def _train_deploy_stacked_bars(timing_df, methods, pdf_path,
+                               figure_size=(11, 5)):
+    """Horizontal stacked bar per method: train segment + total deploy
+    across all interims. Two fill colours (train vs deploy). coord_flip
+    so long labels stay readable."""
+    d = timing_df[timing_df['method'].isin(methods)].copy()
+    deploy_total = (
+        d.groupby('method', observed=True)['mins'].sum().reset_index()
+        .rename(columns={'mins': 'value'})
+    )
+    deploy_total['segment'] = 'deploy (all interims)'
+    train_total = pd.DataFrame({
+        'method':  methods,
+        'value':   [training_mins_by_method.get(m, 0.0) for m in methods],
+        'segment': ['train (one-off)'] * len(methods),
+    })
+    stacked = pd.concat([train_total, deploy_total], ignore_index=True)
+    stacked['method'] = pd.Categorical(
+        stacked['method'], categories=list(reversed(methods)), ordered=True,
+    )
+    stacked['segment'] = pd.Categorical(
+        stacked['segment'],
+        categories=['train (one-off)', 'deploy (all interims)'],
+        ordered=True,
+    )
+    stacked['value_label'] = stacked['value'].map(
+        lambda v: f"{v:.2f}" if v > 0 else "",
+    )
+    p = (
+        ggplot(stacked, aes(x='method', y='value', fill='segment'))
+        + geom_col(position=position_stack(reverse=True), width=0.6)
+        + geom_text(
+            aes(label='value_label'),
+            position=position_stack(vjust=0.5, reverse=True),
+            size=8, colour='black',
+        )
+        + scale_fill_manual(values=_TRAIN_DEPLOY_COLOURS)
+        + guides(fill=guide_legend(ncol=1))
+        + coord_flip()
+        + theme_bw()
+        + theme(
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='method',
+               y='wall-clock time (mins) across the full interim schedule',
+               fill='segment')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved train + deploy stacked timing plot to {pdf_path}")
+
+
 # %%
 
 # =============================================================================
@@ -162,8 +484,7 @@ for J in J_GRID:
     print(f"\n{'#' * 70}\n# J = {J} (responses shown: {len(j_indices_all)})"
           f"\n{'#' * 70}")
 
-    # ---- Analytic per-z (loaded from nested-MC dir, computed by
-    # ---- model.fit_closed_form_pH1 in nested_MC_hmc.py Phase 4.5) ----
+    # ---- Analytic per-z ----
     an_p = pd.read_pickle(
         os.path.join(DIR_HMC, f'mvn_J{J}_pps_p_h1_xz_analytic.pkl'),
     )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
@@ -199,117 +520,56 @@ for J in J_GRID:
     )[['interim_id', 'interim_date', 'interim_month_year', 's',
        'ess', 'ess_over_n']].copy()
 
-    # ---- RGE per-J slices (Gaussian approx) ----
-    rge_p = pd.read_pickle(
-        os.path.join(DIR_RGE, f'mvn_J{J}_pps_RGE_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rge_pps = pd.read_csv(
-        os.path.join(DIR_RGE, f'mvn_J{J}_pps_RGE.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rge_timing = pd.read_csv(
-        os.path.join(DIR_RGE, f'mvn_J{J}_pps_RGE_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+    def _read_slice(d, suffix, is_pkl=True):
+        p_ = pd.read_pickle(
+            os.path.join(d, f'mvn_J{J}_pps_{suffix}_p_h1_xz.pkl'),
+        )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
+           'p_h1_xz']].copy()
+        pps_ = pd.read_csv(
+            os.path.join(d, f'mvn_J{J}_pps_{suffix}.csv'),
+        )[['interim_id', 'interim_date', 'interim_month_year', 'j',
+           'pps']].copy()
+        t_ = pd.read_csv(
+            os.path.join(d, f'mvn_J{J}_pps_{suffix}_timing.csv'),
+        )[['interim_id', 'interim_date', 'interim_month_year',
+           'mins_interim_id']].rename(
+               columns={'mins_interim_id': 'mins'},
+        ).copy()
+        return p_, pps_, t_
 
-    # ---- RGEQ per-J slices (quantile regression) ----
-    rgeq_p = pd.read_pickle(
-        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rgeq_pps = pd.read_csv(
-        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rgeq_timing = pd.read_csv(
-        os.path.join(DIR_RGEQ, f'mvn_J{J}_pps_RGEQ_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+    rge_p,  rge_pps,  rge_timing  = _read_slice(DIR_RGE,  'RGE')
+    rgeq_p, rgeq_pps, rgeq_timing = _read_slice(DIR_RGEQ, 'RGEQ')
+    rgem_p, rgem_pps, rgem_timing = _read_slice(DIR_RGEM, 'RGEM')
+    rgea_p, rgea_pps, rgea_timing = _read_slice(DIR_RGEA, 'RGEA')
+    rgeb_p, rgeb_pps, rgeb_timing = _read_slice(DIR_RGEB, 'RGEB')
+    rgec_p, rgec_pps, rgec_timing = _read_slice(DIR_RGEC, 'RGEC')
+    rged_p, rged_pps, rged_timing = _read_slice(DIR_RGED, 'RGED')
+    rgef_p, rgef_pps, rgef_timing = _read_slice(DIR_RGEF, 'RGEF')
 
-    # ---- RGEM per-J slices (multi-quantile regression) ----
-    rgem_p = pd.read_pickle(
-        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rgem_pps = pd.read_csv(
-        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rgem_timing = pd.read_csv(
-        os.path.join(DIR_RGEM, f'mvn_J{J}_pps_RGEM_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+    def _read_slice_optional(d, suffix):
+        try:
+            return _read_slice(d, suffix)
+        except (FileNotFoundError, OSError):
+            return None, None, None
 
-    # ---- RGEA per-J slices (amortised features-fixed) ----
-    rgea_p = pd.read_pickle(
-        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rgea_pps = pd.read_csv(
-        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rgea_timing = pd.read_csv(
-        os.path.join(DIR_RGEA, f'mvn_J{J}_pps_RGEA_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
+    rgds_p, rgds_pps, rgds_timing = _read_slice_optional(DIR_RGDS, 'RGDS')
+    rgdx_p, rgdx_pps, rgdx_timing = _read_slice_optional(DIR_RGDX, 'RGDX')
 
-    # ---- RGEB per-J slices (amortised features-MLP) ----
-    rgeb_p = pd.read_pickle(
-        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rgeb_pps = pd.read_csv(
-        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rgeb_timing = pd.read_csv(
-        os.path.join(DIR_RGEB, f'mvn_J{J}_pps_RGEB_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
-
-    # ---- RGEC per-J slices (amortised features-MLP xcomp) ----
-    rgec_p = pd.read_pickle(
-        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rgec_pps = pd.read_csv(
-        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rgec_timing = pd.read_csv(
-        os.path.join(DIR_RGEC, f'mvn_J{J}_pps_RGEC_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
-
-    # ---- RGED per-J slices (amortised features-MLP xcompAtt) ----
-    rged_p = pd.read_pickle(
-        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED_p_h1_xz.pkl'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j', 's',
-       'p_h1_xz']].copy()
-    rged_pps = pd.read_csv(
-        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year', 'j',
-       'pps']].copy()
-    rged_timing = pd.read_csv(
-        os.path.join(DIR_RGED, f'mvn_J{J}_pps_RGED_timing.csv'),
-    )[['interim_id', 'interim_date', 'interim_month_year',
-       'mins_interim_id']].rename(columns={'mins_interim_id': 'mins'}).copy()
-
-    # ---- Stack methods ----
     p_h1_xz = pd.concat(
         [
             an_p  .assign(method='analytic'),
-            hmc_p .assign(method='nested-MC using HMC for each (x,z)'),
-            is_p  .assign(method='IS reweighting of theta|x'),
-            rge_p .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
-            rgeq_p.assign(method='Regression of endpt-x on w(z) - quantile'),
-            rgem_p.assign(method='Regression of endpt-x on w(z) - mquantile'),
-            rgea_p.assign(method='amortised idcomp'),
-            rgeb_p.assign(method='amortised MLP idcomp'),
-            rgec_p.assign(method='amortised MLP xcomp'),
-            rged_p.assign(method='amortised MLP xcompAtt'),
+            hmc_p .assign(method=LBL_HMC),
+            is_p  .assign(method=LBL_IS),
+            rge_p .assign(method=LBL_RGE),
+            rgeq_p.assign(method=LBL_RGEQ),
+            rgem_p.assign(method=LBL_RGEM),
+            rgea_p.assign(method=LBL_RGEA),
+            rgeb_p.assign(method=LBL_RGEB),
+            rgec_p.assign(method=LBL_RGEC),
+            rged_p.assign(method=LBL_RGED),
+            rgef_p.assign(method=LBL_RGEF),
+            *([rgds_p.assign(method=LBL_RGDS)] if rgds_p is not None else []),
+            *([rgdx_p.assign(method=LBL_RGDX)] if rgdx_p is not None else []),
         ],
         ignore_index=True,
     )
@@ -318,34 +578,40 @@ for J in J_GRID:
             pps_cf[pps_cf['J'] == J][[
                 'interim_id', 'interim_date', 'interim_month_year', 'j', 'pps',
             ]].assign(method='analytic'),
-            hmc_pps .assign(method='nested-MC using HMC for each (x,z)'),
-            is_pps  .assign(method='IS reweighting of theta|x'),
-            rge_pps .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
-            rgeq_pps.assign(method='Regression of endpt-x on w(z) - quantile'),
-            rgem_pps.assign(method='Regression of endpt-x on w(z) - mquantile'),
-            rgea_pps.assign(method='amortised idcomp'),
-            rgeb_pps.assign(method='amortised MLP idcomp'),
-            rgec_pps.assign(method='amortised MLP xcomp'),
-            rged_pps.assign(method='amortised MLP xcompAtt'),
+            hmc_pps .assign(method=LBL_HMC),
+            is_pps  .assign(method=LBL_IS),
+            rge_pps .assign(method=LBL_RGE),
+            rgeq_pps.assign(method=LBL_RGEQ),
+            rgem_pps.assign(method=LBL_RGEM),
+            rgea_pps.assign(method=LBL_RGEA),
+            rgeb_pps.assign(method=LBL_RGEB),
+            rgec_pps.assign(method=LBL_RGEC),
+            rged_pps.assign(method=LBL_RGED),
+            rgef_pps.assign(method=LBL_RGEF),
+            *([rgds_pps.assign(method=LBL_RGDS)] if rgds_pps is not None else []),
+            *([rgdx_pps.assign(method=LBL_RGDX)] if rgdx_pps is not None else []),
         ],
         ignore_index=True,
     )
     timing = pd.concat(
         [
-            hmc_timing .assign(method='nested-MC using HMC for each (x,z)'),
-            is_timing  .assign(method='IS reweighting of theta|x'),
-            rge_timing .assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
-            rgeq_timing.assign(method='Regression of endpt-x on w(z) - quantile'),
-            rgem_timing.assign(method='Regression of endpt-x on w(z) - mquantile'),
-            rgea_timing.assign(method='amortised idcomp'),
-            rgeb_timing.assign(method='amortised MLP idcomp'),
-            rgec_timing.assign(method='amortised MLP xcomp'),
-            rged_timing.assign(method='amortised MLP xcompAtt'),
+            hmc_timing .assign(method=LBL_HMC),
+            is_timing  .assign(method=LBL_IS),
+            rge_timing .assign(method=LBL_RGE),
+            rgeq_timing.assign(method=LBL_RGEQ),
+            rgem_timing.assign(method=LBL_RGEM),
+            rgea_timing.assign(method=LBL_RGEA),
+            rgeb_timing.assign(method=LBL_RGEB),
+            rgec_timing.assign(method=LBL_RGEC),
+            rged_timing.assign(method=LBL_RGED),
+            rgef_timing.assign(method=LBL_RGEF),
+            *([rgds_timing.assign(method=LBL_RGDS)] if rgds_timing is not None else []),
+            *([rgdx_timing.assign(method=LBL_RGDX)] if rgdx_timing is not None else []),
         ],
         ignore_index=True,
     )
 
-    # Normalise mixed Timestamp/str dtypes (CSV loads as str).
+    # Normalise mixed Timestamp/str dtypes.
     for df in (p_h1_xz, pps, timing, is_perf):
         df['interim_date'] = pd.to_datetime(df['interim_date'])
 
@@ -362,13 +628,13 @@ for J in J_GRID:
         )
     p_h1_xz['method'] = pd.Categorical(
         p_h1_xz['method'],
-        categories=['analytic'] + METHOD_ORDER, ordered=True,
+        categories=['analytic'] + _all_methods, ordered=True,
     )
     pps['method'] = pd.Categorical(
-        pps['method'], categories=['analytic'] + METHOD_ORDER, ordered=True,
+        pps['method'], categories=['analytic'] + _all_methods, ordered=True,
     )
     timing['method'] = pd.Categorical(
-        timing['method'], categories=METHOD_ORDER, ordered=True,
+        timing['method'], categories=_all_methods, ordered=True,
     )
 
     p_h1_xz_g = p_h1_xz[p_h1_xz['j'].isin(j_indices_all)].copy()
@@ -379,13 +645,9 @@ for J in J_GRID:
             categories=response_label_cats, ordered=True,
         )
 
-    # ---- Plot 1: p(H_1j | x, z) boxplot, faceted by response, dodged by method.
-    # ---- Drop quantile method: its p_h1_xz is a hard 0/1 label, not a
-    # ---- probability, so the boxplot would mix semantically-different quantities.
-    # ---- Quantile method still appears in PPS bars, timing, and MSE below.
-    p_h1_xz_g_box = p_h1_xz_g[
-        p_h1_xz_g['method'] != 'Regression of endpt-x on w(z) - quantile'
-    ].copy()
+    # ---- Box-stats + PPS bootstrap CI computed once, used across the
+    # ---- regression-family + amortiser-focus variants of the plot.
+    p_h1_xz_g_box = p_h1_xz_g[p_h1_xz_g['method'] != LBL_RGEQ].copy()
     p_h1_xz_g_box['method'] = (
         p_h1_xz_g_box['method'].cat.remove_unused_categories()
     )
@@ -410,45 +672,9 @@ for J in J_GRID:
         DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_all.pkl',
     ))
 
-    p = (
-        ggplot(box_stats, aes(x='interim_month_year', fill='method'))
-        + geom_boxplot(
-            aes(ymin='q025', lower='q25', middle='q50', upper='q75',
-                ymax='q975', group='grp'),
-            stat='identity', position=position_dodge(width=0.8), width=0.7,
-            colour='#404040', size=0.3,
-        )
-        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
-        + scale_fill_manual(values=pps_colours)
-        + scale_y_continuous(
-            limits=[0, 1],
-            breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-            labels=['0%', '20%', '40%', '60%', '80%', '100%'],
-        )
-        + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
-        + theme_bw()
-        + theme(
-            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-            legend_position='top',
-            figure_size=(3.0 * n_per_level, 2.5 * K_levels),
-            strip_background=element_blank(),
-            strip_text=element_text(face='bold'),
-        )
-        + labs(x='Interim', y='p(H_1j | x, z) for predicted z samples',
-               fill='method')
-    )
-    pdf_path = os.path.join(
-        DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_all.pdf',
-    )
-    p.save(pdf_path, verbose=False, limitsize=False)
-    print(f"J={J}: saved p(H_1 | x, z) boxplot to {pdf_path}")
-
-    # ---- Plot 2: PPS bars per (response, interim), dodged by method,
-    # ---- bootstrap CI on Monte-Carlo bars ----
     bs_B = 2000
     rng_bs = np.random.default_rng(simu_params['seed'])
     bs_parts = []
-    # Skip 'analytic' for bootstrap: it has no Monte-Carlo noise.
     p_h1_xz_g_mc = p_h1_xz_g[p_h1_xz_g['method'] != 'analytic']
     for m_label, g in p_h1_xz_g_mc.groupby('method', observed=True):
         wide = (
@@ -475,85 +701,65 @@ for J in J_GRID:
         DIR_OUT, f'mvn_J{J}_compare_methods_pps_all.pkl',
     ))
 
-    p = (
-        ggplot(pps_g_ci, aes(x='interim_month_year', y='pps', fill='method'))
-        + geom_col(position=position_dodge(width=0.8), width=0.7)
-        + geom_errorbar(
-            aes(x='interim_month_year',
-                ymin='q025_bs', ymax='q975_bs', group='method'),
-            position=position_dodge(width=0.8), width=0.3,
-            colour='black', size=0.4, inherit_aes=False,
-        )
-        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0,
-                     linetype='dashed')
-        + scale_fill_manual(values=pps_colours)
-        + scale_y_continuous(
-            limits=[0, 1.05],
-            breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-            labels=['0%', '20%', '40%', '60%', '80%', '100%'],
-        )
-        + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
-        + theme_bw()
-        + theme(
-            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-            legend_position='top',
-            figure_size=(3.0 * n_per_level, 2.5 * K_levels),
-            strip_background=element_blank(),
-            strip_text=element_text(face='bold'),
-        )
-        + labs(x='Interim',
-               y='PPS = int P(p(H_1j | x, z) > eta) dz',
-               fill='method')
+    # ---- Regression-family plots (amortiser excluded) ----
+    _boxplot_p_h1_xz(
+        box_stats, non_amort_methods, response_label_cats, n_per_level,
+        os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_all.pdf'),
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_pps_all.pdf')
-    p.save(pdf_path, verbose=False, limitsize=False)
-    print(f"J={J}: saved PPS comparison plot to {pdf_path}")
-
-    # ---- Plot 3: Timing, methods dodged, sqrt y-axis, futurama colours ----
-    timing['value_label'] = timing['mins'].map(lambda v: f"{v:.2f} mins")
-    p = (
-        ggplot(timing, aes(x='interim_month_year', y='mins', fill='method'))
-        + geom_col(position=position_dodge(width=0.8), width=0.7)
-        + geom_text(
-            aes(label='value_label'),
-            position=position_dodge(width=0.8),
-            size=6, angle=30, ha='left', va='bottom',
-        )
-        + scale_fill_manual(values=method_colours)
-        + scale_y_sqrt(expand=(0, 0, 0.15, 0))
-        + theme_bw()
-        + theme(
-            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-            legend_position='top',
-            figure_size=(14, 6),
-            strip_background=element_blank(),
-            strip_text=element_text(face='bold'),
-        )
-        + labs(x='Interim', y='time (mins)', fill='method')
+    _pps_bars(
+        pps_g_ci, non_amort_methods, n_per_level,
+        os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_pps_all.pdf'),
+        width_scale=1.4,
     )
-    pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_timing.pdf')
-    p.save(pdf_path, verbose=False, limitsize=False)
-    print(f"J={J}: saved timing comparison plot to {pdf_path}")
 
-    # ---- Plot 4: IS ESS / particle per interim ----
+    # ---- Amortiser-focus plots (best regression + amortiser variants) ----
+    _boxplot_p_h1_xz(
+        box_stats, amort_focus_methods, response_label_cats, n_per_level,
+        os.path.join(
+            DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_all_amortised.pdf',
+        ),
+    )
+    _pps_bars(
+        pps_g_ci, amort_focus_methods, n_per_level,
+        os.path.join(
+            DIR_OUT, f'mvn_J{J}_compare_methods_pps_all_amortised.pdf',
+        ),
+        width_scale=1.4,
+    )
+
+    # ---- Timing: leftmost training slot + per-interim deploy only ----
+    _timing_bars(
+        timing, timing_methods, interim_order,
+        os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_timing.pdf'),
+    )
+    _train_deploy_stacked_bars(
+        timing, amort_focus_methods,
+        os.path.join(
+            DIR_OUT, f'mvn_J{J}_compare_methods_timing_amortised.pdf',
+        ),
+    )
+
+    # ---- IS ESS / particle per interim ----
     is_ess = (
         is_perf.groupby('interim_month_year', observed=True)
         .agg(value=('ess_over_n', 'median'))
         .reset_index()
-        .assign(method='IS reweighting of theta|x')
+        .assign(method=LBL_IS)
     )
     is_ess['method'] = pd.Categorical(
-        is_ess['method'], categories=METHOD_ORDER, ordered=True,
+        is_ess['method'], categories=_all_methods, ordered=True,
     )
     p = (
         ggplot(is_ess, aes(x='interim_month_year', y='value', fill='method'))
         + geom_col(width=0.7)
         + scale_fill_manual(values=method_colours)
+        + guides(fill=guide_legend(ncol=1))
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-            legend_position='top',
-            figure_size=(12, 5),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=(12, 6),
             strip_background=element_blank(),
             strip_text=element_text(face='bold'),
         )
@@ -563,16 +769,14 @@ for J in J_GRID:
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"J={J}: saved IS ESS / particle plot to {pdf_path}")
 
-    # ---- MSE: per (interim, method) average over all J components of
-    # ---- (pps_method - pps_analytic)^2. Uses the full per-J pps table
-    # ---- (not the j_indices_all subset) so MSE is over all responses.
+    # ---- MSE: per (interim, method) average over all J components ----
     pps_pivot = (
         pps.pivot_table(
             index=['interim_id', 'interim_date', 'interim_month_year', 'j'],
             columns='method', values='pps',
         ).reset_index()
     )
-    for method in METHOD_ORDER:
+    for method in _all_methods:
         if method not in pps_pivot.columns:
             continue
         se = (pps_pivot[method] - pps_pivot['analytic']) ** 2
@@ -595,12 +799,12 @@ for J in J_GRID:
 
 # =============================================================================
 # Cross-J MSE plot: x = interim date, y = MSE (over responses j),
-# fill = algorithm, facet = J. Standard Futurama palette.
+# fill = method, facet = J.
 # =============================================================================
 
 mse_all = pd.concat(mse_rows, ignore_index=True)
 mse_all['method'] = pd.Categorical(
-    mse_all['method'], categories=METHOD_ORDER, ordered=True,
+    mse_all['method'], categories=_all_methods, ordered=True,
 )
 mse_all['J_label'] = pd.Categorical(
     'J=' + mse_all['J'].astype(str),
@@ -620,19 +824,24 @@ mse_all.to_pickle(os.path.join(DIR_OUT, 'mvn_compare_methods_mse.pkl'))
 p = (
     ggplot(mse_all,
            aes(x='interim_month_year', y='mse', fill='method'))
-    + geom_col(position=position_dodge(width=0.8), width=0.7)
+    + geom_col(position=position_dodge(width=0.8, preserve='single'),
+               width=0.7)
     + facet_wrap('~ J_label', ncol=1, scales='free_y')
-    + scale_fill_manual(values=method_colours)
+    + scale_fill_manual(values=method_colours,
+                        breaks=_all_methods, limits=_all_methods)
+    + scale_y_sqrt(expand=(0, 0, 0.05, 0))
+    + guides(fill=guide_legend(ncol=1))
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-        legend_position='top',
-        figure_size=(14, 4 * len(J_GRID)),
+        legend_position='bottom',
+        legend_direction='vertical',
+        figure_size=(14, 4 * len(J_GRID) + 2),
         strip_background=element_blank(),
         strip_text=element_text(face='bold'),
     )
     + labs(x='Interim date',
-           y='MSE of PPS vs analytic (mean over responses j)',
+           y='MSE of PPS vs analytic (mean over responses j; sqrt-scale)',
            fill='method')
 )
 pdf_path = os.path.join(DIR_OUT, 'mvn_compare_methods_mse.pdf')
@@ -642,10 +851,8 @@ print(f"Saved cross-J MSE plot to {pdf_path}")
 # %%
 
 # =============================================================================
-# Regression-only: violin plot of per-response R^2 (top row) and
-# empirical rho (bottom row) across all J responses j, faceted by J in
-# columns ordered J=20, 60, 100. Source: rge_stats pkls written by the
-# regression-endptx script.
+# Regression-only: violin plot of per-response R^2 (top row) and empirical
+# rho (bottom row) across all J responses j, faceted by J in columns.
 # =============================================================================
 
 rge_stats_parts = []
@@ -685,9 +892,6 @@ if rge_stats_parts:
         long['metric'].map({'r2': 'R^2', 'rho': 'rho'}),
         categories=['R^2', 'rho'], ordered=True,
     )
-
-    # Pre-compute (q025, q25, q50, q75, q975) per (J, metric, interim) for
-    # the stat='identity' boxplot pattern used elsewhere in this codebase.
     rge_box_stats = (
         long.groupby(['J_label', 'metric', 'interim_month_year'],
                      observed=True)['value']

@@ -808,6 +808,262 @@ MSE against the analytic $\Phi$-tail PPS, averaged across the 7 interims per $J$
 
 **Recommendation.** For MVN-family case studies where $K$ is known (or drawn from a known family), adopt **xcompAtt as the new default amortised method**: it matches or beats idcomp fixed on MSE, matches it on deployment cost, halves the training wall-clock, and — crucially — transfers to any K within the training family mixture without a retrain. Keep idcomp fixed as the sanity-check baseline.
 
+## 12.12 Ukraine partial-credit adaptation of `xcompAtt`
+
+**Task.** Adapt the MVN xcompAtt (§12.11) to the Ukraine partial-credit (PCM) interim analysis. Same self-attention-over-components skeleton, retargeted to Strong-Oakley per-(item, draw) `wa` frames — the input the regression-endpt methods (§ Ukraine RGE / RGEQ / RGEM) already consume.
+
+**Key structural changes vs MVN.**
+
+1. **No closed-form K matrix.** MVN carries an explicit $K \in \mathbb{R}^{J \times J}$; Ukraine's PCM induces cross-item correlation via the shared latent factor $\theta$, and the correlation matrix is not directly parameterised. Solution: drop the K-row query and use **fully-learned self-attention** over the $J = 20$ items. Attention weights are inferred entirely from the (w_baseline, w_endline) summaries + item metadata.
+2. **Per-item token = 5 scalars.** Three continuous features `(w_baseline, w_endline, w_ratio)` plus two discrete indicators `(item_type_idx, item_high_idx)` — the latter tell the encoder whether an item is `categorical` vs `out-of-7` and `higher_is_better` vs `lower_is_better`. The MVN token was 3 scalars including the K-row entry; here the K-row entry is replaced by discrete metadata that identifies the item's role in the endpoint.
+3. **Query mechanism = gather at item position.** Self-attention over items produces a `(J, embed_dim)` matrix; the head predicts one quantile grid per item, and at loss time we gather the prediction at the queried item's position. Standard set-transformer output layer.
+4. **Training data = cached Strong-Oakley wa frames.** Because Ukraine PCM prior-predictive sampling requires drawing $\theta$, item loadings, thresholds and $\mathcal{O}(N)$ ordered-categorical responses per prior draw, we side-step that cost by training on the wa frames already written by the regression scripts (8 interims × 4000 draws × 20 items = 640 K rows). This is supervised learning on posterior samples rather than true prior-predictive amortisation — same regime as Strong-Oakley regression, just with a richer joint architecture.
+
+Files:
+
+- [`python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — 90 lines including docstring. `_MLP` + self-attention (`einsum` + `softmax`) + gather. Standard Flax.
+- [`scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — loads all 8 interims' wa, pools them into a training tensor, trains once, deploys per interim.
+- [`scripts-py/Ukraine_interim_analysis_compare_methods.py`](../scripts-py/Ukraine_interim_analysis_compare_methods.py) extended to load the RGEE perf-long pkl alongside the existing regression + IS families.
+
+### Training configuration
+
+- $6\,000$ steps, batch $S = 256$ draws (fanned out to $B = S \cdot J = 5120$ per-item rows / step), TARGET_CLIP = 3.0 (raw `pps_ratio_x` has one outlier at $-2.3 \times 10^{12}$; clipping brings it into the tail of the target distribution without distorting quantiles < 3).
+- Loss: multi-quantile pinball over $\tau \in \{0.05, 0.25, 0.5, 0.75, 0.95\}$.
+- Wall-clock: **6.82 min training** on 6-thread CPU (JIT overhead + heavy batch = 5120 attention forward passes / step). Trainable params ≈ 12 K.
+- Deployment: **0.007 min / interim** across all 8 interims = 7 s total.
+
+### Results
+
+Ukraine has no analytic ground-truth PPS, so we compare xcompAtt's PPS to the two closest baselines — Strong-Oakley regression with Gaussian approximation (RGE) and Strong-Oakley regression with multi-quantile regression (RGEM).
+
+**PPS agreement across 160 (interim, item) cells:**
+
+| Comparison | Pearson $\rho$ | Median $|\Delta \text{PPS}|$ | Mean $|\Delta \text{PPS}|$ | Max $|\Delta \text{PPS}|$ |
+|-----------|--------------:|---:|---:|---:|
+| xcompAtt vs RGEM (mquantile) | 0.919 | 0.001 | 0.050 | 0.945 |
+| xcompAtt vs RGE (Gauss)      | 0.909 | 0.001 | 0.050 | 0.945 |
+| RGE vs RGEM                  | 0.998 | 0.000 | 0.014 | 0.148 |
+
+- **Median absolute PPS difference is 0.001.** For the vast majority of (interim, item) cells the amortiser reproduces the Strong-Oakley regression PPS to $\le 0.1\%$.
+- **~25% of cells differ by more than $0.03$**, driven by (item, interim) pairs where cross-item info moves the prediction. These are precisely the cells attention is designed to help on; whether the shift is beneficial requires ground-truth PPS (not available for Ukraine PCM). A leave-one-interim-out held-out evaluation would put a number on it — future work.
+- **RGE and RGEM are essentially the same estimator** ($\rho = 0.998$, median diff 0.000). xcompAtt is the first estimator in the Ukraine pipeline that produces materially different PPS values — the difference is where cross-item information becomes actionable.
+
+### Reading
+
+1. **Architecture ports cleanly.** No changes to the attention block; the K-row is replaced by discrete item metadata. That the MVN → PCM adaptation is 90 lines of code + a training-data reshaping call speaks to how modular the xcompAtt design is.
+2. **Deployment cost is trivial.** 7 seconds for the whole 8-interim schedule × 20 items × 4000 posterior draws (640 K predictions). Strong-Oakley mquantile regression fits 20 × 5 = 100 quantile regressions per interim; xcompAtt is one JIT-compiled forward pass.
+3. **Training pool = cached wa frames is a demo, not a full amortiser.** To be a *true* amortised method the training loop should draw from the PCM prior-predictive; here we short-circuit that by using cached HMC/SVI posterior draws as training targets. The architecture is unchanged, but the accuracy story is bounded by the training targets' quality. Proper amortisation requires a PCM prior sampler (draw $\theta$, loadings, thresholds, then $N \cdot J$ ordered-categorical responses) — deferred.
+4. **Where xcompAtt would beat the regression baselines.** When two items share strong empirical correlation (e.g. `CG-DEPRESSION` and `CG-VIO_scream` both loading on the same latent), the amortiser's attention head can borrow strength from the correlated item's summary when the queried item's own signal is weak (early interim, small $n_x$). Ukraine's cross-item correlations are moderate; the MSE improvement (against ground truth, which we don't have) would likely be small but non-zero. The MVN $J = 60$ result (§12.11) is the clean demonstration.
+
+**Recommendation.** For real-world case studies where (a) items share a latent factor and (b) no analytic PPS is available, xcompAtt is worth trying as a supervised layer on top of the Strong-Oakley wa pipeline. Deployment cost is negligible; training cost is bounded by the wa pool size. If a PCM prior sampler is invested in, the same architecture becomes a genuine amortiser with the standard "train once → deploy anywhere" story.
+
+## 12.13 Data-agnostic amortisers: `itemScompAtt` (self-attention) + `itemXcompAtt` (cross-attention) + math comparison
+
+To reuse the same amortiser code across MVN (§12.11) and Ukraine PCM (§12.12) we split the previous case-study-specific classes into two data-agnostic siblings distinguished only by the attention mechanism:
+
+- **`Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead`** ([`python/amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead.py)) — **S**elf-attention across $J$ items + gather at the queried item + learned attention-score bias on the queried key (fix B).
+- **`Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead`** ([`python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py)) — **X (cross)**-attention: 1 learned query per batch element (built from the queried item's own raw token features via a small MLP `q_query`) vs $J$ keys/values.
+
+Both use the same batch schema so callers can swap classes without changing batch construction. A per-participant nested-DeepSets sibling for arbitrary $(n, m)$ (`deepsetXcompAtt`) is also stubbed for future work.
+
+### Notation
+
+Fix a case study with:
+
+- $J$ items (MVN: components; Ukraine: PCM questions),
+- one queried item index $j^* \in \{1, \ldots, J\}$ per batch element,
+- observed cohort size $n$, future cohort size $m$, total $N = n + m$ (fixed),
+- for MVN: known covariance matrix $K \in \mathbb{R}^{J \times J}$.
+
+Let $F$ be the per-item raw feature dim, $A$ the aux-feature dim, $E$ the embedding dim (32), $K_\tau$ the number of quantile levels (5).
+
+### Per-token features (case-study dependent; same in both amortisers)
+
+For MVN, given the queried component $j^*$ and $j \in \{1, \ldots, J\}$:
+
+$$
+t^{(j^*)}_j \;=\; \Big(\underbrace{\tfrac{1}{N}\!\sum_{i=1}^{n} y_{i, j}}_{\bar y_j},\; \underbrace{\tfrac{1}{N}\!\sum_{i=1}^{m} z_{i, j}}_{\bar z_j},\; \underbrace{K_{j^*, j}}_{\text{K-row at }j^*}\Big) \;\in\; \mathbb{R}^{F},\qquad F = 3.
+$$
+
+The first two entries are case-study-invariant per-item summaries (do not depend on $j^*$). The third, $K_{j^*, j}$, IS $j^*$-dependent — different queries see different token features. That is where the "K tells us how informative item $j$ is for item $j^*$" signal enters. For Ukraine, $t^{(j^*)}_j$ has $F = 5$ and no $j^*$-dependent entry (item metadata is fixed).
+
+Aux scalars for the head (case-study dependent, $j^*$-dependent for MVN):
+
+$$
+a^{(j^*)} \;=\; \big(n / N,\; m / N,\; K_{j^*, j^*}\big) \;\in\; \mathbb{R}^{A}, \qquad A = 3.
+$$
+
+Token encoder (shared MLP, applied per token):
+
+$$
+h^{(j^*)}_j \;=\; q_{\text{tok}}\!\big(t^{(j^*)}_j\big) \;\in\; \mathbb{R}^{E}, \qquad j = 1, \ldots, J.
+$$
+
+We keep the superscript $(j^*)$ on tokens because their K-row entry changes with $j^*$; the encoder $q_{\text{tok}}$ is shared across all $(j, j^*)$.
+
+### Variant 1 — cross-attention (`itemXcompAtt`, approach ii)
+
+Build a single query vector for this batch element from the queried item's own raw features:
+
+$$
+q^{(j^*)} \;=\; q_{\text{query}}\!\big(t^{(j^*)}_{j^*}\big) \;\in\; \mathbb{R}^{E}.
+$$
+
+Cross-attention (one query, $J$ keys/values):
+
+$$
+s^{(j^*)}_j \;=\; \frac{\big\langle q^{(j^*)},\; h^{(j^*)}_j\big\rangle}{\sqrt{E}} \;\in\; \mathbb{R}, \qquad w^{(j^*)}_j \;=\; \operatorname{softmax}_{j'\in\{1,\ldots,J\}}\!\big(s^{(j^*)}_{j'}\big) \;\in\; [0, 1].
+$$
+
+Aggregated summary:
+
+$$
+\bar h^{(j^*)} \;=\; \sum_{j = 1}^{J} w^{(j^*)}_j \, h^{(j^*)}_j \;\in\; \mathbb{R}^{E}.
+$$
+
+Head:
+
+$$
+\hat\rho^{(j^*)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*)},\; t^{(j^*)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.
+$$
+
+**Head input dimension:** $E + F + A = 32 + 3 + 3 = 38$.
+
+**# attention scores per batch element:** $J$ (one query, $J$ keys).
+
+**Query info:** entirely in $q^{(j^*)}$ = MLP of queried item's raw features. Every non-queried token contributes via its dot-product with $q^{(j^*)}$; tokens with high $K_{j^*, j}$ produce embeddings $h^{(j^*)}_j$ near $h^{(j^*)}_{j^*}$ and attract high weight.
+
+### Variant 2 — self-attention + gather + fix-B bias (`itemScompAtt`)
+
+Self-attention: every one of the $J$ tokens acts as both query and key. Learned scalar $\alpha \in \mathbb{R}$ biases each row toward the queried key so the attention softmax has an unambiguous query identity.
+
+$$
+s^{(j^*)}_{a, b} \;=\; \frac{\big\langle h^{(j^*)}_a,\; h^{(j^*)}_b\big\rangle}{\sqrt{E}} \;+\; \alpha \cdot \mathbf{1}\{b = j^*\}, \qquad a, b \in \{1, \ldots, J\}.
+$$
+
+$$
+w^{(j^*)}_{a, b} \;=\; \operatorname{softmax}_{b'\in\{1,\ldots,J\}}\!\big(s^{(j^*)}_{a, b'}\big), \qquad h'^{\,(j^*)}_a \;=\; \sum_{b = 1}^{J} w^{(j^*)}_{a, b}\, h^{(j^*)}_b \;\in\; \mathbb{R}^{E}.
+$$
+
+Gather at the queried position:
+
+$$
+\bar h^{(j^*)} \;=\; h'^{\,(j^*)}_{j^*} \;\in\; \mathbb{R}^{E}.
+$$
+
+Head (same shape as cross-attn variant):
+
+$$
+\hat\rho^{(j^*)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*)},\; t^{(j^*)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.
+$$
+
+**Head input dimension:** $E + F + A = 32 + 3 + 3 = 38$ (identical to cross-attn variant).
+
+**# attention scores per batch element:** $J^2$ (every token queries every token).
+
+**Query info:** carried by (1) the gather position $j^*$ and (2) the learned scalar $\alpha$ that biases attention scores toward the queried key. $\alpha$ is the ONLY new learnable parameter compared to the cross-attn variant with `q_query` collapsed to identity.
+
+### Difference summary
+
+Every symbol carries an explicit $(j^*)$ superscript above; the table below drops it for brevity.
+
+| item | `itemXcompAtt` (cross-attn) | `itemScompAtt` (self-attn + gather + B) |
+|---|---|---|
+| # attention scores per batch element | $J$ | $J^2$ |
+| query built from | $q_{\text{query}}(t_{j^*}) \in \mathbb{R}^E$ | gather position $j^*$ + $\alpha \cdot \mathbf{1}\{b = j^*\}$ |
+| attention output | $\bar h = \sum_{j=1}^J w_j h_j$ (weighted sum) | $\bar h = h'_{j^*}$ (gather) |
+| head input | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ |
+| extra learnable module vs the other | `q_query` MLP $\mathbb{R}^F \to \mathbb{R}^E$ | scalar $\alpha \in \mathbb{R}$ |
+| K-row consumption | attention softmax on $\langle q, h_j\rangle$; high-K tokens land near $q$ in embedding space, attract high weight | K-row baked into every token; self-attention has to learn to route information through it |
+
+### Empirical impact on MVN (15k steps, K-mixture training)
+
+MSE against analytic PPS, averaged over the 7-interim schedule:
+
+| $J$ | `itemXcompAtt` cross-attn (new) | `itemScompAtt` self-attn + B (previous best) | old case-study-specific cross-attn baseline |
+|---|---:|---:|---:|
+| 20  | 0.00141 | 0.00196 | 0.00099 |
+| 60  | 0.00114 | 0.00153 | 0.00087 |
+| 100 | 0.00240 | 0.00218 | 0.00118 |
+
+**Read:**
+
+- **Cross-attention (`itemXcompAtt`) beats self-attention + gather + B (`itemScompAtt`) at $J = 20, 60$** by 20–35 %.
+- **At $J = 100$ they're within 10 %**, self-attn slightly ahead.
+- **Both close the gap to the case-study-specific cross-attn baseline** — the cost of unification is now ~15–40 % at moderate J, up to ~2× at $J = 100$.
+
+### Reading
+
+1. **Cross-attention naturally preserves the K-row signal.** The K-row $K_{j^*, \cdot}$ tells us how much information item $j$ contributes to the queried $j^*$; in cross-attention, tokens with high $K_{j^*, j}$ produce embeddings close to the queried item's own embedding and are picked out by the softmax. Self-attn + gather has to learn this routing via $\alpha$ and the shared attention weights — harder from data.
+2. **Two data-agnostic classes, one batch schema.** Same call signature; only the attention block differs. Callers can A/B by swapping the import.
+3. **Naming convention** (adopted going forward): `itemScompAtt` = self-attention across items; `itemXcompAtt` = cross-attention across items with one query per batch element. The prefix `item` disambiguates from a nested `deepsetXcompAtt` variant that will add per-participant DeepSets over raw participant tensors before the cross-attention step (implements the §9.2 nested pattern).
+
+**Recommendation:** for MVN, prefer `itemXcompAtt` (cross-attn) at $J \leq 60$; either variant works at $J = 100$. For Ukraine (no K), the two variants perform similarly — the cross-attn advantage from K-alignment does not apply. Keep both classes; the choice is a per-case-study empirical call.
+
+------------------------------------------------------------------------
+
+## 12.14 Nested-DeepSets amortisers: `deepsetScompAtt` + `deepsetXcompAtt`
+
+`itemScompAtt` / `itemXcompAtt` of §12.13 take a **hand-computed per-item summary** $t^{(j^*)}_j \in \mathbb{R}^F$ as input — e.g. for MVN $t^{(j^*)}_j = (\bar x_j,\; \bar z_j,\; K_{j^*, j})$, i.e. the per-item cohort means plus the K-row entry. The DeepSets theorem (§7) says the sufficient statistic $\phi(X, Z)$ is *any* symmetric function of the observation tensor. The `deepset` variants take this literally: **learn the per-item summary from raw per-(participant, item) responses**, chaining nested DeepSets (§9.2) with the item-axis attention of §12.13.
+
+### Architecture
+
+Batch schema (data-agnostic; supports arbitrary response feature dim $R$):
+
+| tensor | shape | content |
+|---|---|---|
+| `x_responses` | $(B, N_x, J, R)$ | raw per-(participant, item) response of the $x$-cohort |
+| `mask_x` | $(B, N_x)$ | 1 real / 0 padded participant |
+| `z_responses` | $(B, N_z, J, R)$ | raw per-(participant, item) response of the $z$-cohort |
+| `mask_z` | $(B, N_z)$ | 1 real / 0 padded participant |
+| `item_metadata` | $(B, J, M)$ | fixed per-item scalar features (item type, K-row entry, …) |
+| `query_idx` | $(B,)$ int | queried item $j^*$ |
+| `aux` | $(B, A)$ | scalar extras for the head (cohort sizes, $K_{j^*, j^*}$, …) |
+
+Forward pass, per batch element:
+
+1. **Concatenate per-item metadata** onto every $(i, j)$ token: $\tilde x_{i, j} = \operatorname{concat}(x_{i, j},\; \text{meta}_j) \in \mathbb{R}^{R + M}$.
+2. **Per-token embedding**: $e_{i, j} = q_\tau(\tilde x_{i, j}) \in \mathbb{R}^E$, shared across $(i, j)$.
+3. **Sum-pool over participants per item** (mask-aware): $\operatorname{pool}^x_j = \sum_i m^x_i\, e^x_{i, j} \in \mathbb{R}^E$; same for $z$. This is the learned per-item sufficient statistic.
+4. **Per-item token**: $h_j = q_{\text{tok}}(\operatorname{concat}(\operatorname{pool}^x_j,\; \operatorname{pool}^z_j)) \in \mathbb{R}^E$.
+5. **Attention across items** — the only difference between the two variants:
+   - `deepsetScompAtt`: self-attention over $\{h_j\}_j$ with the fix-B learned scalar bias $\alpha \cdot \mathbf{1}\{k = j^*\}$ on the queried key; gather $\bar h = h'_{j^*}$.
+   - `deepsetXcompAtt`: cross-attention with one query per batch element built from $h_{j^*}$ via $q_{\text{query}}$: $q = q_{\text{query}}(h_{j^*})$; $\bar h = \sum_j w_j h_j$ with $w = \operatorname{softmax}(\langle q, h\rangle)$.
+6. **Head**: $\hat\rho^{(j^*)}_{\tau_k} = q_\psi(\operatorname{concat}(\bar h,\; h_{j^*},\; a))_k$, multi-quantile.
+
+### MVN specifics
+
+Per-(participant, item) response is a single continuous scalar ($R = 1$). Per-item metadata is the K-row entry $\text{meta}_j = K_{j^*, j}$ ($M = 1$). Aux is $a = (n / N,\; m / N,\; K_{j^*, j^*})$ ($A = 3$). Sampler `make_training_data_with_participant_tokens_random_K` in `model_mvn.py` emits raw participant tensors with a fresh random K per prior draw (K-family-invariant training, families `('identity', 'ar1', 'block', 'factor')`).
+
+### Empirical impact on MVN
+
+MSE against analytic PPS, averaged over 7-interim schedule at $J = 20$; both deepset variants trained 8k steps (~71 min each on CPU) with mean-pool over participants (see "Mean-pool vs sum-pool" below):
+
+| $J$ | `deepsetScompAtt` | `deepsetXcompAtt` | best of `itemScompAtt` / `itemXcompAtt` (§12.13) |
+|---|---:|---:|---:|
+| 20  | 0.02136 | 0.00573 | 0.00141 (`itemXcompAtt`) |
+
+**Read:**
+
+- **`deepsetXcompAtt` (cross-attn) beats `deepsetScompAtt` (self-attn + B) by ~4×** at $J = 20$ — same ordering as the item variants of §12.13, and for the same reason (K-alignment through the queried-item softmax).
+- **Deepset variants remain 4×-15× behind the item variants of §12.13.** Learning $q_\tau$ from raw participants is data-inefficient compared to hand-supplying the sample-mean summary; both variants converge to loss ~0.011 in 8k steps but the deploy-time posterior remains wider than the analytic one.
+- **Compute cost:** ~71 min training per variant at $J = 20$ vs 6-9 min for the item variants of §12.13. $J \geq 60$ not yet run (memory ~5× larger per batch element).
+
+### Mean-pool vs sum-pool (bugfix)
+
+First run of `deepsetScompAtt` used $\sum_i m_i^x\, e_{i, j}^x$ as the per-item pool (raw sum). Training loss dropped to 0.067 but deploy-time PPS MSE was 0.42 — the amortiser predicted a very wide posterior for every item (quantile spread ~0.9 vs true ~0.03). Cause: the raw-sum magnitude scales with $n$, which varies uniformly in $[1, N_{\max}]$ during training; $q_{\text{tok}}$ saturates on the large-$n$ tail and can't unpack a sharp posterior at moderate $n$. Fix: divide by $\max(\sum_i m_i^x, 1)$ so the pool is a **mean** over real participants, scale-invariant to $n$. Training loss dropped further to 0.011 and deploy PPS MSE fell to 0.021 (Scomp) / 0.006 (Xcomp). The pattern generalises: any nested-DeepSets amortiser where the inner cohort size varies at both train and deploy time should mean-pool, not sum-pool.
+
+### Ukraine
+
+Deferred: a PCM prior-predictive sampler analogous to `make_training_data_with_participant_tokens_random_K` does not yet exist in `model_pcm.py`. The itemS/X variants' training pool was built from cached wa-frames (per-(draw, item) statistics from a fitted PCM posterior); it lacks a per-participant axis and therefore cannot be recycled for the deepset variants. Adding a prior-predictive PCM sampler (item thresholds + latent abilities + response draws + rho target) is the next step for Ukraine deepset numbers.
+
+### Reading
+
+- **Cost.** Forward-pass memory scales as $B \cdot N_{\max} \cdot J \cdot E$ vs $B \cdot J \cdot E$ for the item variants. At $N_{\max} = 1050$, $J = 20$: 21k tokens per batch element vs 20. Training ~10× slower for MVN (71 min vs 6-9 min). At $J = 100$, the deepset tensor is $\approx 100\text{M}$ elements per batch of 128, borderline on CPU.
+- **What deepset buys.** Zero hand-engineering of per-item summaries: the network learns $q_\tau$ end-to-end from raw responses. Same call signature as itemS/X so callers can swap classes; only the input processing changes.
+- **When it's worth paying.** For MVN with a closed-form sufficient statistic (per-item mean), the item variants remain the operating point. Deepset is the right structure when raw per-participant information carries signal that a hand-computed summary would discard — e.g. Ukraine PCM, where per-participant response patterns encode ability + item interaction that a per-item aggregate loses.
+- **Where the remaining gap comes from.** Deploy-time posterior is sharper (n ≈ 132) than most training samples ($n \sim$ uniform in $[1, 1050]$, so median $n \approx 525$). The amortiser sees relatively few tight-posterior scenarios and doesn't concentrate the quantile head enough at the deploy operating point. Curriculum with more small-$n$ / large-$m$ mass, or a log-uniform $n$ schedule biased toward the tails, would likely close the gap further.
+
 ------------------------------------------------------------------------
 
 # 13. References

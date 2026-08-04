@@ -11,19 +11,30 @@ Loads the per-method artifacts produced by
   - Regression endptx (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_gauss_approx.py``
   - Regression endptx quantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_quantile_regr.py``
   - Regression endptx mquantile (Strong-Oakley): ``Binomial_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py``
-  - Regression endptx amortised (Strong-Oakley, DeepSets net + MLP head): ``Binomial_interim_analysis_amortise_endptx_on_wz_with_features_fixed_qpsi_MLP_loss_multiquantilehead.py``
+  - Regression endptx amortised (features-fixed): ``Binomial_interim_analysis_amortise_endptx_on_wz_with_features_fixed_qpsi_MLP_loss_multiquantilehead.py``
+  - Regression endptx amortised (features-MLP)  : ``Binomial_interim_analysis_amortise_endptx_on_wz_with_features_MLP_qpsi_MLP_loss_multiquantilehead.py``
 
-and emits four figures comparing them against the closed-form analytic PPS
-(common across all five runs):
+and emits two families of figures compared against the closed-form analytic
+PPS (common across every run).
 
-  1. ``binomial_compare_methods_p_h1_xz_boxplot.pdf``: per-interim
-     p(H_1 | x, z) quantile boxplot dodged by method.
-  2. ``binomial_compare_methods_pps.pdf``: PPS bar chart per interim
-     (closed-form analytic in black + each method in a Futurama colour).
-  3. ``binomial_compare_methods_timing.pdf``: per-interim inference time
-     (mins) per method, Futurama colours, sqrt y-axis.
-  4. ``binomial_compare_methods_ess.pdf``: ESS / particle + E(w^2) for the
-     IS-from-x method (the nested-MC methods refit so have no IS weights).
+Regression-family plots (amortised methods removed to reduce clutter):
+  1. ``binomial_compare_methods_p_h1_xz_boxplot.pdf``
+  2. ``binomial_compare_methods_pps.pdf``
+  3. ``binomial_compare_methods_timing.pdf``  (train + test times; for the
+     non-amortised family train time is 0, so this is per-interim inference)
+
+Amortised-focus plots (best regression + amortised variants):
+  4. ``binomial_compare_methods_p_h1_xz_boxplot_amortised.pdf``
+  5. ``binomial_compare_methods_pps_amortised.pdf``
+  6. ``binomial_compare_methods_timing_amortised.pdf``  (train + deploy times,
+     stacked bar per method with one fill colour per train / deploy segment,
+     one bar per method summing per-interim deploy times across the schedule)
+
+Plus the IS diagnostic:
+  7. ``binomial_compare_methods_ess.pdf``
+
+Legend layouts single-column; method → colour mapping is consistent across
+every plot in the file.
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -34,6 +45,7 @@ Usage:
 
 import os
 import sys
+import pickle
 from pathlib import Path
 
 try:
@@ -51,9 +63,11 @@ if python_path not in sys.path:
 import numpy as np
 import pandas as pd
 from plotnine import (
-    ggplot, aes, geom_boxplot, geom_col, geom_errorbar, geom_hline, geom_text,
-    scale_fill_manual, scale_y_continuous, scale_y_sqrt,
-    position_dodge, theme_bw, theme, element_text, labs,
+    ggplot, aes, coord_flip, geom_boxplot, geom_col, geom_errorbar, geom_hline,
+    geom_text, scale_colour_manual, scale_fill_manual, scale_y_continuous,
+    scale_y_sqrt, position_dodge, position_stack,
+    theme_bw, theme, element_text, labs,
+    guides, guide_legend,
 )
 import warnings
 warnings.filterwarnings('ignore')
@@ -81,18 +95,50 @@ dir_rgeb = os.path.join(_sandbox, "py-binomial-interim-amortise-endptx-on-wz-wit
 dir_out = os.path.join(_sandbox, "py-binomial-interim-compare-methods-260606")
 os.makedirs(dir_out, exist_ok=True)
 
-method_order = [
-    'nested-MC using HMC for each (x,z)',
-    'nested-MC using SVI for each (x,z)',
-    'IS reweighting of theta|x',
-    'Regression of H1-x on w(z)',
-    'Regression of endpt-x on w(z) using Gaussian approx',
-    'Regression of endpt-x on w(z) - quantile',
-    'Regression of endpt-x on w(z) - mquantile',
-    'Regression of endpt-x on w(z) - amortised',
-    'Regression of endpt-x on w(z) - amortised MLP',
+# Method labels. Amortised labels include the filename variant marker
+# (``features-fixed`` / ``features-MLP``) so the legend is unambiguous when
+# the family plot vs the amortised-focus plot are read side-by-side.
+LBL_HMC     = 'nested-MC using HMC for each (x,z)'
+LBL_SVI     = 'nested-MC using SVI for each (x,z)'
+LBL_IS      = 'IS reweighting of theta|x'
+LBL_RG      = 'Regression of H1-x on w(z)'
+LBL_RGE     = 'Regression of endpt-x on w(z) using Gaussian approx'
+LBL_RGEQ    = 'Regression of endpt-x on w(z) - quantile'
+LBL_RGEM    = 'Regression of endpt-x on w(z) - mquantile'
+LBL_RGEA    = 'Amortiser-features-fixed-qpsi-MLP-loss-multiquantilehead'
+LBL_RGEB    = 'Amortiser-features-MLP-qpsi-MLP-loss-multiquantilehead'
+
+# Regression-family method order (amortised excluded from PPS + boxplot;
+# both amortised variants ARE added back to the shared timing plot per
+# user request, since train + test times are comparable there).
+non_amort_methods = [
+    LBL_HMC, LBL_SVI, LBL_IS, LBL_RG,
+    LBL_RGE, LBL_RGEQ, LBL_RGEM,
 ]
-method_colours = dict(zip(method_order, _futurama_palette(len(method_order))))
+# Amortised-focus method order: best regression baseline (Gaussian approx)
+# + the two amortised variants.
+amort_focus_methods = [LBL_RGE, LBL_RGEA, LBL_RGEB]
+# Timing plot includes non-amortised methods PLUS the two amortised variants
+# (train + test comparable across all methods).
+timing_methods = non_amort_methods + [LBL_RGEA, LBL_RGEB]
+
+# Global palette: assign one colour per method up-front so the same method
+# reuses the same colour on every plot in the script.
+_all_methods = non_amort_methods + [LBL_RGEA, LBL_RGEB]
+method_colours = dict(zip(_all_methods, _futurama_palette(len(_all_methods))))
+# Analytic drawn as white fill + black outline so it reads as
+# ground-truth reference, not a competing estimate.
+pps_colours = {'analytic': '#FFFFFF', **method_colours}
+# Outline colour per method: only analytic gets a visible black outline;
+# every other method uses matching-fill colour so the border blends in.
+pps_outline_colours = {'analytic': '#000000',
+                       **{m: c for m, c in method_colours.items()}}
+
+# Fill colours for the stacked train / deploy timing bar.
+_TRAIN_DEPLOY_COLOURS = {
+    'train (one-off)':      '#1f77b4',
+    'deploy (all interims)': '#ff7f0e',
+}
 
 pps_ProbH1_target_lwr_quantile = 0.89
 
@@ -100,10 +146,6 @@ pps_ProbH1_target_lwr_quantile = 0.89
 
 # =============================================================================
 # Load per-method artifacts.
-#   - p_h1_xz: long form, one row per (interim, s) with column ``p_h1_xz``.
-#   - pps:     scalar PPS per interim per method.
-#   - timing:  mins per interim per method.
-#   - is_perf: ESS / particle + E(w^2) per (interim, s) for the IS method.
 # =============================================================================
 
 
@@ -129,15 +171,15 @@ p_h1_xz_rgeb = _load_p_h1_xz(dir_rgeb, 'binomial_interim_pps_RGEB_p_h1_xz.pkl')
 
 p_h1_xz = pd.concat(
     [
-        p_h1_xz_hmc.assign(method='nested-MC using HMC for each (x,z)'),
-        p_h1_xz_svi.assign(method='nested-MC using SVI for each (x,z)'),
-        p_h1_xz_is.assign(method='IS reweighting of theta|x'),
-        p_h1_xz_rg.assign(method='Regression of H1-x on w(z)'),
-        p_h1_xz_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
-        p_h1_xz_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
-        p_h1_xz_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
-        p_h1_xz_rgea.assign(method='Regression of endpt-x on w(z) - amortised'),
-        p_h1_xz_rgeb.assign(method='Regression of endpt-x on w(z) - amortised MLP'),
+        p_h1_xz_hmc.assign(method=LBL_HMC),
+        p_h1_xz_svi.assign(method=LBL_SVI),
+        p_h1_xz_is.assign(method=LBL_IS),
+        p_h1_xz_rg.assign(method=LBL_RG),
+        p_h1_xz_rge.assign(method=LBL_RGE),
+        p_h1_xz_rgeq.assign(method=LBL_RGEQ),
+        p_h1_xz_rgem.assign(method=LBL_RGEM),
+        p_h1_xz_rgea.assign(method=LBL_RGEA),
+        p_h1_xz_rgeb.assign(method=LBL_RGEB),
     ],
     ignore_index=True,
 )
@@ -171,21 +213,22 @@ ppsa = pd.read_pickle(
 pps = pd.concat(
     [
         ppsa.assign(method='analytic'),
-        pps_hmc.assign(method='nested-MC using HMC for each (x,z)'),
-        pps_svi.assign(method='nested-MC using SVI for each (x,z)'),
-        pps_is.assign(method='IS reweighting of theta|x'),
-        pps_rg.assign(method='Regression of H1-x on w(z)'),
-        pps_rge.assign(method='Regression of endpt-x on w(z) using Gaussian approx'),
-        pps_rgeq.assign(method='Regression of endpt-x on w(z) - quantile'),
-        pps_rgem.assign(method='Regression of endpt-x on w(z) - mquantile'),
-        pps_rgea.assign(method='Regression of endpt-x on w(z) - amortised'),
-        pps_rgeb.assign(method='Regression of endpt-x on w(z) - amortised MLP'),
+        pps_hmc.assign(method=LBL_HMC),
+        pps_svi.assign(method=LBL_SVI),
+        pps_is.assign(method=LBL_IS),
+        pps_rg.assign(method=LBL_RG),
+        pps_rge.assign(method=LBL_RGE),
+        pps_rgeq.assign(method=LBL_RGEQ),
+        pps_rgem.assign(method=LBL_RGEM),
+        pps_rgea.assign(method=LBL_RGEA),
+        pps_rgeb.assign(method=LBL_RGEB),
     ],
     ignore_index=True,
 )
 
+
 # Timing: HMC / SVI carry mins as `interim_mins` on every row of p_h1_xz;
-# IS has a dedicated timing csv.
+# IS / regression / amortised have dedicated timing csvs.
 def _hmc_svi_timing(d, fname, label):
     df = pd.read_pickle(os.path.join(d, fname))
     return (
@@ -196,15 +239,11 @@ def _hmc_svi_timing(d, fname, label):
     )
 
 
-timing_hmc = _hmc_svi_timing(dir_hmc, 'binomial_interim_pps_p_h1_xz.pkl',
-                             'nested-MC using HMC for each (x,z)')
-timing_svi = _hmc_svi_timing(dir_svi, 'binomial_interim_pps_p_h1_xz.pkl',
-                             'nested-MC using SVI for each (x,z)')
+timing_hmc = _hmc_svi_timing(dir_hmc, 'binomial_interim_pps_p_h1_xz.pkl', LBL_HMC)
+timing_svi = _hmc_svi_timing(dir_svi, 'binomial_interim_pps_p_h1_xz.pkl', LBL_SVI)
+
 
 def _csv_timing(d, fname, p_h1_xz_method, label):
-    """Regression / IS scripts save mins per interim in a small csv keyed by
-    interim_id; merge in the (interim_date, interim_month_year) metadata from
-    that method's p_h1_xz frame."""
     meta = (
         p_h1_xz_method[['interim_id', 'interim_date', 'interim_month_year']]
         .drop_duplicates()
@@ -218,24 +257,13 @@ def _csv_timing(d, fname, p_h1_xz_method, label):
     )
 
 
-timing_is = _csv_timing(dir_is, 'pps_timing.csv',
-                        p_h1_xz_is, 'IS reweighting of theta|x')
-timing_rg = _csv_timing(dir_rg, 'binomial_interim_pps_RG_timing.csv',
-                        p_h1_xz_rg, 'Regression of H1-x on w(z)')
-timing_rge = _csv_timing(dir_rge, 'binomial_interim_pps_RGE_timing.csv',
-                         p_h1_xz_rge, 'Regression of endpt-x on w(z) using Gaussian approx')
-timing_rgeq = _csv_timing(dir_rgeq, 'binomial_interim_pps_RGEQ_timing.csv',
-                          p_h1_xz_rgeq,
-                          'Regression of endpt-x on w(z) - quantile')
-timing_rgem = _csv_timing(dir_rgem, 'binomial_interim_pps_RGEM_timing.csv',
-                          p_h1_xz_rgem,
-                          'Regression of endpt-x on w(z) - mquantile')
-timing_rgea = _csv_timing(dir_rgea, 'binomial_interim_pps_RGEA_timing.csv',
-                          p_h1_xz_rgea,
-                          'Regression of endpt-x on w(z) - amortised')
-timing_rgeb = _csv_timing(dir_rgeb, 'binomial_interim_pps_RGEB_timing.csv',
-                          p_h1_xz_rgeb,
-                          'Regression of endpt-x on w(z) - amortised MLP')
+timing_is = _csv_timing(dir_is, 'pps_timing.csv', p_h1_xz_is, LBL_IS)
+timing_rg = _csv_timing(dir_rg, 'binomial_interim_pps_RG_timing.csv', p_h1_xz_rg, LBL_RG)
+timing_rge = _csv_timing(dir_rge, 'binomial_interim_pps_RGE_timing.csv', p_h1_xz_rge, LBL_RGE)
+timing_rgeq = _csv_timing(dir_rgeq, 'binomial_interim_pps_RGEQ_timing.csv', p_h1_xz_rgeq, LBL_RGEQ)
+timing_rgem = _csv_timing(dir_rgem, 'binomial_interim_pps_RGEM_timing.csv', p_h1_xz_rgem, LBL_RGEM)
+timing_rgea = _csv_timing(dir_rgea, 'binomial_interim_pps_RGEA_timing.csv', p_h1_xz_rgea, LBL_RGEA)
+timing_rgeb = _csv_timing(dir_rgeb, 'binomial_interim_pps_RGEB_timing.csv', p_h1_xz_rgeb, LBL_RGEB)
 
 timing = pd.concat(
     [timing_hmc, timing_svi, timing_is, timing_rg, timing_rge, timing_rgeq,
@@ -243,13 +271,34 @@ timing = pd.concat(
     ignore_index=True,
 )
 
-# Reuse _meta_is for IS-perf merge below.
+
+def _load_training_mins(ckpt_path):
+    if not os.path.exists(ckpt_path):
+        return float('nan')
+    with open(ckpt_path, 'rb') as f:
+        payload = pickle.load(f)
+    return float(payload.get('training_mins', float('nan')))
+
+
+training_mins_by_method = {
+    LBL_RGEA: _load_training_mins(
+        os.path.join(dir_rgea, 'binomial_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGEB: _load_training_mins(
+        os.path.join(dir_rgeb, 'binomial_interim_amortised_pps_net.pkl')
+    ),
+}
+# Non-amortised methods have no training step (train = 0).
+for lbl in non_amort_methods:
+    training_mins_by_method.setdefault(lbl, 0.0)
+print(f"Training mins per method: "
+      f"{ {k: round(v, 3) for k, v in training_mins_by_method.items()} }")
+
+# IS perf: ESS + E(w^2) per (interim, s); attach interim metadata for facets.
 _meta_is = (
     p_h1_xz_is[['interim_id', 'interim_date', 'interim_month_year']]
     .drop_duplicates()
 )
-
-# IS perf: ESS + E(w^2) per (interim, s); attach interim metadata for facets.
 is_perf = pd.read_csv(os.path.join(dir_is, 'pps_is_perf.csv'))
 is_perf = is_perf.merge(_meta_is, on='interim_id')
 
@@ -271,174 +320,351 @@ for df in (p_h1_xz, pps, timing, is_perf):
         df['interim_month_year'], categories=interim_order, ordered=True,
     )
 
-p_h1_xz['method'] = pd.Categorical(
-    p_h1_xz['method'], categories=method_order, ordered=True,
+
+# %%
+
+# =============================================================================
+# Helper: dodged boxplot of p(H_1 | x, z) quantiles per (method, interim).
+# =============================================================================
+
+
+def _boxplot_p_h1_xz(df, methods, pdf_path, figure_size=(14, 8)):
+    """Emit a dodged boxplot of ``p_h1_xz`` per (method, interim).
+
+    Quantile method is dropped: its p_h1_xz is a hard 0/1 label, not a
+    probability, so the boxplot would mix semantically-different quantities.
+    """
+    keep = [m for m in methods if m != LBL_RGEQ]
+    d = df[df['method'].isin(keep)].copy()
+    d['method'] = pd.Categorical(d['method'], categories=keep, ordered=True)
+    stats = (
+        d.groupby(['interim_month_year', 'method'], observed=True)['p_h1_xz']
+        .agg(
+            q025=lambda s: s.quantile(0.025),
+            q25=lambda s: s.quantile(0.25),
+            q50=lambda s: s.quantile(0.50),
+            q75=lambda s: s.quantile(0.75),
+            q975=lambda s: s.quantile(0.975),
+        )
+        .reset_index()
+    )
+    stats['grp'] = (
+        stats['interim_month_year'].astype(str) + '|'
+        + stats['method'].astype(str)
+    )
+    p = (
+        ggplot(stats, aes(x='interim_month_year', fill='method'))
+        + geom_boxplot(
+            aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975',
+                group='grp'),
+            stat='identity', position=position_dodge(width=0.8), width=0.7,
+            colour='#808080', size=0.3,
+        )
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
+                     colour='black', size=1.0)
+        + scale_fill_manual(values=method_colours,
+                            breaks=keep, limits=keep)
+        + scale_y_continuous(
+            limits=[0, 1],
+            breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+            labels=['0%', '20%', '40%', '60%', '80%', '100%'],
+        )
+        + guides(fill=guide_legend(ncol=1))
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='Interim', y='p(H_1 | x, z) for predicted z samples',
+               fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved p(H_1 | x, z) boxplot to: {pdf_path}")
+
+
+# =============================================================================
+# Helper: dodged PPS bars with 95% bootstrap CI per (method, interim).
+# =============================================================================
+
+
+def _bootstrap_pps_ci(p_h1_xz_df, seed=123, B=2000):
+    """Return per-(interim_id, method) 95% bootstrap CI on the MC PPS
+    estimate (analytic method has no MC noise -> skipped)."""
+    parts = []
+    rng = np.random.default_rng(seed)
+    for m_label, g in p_h1_xz_df.groupby('method', observed=True):
+        wide = (
+            g.pivot_table(index=['interim_id', 'interim_date'],
+                          columns='s', values='p_h1_xz')
+            .sort_index()
+        )
+        P = wide.to_numpy()
+        n_interim, S = P.shape
+        idx = rng.integers(0, S, size=(n_interim, B, S))
+        P_bs = P[np.arange(n_interim)[:, None, None], idx]
+        pps_bs = (P_bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
+        q = np.quantile(pps_bs, [0.025, 0.975], axis=1).T
+        part = pd.DataFrame(q, columns=['q025_bs', 'q975_bs'])
+        part['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
+        part['method'] = m_label
+        parts.append(part)
+    return pd.concat(parts, ignore_index=True)
+
+
+def _pps_bars(pps_df, methods, pdf_path, figure_size=(14, 8)):
+    """Emit a per-(method, interim) PPS bar chart with bootstrap CI.
+
+    Analytic bar is drawn WHITE with a thin BLACK outline (size = 1.1)
+    so the ground-truth reference is visually distinct from the
+    Monte-Carlo estimates (which use fill = method colour,
+    matching-fill outline). Analytic is forced first in the dodge
+    order so it always sits at the LEFT of each interim's group. The
+    legend swatch for `analytic` picks up the same black outline via
+    ``override_aes`` on the fill guide.
+    """
+    keep_with_analytic = ['analytic', *methods]
+    d = pps_df[pps_df['method'].isin(keep_with_analytic)].copy()
+    ci = _bootstrap_pps_ci(
+        p_h1_xz[p_h1_xz['method'].isin(methods)].copy(),
+    )
+    # Merge BEFORE forcing Categorical: merge on object dtype avoids the
+    # pandas quirk that drops the level ordering on the join key.
+    d = d.merge(ci, on=['interim_id', 'method'], how='left')
+    d['method'] = pd.Categorical(
+        d['method'].astype(str),
+        categories=keep_with_analytic, ordered=True,
+    )
+    # Sort so ``analytic`` is drawn first (and lands leftmost inside each
+    # interim's dodge group).
+    d = d.sort_values(['interim_month_year', 'method']).reset_index(drop=True)
+    # Per-legend override: only 'analytic' gets a black outline; every
+    # other row gets its own fill colour again so the outline blends in.
+    _legend_outline = [pps_outline_colours[m] for m in keep_with_analytic]
+    p = (
+        ggplot(d, aes(x='interim_month_year', y='pps', fill='method',
+                      colour='method', group='method'))
+        + geom_col(position=position_dodge(width=0.8, preserve='single'),
+                   width=0.7, size=1.1)
+        + geom_errorbar(
+            data=d,
+            mapping=aes(x='interim_month_year', ymin='q025_bs',
+                        ymax='q975_bs', group='method'),
+            position=position_dodge(width=0.8, preserve='single'), width=0.3,
+            colour='black', size=0.4, inherit_aes=False,
+        )
+        + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
+                     colour='black', size=1.0, linetype='dashed')
+        + scale_fill_manual(values=pps_colours,
+                            breaks=keep_with_analytic,
+                            limits=keep_with_analytic)
+        + scale_colour_manual(values=pps_outline_colours,
+                              breaks=keep_with_analytic,
+                              limits=keep_with_analytic,
+                              guide=None)
+        + guides(fill=guide_legend(
+            ncol=1,
+            override_aes={'colour': _legend_outline, 'size': 1.1},
+        ))
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='Interim',
+               y='PPS = int P(p(H_1 | x, z) > eta) dz', fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved PPS comparison plot to: {pdf_path}")
+
+
+# =============================================================================
+# Helper: per-interim inference time bar chart with sqrt y-axis. When
+# ``add_training_time`` is True the training minutes are added to each
+# per-interim bar (non-amortised methods carry train = 0 so the visualisation
+# is unchanged for them).
+# =============================================================================
+
+
+def _timing_bars(timing_df, methods, pdf_path, figure_size=(15, 8)):
+    """Two-panel-like layout on ONE x-axis:
+
+      - Leftmost slot ``training``: one-off amortiser training time.
+        Non-amortised methods have zero here (bar suppressed).
+      - Interim slots (2024-Jan .. 2024-Nov): per-interim DEPLOY time
+        only (no training added).
+
+    Bar widths stay consistent across the whole x-axis because every
+    (method, slot) pair carries an explicit row (zeros where absent).
+    """
+    d = timing_df[timing_df['method'].isin(methods)][
+        ['interim_month_year', 'method', 'mins']
+    ].copy()
+    d['slot'] = d['interim_month_year'].astype(str)
+    d = d[['slot', 'method', 'mins']]
+
+    # Prepend a ``training`` slot per method with training_mins_by_method.
+    train_rows = pd.DataFrame({
+        'slot':   ['training'] * len(methods),
+        'method': methods,
+        'mins':   [training_mins_by_method.get(m, 0.0) for m in methods],
+    })
+
+    slot_order = ['training'] + interim_order
+    long = pd.concat([train_rows, d], ignore_index=True)
+
+    # Fill zeros for any missing (method, slot) so dodge width is uniform.
+    full = pd.MultiIndex.from_product(
+        [methods, slot_order], names=['method', 'slot'],
+    ).to_frame(index=False)
+    long = full.merge(long, on=['method', 'slot'], how='left').fillna({'mins': 0.0})
+
+    long['slot'] = pd.Categorical(
+        long['slot'], categories=slot_order, ordered=True,
+    )
+    long['method'] = pd.Categorical(
+        long['method'], categories=methods, ordered=True,
+    )
+    long['value_label'] = long['mins'].map(
+        lambda v: f"{v:.2f}" if v > 0 else "",
+    )
+    p = (
+        ggplot(long, aes(x='slot', y='mins', fill='method'))
+        + geom_col(position=position_dodge(width=0.8, preserve='single'),
+                   width=0.7)
+        + geom_text(
+            aes(label='value_label'),
+            position=position_dodge(width=0.8, preserve='single'),
+            size=6, angle=30, ha='left', va='bottom',
+        )
+        + scale_fill_manual(values=method_colours,
+                            breaks=methods, limits=methods)
+        + scale_y_sqrt(expand=(0, 0, 0.15, 0))
+        + guides(fill=guide_legend(ncol=1))
+        + theme_bw()
+        + theme(
+            axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='training (one-off) | deployment (per interim)',
+               y='time (mins)',
+               fill='method')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved timing comparison plot to: {pdf_path}")
+
+
+# =============================================================================
+# Helper: total-wall-clock stacked bar per method (train segment + total
+# deploy segment) for the amortised-focus plot.
+# =============================================================================
+
+
+def _train_deploy_stacked_bars(timing_df, methods, pdf_path,
+                               figure_size=(11, 4)):
+    """One horizontal bar per method summing per-interim deploy times
+    across the full schedule, stacked on the one-off training time. Two
+    fill colours per bar (train vs deploy). coord_flip so long method
+    labels stay readable."""
+    d = timing_df[timing_df['method'].isin(methods)].copy()
+    deploy_total = (
+        d.groupby('method', observed=True)['mins'].sum().reset_index()
+        .rename(columns={'mins': 'value'})
+    )
+    deploy_total['segment'] = 'deploy (all interims)'
+    train_total = pd.DataFrame({
+        'method':  methods,
+        'value':   [training_mins_by_method.get(m, 0.0) for m in methods],
+        'segment': ['train (one-off)'] * len(methods),
+    })
+    stacked = pd.concat([train_total, deploy_total], ignore_index=True)
+    # coord_flip reverses factor order along the flipped x-axis; feed
+    # reversed levels so the top bar is the first method listed.
+    stacked['method'] = pd.Categorical(
+        stacked['method'], categories=list(reversed(methods)), ordered=True,
+    )
+    stacked['segment'] = pd.Categorical(
+        stacked['segment'],
+        categories=['train (one-off)', 'deploy (all interims)'],
+        ordered=True,
+    )
+    stacked['value_label'] = stacked['value'].map(
+        lambda v: f"{v:.2f}" if v > 0 else "",
+    )
+    p = (
+        ggplot(stacked, aes(x='method', y='value', fill='segment'))
+        + geom_col(position=position_stack(reverse=True), width=0.6)
+        + geom_text(
+            aes(label='value_label'),
+            position=position_stack(vjust=0.5, reverse=True),
+            size=8, colour='black',
+        )
+        + scale_fill_manual(values=_TRAIN_DEPLOY_COLOURS)
+        + guides(fill=guide_legend(ncol=1))
+        + coord_flip()
+        + theme_bw()
+        + theme(
+            legend_position='bottom',
+            legend_direction='vertical',
+            figure_size=figure_size,
+        )
+        + labs(x='method',
+               y='wall-clock time (mins) across the full interim schedule',
+               fill='segment')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved train + deploy stacked timing plot to: {pdf_path}")
+
+
+# %%
+
+# =============================================================================
+# Regression-family (amortised excluded) plots.
+# =============================================================================
+
+_boxplot_p_h1_xz(
+    p_h1_xz, non_amort_methods,
+    os.path.join(dir_out, 'binomial_compare_methods_p_h1_xz_boxplot.pdf'),
 )
-pps['method'] = pd.Categorical(
-    pps['method'], categories=['analytic', *method_order], ordered=True,
+_pps_bars(
+    pps, non_amort_methods,
+    os.path.join(dir_out, 'binomial_compare_methods_pps.pdf'),
 )
-timing['method'] = pd.Categorical(
-    timing['method'], categories=method_order, ordered=True,
+_timing_bars(
+    timing, timing_methods,
+    os.path.join(dir_out, 'binomial_compare_methods_timing.pdf'),
 )
 
 # %%
 
 # =============================================================================
-# Plot 1: per-interim p(H_1 | x, z) distribution, methods dodged with
-# Futurama fill colours. Quantiles q025/q25/q50/q75/q975 per (interim, method).
+# Amortised-focus plots: best regression baseline + amortised variants.
 # =============================================================================
 
-# Drop quantile method: its p_h1_xz is a hard 0/1 label, not a probability,
-# so the boxplot mixes semantically-different quantities. The quantile method
-# still appears in the PPS bar chart and timing plot below.
-p_h1_xz_for_box = p_h1_xz[
-    p_h1_xz['method'] != 'Regression of endpt-x on w(z) - quantile'
-].copy()
-p_h1_xz_for_box['method'] = (
-    p_h1_xz_for_box['method'].cat.remove_unused_categories()
+_boxplot_p_h1_xz(
+    p_h1_xz, amort_focus_methods,
+    os.path.join(
+        dir_out, 'binomial_compare_methods_p_h1_xz_boxplot_amortised.pdf',
+    ),
 )
-
-box_stats = (
-    p_h1_xz_for_box
-    .groupby(['interim_month_year', 'method'], observed=True)['p_h1_xz']
-    .agg(
-        q025=lambda s: s.quantile(0.025),
-        q25=lambda s: s.quantile(0.25),
-        q50=lambda s: s.quantile(0.50),
-        q75=lambda s: s.quantile(0.75),
-        q975=lambda s: s.quantile(0.975),
-    )
-    .reset_index()
+_pps_bars(
+    pps, amort_focus_methods,
+    os.path.join(dir_out, 'binomial_compare_methods_pps_amortised.pdf'),
 )
-box_stats['grp'] = (
-    box_stats['interim_month_year'].astype(str)
-    + '|' + box_stats['method'].astype(str)
+_train_deploy_stacked_bars(
+    timing, amort_focus_methods,
+    os.path.join(dir_out, 'binomial_compare_methods_timing_amortised.pdf'),
 )
-
-p = (
-    ggplot(box_stats, aes(x='interim_month_year', fill='method'))
-    + geom_boxplot(
-        aes(ymin='q025', lower='q25', middle='q50', upper='q75', ymax='q975',
-            group='grp'),
-        stat='identity', position=position_dodge(width=0.8), width=0.7,
-        colour='#808080', size=0.3,
-    )
-    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0)
-    + scale_fill_manual(values=method_colours)
-    + scale_y_continuous(
-        limits=[0, 1],
-        breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
-        labels=['0%', '20%', '40%', '60%', '80%', '100%'],
-    )
-    + theme_bw()
-    + theme(
-        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-        legend_position='top',
-        figure_size=(14, 6),
-    )
-    + labs(x='Interim', y='p(H_1 | x, z) for predicted z samples', fill='method')
-)
-pdf_path = os.path.join(
-    dir_out, 'binomial_compare_methods_p_h1_xz_boxplot.pdf',
-)
-p.save(pdf_path, verbose=False, limitsize=False)
-print(f"Saved p(H_1 | x, z) boxplot to: {pdf_path}")
 
 # %%
 
 # =============================================================================
-# Plot 2: PPS per interim. Black = closed-form analytic; Futurama colours per
-# method. Dodged side-by-side. Vertical bars = 95% bootstrap interval on the
-# Monte-Carlo PPS estimate (B resamples with replacement of the S per-interim
-# p(H_1 | x, z) samples; analytic has no MC noise so no errorbar).
-# =============================================================================
-
-_pps_colours = {'analytic': '#000000', **method_colours}
-
-bs_B = 2000
-bs_parts = []
-rng_bs = np.random.default_rng(123)
-for m_label, g in p_h1_xz.groupby('method', observed=True):
-    wide = (
-        g.pivot_table(index=['interim_id', 'interim_date'],
-                      columns='s', values='p_h1_xz')
-        .sort_index()
-    )
-    P = wide.to_numpy()
-    n_interim, S = P.shape
-    idx = rng_bs.integers(0, S, size=(n_interim, bs_B, S))
-    P_bs = P[np.arange(n_interim)[:, None, None], idx]
-    pps_bs = (P_bs > pps_ProbH1_target_lwr_quantile).mean(axis=2)
-    q = np.quantile(pps_bs, [0.025, 0.975], axis=1).T
-    part = pd.DataFrame(q, columns=['q025_bs', 'q975_bs'])
-    part['interim_id'] = wide.index.get_level_values('interim_id').to_numpy()
-    part['method'] = m_label
-    bs_parts.append(part)
-bs = pd.concat(bs_parts, ignore_index=True)
-pps = pps.merge(bs, on=['interim_id', 'method'], how='left')
-
-p = (
-    ggplot(pps, aes(x='interim_month_year', y='pps', fill='method'))
-    + geom_col(position=position_dodge(width=0.8), width=0.7)
-    + geom_errorbar(
-        data=pps,
-        mapping=aes(x='interim_month_year', ymin='q025_bs', ymax='q975_bs',
-                    group='method'),
-        position=position_dodge(width=0.8), width=0.3,
-        colour='black', size=0.4, inherit_aes=False,
-    )
-    + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile, colour='black', size=1.0,
-                 linetype='dashed')
-    + scale_fill_manual(values=_pps_colours)
-    + theme_bw()
-    + theme(
-        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-        legend_position='top',
-        figure_size=(14, 6),
-    )
-    + labs(
-        x='Interim', y='PPS = int P(p(H_1 | x, z) > eta) dz', fill='method',
-    )
-)
-pdf_path = os.path.join(dir_out, 'binomial_compare_methods_pps.pdf')
-p.save(pdf_path, verbose=False, limitsize=False)
-print(f"Saved PPS comparison plot to: {pdf_path}")
-
-# %%
-
-# =============================================================================
-# Plot 3: per-interim inference time (mins), Futurama colours per method.
-# sqrt y-axis since the IS path is ~1000x faster than HMC nested-MC.
-# =============================================================================
-
-timing['value_label'] = timing['mins'].map(lambda v: f"{v:.2f} mins")
-p = (
-    ggplot(timing, aes(x='interim_month_year', y='mins', fill='method'))
-    + geom_col(position=position_dodge(width=0.8), width=0.7)
-    + geom_text(
-        aes(label='value_label'),
-        position=position_dodge(width=0.8),
-        size=6, angle=30, ha='left', va='bottom',
-    )
-    + scale_fill_manual(values=method_colours)
-    + scale_y_sqrt(expand=(0, 0, 0.15, 0))
-    + theme_bw()
-    + theme(
-        axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-        legend_position='top',
-        figure_size=(14, 6),
-    )
-    + labs(x='Interim', y='time (mins)', fill='method')
-)
-pdf_path = os.path.join(dir_out, 'binomial_compare_methods_timing.pdf')
-p.save(pdf_path, verbose=False, limitsize=False)
-print(f"Saved timing comparison plot to: {pdf_path}")
-
-# %%
-
-# =============================================================================
-# Plot 4: ESS / particle per interim for the IS-reweight method
-# (nested-MC methods refit -> no IS weights, no ESS).
+# IS ESS / particle plot (unchanged).
 # =============================================================================
 
 is_ess = (
@@ -446,29 +672,29 @@ is_ess = (
     .groupby(['interim_month_year'], observed=True)
     .agg(value=('ess_over_n', 'median'))
     .reset_index()
-    .assign(method='IS reweighting of theta|x')
+    .assign(method=LBL_IS)
 )
 is_ess['method'] = pd.Categorical(
-    is_ess['method'], categories=method_order, ordered=True,
+    is_ess['method'], categories=non_amort_methods, ordered=True,
 )
 
 p = (
     ggplot(is_ess, aes(x='interim_month_year', y='value', fill='method'))
     + geom_col(width=0.7)
     + scale_fill_manual(values=method_colours)
+    + guides(fill=guide_legend(ncol=1))
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
-        legend_position='top',
-        figure_size=(12, 5),
+        legend_position='bottom',
+        legend_direction='vertical',
+        figure_size=(12, 6),
     )
-    + labs(
-        x='Interim', y='ESS / particle', fill='method',        
-    )
+    + labs(x='Interim', y='ESS / particle', fill='method')
 )
 pdf_path = os.path.join(dir_out, 'binomial_compare_methods_ess.pdf')
 p.save(pdf_path, verbose=False, limitsize=False)
-print(f"Saved IS ESS / E(w^2) plot to: {pdf_path}")
+print(f"Saved IS ESS / particle plot to: {pdf_path}")
 
 # %%
 

@@ -66,6 +66,8 @@ dir_rg = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-H1x-wz-26
 dir_rge  = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-260601")
 dir_rgeq = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-quantile-regr-260702")
 dir_rgem = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
+dir_rgee = os.path.join(_sandbox, "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead-260716")
+dir_rgef = os.path.join(_sandbox, "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead-260716")
 dir_out = os.path.join(_sandbox, "py-ukraine-interim-compare-methods-260526")
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
@@ -84,15 +86,23 @@ rg_long = pd.read_pickle(os.path.join(dir_rg, f"{file_prefix}_pps_RG_perf_long.p
 rge_long = pd.read_pickle(os.path.join(dir_rge, f"{file_prefix}_pps_RGE_perf_long.pkl"))
 rgeq_long = pd.read_pickle(os.path.join(dir_rgeq, f"{file_prefix}_pps_RGEQ_perf_long.pkl"))
 rgem_long = pd.read_pickle(os.path.join(dir_rgem, f"{file_prefix}_pps_RGEM_perf_long.pkl"))
+rgee_long = pd.read_pickle(os.path.join(dir_rgee, f"{file_prefix}_pps_RGEE_perf_long.pkl"))
+rgef_long = pd.read_pickle(os.path.join(dir_rgef, f"{file_prefix}_pps_RGEG_perf_long.pkl"))
 
 # Rename Gaussian-approx label so it's explicit alongside the quantile variants.
 rge_long = rge_long.copy()
 rge_long['method'] = 'Regression endpt gauss-approx (Strong-Oakley)'
+# Distinguish the two amortised variants by attention type.
+rgee_long = rgee_long.copy()
+rgee_long['method'] = 'Regression endpt amortised itemScompAtt (Strong-Oakley)'
+rgef_long = rgef_long.copy()
+rgef_long['method'] = 'Regression endpt amortised itemXcompAtt (Strong-Oakley)'
 
 cols = ['interim_month_year', 'metric', 'value', 'method']
 dc = pd.concat(
     [is_long[cols], mm_long[cols], smc_long[cols], rg_long[cols],
-     rge_long[cols], rgeq_long[cols], rgem_long[cols]],
+     rge_long[cols], rgeq_long[cols], rgem_long[cols],
+     rgee_long[cols], rgef_long[cols]],
     ignore_index=True,
 )
 
@@ -101,7 +111,9 @@ method_order = ['IS (reweight)', 'IS (moment-match)', 'SMC (resample-move)',
                 'Regression (Strong-Oakley)',
                 'Regression endpt gauss-approx (Strong-Oakley)',
                 'Regression endpt quantile (Strong-Oakley)',
-                'Regression endpt mquantile (Strong-Oakley)']
+                'Regression endpt mquantile (Strong-Oakley)',
+                'Regression endpt amortised itemScompAtt (Strong-Oakley)',
+                'Regression endpt amortised itemXcompAtt (Strong-Oakley)']
 dc['interim_month_year'] = pd.Categorical(
     dc['interim_month_year'], categories=interim_order, ordered=True)
 dc['method'] = pd.Categorical(dc['method'], categories=method_order, ordered=True)
