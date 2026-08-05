@@ -2,13 +2,13 @@
 """
 MVN interim analysis: **amortised** PPS via a nested-DeepSets encoder
 over (participant, component) tokens + K-row query
-(§12.10 of ``dev/amortised_decision_making.md``).
+(§13.4 of ``dev/amortised_decision_making.md``).
 
 **xcomp variant** -- exploits the known cross-component covariance
 ``K``. Each per-token feature is the two scalars ``(K[j*, j],
 y_{i, j})``, so the amortiser is told, per token, how correlated the
 token's component is with the queried component. Independent-
-components idcomp (§12.7 / §12.8) is the special case ``K = I``.
+components idcomp (§13.1 / §13.2) is the special case ``K = I``.
 
 Outputs per J (``_RGEC_`` suffix; picked up by the MVN compare-methods
 loader alongside the idcomp variants):
@@ -76,7 +76,7 @@ _ROOT_DIR = (
     "py-mvn-interim-amortise-endptx-on-wz-with-features-MLP-"
     "xcomp-qpsi-MLP-loss-multiquantilehead"
 )
-# 15k-step overnight run (see §12.10 follow-ups). Preserve the 4k
+# 15k-step overnight run (see §13.4 follow-ups). Preserve the 4k
 # checkpoint dir at _260715 for reference; write the longer run to a
 # separate dir so both remain reproducible.
 _DIR_VARIANT = os.environ.get('XCOMP_DIR_VARIANT', '_15k_260716')

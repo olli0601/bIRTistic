@@ -1,6 +1,6 @@
 """
 Amortiser: nested DeepSets over participants + attention over items
-(§9.2 nested-DeepSets IRT pattern + §12.11 attention-over-items on top).
+(§9.2 nested-DeepSets IRT pattern + §13.5 attention-over-items on top).
 Fully data-agnostic and fully amortised over arbitrary participant
 cohort sizes ``(n, m)``: caller passes raw participant tensors + masks,
 class does the aggregation over participants internally.
@@ -84,7 +84,7 @@ class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
         # Fix-B: learned scalar bias on attention score at queried key
-        # (see itemScompAtt / §12.13).
+        # (see itemScompAtt / §13.6).
         self.query_bias_alpha = self.param(
             'query_bias_alpha', nn.initializers.zeros, (),
         )

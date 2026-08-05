@@ -1,6 +1,6 @@
 """
 Amortiser: self-attention over items on caller-supplied per-item feature
-tokens (§12.11 MVN + §12.12 IRT extension of
+tokens (§13.5 MVN + §14.1 IRT extension of
 ``dev/amortised_decision_making.md``). Data-agnostic: works for any
 case study where the caller has pre-pooled the raw participant
 observations into per-item summary features (e.g. Strong-Oakley
@@ -61,7 +61,7 @@ class Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Mod
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
         # Learned scalar bias added to the attention score at the queried
-        # key position (query-conditional attention weights; §12.11 fix B).
+        # key position (query-conditional attention weights; §13.5 fix B).
         self.query_bias_alpha = self.param(
             'query_bias_alpha', nn.initializers.zeros, (),
         )
@@ -86,6 +86,21 @@ class Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Mod
         scores = jnp.where(mask_k > 0, scores, -1e9)
         w = jax.nn.softmax(scores, axis=-1)
         return jnp.einsum('bqk,bkd->bqd', w, h)
+
+    def summary_for_query(self, tokens, mask, query_idx):
+        """Attention-picked per-query summary bar_h^(j*) in R^E.
+
+        Returns the gathered post-attention embedding at query index
+        j* -- the vector q_psi actually consumes (aside from tok_query
+        and aux). Used by diagnostic plots that want the query-conditional
+        learned summary.
+        """
+        h = self.q_tok(tokens)                                  # (B, J, E)
+        idx = query_idx.astype(jnp.int32)                       # (B,)
+        h_attn = self._self_attention(h, mask, query_idx=idx)   # (B, J, E)
+        B = h_attn.shape[0]
+        b_range = jnp.arange(B, dtype=jnp.int32)
+        return h_attn[b_range, idx]                             # (B, E)
 
     def __call__(self, batch):
         tokens = batch['tokens']                                # (B, J, F)

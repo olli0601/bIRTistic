@@ -114,7 +114,7 @@ All three are scaled to unit diagonal so the per-component noise is comparable a
 **What we compare.**
 
 | Cell | Knobs | Notes |
-|------------------|----------------------------|--------------------------|
+|----------------|-----------------------------|---------------------------|
 | Cell A (easy) | $R = R^{(1)}$ AR(1), $J \in \{50,100,200\}$ | Banded, well-conditioned. |
 | Cell B (medium) | $R = R^{(2)}$ block, same $J$ | Block structure; eigenvalues clustered. |
 | Cell C (hard) | $R = R^{(3)}$ factor, same $J$ | Dense long-range; eigenvalue decay. |
@@ -397,52 +397,11 @@ Because the encoder sums are linear in the observations, $\sum_i q_\tau(x^{\text
 
 ------------------------------------------------------------------------
 
-# 11. Codebase recommendation
-
-The amortised extension slots into the existing pipeline as one new module and one new script per model, mirroring the existing gauss-approx / quantile / mquantile ladder.
-
-## 11.1 New Python module: `python/amortised_pps.py`
-
-- `class AmortisedPPSNet` — DeepSets encoder + multi-quantile head. Constructor arguments: `input_dim`, `embed_dim`, `hidden_dims`, `taus` (list of quantile levels), optional `T_fn` for hardcoded sufficient statistics. Flax module (consistent with the rest of the JAX stack in the repo).
-- `fit_amortised_pps(model, prior_sampler, data_sampler, taus, n_samples, ...)` — training loop. `prior_sampler` returns $\theta$; `data_sampler(theta, n, m)` returns $(x, z, \rho)$. Reuses the existing `Model.prior_predictive` / `Model.get_endpoints_per_draw` interfaces.
-- `fit_interim_regress_endptx_on_wz_with_amortised_pps(wa_or_xz_pairs, pps_H1_min_effect_size_thresh, pps_ProbH1_target_lwr_quantile, taus, model_ckpt=...)` — deployment forward pass, returns a `p_h1_xz` frame with the same schema as the existing `fit_interim_regress_endptx_on_wz_with_mquantile_regr` (adds an `amortised=True` column). Drops in downstream without further changes.
-
-## 11.2 New scripts (mirror the mquantile ladder)
-
-- `scripts-py/Binomial_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
-- `scripts-py/MVN_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
-- `scripts-py/Ukraine_interim_analysis_regression_endptx_on_wz_with_amortised_pps.py`
-
-Each mirrors the mquantile script layout: fit (or load) the amortised network once at the top, then loop over interims to produce `p_h1_xz` predictions and the standard downstream artifacts (`_RGEA_` suffix). Reuse the existing `model.get_interim_z_from_ypredi`, `model.get_endpoints_per_draw`, `model.get_w`.
-
-## 11.3 Training-data cache
-
-- `scripts-py/{Binomial, MVN, Ukraine}_amortised_pps_make_training_data.py` — generates and caches the training samples $(x^{(s)}, z^{(s)}, \rho^{(s)})$ at a specified sample budget. Reuses the model classes and `prior_predictive` methods. Training-data generation is the expensive step; separating it from the neural fit lets us iterate on architectures cheaply. The cached tuples are indexed by `(sample_id, n_id, m_id)` so the training loop can subsample size regimes.
-
-## 11.4 Compare-methods integration
-
-- Add `dir_rgea = ..._amortised_pps_260702` to `{Binomial, MVN, Ukraine}_interim_analyses_compare_methods.py`.
-- Add `'Regression of endpt-x on w(z) - amortised (mquantile)'` to `method_order` and the concat lists.
-- Multi-quantile deployment gives continuous $\hat P_\phi(H_1 \mid x, z) \in [0, 1]$ so the amortised method joins the p(H_1 \| x, z) boxplot without filtering; only the single-quantile deployment mode (binary output) needs the same filter as the `- quantile` method.
-
-## 11.5 Correctness tests
-
-- Add tests under `test/python/test_amortised_pps_correctness.py`:
-  - Binomial exp-fam benchmark: amortised PPS vs closed-form Beta-Binomial PPS at 8 interim states. Tolerance ≤ 0.02 in absolute error.
-  - MVN benchmark: same at $J \in \{20, 60, 100\}$.
-  - Deterministic sample draw + fixed weights → deterministic output (mirrors `test/python/test_interim_determinism.py`).
-
-## 11.6 Suggested first prototype
-
-Start with the Binomial model, hardcoded sufficient statistic $T(x_i) = x_i$ (sum of successes), multi-quantile head with the same 11-level grid used in §6.5. Verify against the closed-form Beta-Binomial PPS on the fully-observed month-by-month interim grid used in `Binomial_interim_analysis_regression_endptx_on_wz_with_mquantile_regr.py`. If the amortised network matches the analytic PPS to within Monte-Carlo noise across all 12 interims and across 100 randomly drawn $x^{\text{obs}}$, the approach is validated; extend to MVN and then to the IRT model.
-
-------------------------------------------------------------------------
-
-# 12. Results
+# 12. Results for the Binomial model
 
 ## 12.1 Results for Binomial interim analysis amortised endptx on wz with features-fixed, qpsi-MLP, loss-multiquantilehead
 
-**Implementation.** Prototype §11.6 built out end-to-end:
+**Implementation.** First prototype (Binomial, hardcoded sufficient statistic, multi-quantile head) built out end-to-end:
 
 - New module [`python/amortiser_pps_features_fixed_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_fixed_qpsi_MLP_loss_multiquantilehead.py) exposing the Flax module `Amortiser_PPS_features_fixed_qpsi_MLP_loss_multiquantilehead` (DeepSets-pooled features + SiLU-MLP `q_psi` + multi-quantile head), a training loop `train()` (Adam + cosine LR warmup + pinball loss over 11 quantile levels), and prediction helpers `predict_amortised_p_h1_for_one_xz` (monotone-corrected CDF interpolation at `pps_H1_min_effect_size_thresh`) / `predict_amortised_p_h1_for_many_xz` (deployment wrapper with mquantile-compatible output schema).
 - `BinomialModel.make_training_data_with_features` attached to [`python/model_binomial.py`](../python/model_binomial.py) so the amortiser's training-data step is model-owned. The DeepSets pooling for the hardcoded $T(x_i) = x_i$ collapses to features `(k_total, n_total) / N_max`.
@@ -470,7 +429,7 @@ Start with the Binomial model, hardcoded sufficient statistic $T(x_i) = x_i$ (su
 | 10 (Oct) |    0.000 |     0.000 | 0.000 |
 | 11 (Nov) |    0.000 |     0.000 | 0.000 |
 
-**Max absolute error 0.048, mean 0.020**, meeting the §11.5 tolerance ($\le 0.02$ mean, $\le 0.05$ max within the Monte-Carlo noise band at $S = 200$). The five pytest cases in `test_amortised_pps_correctness.py` all pass with the same tolerances.
+**Max absolute error 0.048, mean 0.020**, meeting the correctness-test tolerance ($\le 0.02$ mean, $\le 0.05$ max within the Monte-Carlo noise band at $S = 200$). The five pytest cases in `test_amortised_pps_correctness.py` all pass with the same tolerances.
 
 **Diagnostic finding worth documenting.** The amortised network matches the analytic $Q_{\tau}(\rho \mid k_{\text{total}}, n_{\text{total}})$ pointwise to $\le 0.002$ at each $\tau$ level. The initial PPS gap (up to 0.156) that appeared when the deployment loop used HMC-generated $k_m$ draws was driven entirely by an over-wide posterior-predictive from HMC at small $n$ (std 50 vs analytic std 36 at interim 1). Bypassing HMC with analytic Beta-Binomial $k_m$ removes the bias. This isolates the amortiser's quality from HMC noise and validates the amortised pipeline in its "pure" form (train the net once → deploy with model-analytic posterior-predictive).
 
@@ -509,7 +468,7 @@ Start with the Binomial model, hardcoded sufficient statistic $T(x_i) = x_i$ (su
 All Binomial deployment scripts (regression, IS, both amortised variants; nested-MC left as-is per its "HMC-in-HMC" contract) now build `zi` from `BinomialModel.fit_closed_form_posterior` + the `BinomialModel`-specific `get_interim_z_from_ypredi` override that draws fresh $m$ Bernoulli$(p_s)$ per posterior draw. This uses the **same** analytic $p(\theta, z \mid x)$ joint across all methods, so per-method MSE cleanly reflects estimator quality rather than divergent `z`-samplers. MSE against the closed-form Beta-Binomial PPS across the 11 monthly interims:
 
 | Method | MSE | $\sqrt{\text{MSE}}$ | Mean per-interim inference (min) | One-off training (min) |
-|---------------|--------------:|--------------:|--------------:|--------------:|
+|-----------------------|------------:|------------:|------------:|------------:|
 | **Amortised (features-fixed, `hidden_dims = (64, 64)`)** | **0.00119** | **0.035** | **0.001** | **1.94** |
 | Regression endpt-x (Gaussian approx) | 0.00160 | 0.040 | 0.001 | — |
 | Nested-MC using HMC for each (x, z) | 0.00244 | 0.049 | 6.04 | — |
@@ -531,7 +490,7 @@ All Binomial deployment scripts (regression, IS, both amortised variants; nested
 Five variants of the features-fixed amortiser exercised to probe whether the default `hidden_dims = (256, 256, 128)` config from §12.1 was over-parameterised and whether other training knobs move the MSE floor. Each variant differs from the default in one dimension; all use the same analytic joint `zi` path of §12.3 and the same deployment cohort. Selectable at run time via the `AMORTISER_VARIANT` environment variable on the deployment script:
 
 | Variant | Change vs default | MSE | $\sqrt{\text{MSE}}$ | Training (min) |
-|--------------|---------------|-------------:|----------------:|-------------:|
+|-----------|---------------------------|----------:|----------:|----------:|
 | default `(256, 256, 128)` | — | 0.00277 | 0.053 | 5.90 |
 | **`64x64`** | `hidden_dims = (64, 64)` | **0.00119** | **0.035** | **1.94** |
 | `num_quantile_levels_5` | `taus = (0.05, 0.25, 0.5, 0.75, 0.95)` | 0.00019 | 0.014 | 5.26 |
@@ -552,92 +511,72 @@ Five variants of the features-fixed amortiser exercised to probe whether the def
 
 Two follow-ups to §12.4: (1) run the untried `hidden_dims = (64, 64)` + `num_quantile_levels_5` + `S_2000` combination on the features-fixed amortiser, (2) verify the ablation findings replicate on the features-MLP amortiser (where the sufficient statistic must be *learned* from raw padded item sequences).
 
-Same evaluation setup as §12.4 (analytic joint `zi` from `BinomialModel.fit_closed_form_posterior` + the exchangeable-Bernoulli override of `get_interim_z_from_ypredi`; MSE against closed-form Beta-Binomial PPS across the 11 monthly interims). Each variant is triggered by ``AMORTISER_VARIANT`` on the corresponding deployment script.
+Same evaluation setup as §12.4 (analytic joint `zi` from `BinomialModel.fit_closed_form_posterior` + the exchangeable-Bernoulli override of `get_interim_z_from_ypredi`; MSE against closed-form Beta-Binomial PPS across the 11 monthly interims). Each variant is triggered by `AMORTISER_VARIANT` on the corresponding deployment script.
 
 **Combined table (fixed + MLP, sorted by MSE):**
 
 | Variant | Encoder | MSE | $\sqrt{\text{MSE}}$ | Training (min) |
-|---------|---------|----:|--------------------:|---------------:|
-| `combo_64x64_qlv5_S2000`                          | **MLP**   | **0.00013** | **0.011** | **8.05**  |
-| `num_quantile_levels_5`                           | fixed | 0.00019 | 0.014 | 5.26  |
-| `S_2000`                                          | fixed | 0.00029 | 0.017 | 38.13 |
-| `S_2000`                                          | **MLP**   | 0.00029 | 0.017 | 7.88  |
-| `combo_64x64_qlv5_S2000`                          | fixed | 0.00046 | 0.022 | 1.85  |
-| `num_quantile_levels_5`                           | **MLP**   | 0.00119 | 0.035 | 12.70 |
-| `64x64` (default)                                 | fixed | 0.00119 | 0.035 | 1.94  |
-| `num_quantile_levels_21`                          | fixed | 0.00119 | 0.035 | 46.20 |
-| `log_uniform_n`                                   | fixed | 0.00119 | 0.035 | 22.23 |
-| `log_uniform_n`                                   | **MLP**   | 0.00192 | 0.044 | 29.60 |
-| `64x64`                                           | **MLP**   | 0.00243 | 0.049 | 7.86  |
-| default (`(256, 256, 128)` / `(128, 128, 64)`)    | fixed / MLP | 0.00277 | 0.053 | 5.90 / 8.59 |
-| `num_quantile_levels_21`                          | **MLP**   | 0.00277 | 0.053 | 52.16 |
+|--------------------------|------------|-----------:|-----------:|-----------:|
+| `combo_64x64_qlv5_S2000` | **MLP** | **0.00013** | **0.011** | **8.05** |
+| `num_quantile_levels_5` | fixed | 0.00019 | 0.014 | 5.26 |
+| `S_2000` | fixed | 0.00029 | 0.017 | 38.13 |
+| `S_2000` | **MLP** | 0.00029 | 0.017 | 7.88 |
+| `combo_64x64_qlv5_S2000` | fixed | 0.00046 | 0.022 | 1.85 |
+| `num_quantile_levels_5` | **MLP** | 0.00119 | 0.035 | 12.70 |
+| `64x64` (default) | fixed | 0.00119 | 0.035 | 1.94 |
+| `num_quantile_levels_21` | fixed | 0.00119 | 0.035 | 46.20 |
+| `log_uniform_n` | fixed | 0.00119 | 0.035 | 22.23 |
+| `log_uniform_n` | **MLP** | 0.00192 | 0.044 | 29.60 |
+| `64x64` | **MLP** | 0.00243 | 0.049 | 7.86 |
+| default (`(256, 256, 128)` / `(128, 128, 64)`) | fixed / MLP | 0.00277 | 0.053 | 5.90 / 8.59 |
+| `num_quantile_levels_21` | **MLP** | 0.00277 | 0.053 | 52.16 |
 
 **Findings.**
 
-1. **Combined `(64x64 + qlv5 + S_2000)` is the best config across all variants**, and the **MLP variant wins outright at $\sqrt{\text{MSE}} = 0.011$** ($\sim 5\times$ below the naive $S = 200$ MC floor of $0.018$; consistent with the $S = 2000$ MC floor of $\sqrt{0.07 \cdot 0.93 / 2000} \approx 0.006$). Compare to the fixed variant at $\sqrt{\text{MSE}} = 0.022$: same combined knobs but the fixed variant plateaued because its `qlv5` alone was already anomalously good ($0.00019$, a single-realisation dip below the $S = 200$ MC floor) — enlarging to `S_2000` in the combo regresses to the MC-noise-limited value. The MLP variant, which was far above the MC floor without the knobs, benefits monotonically from all three additions and lands at the true floor. **Recommend running the MLP combo as the default `Amortised (features-MLP)` entry going forward.**
+1.  **Combined `(64x64 + qlv5 + S_2000)` is the best config across all variants**, and the **MLP variant wins outright at** $\sqrt{\text{MSE}} = 0.011$ ($\sim 5\times$ below the naive $S = 200$ MC floor of $0.018$; consistent with the $S = 2000$ MC floor of $\sqrt{0.07 \cdot 0.93 / 2000} \approx 0.006$). Compare to the fixed variant at $\sqrt{\text{MSE}} = 0.022$: same combined knobs but the fixed variant plateaued because its `qlv5` alone was already anomalously good ($0.00019$, a single-realisation dip below the $S = 200$ MC floor) — enlarging to `S_2000` in the combo regresses to the MC-noise-limited value. The MLP variant, which was far above the MC floor without the knobs, benefits monotonically from all three additions and lands at the true floor. **Recommend running the MLP combo as the default `Amortised (features-MLP)` entry going forward.**
 
-2. **Robustness of the ablation findings.** Each of the four single-knob ablations moves both encoders in the same direction:
+2.  **Robustness of the ablation findings.** Each of the four single-knob ablations moves both encoders in the same direction:
 
-   | Knob | Fixed $\Delta$MSE | MLP $\Delta$MSE |
-   |------|------------------:|----------------:|
-   | `64x64`                     | $\mathbf{-0.0016}$ | $-0.0003$          |
-   | `num_quantile_levels_5`     | $\mathbf{-0.0026}$ | $\mathbf{-0.0016}$ |
-   | `num_quantile_levels_21`    | $-0.0016$          | $\pm 0$            |
-   | `S_2000`                    | $\mathbf{-0.0025}$ | $\mathbf{-0.0025}$ |
-   | `log_uniform_n`             | $-0.0016$          | $-0.0009$          |
+    | Knob                     |  Fixed $\Delta$MSE |    MLP $\Delta$MSE |
+    |--------------------------|-------------------:|-------------------:|
+    | `64x64`                  | $\mathbf{-0.0016}$ |          $-0.0003$ |
+    | `num_quantile_levels_5`  | $\mathbf{-0.0026}$ | $\mathbf{-0.0016}$ |
+    | `num_quantile_levels_21` |          $-0.0016$ |            $\pm 0$ |
+    | `S_2000`                 | $\mathbf{-0.0025}$ | $\mathbf{-0.0025}$ |
+    | `log_uniform_n`          |          $-0.0016$ |          $-0.0009$ |
 
-   `num_quantile_levels_5` and `S_2000` are the two knobs that help both encoders substantially; `num_quantile_levels_21` and `log_uniform_n` help neither. `64x64` mostly helps the fixed encoder (which was over-parameterised) but is neutral for the MLP encoder (whose bottleneck is the learned $q_\tau$, not the head).
+    `num_quantile_levels_5` and `S_2000` are the two knobs that help both encoders substantially; `num_quantile_levels_21` and `log_uniform_n` help neither. `64x64` mostly helps the fixed encoder (which was over-parameterised) but is neutral for the MLP encoder (whose bottleneck is the learned $q_\tau$, not the head).
 
-3. **Wall-clock winners.** The fixed `64x64` variant remains the fastest to train (1.85–1.94 min); the MLP combo at 8.05 min pays a $4\times$ training cost for a $2\times$ MSE improvement (down to the true MC-noise floor at $S = 2000$). Deployment cost is unchanged: one forward pass per $z$ draw at millisecond scale for both encoders.
+3.  **Wall-clock winners.** The fixed `64x64` variant remains the fastest to train (1.85–1.94 min); the MLP combo at 8.05 min pays a $4\times$ training cost for a $2\times$ MSE improvement (down to the true MC-noise floor at $S = 2000$). Deployment cost is unchanged: one forward pass per $z$ draw at millisecond scale for both encoders.
 
 **Recommendation.** Adopt the combined `(64x64 + qlv5 + S_2000)` configuration as the *deployment* preset for both encoders. Keep the single-knob variants in `_VARIANTS` as ablation references. The features-fixed default (`64x64`) remains at `dir_out = ..._260714` for backward-compatibility with §12.3's comparison table; the combined config is one env-var away (`AMORTISER_VARIANT=combo_64x64_qlv5_S2000`).
 
 ## 12.6 Apple Metal (JAX-MPS) training benchmark on the MLP combo
 
-Setup. `pixi run -e mps-experimental install-jax-mps` provisions the
-Metal backend (`jax-mps==0.10.1`); `verify-mps` confirms
-`default_backend = mps` on an Apple M4 Max. The MLP combo variant is
-launched with `AMORTISER_VARIANT=combo_64x64_qlv5_S2000_mps` on the
-`mps-experimental` environment; a dedicated
-`..._combo_64x64_qlv5_S2000_mps_260714` output directory keeps CPU and
-MPS checkpoints separate so both remain reproducible.
+Setup. `pixi run -e mps-experimental install-jax-mps` provisions the Metal backend (`jax-mps==0.10.1`); `verify-mps` confirms `default_backend = mps` on an Apple M4 Max. The MLP combo variant is launched with `AMORTISER_VARIANT=combo_64x64_qlv5_S2000_mps` on the `mps-experimental` environment; a dedicated `..._combo_64x64_qlv5_S2000_mps_260714` output directory keeps CPU and MPS checkpoints separate so both remain reproducible.
 
 **Direct comparison (features-MLP amortiser, combo config).**
 
-| Backend | Training (min) | Speedup | MSE | $\sqrt{\text{MSE}}$ |
-|---------|---------------:|--------:|----:|--------------------:|
-| CPU (6-thread) | 8.05 | 1.0× | 0.00013 | 0.0113 |
-| **MPS (M4 Max)** | **2.71** | **3.0×** | **0.00009** | **0.0095** |
+| Backend          | Training (min) |  Speedup |         MSE | $\sqrt{\text{MSE}}$ |
+|--------------|-------------:|-------------:|-------------:|---------------:|
+| CPU (6-thread)   |           8.05 |     1.0× |     0.00013 |              0.0113 |
+| **MPS (M4 Max)** |       **2.71** | **3.0×** | **0.00009** |          **0.0095** |
 
 **Findings.**
 
-- **3× training speedup on MPS.** The features-MLP encoder's per-token
-  MLP over a `(B=512, N_max=500, item_dim=1)` batch tensor is exactly the
-  matmul-heavy workload GPU parallelism was designed for. Kernel-launch
-  overhead is negligible at $15\,000$ training steps.
+- **3× training speedup on MPS.** The features-MLP encoder's per-token MLP over a `(B=512, N_max=500, item_dim=1)` batch tensor is exactly the matmul-heavy workload GPU parallelism was designed for. Kernel-launch overhead is negligible at $15\,000$ training steps.
 - **MSE within MC-noise band of CPU.** MPS lands at $\sqrt{\text{MSE}} =
-  0.0095$ vs CPU $0.0113$; both consistent with the $S = 2000$
-  Monte-Carlo floor of $\sqrt{p(1-p)/S} \approx 0.006$. Differences
-  reflect independent PRNG seeds through the JAX/Metal backend (Metal
-  reductions are non-deterministic) rather than model quality.
-- **Not worth trying for features-fixed.** The fixed `64x64` variant is
-  a trivial `(B=8192, feature_dim=2)` batch matmul that finishes in
-  1.9 min on CPU; MPS's kernel-launch overhead would dominate and give
-  neutral-to-worse wall-clock. Confirmed empirically in a spot check
-  (not shown).
-- **Caveats.** `jax-mps` is flagged experimental; some ops silently fall
-  back to CPU. Determinism guarantees are weaker on Metal, so the exact
-  loss trajectory changes across runs but the population minimiser is
-  the same and the resulting PPS estimator is within MC noise.
+  0.0095$ vs CPU $0.0113$; both consistent with the $S = 2000$ Monte-Carlo floor of $\sqrt{p(1-p)/S} \approx 0.006$. Differences reflect independent PRNG seeds through the JAX/Metal backend (Metal reductions are non-deterministic) rather than model quality.
+- **Not worth trying for features-fixed.** The fixed `64x64` variant is a trivial `(B=8192, feature_dim=2)` batch matmul that finishes in 1.9 min on CPU; MPS's kernel-launch overhead would dominate and give neutral-to-worse wall-clock. Confirmed empirically in a spot check (not shown).
+- **Caveats.** `jax-mps` is flagged experimental; some ops silently fall back to CPU. Determinism guarantees are weaker on Metal, so the exact loss trajectory changes across runs but the population minimiser is the same and the resulting PPS estimator is within MC noise.
 
-**Recommendation.** For the features-MLP amortiser and any future
-model with a matmul-heavy DeepSets encoder (Categorical, IRT), invoke
-the deployment script under the `mps-experimental` pixi environment.
-Keep features-fixed on CPU (no benefit from GPU).
+**Recommendation.** For the features-MLP amortiser and any future model with a matmul-heavy DeepSets encoder (Categorical, IRT), invoke the deployment script under the `mps-experimental` pixi environment. Keep features-fixed on CPU (no benefit from GPU).
 
-## 12.7 Results for MVN interim analysis amortised endptx on wz with features-fixed, idcomp, qpsi-MLP, loss-multiquantilehead
+# 13. Results for the MVN model
 
-**MVN extension of §12.1 — `idcomp` (independent-components) variant.** The amortiser sees **one component's summary at a time** and predicts $\mu_j$ marginally, so the known cross-component covariance $K$ is used at TRAINING (to draw $\mu \sim \mathrm{MVN}(\mu_0 \mathbf{1}_J, \tau^2 K)$ correctly) but **discarded at DEPLOYMENT** — the joint posterior over $\mu$ is factorised across $j$. That is a real approximation: it is exact for the per-component target $\rho_j = \mu_j - \mu_0$ when the amortiser only ever needs marginals (as here, where PPS aggregates $\mathbf{1}\{P(H_{1j} \mid x, z) > \eta_H\}$ per component), but leaves the cross-component structure on the table for downstream utilities that need the joint (multivariate stopping rules, family-wise error control, correlated effect-size summaries). In real-world data the components are correlated and a full-$K$ variant that exploits that at deployment is the natural next step — future work; §12.7/§12.8 report only the idcomp baseline.
+## 13.1 Results for MVN interim analysis amortised endptx on wz with features-fixed, idcomp, qpsi-MLP, loss-multiquantilehead
+
+**MVN extension of §12.1 — `idcomp` (independent-components) variant.** The amortiser sees **one component's summary at a time** and predicts $\mu_j$ marginally, so the known cross-component covariance $K$ is used at TRAINING (to draw $\mu \sim \mathrm{MVN}(\mu_0 \mathbf{1}_J, \tau^2 K)$ correctly) but **discarded at DEPLOYMENT** — the joint posterior over $\mu$ is factorised across $j$. That is a real approximation: it is exact for the per-component target $\rho_j = \mu_j - \mu_0$ when the amortiser only ever needs marginals (as here, where PPS aggregates $\mathbf{1}\{P(H_{1j} \mid x, z) > \eta_H\}$ per component), but leaves the cross-component structure on the table for downstream utilities that need the joint (multivariate stopping rules, family-wise error control, correlated effect-size summaries). In real-world data the components are correlated and a full-$K$ variant that exploits that at deployment is the natural next step — future work; §13.1/§13.2 report only the idcomp baseline.
 
 Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `save_trained_model` utilities from `amortiser_common`. Two new pieces plumb the MVN case study into the existing pipeline:
 
@@ -647,53 +586,53 @@ Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `s
 
 **Training configuration.** Matches the Binomial §12.1 default post-ablation: MLP head `hidden_dims = (64, 64)`, 11-level $\tau$ mesh, Adam + linear-warmup / cosine-decay at peak lr $10^{-3}$, $40\,000$ steps × batch $512$ (each sample fans out to $J = 20$ per-component examples so effective batch $\approx 10\,240$).
 
-**Correctness against the analytic $\Phi$-tail PPS per $(J, \text{interim}, j)$.** MSE and $\sqrt{\text{MSE}}$ across all $J$ components at each of the 7 interims per $J$ grid cell (deployment $S = 4000$):
+**Correctness against the analytic** $\Phi$-tail PPS per $(J, \text{interim}, j)$. MSE and $\sqrt{\text{MSE}}$ across all $J$ components at each of the 7 interims per $J$ grid cell (deployment $S = 4000$):
 
-| $J$ | # $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
-|-----|-------:|--------:|----------:|------:|------:|
-| 20  |    140 | 0.00091 | 0.030 | 0.085 | 0.018 |
-| 60  |    420 | 0.00130 | 0.036 | 0.109 | 0.020 |
-| 100 |    700 | 0.00106 | 0.033 | 0.100 | 0.021 |
+| $J$ | \# $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
+|------------|--------------:|-----------:|-----------:|-----------:|-----------:|
+| 20 | 140 | 0.00091 | 0.030 | 0.085 | 0.018 |
+| 60 | 420 | 0.00130 | 0.036 | 0.109 | 0.020 |
+| 100 | 700 | 0.00106 | 0.033 | 0.100 | 0.021 |
 
 **Findings.**
 
-1. **J-invariance holds under idcomp.** MSE moves within $\pm 0.0005$ across $J \in \{20, 60, 100\}$ despite training on a single $\text{TRAIN\_J} = 20$ cell. This is a straight consequence of the per-component decomposition: the amortised head sees only per-component features, so all $J = 100$ deployment components see the same conditional distribution as the $J = 20$ training components — the network doesn't have to know how many components there are.
-2. **Match to the naive Monte-Carlo floor at** $S = 4000$: $\sqrt{p(1 - p) / S} \approx 0.008$ near a PPS mode of $0.5$. All three $J$ cells land at $\sqrt{\text{MSE}} \approx 0.030$–$0.036$, above the MC floor — a longer training budget would tighten toward it. Consistent with the §12.1 Binomial features-fixed result (mean abs 0.020 at $S = 200$) once you scale by the ratio of naive MC noise.
-3. **Cross-component $K$ is unexploited (idcomp caveat).** The amortiser marginalises out cross-component correlation at deployment even though $K$ is known and available. That is fine for the per-component PPS reported here (each cell integrates $\mathbf{1}\{P(H_{1j} \mid x, z) > \eta_H\}$ over $z$ marginally) but suboptimal for downstream utilities on the joint. In real-world data the $J$ responses will be correlated; the natural extension is a full-$K$ amortiser that feeds either the whole $(y_1, \ldots, y_J)$ vector through a joint encoder or the per-component summaries through a $K$-aware attention layer. Future work.
+1.  **J-invariance holds under idcomp.** MSE moves within $\pm 0.0005$ across $J \in \{20, 60, 100\}$ despite training on a single $\text{TRAIN\_J} = 20$ cell. This is a straight consequence of the per-component decomposition: the amortised head sees only per-component features, so all $J = 100$ deployment components see the same conditional distribution as the $J = 20$ training components — the network doesn't have to know how many components there are.
+2.  **Match to the naive Monte-Carlo floor at** $S = 4000$: $\sqrt{p(1 - p) / S} \approx 0.008$ near a PPS mode of $0.5$. All three $J$ cells land at $\sqrt{\text{MSE}} \approx 0.030$–$0.036$, above the MC floor — a longer training budget would tighten toward it. Consistent with the §12.1 Binomial features-fixed result (mean abs 0.020 at $S = 200$) once you scale by the ratio of naive MC noise.
+3.  **Cross-component** $K$ is unexploited (idcomp caveat). The amortiser marginalises out cross-component correlation at deployment even though $K$ is known and available. That is fine for the per-component PPS reported here (each cell integrates $\mathbf{1}\{P(H_{1j} \mid x, z) > \eta_H\}$ over $z$ marginally) but suboptimal for downstream utilities on the joint. In real-world data the $J$ responses will be correlated; the natural extension is a full-$K$ amortiser that feeds either the whole $(y_1, \ldots, y_J)$ vector through a joint encoder or the per-component summaries through a $K$-aware attention layer. Future work.
 
 **Training + deployment timing.** One-off training 0.90 min (on 6-thread CPU); per-$J$ deployment 0.96 / 3.55 / 5.43 min for $J = 20 / 60 / 100$ across the 7-interim schedule. Deployment is Python-loop-bound (per-item `predict_amortised_p_h1_for_many_xz` → `np.interp` over 4000 rows × up to 100 items); the JAX forward pass itself is milliseconds per interim.
 
-## 12.8 Results for MVN interim analysis amortised endptx on wz with features-MLP, idcomp, qpsi-MLP, loss-multiquantilehead
+## 13.2 Results for MVN interim analysis amortised endptx on wz with features-MLP, idcomp, qpsi-MLP, loss-multiquantilehead
 
-**MVN extension of §12.2 — `idcomp` variant.** Same independent-components decomposition as §12.7 (one component's raw sequence at a time; cross-component $K$ used at TRAINING for the $\mu$ prior only). Analogous swap of the hardcoded per-component identity encoder for a learnable per-item MLP $q_\tau$:
+**MVN extension of §12.2 — `idcomp` variant.** Same independent-components decomposition as §13.1 (one component's raw sequence at a time; cross-component $K$ used at TRAINING for the $\mu$ prior only). Analogous swap of the hardcoded per-component identity encoder for a learnable per-item MLP $q_\tau$:
 
-- `MVNModel.make_training_data_with_raw_sequences` emits per-component padded scalar sequences (`item_dim = 1`), shared masks + `(n / N_max, m / N_max)` sizes. Same per-component flatten as §12.7 gives $S \cdot J$ training examples per batch, so the amortiser is again J-invariant.
+- `MVNModel.make_training_data_with_raw_sequences` emits per-component padded scalar sequences (`item_dim = 1`), shared masks + `(n / N_max, m / N_max)` sizes. Same per-component flatten as §13.1 gives $S \cdot J$ training examples per batch, so the amortiser is again J-invariant.
 - Deployment script [`scripts-py/MVN_interim_analysis_amortise_endptx_on_wz_with_features_MLP_idcomp_qpsi_MLP_loss_multiquantilehead.py`](../scripts-py/MVN_interim_analysis_amortise_endptx_on_wz_with_features_MLP_idcomp_qpsi_MLP_loss_multiquantilehead.py) per interim pivots `dpi` and `zi` on `(pid, j)` to get per-component observed / future sequences; loops per $j \in \{0, \ldots, J-1\}$ and forward-passes `S` padded raw-scalar batches so the peak tensor size stays at `(S, N_max, 1)`.
 
 **Training configuration.** Combined `(64x64 + qlv5)` config from §12.5 — MLP head `hidden_dims = (64, 64)`, `q_tau_hidden_dims = (32, 32)`, `embed_dim = 16`, 5-level $\tau$ mesh, $15\,000$ steps × batch $128$ (effective $\approx 2\,560$ per-component examples per step). Deployment $S = 4000$ posterior draws per interim (matches the other MVN methods).
 
-**Correctness against the analytic $\Phi$-tail PPS per $(J, \text{interim}, j)$** (deployment $S = 500$; the MLP forward pass on `(S, N_max, 1)` tensor per $(j, \text{interim})$ is the deployment bottleneck, so we drop $S$ from RGEA's $4000$ to $500$ to cap wall-clock):
+**Correctness against the analytic** $\Phi$-tail PPS per $(J, \text{interim}, j)$ (deployment $S = 500$; the MLP forward pass on `(S, N_max, 1)` tensor per $(j, \text{interim})$ is the deployment bottleneck, so we drop $S$ from RGEA's $4000$ to $500$ to cap wall-clock):
 
-| $J$ | # $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
-|-----|-------:|--------:|----------:|------:|------:|
-| 20  |    140 | 0.265 | 0.514 | 1.00  | 0.34  |
-| 60  |    420 | 0.284 | 0.533 | 1.00  | 0.36  |
-| 100 |    700 | 0.182 | 0.427 | 1.00  | 0.26  |
+| $J$ | \# $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
+|-----------|---------------:|----------:|-----------:|----------:|----------:|
+| 20 | 140 | 0.265 | 0.514 | 1.00 | 0.34 |
+| 60 | 420 | 0.284 | 0.533 | 1.00 | 0.36 |
+| 100 | 700 | 0.182 | 0.427 | 1.00 | 0.26 |
 
 **Findings — MLP variant is undertrained for the MVN target scale.**
 
-1. **Fixed encoder (§12.7) beats learnable encoder by two orders of magnitude here.** The MLP variant converges much more slowly than the fixed variant because the target $\rho = \mu_j - \mu_0$ inherits the prior sd of $\tau \sqrt{K_{jj}} = 10$ (vs Binomial's $\rho = 1 - p / p_0 \in [-1, 1]$), so the pinball loss lives on a much larger scale. Final training pinball loss reached $0.15$ at $3\,000$ steps and was still slowly decreasing — comparable to the Binomial MLP's $0.009$ after $15\,000$ steps only when rescaled by the target range ($\sim 100 \times$ larger for MVN).
-2. **The bottleneck is deployment compute, not training.** Each MLP forward pass over a `(S=500, N_max=1050, 1)` tensor takes ~100 ms; a full deployment loop is $J \cdot 7$ passes per $J$ cell (100 passes × 7 interims for $J = 100$). Training we can extend arbitrarily; but $S$ can't easily be pushed to match RGEA's $4000$ without a proportional wall-clock hit at deployment.
-3. **Recommendation.** For MVN with unit-diagonal $K$, prefer the features-fixed variant (§12.7): the sufficient statistic is available in closed form and the fixed encoder consumes it exactly. Reserve the MLP variant for models where the sufficient statistic is not known — with a longer training budget ($\ge 15\,000$ steps) and either target rescaling by $\tau$ or an MPS training pass (§12.6).
+1.  **Fixed encoder (§13.1) beats learnable encoder by two orders of magnitude here.** The MLP variant converges much more slowly than the fixed variant because the target $\rho = \mu_j - \mu_0$ inherits the prior sd of $\tau \sqrt{K_{jj}} = 10$ (vs Binomial's $\rho = 1 - p / p_0 \in [-1, 1]$), so the pinball loss lives on a much larger scale. Final training pinball loss reached $0.15$ at $3\,000$ steps and was still slowly decreasing — comparable to the Binomial MLP's $0.009$ after $15\,000$ steps only when rescaled by the target range ($\sim 100 \times$ larger for MVN).
+2.  **The bottleneck is deployment compute, not training.** Each MLP forward pass over a `(S=500, N_max=1050, 1)` tensor takes \~100 ms; a full deployment loop is $J \cdot 7$ passes per $J$ cell (100 passes × 7 interims for $J = 100$). Training we can extend arbitrarily; but $S$ can't easily be pushed to match RGEA's $4000$ without a proportional wall-clock hit at deployment.
+3.  **Recommendation.** For MVN with unit-diagonal $K$, prefer the features-fixed variant (§13.1): the sufficient statistic is available in closed form and the fixed encoder consumes it exactly. Reserve the MLP variant for models where the sufficient statistic is not known — with a longer training budget ($\ge 15\,000$ steps) and either target rescaling by $\tau$ or an MPS training pass (§12.6).
 
-**Training + deployment timing.** Training 15.9 min (3\,000 steps on 6-thread CPU); deployment 0.14 / 0.40 / 0.67 min for $J = 20 / 60 / 100$ across the 7-interim schedule.
+**Training + deployment timing.** Training 15.9 min (3,000 steps on 6-thread CPU); deployment 0.14 / 0.40 / 0.67 min for $J = 20 / 60 / 100$ across the 7-interim schedule.
 
-## 12.9 Full cross-method comparison for the MVN case study, per $J \in \{20, 60, 100\}$
+## 13.3 Full cross-method comparison for the MVN case study, per $J \in \{20, 60, 100\}$
 
 **MVN extension of §12.3.** [`scripts-py/MVN_interim_analyses_compare_methods.py`](../scripts-py/MVN_interim_analyses_compare_methods.py) extended with `DIR_RGEA` + `DIR_RGEB` and two new method rows (`amortised`, `amortised MLP`), piped through the existing per-J MSE + timing plot machinery. MSE is per $(J, \text{interim})$ averaged over all $J$ response components, computed against the closed-form $\Phi$-tail PPS `pps_cf` from `mvn_pps_closed_form.pkl`. Aggregate mean MSE per method per $J$ (averaged over the 7 interims):
 
 | Method | $J = 20$ | $J = 60$ | $J = 100$ | Deployment cost / interim |
-|--------|--------:|--------:|--------:|--------:|
+|-----------------------------|----------:|----------:|----------:|----------:|
 | **Amortised idcomp (features-fixed)** | **0.00091** | **0.00130** | **0.00106** | 0.14–0.78 min |
 | nested-MC using HMC for each $(x, z)$ | 0.00153 | 0.00242 | 0.00204 | 18.7–39.7 min |
 | Regression endpt-x (Gaussian approx) | 0.00348 | 0.00370 | 0.00336 | 0.12–0.76 min |
@@ -701,23 +640,22 @@ Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `s
 | Regression endpt-x (mquantile) | 0.00358 | 0.00389 | 0.00368 | 0.12–0.76 min |
 | IS reweighting of $\theta \mid x$ | 0.00453 | 0.00664 | 0.04605 | 0.09–0.51 min |
 | Amortised MLP idcomp (undertrained) | 0.26469 | 0.28351 | 0.18170 | 0.02–0.10 min |
-| Amortised MLP xcomp (undertrained; §12.10) | 0.48307 | 0.53525 | 0.59112 | 0.44–19.4 min |
-| **Amortised MLP xcompAtt** (K-mixture train, 15k steps; §12.11) | 0.00099 | **0.00087** | 0.00118 | 0.61–0.64 min |
+| Amortised MLP xcomp (undertrained; §13.4) | 0.48307 | 0.53525 | 0.59112 | 0.44–19.4 min |
+| **Amortised MLP xcompAtt** (K-mixture train, 15k steps; §13.5) | 0.00099 | **0.00087** | 0.00118 | 0.61–0.64 min |
 
-**Cross-$J$ reading.**
+**Cross-**$J$ reading.
 
-1. **Amortised idcomp (features-fixed) and amortised MLP xcompAtt tie for the top spot.** idcomp wins at $J = 20$ and $J = 100$ ($\pm 10\%$), xcompAtt wins at $J = 60$; both are $\sim 30$–$50\%$ better than nested-MC HMC and $3$–$4\times$ better than the regression family. idcomp hardcodes the exact per-component MVN sufficient statistic; xcompAtt (§12.11) learns to attend across components using the known K-row, and — critically — is trained on a *mixture* of K families rather than the deployment K, so it transfers to any K in the family. Both are J-invariant (single net across all $J$ values in the grid).
-2. **J-invariance verified end-to-end (idcomp).** MSE for the fixed amortiser moves only within $[0.00091,\ 0.00130]$ across $J \in \{20, 60, 100\}$ — no re-training, no re-tuning. This is the payoff of the per-component decomposition (§3.3 + §12.7).
-3. **Nested-MC HMC is $\sim 30$–$300\times$ slower.** Its 18.7 / 26.8 / 39.7 min per interim per $J$ dwarf the amortised variant's 0.14 / 0.40 / 0.77 min for the same $J$'s full 7-interim schedule. On the Binomial side (§12.3) the amortised advantage was already visible; on MVN, where nested-MC's inner HMC has to explore a $J$-dimensional posterior at every $z^{(s)}$, the gap widens.
-4. **IS collapses at $J = 100$.** Effective sample size drops as the future-data dimension grows, so the reweighted PPS estimator's variance explodes ($\text{MSE} \times 15$ vs $J = 20$). The regression + amortised families are unaffected — they operate on per-component summaries and don't reweight in $\theta$-space. This is the same failure mode noted in Appendix A.1.1.
-5. **MLP amortiser idcomp is undertrained here.** Its ~0.26 MSE is a training-budget artefact, not a fundamental issue with the method (§12.8). For MVN we recommend the features-fixed idcomp variant when $K_{jj} = 1$ (unit-diagonal); the MLP variant only pays off when the sufficient statistic is unknown (Categorical, IRT).
+1.  **Amortised idcomp (features-fixed) and amortised MLP xcompAtt tie for the top spot.** idcomp wins at $J = 20$ and $J = 100$ ($\pm 10\%$), xcompAtt wins at $J = 60$; both are $\sim 30$–$50\%$ better than nested-MC HMC and $3$–$4\times$ better than the regression family. idcomp hardcodes the exact per-component MVN sufficient statistic; xcompAtt (§13.5) learns to attend across components using the known K-row, and — critically — is trained on a *mixture* of K families rather than the deployment K, so it transfers to any K in the family. Both are J-invariant (single net across all $J$ values in the grid).
+2.  **J-invariance verified end-to-end (idcomp).** MSE for the fixed amortiser moves only within $[0.00091,\ 0.00130]$ across $J \in \{20, 60, 100\}$ — no re-training, no re-tuning. This is the payoff of the per-component decomposition (§3.3 + §13.1).
+3.  **Nested-MC HMC is** $\sim 30$–$300\times$ slower. Its 18.7 / 26.8 / 39.7 min per interim per $J$ dwarf the amortised variant's 0.14 / 0.40 / 0.77 min for the same $J$'s full 7-interim schedule. On the Binomial side (§12.3) the amortised advantage was already visible; on MVN, where nested-MC's inner HMC has to explore a $J$-dimensional posterior at every $z^{(s)}$, the gap widens.
+4.  **IS collapses at** $J = 100$. Effective sample size drops as the future-data dimension grows, so the reweighted PPS estimator's variance explodes ($\text{MSE} \times 15$ vs $J = 20$). The regression + amortised families are unaffected — they operate on per-component summaries and don't reweight in $\theta$-space. This is the same failure mode noted in Appendix A.1.1.
+5.  **MLP amortiser idcomp is undertrained here.** Its \~0.26 MSE is a training-budget artefact, not a fundamental issue with the method (§13.2). For MVN we recommend the features-fixed idcomp variant when $K_{jj} = 1$ (unit-diagonal); the MLP variant only pays off when the sufficient statistic is unknown (Categorical, IRT).
 
-Full per-J boxplots + timing bars + MSE plots live under `py-mvn-interim-compare-methods-260609/`:
-`mvn_J{J}_compare_methods_p_h1_xz_all.pdf`, `mvn_J{J}_compare_methods_pps_all.pdf`, `mvn_J{J}_compare_methods_timing.pdf`, `mvn_compare_methods_mse.pdf`.
+Full per-J boxplots + timing bars + MSE plots live under `py-mvn-interim-compare-methods-260609/`: `mvn_J{J}_compare_methods_p_h1_xz_all.pdf`, `mvn_J{J}_compare_methods_pps_all.pdf`, `mvn_J{J}_compare_methods_timing.pdf`, `mvn_compare_methods_mse.pdf`.
 
-## 12.10 Cross-component amortiser (`xcomp`) — nested DeepSets + K-row query
+## 13.4 Cross-component amortiser (`xcomp`) — nested DeepSets + K-row query
 
-**Motivation.** §12.7/§12.8 idcomp variants ignore the known cross-component covariance $K$ at deployment. In real data the $J$ responses will be correlated and the amortiser should leverage that. `xcomp` is the standard-techniques answer: nested DeepSets over $(\text{participant}\ i, \text{component}\ j)$ tokens plus a $K$-row query. No transformer, no attention — just DeepSets applied twice.
+**Motivation.** §13.1/§13.2 idcomp variants ignore the known cross-component covariance $K$ at deployment. In real data the $J$ responses will be correlated and the amortiser should leverage that. `xcomp` is the standard-techniques answer: nested DeepSets over $(\text{participant}\ i, \text{component}\ j)$ tokens plus a $K$-row query. No transformer, no attention — just DeepSets applied twice.
 
 **Architecture.** Two-scalar per-token feature $(K[j^*, j],\ y_{i, j})$ tells each token *how* it correlates with the queried component. Inner shared-weights MLP $q_\tau^{\text{inner}}: \mathbb{R}^2 \to \mathbb{R}^{E}$, sum-pool over components $j$ → per-participant embedding $h_i$; sum-pool over participants $i$ with mask → set-of-participants embedding $\text{pooled} \in \mathbb{R}^E$. Same encoder applied to $x$ and $z$ with shared weights. Head $q_\psi$ concatenates $(\text{pooled}_x, \text{pooled}_z, \text{sizes}, K[j^*, j^*])$ and predicts the 5-quantile grid.
 
@@ -733,20 +671,20 @@ Full per-J boxplots + timing bars + MSE plots live under `py-mvn-interim-compare
 
 **Results.**
 
-| $J$ | MSE | Mean abs err | Deployment min/interim |
-|-----|----:|-----:|------:|
-| 20  | 0.483 | 0.52 | 0.44 |
-| 60  | 0.535 | 0.57 | 4–11 |
-| 100 | 0.591 | 0.64 | 18.9–19.9 |
+| $J$ |   MSE | Mean abs err | Deployment min/interim |
+|-----|------:|-------------:|-----------------------:|
+| 20  | 0.483 |         0.52 |                   0.44 |
+| 60  | 0.535 |         0.57 |                   4–11 |
+| 100 | 0.591 |         0.64 |              18.9–19.9 |
 
 Training pinball loss dropped from $1954 \to 2.06$ over $4\,000$ steps (16 min wall-clock on 6-thread CPU); loss still monotonically decreasing at the last checkpoint.
 
 **Findings.**
 
-1. **Architecture works, training budget too low.** Loss trajectory is monotone-descent and the loss floor extrapolates further down; the deployment MSE is not the fundamental ceiling of the method but the wall-clock we could afford here. The Binomial features-MLP idcomp needed $15\,000$ steps in §12.2 to reach its floor; xcomp on MVN with the bigger token count and the extra K-row degree of freedom will need at least that much on MPS.
-2. **Deployment is compute-bound.** The per-interim cost scales with $S \cdot J^2 \cdot N_\text{max}$ (encoder tokens are $(S, J, N_\text{max}, J)$). At $J = 100$ this is 20 min per interim on CPU. The natural fix is to cache pooled_x per (interim, query) across posterior draws — pooled_x depends on $j^*$ (via K-row) but not on $s$, so a per-$j$ pre-pass reduces compute by roughly $2 \times$ across the deployment loop. Further speedups from MPS (matmul-heavy encoder) and from S-chunking. Not implemented here.
-3. **Standard tools, no exotic layers.** Deliberately kept to a Flax MLP + `jnp.sum` + broadcast. The paper-value of the exercise is that any team with a Flax/PyTorch stack can add the K-row query and swap out idcomp for xcomp in a day — no new machinery.
-4. **Recommended follow-ups** to make xcomp competitive:
+1.  **Architecture works, training budget too low.** Loss trajectory is monotone-descent and the loss floor extrapolates further down; the deployment MSE is not the fundamental ceiling of the method but the wall-clock we could afford here. The Binomial features-MLP idcomp needed $15\,000$ steps in §12.2 to reach its floor; xcomp on MVN with the bigger token count and the extra K-row degree of freedom will need at least that much on MPS.
+2.  **Deployment is compute-bound.** The per-interim cost scales with $S \cdot J^2 \cdot N_\text{max}$ (encoder tokens are $(S, J, N_\text{max}, J)$). At $J = 100$ this is 20 min per interim on CPU. The natural fix is to cache pooled_x per (interim, query) across posterior draws — pooled_x depends on $j^*$ (via K-row) but not on $s$, so a per-$j$ pre-pass reduces compute by roughly $2 \times$ across the deployment loop. Further speedups from MPS (matmul-heavy encoder) and from S-chunking. Not implemented here.
+3.  **Standard tools, no exotic layers.** Deliberately kept to a Flax MLP + `jnp.sum` + broadcast. The paper-value of the exercise is that any team with a Flax/PyTorch stack can add the K-row query and swap out idcomp for xcomp in a day — no new machinery.
+4.  **Recommended follow-ups** to make xcomp competitive:
     - Longer training ($15\,000$+ steps) — probably enough to close the gap to idcomp fixed.
     - Cache pooled_x per interim per query across posterior draws (halves deployment cost).
     - Try attention over the component axis in place of the inner sum-pool — modest change, potentially large gain when intra-block K is strong.
@@ -754,16 +692,16 @@ Training pinball loss dropped from $1954 \to 2.06$ over $4\,000$ steps (16 min w
 
 The design shows that going from idcomp to a K-aware amortiser is a small architectural step with standard machinery; the current run demonstrates the plumbing works end-to-end but leaves the empirical MSE comparison to a longer training pass.
 
-## 12.11 Cross-component attention + K-family-invariant training (`xcompAtt`)
+## 13.5 Cross-component attention + K-family-invariant training (`xcompAtt`)
 
-**Two changes on top of `xcomp`** (§12.10), motivated by the follow-ups listed at the end of §12.10:
+**Two changes on top of `xcomp`** (§13.4), motivated by the follow-ups listed at the end of §13.4:
 
-1. **Attention over the component axis** replaces the inner sum-pool. A single-head cross-attention block learns per-component weights conditioned on `K[j*, :]` instead of giving every component equal weight — the natural fix when intra-block correlation is strong.
-2. **K-family-invariant training.** Each prior draw picks its own K from a mixture of standard families (identity / AR(1) / block-equicorrelation / factor); the amortiser sees `K[j*, :]` as its only cue for correlation structure, so a single trained net handles any K the mixture spans. Deployment K (block-equicorr with $\rho_w = 0.8$, $\rho_b = 0.1$) is one member of the training mixture but not the one the training loop sees most often.
+1.  **Attention over the component axis** replaces the inner sum-pool. A single-head cross-attention block learns per-component weights conditioned on `K[j*, :]` instead of giving every component equal weight — the natural fix when intra-block correlation is strong.
+2.  **K-family-invariant training.** Each prior draw picks its own K from a mixture of standard families (identity / AR(1) / block-equicorrelation / factor); the amortiser sees `K[j*, :]` as its only cue for correlation structure, so a single trained net handles any K the mixture spans. Deployment K (block-equicorr with $\rho_w = 0.8$, $\rho_b = 0.1$) is one member of the training mixture but not the one the training loop sees most often.
 
 ### Architecture (simple, standard)
 
-- Per-component token = three scalars `(x_sum[j], z_sum[j], K[j*, j])`. Component summaries $\sum_i y_{i, j}$ are the exact MVN sufficient statistic for $\mu_j$ given $(x, z)$ — the participant-level tokens of §12.10 add no information.
+- Per-component token = three scalars `(x_sum[j], z_sum[j], K[j*, j])`. Component summaries $\sum_i y_{i, j}$ are the exact MVN sufficient statistic for $\mu_j$ given $(x, z)$ — the participant-level tokens of §13.4 add no information.
 - Token embedding: shared SiLU-MLP `q_tok` → embedding in $\mathbb{R}^{32}$.
 - Query = MLP of `(sizes, K[j*, j*])` — derived from what the queried component "knows about itself".
 - Scaled dot-product attention (single head, one query per batch element, keys/values = $J$ per-component embeddings). Standard `jnp.einsum` + `jax.nn.softmax`, no attention library.
@@ -779,7 +717,7 @@ Total code: 60 lines including docstring. `Amortiser_PPS_features_MLP_xcompAtt_q
 
 ### Training + deployment
 
-- **$15\,000$ steps**, $S = 32$ prior draws × $Q = 4$ query components per step → effective batch $B = 128$; TRAIN_J = 20; train K-mixture = `('identity', 'ar1', 'block', 'factor')`.
+- $15\,000$ steps, $S = 32$ prior draws × $Q = 4$ query components per step → effective batch $B = 128$; TRAIN_J = 20; train K-mixture = `('identity', 'ar1', 'block', 'factor')`.
 - Wall-clock: **0.71 min = 43 seconds** on 6-thread CPU. Sampler is 0.5 ms/step; encoder is $\mathcal{O}(B \cdot J \cdot \text{embed}) = \mathcal{O}(80\,\text{K})$ scalars/step (no participant loop → $N_\text{max} = 1050 \times$ cheaper than xcomp).
 - Deployment: 0.61 / 0.62 / 0.64 min per J across the 7-interim schedule — flat in J because the per-forward encoder is $J \times J$ tokens, still tiny.
 - Training pinball loss $3.91 \to 0.009$; final quartile 0.007–0.009, converged.
@@ -788,78 +726,29 @@ Total code: 60 lines including docstring. `Amortiser_PPS_features_MLP_xcompAtt_q
 
 MSE against the analytic $\Phi$-tail PPS, averaged across the 7 interims per $J$ (block-equicorr deployment K; K-mixture training):
 
-| $J$ | xcompAtt (K-mixture train) | idcomp fixed (§12.7 baseline) | nested-MC HMC | Regression Gauss |
-|-----|---:|---:|---:|---:|
-| 20  | 0.00099 | **0.00091** | 0.00153 | 0.00348 |
-| 60  | **0.00087** | 0.00130 | 0.00242 | 0.00370 |
+| $J$ | xcompAtt (K-mixture train) | idcomp fixed (§13.1 baseline) | nested-MC HMC | Regression Gauss |
+|-------------|---------------:|-----------------:|------------:|------------:|
+| 20 | 0.00099 | **0.00091** | 0.00153 | 0.00348 |
+| 60 | **0.00087** | 0.00130 | 0.00242 | 0.00370 |
 | 100 | 0.00118 | **0.00106** | 0.00204 | 0.00336 |
 
-- **Matches idcomp fixed at $J = 20$ and $J = 100$ ($\pm 10\%$).** Beats it at $J = 60$. And this is despite xcompAtt being trained on a MIXTURE of K families (identity / AR(1) / block / factor) rather than the specific deployment K.
-- **~500× improvement over `xcomp`** (§12.10 was 0.483 / 0.535 / 0.591 undertrained). Combined effect of (a) attention over j + component-summary tokens, (b) 4× more training steps at the same wall-clock, (c) K-family-invariant training.
-- **~2× lower MSE than nested-MC HMC at every $J$.** ~40× lower at $J = 100$ vs IS.
+- **Matches idcomp fixed at** $J = 20$ and $J = 100$ ($\pm 10\%$). Beats it at $J = 60$. And this is despite xcompAtt being trained on a MIXTURE of K families (identity / AR(1) / block / factor) rather than the specific deployment K.
+- **\~500× improvement over `xcomp`** (§13.4 was 0.483 / 0.535 / 0.591 undertrained). Combined effect of (a) attention over j + component-summary tokens, (b) 4× more training steps at the same wall-clock, (c) K-family-invariant training.
+- **\~2× lower MSE than nested-MC HMC at every** $J$. \~40× lower at $J = 100$ vs IS.
 - Training + deployment total 3 min end-to-end for the whole table.
 
 ### Reading
 
-1. **Attention over j is the right primitive here.** Sum-pool + inner participant DeepSets (xcomp) forces the amortiser to spread capacity across $\mathcal{O}(J \cdot N_\text{max})$ tokens per query; attention on per-component sums keeps compute on the actually-informative axis and lets the network re-weight components by their K-correlation to the query. The wall-clock swing (16 min → 43 sec training; hours → seconds deployment) is entirely from cutting the participant axis + the exact-sufficient-statistic tokenisation, not from attention per se.
-2. **K-family-invariant training does NOT cost accuracy.** Even under a training K distribution that spans identity → AR(1) → block → factor, xcompAtt lands within $\pm 10\%$ of a variant trained on the specific deployment K (idcomp fixed). The obvious extension is to train on a K distribution matched to what a downstream user's model prior implies — e.g. sampling K from a hierarchical prior on the covariance itself. Because the K-family cost is zero here, this is a free upgrade for real-world deployments where the analyst won't know the deployment K in advance.
-3. **Beats idcomp fixed at $J = 60$.** The K-mixture training gives the attention head examples where the correct answer requires *weighting* components differently — identity means "ignore other j's", block means "attend to same-block j's" — so at deployment the head has learned to look at the K-row profile and weight accordingly. idcomp fixed treats every component identically and can't exploit K at all; when $J$ is large enough that neighbouring components carry usable information about $\mu_{j^*}$, xcompAtt wins.
-4. **Standard techniques throughout.** No transformer library, no multi-head attention stack, no custom kernel. `_MLP` + `jnp.stack` + `jnp.einsum` + `jax.nn.softmax` — the same primitives already in §12.10. The performance jump is architecture (attention on sufficient statistics vs sum-pool on raw participants), not tooling.
+1.  **Attention over j is the right primitive here.** Sum-pool + inner participant DeepSets (xcomp) forces the amortiser to spread capacity across $\mathcal{O}(J \cdot N_\text{max})$ tokens per query; attention on per-component sums keeps compute on the actually-informative axis and lets the network re-weight components by their K-correlation to the query. The wall-clock swing (16 min → 43 sec training; hours → seconds deployment) is entirely from cutting the participant axis + the exact-sufficient-statistic tokenisation, not from attention per se.
+2.  **K-family-invariant training does NOT cost accuracy.** Even under a training K distribution that spans identity → AR(1) → block → factor, xcompAtt lands within $\pm 10\%$ of a variant trained on the specific deployment K (idcomp fixed). The obvious extension is to train on a K distribution matched to what a downstream user's model prior implies — e.g. sampling K from a hierarchical prior on the covariance itself. Because the K-family cost is zero here, this is a free upgrade for real-world deployments where the analyst won't know the deployment K in advance.
+3.  **Beats idcomp fixed at** $J = 60$. The K-mixture training gives the attention head examples where the correct answer requires *weighting* components differently — identity means "ignore other j's", block means "attend to same-block j's" — so at deployment the head has learned to look at the K-row profile and weight accordingly. idcomp fixed treats every component identically and can't exploit K at all; when $J$ is large enough that neighbouring components carry usable information about $\mu_{j^*}$, xcompAtt wins.
+4.  **Standard techniques throughout.** No transformer library, no multi-head attention stack, no custom kernel. `_MLP` + `jnp.stack` + `jnp.einsum` + `jax.nn.softmax` — the same primitives already in §13.4. The performance jump is architecture (attention on sufficient statistics vs sum-pool on raw participants), not tooling.
 
 **Recommendation.** For MVN-family case studies where $K$ is known (or drawn from a known family), adopt **xcompAtt as the new default amortised method**: it matches or beats idcomp fixed on MSE, matches it on deployment cost, halves the training wall-clock, and — crucially — transfers to any K within the training family mixture without a retrain. Keep idcomp fixed as the sanity-check baseline.
 
-## 12.12 Ukraine partial-credit adaptation of `xcompAtt`
+## 13.6 Data-agnostic amortisers: `itemScompAtt` (self-attention) + `itemXcompAtt` (cross-attention) + math comparison
 
-**Task.** Adapt the MVN xcompAtt (§12.11) to the Ukraine partial-credit (PCM) interim analysis. Same self-attention-over-components skeleton, retargeted to Strong-Oakley per-(item, draw) `wa` frames — the input the regression-endpt methods (§ Ukraine RGE / RGEQ / RGEM) already consume.
-
-**Key structural changes vs MVN.**
-
-1. **No closed-form K matrix.** MVN carries an explicit $K \in \mathbb{R}^{J \times J}$; Ukraine's PCM induces cross-item correlation via the shared latent factor $\theta$, and the correlation matrix is not directly parameterised. Solution: drop the K-row query and use **fully-learned self-attention** over the $J = 20$ items. Attention weights are inferred entirely from the (w_baseline, w_endline) summaries + item metadata.
-2. **Per-item token = 5 scalars.** Three continuous features `(w_baseline, w_endline, w_ratio)` plus two discrete indicators `(item_type_idx, item_high_idx)` — the latter tell the encoder whether an item is `categorical` vs `out-of-7` and `higher_is_better` vs `lower_is_better`. The MVN token was 3 scalars including the K-row entry; here the K-row entry is replaced by discrete metadata that identifies the item's role in the endpoint.
-3. **Query mechanism = gather at item position.** Self-attention over items produces a `(J, embed_dim)` matrix; the head predicts one quantile grid per item, and at loss time we gather the prediction at the queried item's position. Standard set-transformer output layer.
-4. **Training data = cached Strong-Oakley wa frames.** Because Ukraine PCM prior-predictive sampling requires drawing $\theta$, item loadings, thresholds and $\mathcal{O}(N)$ ordered-categorical responses per prior draw, we side-step that cost by training on the wa frames already written by the regression scripts (8 interims × 4000 draws × 20 items = 640 K rows). This is supervised learning on posterior samples rather than true prior-predictive amortisation — same regime as Strong-Oakley regression, just with a richer joint architecture.
-
-Files:
-
-- [`python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — 90 lines including docstring. `_MLP` + self-attention (`einsum` + `softmax`) + gather. Standard Flax.
-- [`scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — loads all 8 interims' wa, pools them into a training tensor, trains once, deploys per interim.
-- [`scripts-py/Ukraine_interim_analysis_compare_methods.py`](../scripts-py/Ukraine_interim_analysis_compare_methods.py) extended to load the RGEE perf-long pkl alongside the existing regression + IS families.
-
-### Training configuration
-
-- $6\,000$ steps, batch $S = 256$ draws (fanned out to $B = S \cdot J = 5120$ per-item rows / step), TARGET_CLIP = 3.0 (raw `pps_ratio_x` has one outlier at $-2.3 \times 10^{12}$; clipping brings it into the tail of the target distribution without distorting quantiles < 3).
-- Loss: multi-quantile pinball over $\tau \in \{0.05, 0.25, 0.5, 0.75, 0.95\}$.
-- Wall-clock: **6.82 min training** on 6-thread CPU (JIT overhead + heavy batch = 5120 attention forward passes / step). Trainable params ≈ 12 K.
-- Deployment: **0.007 min / interim** across all 8 interims = 7 s total.
-
-### Results
-
-Ukraine has no analytic ground-truth PPS, so we compare xcompAtt's PPS to the two closest baselines — Strong-Oakley regression with Gaussian approximation (RGE) and Strong-Oakley regression with multi-quantile regression (RGEM).
-
-**PPS agreement across 160 (interim, item) cells:**
-
-| Comparison | Pearson $\rho$ | Median $|\Delta \text{PPS}|$ | Mean $|\Delta \text{PPS}|$ | Max $|\Delta \text{PPS}|$ |
-|-----------|--------------:|---:|---:|---:|
-| xcompAtt vs RGEM (mquantile) | 0.919 | 0.001 | 0.050 | 0.945 |
-| xcompAtt vs RGE (Gauss)      | 0.909 | 0.001 | 0.050 | 0.945 |
-| RGE vs RGEM                  | 0.998 | 0.000 | 0.014 | 0.148 |
-
-- **Median absolute PPS difference is 0.001.** For the vast majority of (interim, item) cells the amortiser reproduces the Strong-Oakley regression PPS to $\le 0.1\%$.
-- **~25% of cells differ by more than $0.03$**, driven by (item, interim) pairs where cross-item info moves the prediction. These are precisely the cells attention is designed to help on; whether the shift is beneficial requires ground-truth PPS (not available for Ukraine PCM). A leave-one-interim-out held-out evaluation would put a number on it — future work.
-- **RGE and RGEM are essentially the same estimator** ($\rho = 0.998$, median diff 0.000). xcompAtt is the first estimator in the Ukraine pipeline that produces materially different PPS values — the difference is where cross-item information becomes actionable.
-
-### Reading
-
-1. **Architecture ports cleanly.** No changes to the attention block; the K-row is replaced by discrete item metadata. That the MVN → PCM adaptation is 90 lines of code + a training-data reshaping call speaks to how modular the xcompAtt design is.
-2. **Deployment cost is trivial.** 7 seconds for the whole 8-interim schedule × 20 items × 4000 posterior draws (640 K predictions). Strong-Oakley mquantile regression fits 20 × 5 = 100 quantile regressions per interim; xcompAtt is one JIT-compiled forward pass.
-3. **Training pool = cached wa frames is a demo, not a full amortiser.** To be a *true* amortised method the training loop should draw from the PCM prior-predictive; here we short-circuit that by using cached HMC/SVI posterior draws as training targets. The architecture is unchanged, but the accuracy story is bounded by the training targets' quality. Proper amortisation requires a PCM prior sampler (draw $\theta$, loadings, thresholds, then $N \cdot J$ ordered-categorical responses) — deferred.
-4. **Where xcompAtt would beat the regression baselines.** When two items share strong empirical correlation (e.g. `CG-DEPRESSION` and `CG-VIO_scream` both loading on the same latent), the amortiser's attention head can borrow strength from the correlated item's summary when the queried item's own signal is weak (early interim, small $n_x$). Ukraine's cross-item correlations are moderate; the MSE improvement (against ground truth, which we don't have) would likely be small but non-zero. The MVN $J = 60$ result (§12.11) is the clean demonstration.
-
-**Recommendation.** For real-world case studies where (a) items share a latent factor and (b) no analytic PPS is available, xcompAtt is worth trying as a supervised layer on top of the Strong-Oakley wa pipeline. Deployment cost is negligible; training cost is bounded by the wa pool size. If a PCM prior sampler is invested in, the same architecture becomes a genuine amortiser with the standard "train once → deploy anywhere" story.
-
-## 12.13 Data-agnostic amortisers: `itemScompAtt` (self-attention) + `itemXcompAtt` (cross-attention) + math comparison
-
-To reuse the same amortiser code across MVN (§12.11) and Ukraine PCM (§12.12) we split the previous case-study-specific classes into two data-agnostic siblings distinguished only by the attention mechanism:
+To reuse the same amortiser code across MVN (§13.5) and Ukraine PCM (§14.1) we split the previous case-study-specific classes into two data-agnostic siblings distinguished only by the attention mechanism:
 
 - **`Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead`** ([`python/amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead.py)) — **S**elf-attention across $J$ items + gather at the queried item + learned attention-score bias on the queried key (fix B).
 - **`Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead`** ([`python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py)) — **X (cross)**-attention: 1 learned query per batch element (built from the queried item's own raw token features via a small MLP `q_query`) vs $J$ keys/values.
@@ -873,63 +762,50 @@ Fix a case study with:
 - $J$ items (MVN: components; Ukraine: PCM questions),
 - one queried item index $j^* \in \{1, \ldots, J\}$ per batch element,
 - observed cohort size $n$, future cohort size $m$, total $N = n + m$ (fixed),
+- $S$ posterior draws of the future cohort from the fitted model, indexed $s = 1, \ldots, S$: at deploy time $z^{(s)} = (z^{(s)}_{i, j})$ is the $s$-th posterior-predictive replay of the $m$ future participants,
 - for MVN: known covariance matrix $K \in \mathbb{R}^{J \times J}$.
 
-Let $F$ be the per-item raw feature dim, $A$ the aux-feature dim, $E$ the embedding dim (32), $K_\tau$ the number of quantile levels (5).
+Let $F$ be the per-item raw feature dim, $A$ the aux-feature dim, $E$ the embedding dim (32), $K_\tau$ the number of quantile levels (5). A batch element is a single triple $(j^*, s, \text{interim})$ — one query, one posterior draw, one interim cohort. At deployment we forward-pass all $J \cdot S$ batch elements per interim.
 
 ### Per-token features (case-study dependent; same in both amortisers)
 
-For MVN, given the queried component $j^*$ and $j \in \{1, \ldots, J\}$:
+For MVN, given the queried component $j^*$ and $j \in \{1, \ldots, J\}$ under posterior draw $s$:
 
-$$
-t^{(j^*)}_j \;=\; \Big(\underbrace{\tfrac{1}{N}\!\sum_{i=1}^{n} y_{i, j}}_{\bar y_j},\; \underbrace{\tfrac{1}{N}\!\sum_{i=1}^{m} z_{i, j}}_{\bar z_j},\; \underbrace{K_{j^*, j}}_{\text{K-row at }j^*}\Big) \;\in\; \mathbb{R}^{F},\qquad F = 3.
-$$
+$$t^{(j^*, s)}_j \;=\; \Big(\underbrace{\tfrac{1}{N}\!\sum_{i=1}^{n} y_{i, j}}_{\bar y_j\;(\text{$s$-invariant})},\; \underbrace{\tfrac{1}{N}\!\sum_{i=1}^{m} z^{(s)}_{i, j}}_{\bar z^{(s)}_j\;(\text{$s$-dependent})},\; \underbrace{K_{j^*, j}}_{\text{K-row at }j^*}\Big) \;\in\; \mathbb{R}^{F},\qquad F = 3.$$
 
-The first two entries are case-study-invariant per-item summaries (do not depend on $j^*$). The third, $K_{j^*, j}$, IS $j^*$-dependent — different queries see different token features. That is where the "K tells us how informative item $j$ is for item $j^*$" signal enters. For Ukraine, $t^{(j^*)}_j$ has $F = 5$ and no $j^*$-dependent entry (item metadata is fixed).
+$\bar y_j$ is fixed across $s$ (the observed cohort does not change); $\bar z^{(s)}_j$ varies across $s$ (that is the amortiser's source of posterior-predictive information). $K_{j^*, j}$ depends on $j^*$ only. For Ukraine (§14.1), $t^{(j^*, s)}_j \in \mathbb{R}^{F}$ with $F = 8$, including an empirical $\hat K$-row as the $j^*$-dependent entry (see §14.1.3).
 
-Aux scalars for the head (case-study dependent, $j^*$-dependent for MVN):
+Aux scalars for the head (case-study dependent, $j^*$-dependent for MVN; $s$-invariant):
 
-$$
-a^{(j^*)} \;=\; \big(n / N,\; m / N,\; K_{j^*, j^*}\big) \;\in\; \mathbb{R}^{A}, \qquad A = 3.
-$$
+$$a^{(j^*)} \;=\; \big(n / N,\; m / N,\; K_{j^*, j^*}\big) \;\in\; \mathbb{R}^{A}, \qquad A = 3.$$
 
 Token encoder (shared MLP, applied per token):
 
-$$
-h^{(j^*)}_j \;=\; q_{\text{tok}}\!\big(t^{(j^*)}_j\big) \;\in\; \mathbb{R}^{E}, \qquad j = 1, \ldots, J.
-$$
+$$h^{(j^*, s)}_j \;=\; q_{\text{tok}}\!\big(t^{(j^*, s)}_j\big) \;\in\; \mathbb{R}^{E}, \qquad j = 1, \ldots, J.$$
 
-We keep the superscript $(j^*)$ on tokens because their K-row entry changes with $j^*$; the encoder $q_{\text{tok}}$ is shared across all $(j, j^*)$.
+We keep the superscript $(j^*, s)$ on tokens because their K-row entry changes with $j^*$ and their $\bar z^{(s)}_j$ entry changes with $s$; the encoder $q_{\text{tok}}$ is shared across all $(j, j^*, s)$.
 
 ### Variant 1 — cross-attention (`itemXcompAtt`, approach ii)
 
-Build a single query vector for this batch element from the queried item's own raw features:
+Build a single query vector for this batch element from the queried item's own raw features (a subtle abuse of notation: `q_query` sees the raw token, not the encoded one):
 
-$$
-q^{(j^*)} \;=\; q_{\text{query}}\!\big(t^{(j^*)}_{j^*}\big) \;\in\; \mathbb{R}^{E}.
-$$
+$$q^{(j^*, s)} \;=\; q_{\text{query}}\!\big(t^{(j^*, s)}_{j^*}\big) \;\in\; \mathbb{R}^{E}.$$
 
 Cross-attention (one query, $J$ keys/values):
 
-$$
-s^{(j^*)}_j \;=\; \frac{\big\langle q^{(j^*)},\; h^{(j^*)}_j\big\rangle}{\sqrt{E}} \;\in\; \mathbb{R}, \qquad w^{(j^*)}_j \;=\; \operatorname{softmax}_{j'\in\{1,\ldots,J\}}\!\big(s^{(j^*)}_{j'}\big) \;\in\; [0, 1].
-$$
+$$\text{score}^{(j^*, s)}_j \;=\; \frac{\big\langle q^{(j^*, s)},\; h^{(j^*, s)}_j\big\rangle}{\sqrt{E}} \;\in\; \mathbb{R}, \qquad w^{(j^*, s)}_j \;=\; \operatorname{softmax}_{j'\in\{1,\ldots,J\}}\!\big(\text{score}^{(j^*, s)}_{j'}\big) \;\in\; [0, 1].$$
 
 Aggregated summary:
 
-$$
-\bar h^{(j^*)} \;=\; \sum_{j = 1}^{J} w^{(j^*)}_j \, h^{(j^*)}_j \;\in\; \mathbb{R}^{E}.
-$$
+$$\bar h^{(j^*, s)} \;=\; \sum_{j = 1}^{J} w^{(j^*, s)}_j \, h^{(j^*, s)}_j \;\in\; \mathbb{R}^{E}.$$
 
 Head:
 
-$$
-\hat\rho^{(j^*)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*)},\; t^{(j^*)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.
-$$
+$$\hat\rho^{(j^*, s)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*, s)},\; t^{(j^*, s)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.$$
 
 **Head input dimension:** $E + F + A = 32 + 3 + 3 = 38$.
 
-**# attention scores per batch element:** $J$ (one query, $J$ keys).
+**\# attention scores per batch element:** $J$ (one query, $J$ keys).
 
 **Query info:** entirely in $q^{(j^*)}$ = MLP of queried item's raw features. Every non-queried token contributes via its dot-product with $q^{(j^*)}$; tokens with high $K_{j^*, j}$ produce embeddings $h^{(j^*)}_j$ near $h^{(j^*)}_{j^*}$ and attract high weight.
 
@@ -937,39 +813,31 @@ $$
 
 Self-attention: every one of the $J$ tokens acts as both query and key. Learned scalar $\alpha \in \mathbb{R}$ biases each row toward the queried key so the attention softmax has an unambiguous query identity.
 
-$$
-s^{(j^*)}_{a, b} \;=\; \frac{\big\langle h^{(j^*)}_a,\; h^{(j^*)}_b\big\rangle}{\sqrt{E}} \;+\; \alpha \cdot \mathbf{1}\{b = j^*\}, \qquad a, b \in \{1, \ldots, J\}.
-$$
+$$\text{score}^{(j^*, s)}_{a, b} \;=\; \frac{\big\langle h^{(j^*, s)}_a,\; h^{(j^*, s)}_b\big\rangle}{\sqrt{E}} \;+\; \alpha \cdot \mathbf{1}\{b = j^*\}, \qquad a, b \in \{1, \ldots, J\}.$$
 
-$$
-w^{(j^*)}_{a, b} \;=\; \operatorname{softmax}_{b'\in\{1,\ldots,J\}}\!\big(s^{(j^*)}_{a, b'}\big), \qquad h'^{\,(j^*)}_a \;=\; \sum_{b = 1}^{J} w^{(j^*)}_{a, b}\, h^{(j^*)}_b \;\in\; \mathbb{R}^{E}.
-$$
+$$w^{(j^*, s)}_{a, b} \;=\; \operatorname{softmax}_{b'\in\{1,\ldots,J\}}\!\big(\text{score}^{(j^*, s)}_{a, b'}\big), \qquad h'^{\,(j^*, s)}_a \;=\; \sum_{b = 1}^{J} w^{(j^*, s)}_{a, b}\, h^{(j^*, s)}_b \;\in\; \mathbb{R}^{E}.$$
 
 Gather at the queried position:
 
-$$
-\bar h^{(j^*)} \;=\; h'^{\,(j^*)}_{j^*} \;\in\; \mathbb{R}^{E}.
-$$
+$$\bar h^{(j^*, s)} \;=\; h'^{\,(j^*, s)}_{j^*} \;\in\; \mathbb{R}^{E}.$$
 
 Head (same shape as cross-attn variant):
 
-$$
-\hat\rho^{(j^*)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*)},\; t^{(j^*)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.
-$$
+$$\hat\rho^{(j^*, s)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big(\bar h^{(j^*, s)},\; t^{(j^*, s)}_{j^*},\; a^{(j^*)}\big)\big)\Big]_k \;\in\; \mathbb{R}, \qquad k = 1, \ldots, K_\tau.$$
 
 **Head input dimension:** $E + F + A = 32 + 3 + 3 = 38$ (identical to cross-attn variant).
 
-**# attention scores per batch element:** $J^2$ (every token queries every token).
+**\# attention scores per batch element:** $J^2$ (every token queries every token).
 
 **Query info:** carried by (1) the gather position $j^*$ and (2) the learned scalar $\alpha$ that biases attention scores toward the queried key. $\alpha$ is the ONLY new learnable parameter compared to the cross-attn variant with `q_query` collapsed to identity.
 
 ### Difference summary
 
-Every symbol carries an explicit $(j^*)$ superscript above; the table below drops it for brevity.
+Every symbol carries an explicit $(j^*, s)$ superscript above; the table below drops it for brevity.
 
 | item | `itemXcompAtt` (cross-attn) | `itemScompAtt` (self-attn + gather + B) |
-|---|---|---|
-| # attention scores per batch element | $J$ | $J^2$ |
+|----------------|-------------------------------|-------------------------|
+| \# attention scores per batch element | $J$ | $J^2$ |
 | query built from | $q_{\text{query}}(t_{j^*}) \in \mathbb{R}^E$ | gather position $j^*$ + $\alpha \cdot \mathbf{1}\{b = j^*\}$ |
 | attention output | $\bar h = \sum_{j=1}^J w_j h_j$ (weighted sum) | $\bar h = h'_{j^*}$ (gather) |
 | head input | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ |
@@ -981,37 +849,37 @@ Every symbol carries an explicit $(j^*)$ superscript above; the table below drop
 MSE against analytic PPS, averaged over the 7-interim schedule:
 
 | $J$ | `itemXcompAtt` cross-attn (new) | `itemScompAtt` self-attn + B (previous best) | old case-study-specific cross-attn baseline |
-|---|---:|---:|---:|
-| 20  | 0.00141 | 0.00196 | 0.00099 |
-| 60  | 0.00114 | 0.00153 | 0.00087 |
+|--------------|--------------:|---------------------:|--------------------:|
+| 20 | 0.00141 | 0.00196 | 0.00099 |
+| 60 | 0.00114 | 0.00153 | 0.00087 |
 | 100 | 0.00240 | 0.00218 | 0.00118 |
 
 **Read:**
 
-- **Cross-attention (`itemXcompAtt`) beats self-attention + gather + B (`itemScompAtt`) at $J = 20, 60$** by 20–35 %.
-- **At $J = 100$ they're within 10 %**, self-attn slightly ahead.
-- **Both close the gap to the case-study-specific cross-attn baseline** — the cost of unification is now ~15–40 % at moderate J, up to ~2× at $J = 100$.
+- **Cross-attention (`itemXcompAtt`) beats self-attention + gather + B (`itemScompAtt`) at** $J = 20, 60$ by 20–35 %.
+- **At** $J = 100$ they're within 10 %, self-attn slightly ahead.
+- **Both close the gap to the case-study-specific cross-attn baseline** — the cost of unification is now \~15–40 % at moderate J, up to \~2× at $J = 100$.
 
 ### Reading
 
-1. **Cross-attention naturally preserves the K-row signal.** The K-row $K_{j^*, \cdot}$ tells us how much information item $j$ contributes to the queried $j^*$; in cross-attention, tokens with high $K_{j^*, j}$ produce embeddings close to the queried item's own embedding and are picked out by the softmax. Self-attn + gather has to learn this routing via $\alpha$ and the shared attention weights — harder from data.
-2. **Two data-agnostic classes, one batch schema.** Same call signature; only the attention block differs. Callers can A/B by swapping the import.
-3. **Naming convention** (adopted going forward): `itemScompAtt` = self-attention across items; `itemXcompAtt` = cross-attention across items with one query per batch element. The prefix `item` disambiguates from a nested `deepsetXcompAtt` variant that will add per-participant DeepSets over raw participant tensors before the cross-attention step (implements the §9.2 nested pattern).
+1.  **Cross-attention naturally preserves the K-row signal.** The K-row $K_{j^*, \cdot}$ tells us how much information item $j$ contributes to the queried $j^*$; in cross-attention, tokens with high $K_{j^*, j}$ produce embeddings close to the queried item's own embedding and are picked out by the softmax. Self-attn + gather has to learn this routing via $\alpha$ and the shared attention weights — harder from data.
+2.  **Two data-agnostic classes, one batch schema.** Same call signature; only the attention block differs. Callers can A/B by swapping the import.
+3.  **Naming convention** (adopted going forward): `itemScompAtt` = self-attention across items; `itemXcompAtt` = cross-attention across items with one query per batch element. The prefix `item` disambiguates from a nested `deepsetXcompAtt` variant that will add per-participant DeepSets over raw participant tensors before the cross-attention step (implements the §9.2 nested pattern).
 
 **Recommendation:** for MVN, prefer `itemXcompAtt` (cross-attn) at $J \leq 60$; either variant works at $J = 100$. For Ukraine (no K), the two variants perform similarly — the cross-attn advantage from K-alignment does not apply. Keep both classes; the choice is a per-case-study empirical call.
 
 ------------------------------------------------------------------------
 
-## 12.14 Nested-DeepSets amortisers: `deepsetScompAtt` + `deepsetXcompAtt`
+## 13.7 Nested-DeepSets amortisers: `deepsetScompAtt` + `deepsetXcompAtt`
 
-`itemScompAtt` / `itemXcompAtt` of §12.13 take a **hand-computed per-item summary** $t^{(j^*)}_j \in \mathbb{R}^F$ as input — e.g. for MVN $t^{(j^*)}_j = (\bar x_j,\; \bar z_j,\; K_{j^*, j})$, i.e. the per-item cohort means plus the K-row entry. The DeepSets theorem (§7) says the sufficient statistic $\phi(X, Z)$ is *any* symmetric function of the observation tensor. The `deepset` variants take this literally: **learn the per-item summary from raw per-(participant, item) responses**, chaining nested DeepSets (§9.2) with the item-axis attention of §12.13.
+`itemScompAtt` / `itemXcompAtt` of §13.6 take a **hand-computed per-item summary** $t^{(j^*)}_j \in \mathbb{R}^F$ as input — e.g. for MVN $t^{(j^*)}_j = (\bar x_j,\; \bar z_j,\; K_{j^*, j})$, i.e. the per-item cohort means plus the K-row entry. The DeepSets theorem (§7) says the sufficient statistic $\phi(X, Z)$ is *any* symmetric function of the observation tensor. The `deepset` variants take this literally: **learn the per-item summary from raw per-(participant, item) responses**, chaining nested DeepSets (§9.2) with the item-axis attention of §13.6.
 
 ### Architecture
 
 Batch schema (data-agnostic; supports arbitrary response feature dim $R$):
 
 | tensor | shape | content |
-|---|---|---|
+|---------------|---------------|-------------------------------------------|
 | `x_responses` | $(B, N_x, J, R)$ | raw per-(participant, item) response of the $x$-cohort |
 | `mask_x` | $(B, N_x)$ | 1 real / 0 padded participant |
 | `z_responses` | $(B, N_z, J, R)$ | raw per-(participant, item) response of the $z$-cohort |
@@ -1022,14 +890,14 @@ Batch schema (data-agnostic; supports arbitrary response feature dim $R$):
 
 Forward pass, per batch element:
 
-1. **Concatenate per-item metadata** onto every $(i, j)$ token: $\tilde x_{i, j} = \operatorname{concat}(x_{i, j},\; \text{meta}_j) \in \mathbb{R}^{R + M}$.
-2. **Per-token embedding**: $e_{i, j} = q_\tau(\tilde x_{i, j}) \in \mathbb{R}^E$, shared across $(i, j)$.
-3. **Sum-pool over participants per item** (mask-aware): $\operatorname{pool}^x_j = \sum_i m^x_i\, e^x_{i, j} \in \mathbb{R}^E$; same for $z$. This is the learned per-item sufficient statistic.
-4. **Per-item token**: $h_j = q_{\text{tok}}(\operatorname{concat}(\operatorname{pool}^x_j,\; \operatorname{pool}^z_j)) \in \mathbb{R}^E$.
-5. **Attention across items** — the only difference between the two variants:
-   - `deepsetScompAtt`: self-attention over $\{h_j\}_j$ with the fix-B learned scalar bias $\alpha \cdot \mathbf{1}\{k = j^*\}$ on the queried key; gather $\bar h = h'_{j^*}$.
-   - `deepsetXcompAtt`: cross-attention with one query per batch element built from $h_{j^*}$ via $q_{\text{query}}$: $q = q_{\text{query}}(h_{j^*})$; $\bar h = \sum_j w_j h_j$ with $w = \operatorname{softmax}(\langle q, h\rangle)$.
-6. **Head**: $\hat\rho^{(j^*)}_{\tau_k} = q_\psi(\operatorname{concat}(\bar h,\; h_{j^*},\; a))_k$, multi-quantile.
+1.  **Concatenate per-item metadata** onto every $(i, j)$ token: $\tilde x_{i, j} = \operatorname{concat}(x_{i, j},\; \text{meta}_j) \in \mathbb{R}^{R + M}$.
+2.  **Per-token embedding**: $e_{i, j} = q_\tau(\tilde x_{i, j}) \in \mathbb{R}^E$, shared across $(i, j)$.
+3.  **Sum-pool over participants per item** (mask-aware): $\operatorname{pool}^x_j = \sum_i m^x_i\, e^x_{i, j} \in \mathbb{R}^E$; same for $z$. This is the learned per-item sufficient statistic.
+4.  **Per-item token**: $h_j = q_{\text{tok}}(\operatorname{concat}(\operatorname{pool}^x_j,\; \operatorname{pool}^z_j)) \in \mathbb{R}^E$.
+5.  **Attention across items** — the only difference between the two variants:
+    - `deepsetScompAtt`: self-attention over $\{h_j\}_j$ with the fix-B learned scalar bias $\alpha \cdot \mathbf{1}\{k = j^*\}$ on the queried key; gather $\bar h = h'_{j^*}$.
+    - `deepsetXcompAtt`: cross-attention with one query per batch element built from $h_{j^*}$ via $q_{\text{query}}$: $q = q_{\text{query}}(h_{j^*})$; $\bar h = \sum_j w_j h_j$ with $w = \operatorname{softmax}(\langle q, h\rangle)$.
+6.  **Head**: $\hat\rho^{(j^*)}_{\tau_k} = q_\psi(\operatorname{concat}(\bar h,\; h_{j^*},\; a))_k$, multi-quantile.
 
 ### MVN specifics
 
@@ -1037,21 +905,21 @@ Per-(participant, item) response is a single continuous scalar ($R = 1$). Per-it
 
 ### Empirical impact on MVN
 
-MSE against analytic PPS, averaged over 7-interim schedule at $J = 20$; both deepset variants trained 8k steps (~71 min each on CPU) with mean-pool over participants (see "Mean-pool vs sum-pool" below):
+MSE against analytic PPS, averaged over 7-interim schedule at $J = 20$; both deepset variants trained 8k steps (\~71 min each on CPU) with mean-pool over participants (see "Mean-pool vs sum-pool" below):
 
-| $J$ | `deepsetScompAtt` | `deepsetXcompAtt` | best of `itemScompAtt` / `itemXcompAtt` (§12.13) |
-|---|---:|---:|---:|
-| 20  | 0.02136 | 0.00573 | 0.00141 (`itemXcompAtt`) |
+| $J$ | `deepsetScompAtt` | `deepsetXcompAtt` | best of `itemScompAtt` / `itemXcompAtt` (§13.6) |
+|-------------|------------:|------------:|---------------------------------:|
+| 20 | 0.02136 | 0.00573 | 0.00141 (`itemXcompAtt`) |
 
 **Read:**
 
-- **`deepsetXcompAtt` (cross-attn) beats `deepsetScompAtt` (self-attn + B) by ~4×** at $J = 20$ — same ordering as the item variants of §12.13, and for the same reason (K-alignment through the queried-item softmax).
-- **Deepset variants remain 4×-15× behind the item variants of §12.13.** Learning $q_\tau$ from raw participants is data-inefficient compared to hand-supplying the sample-mean summary; both variants converge to loss ~0.011 in 8k steps but the deploy-time posterior remains wider than the analytic one.
-- **Compute cost:** ~71 min training per variant at $J = 20$ vs 6-9 min for the item variants of §12.13. $J \geq 60$ not yet run (memory ~5× larger per batch element).
+- **`deepsetXcompAtt` (cross-attn) beats `deepsetScompAtt` (self-attn + B) by \~4×** at $J = 20$ — same ordering as the item variants of §13.6, and for the same reason (K-alignment through the queried-item softmax).
+- **Deepset variants remain 4×-15× behind the item variants of §13.6.** Learning $q_\tau$ from raw participants is data-inefficient compared to hand-supplying the sample-mean summary; both variants converge to loss \~0.011 in 8k steps but the deploy-time posterior remains wider than the analytic one.
+- **Compute cost:** \~71 min training per variant at $J = 20$ vs 6-9 min for the item variants of §13.6. $J \geq 60$ not yet run (memory \~5× larger per batch element).
 
 ### Mean-pool vs sum-pool (bugfix)
 
-First run of `deepsetScompAtt` used $\sum_i m_i^x\, e_{i, j}^x$ as the per-item pool (raw sum). Training loss dropped to 0.067 but deploy-time PPS MSE was 0.42 — the amortiser predicted a very wide posterior for every item (quantile spread ~0.9 vs true ~0.03). Cause: the raw-sum magnitude scales with $n$, which varies uniformly in $[1, N_{\max}]$ during training; $q_{\text{tok}}$ saturates on the large-$n$ tail and can't unpack a sharp posterior at moderate $n$. Fix: divide by $\max(\sum_i m_i^x, 1)$ so the pool is a **mean** over real participants, scale-invariant to $n$. Training loss dropped further to 0.011 and deploy PPS MSE fell to 0.021 (Scomp) / 0.006 (Xcomp). The pattern generalises: any nested-DeepSets amortiser where the inner cohort size varies at both train and deploy time should mean-pool, not sum-pool.
+First run of `deepsetScompAtt` used $\sum_i m_i^x\, e_{i, j}^x$ as the per-item pool (raw sum). Training loss dropped to 0.067 but deploy-time PPS MSE was 0.42 — the amortiser predicted a very wide posterior for every item (quantile spread \~0.9 vs true \~0.03). Cause: the raw-sum magnitude scales with $n$, which varies uniformly in $[1, N_{\max}]$ during training; $q_{\text{tok}}$ saturates on the large-$n$ tail and can't unpack a sharp posterior at moderate $n$. Fix: divide by $\max(\sum_i m_i^x, 1)$ so the pool is a **mean** over real participants, scale-invariant to $n$. Training loss dropped further to 0.011 and deploy PPS MSE fell to 0.021 (Scomp) / 0.006 (Xcomp). The pattern generalises: any nested-DeepSets amortiser where the inner cohort size varies at both train and deploy time should mean-pool, not sum-pool.
 
 ### Ukraine
 
@@ -1059,14 +927,259 @@ Deferred: a PCM prior-predictive sampler analogous to `make_training_data_with_p
 
 ### Reading
 
-- **Cost.** Forward-pass memory scales as $B \cdot N_{\max} \cdot J \cdot E$ vs $B \cdot J \cdot E$ for the item variants. At $N_{\max} = 1050$, $J = 20$: 21k tokens per batch element vs 20. Training ~10× slower for MVN (71 min vs 6-9 min). At $J = 100$, the deepset tensor is $\approx 100\text{M}$ elements per batch of 128, borderline on CPU.
+- **Cost.** Forward-pass memory scales as $B \cdot N_{\max} \cdot J \cdot E$ vs $B \cdot J \cdot E$ for the item variants. At $N_{\max} = 1050$, $J = 20$: 21k tokens per batch element vs 20. Training \~10× slower for MVN (71 min vs 6-9 min). At $J = 100$, the deepset tensor is $\approx 100\text{M}$ elements per batch of 128, borderline on CPU.
 - **What deepset buys.** Zero hand-engineering of per-item summaries: the network learns $q_\tau$ end-to-end from raw responses. Same call signature as itemS/X so callers can swap classes; only the input processing changes.
 - **When it's worth paying.** For MVN with a closed-form sufficient statistic (per-item mean), the item variants remain the operating point. Deepset is the right structure when raw per-participant information carries signal that a hand-computed summary would discard — e.g. Ukraine PCM, where per-participant response patterns encode ability + item interaction that a per-item aggregate loses.
 - **Where the remaining gap comes from.** Deploy-time posterior is sharper (n ≈ 132) than most training samples ($n \sim$ uniform in $[1, 1050]$, so median $n \approx 525$). The amortiser sees relatively few tight-posterior scenarios and doesn't concentrate the quantile head enough at the deploy operating point. Curriculum with more small-$n$ / large-$m$ mass, or a log-uniform $n$ schedule biased toward the tails, would likely close the gap further.
 
 ------------------------------------------------------------------------
 
-# 13. References
+# 14. Results for the partial credit model on Ukraine data
+
+## 14.1 Cross-component attention to learn item-specific summaries (`itemXcompAtt`)
+
+**Task.** Adapt the data-agnostic cross-attention amortiser of §13.6 (`itemXcompAtt`) to the Ukraine partial-credit (PCM) interim analysis. The network class is reused **unchanged**; everything Ukraine-specific lives in the token construction, the target, and the training pool. Diagnostics: §14.2. Self-attention sibling: §14.3. Fully-amortised deepset variant: §14.4.
+
+### 14.1.1 Study structure, dimensions, and what is trained
+
+Each participant contributes **two** responses per item — baseline ($t = 0$) and endline ($t = 1$). The interim cohort $x$ consists of the $n$ participants with both visits complete by the cutoff; the future cohort $z$ is the remaining $m = N - n$. The PCM accommodates baseline-vs-endline level shifts by fitting **separate per-time thresholds**: internally the likelihood sees $2 J = 40$ `item_time_id` fake items (own threshold vector and loading per (real item, time)), while participant ability $\theta_i$ is shared across times and items. The amortiser collapses the time axis back: one token per real item, with the two time-points entering as separate scalar features.
+
+Two axes must not be conflated: the **cohort axis** ($x^{\text{obs}}$ vs $z^{(s)}$ — the §10 deployment passes both through the network) and the **time axis** (baseline vs endline within a participant, present in both cohorts). An earlier version of this amortiser built its token from $z^{(s)}$ only — regression-style in the sense of §6.2, with $x^{\text{obs}}$ entering only through $p(\theta \mid x)$. The current $F = 8$ token (§14.1.3) carries both cohorts and both time-points. The remaining §10 gap at the item level is that the per-item pooling over participants is hand-computed (group-means), not learned; the learned version is the nested-DeepSets variant (§13.7, results §14.4).
+
+| symbol | value | description |
+|----------|----------|----------------------------------------------------|
+| $J$ | 20 | **real** items presented to the amortiser (one token per real item); internally the PCM likelihood fits $2 J = 40$ per-`item_time_id` fake items |
+| $n$ | interim-specific | observed participants at the interim, **each with both baseline and endline responses** (contributes $2 J n$ observations to the PCM likelihood) |
+| $m$ | interim-specific | shadow future participants used per posterior draw $s$, **each also carrying both baseline and endline** (contributes $2 J m$ posterior-predictive responses per draw) |
+| $S$ | 200 | posterior draws of $z$ used per interim at deploy time |
+| $C$ | 8 | interims analysed (`INTERIM_IDS = 1..8`) |
+| $F$ | 8 | per-real-item token dim: x-side + z-side cohort summaries, change ratio, metadata, empirical $\hat K$-row (see §14.1) |
+| $A$ | 2 | aux scalars $(n/N, m/N)$, $N = 503$ |
+| $E$ | 32 | embedding dim (`embed_dim`) |
+| $K_\tau$ | 5 | quantile levels $\tau = (0.05, 0.25, 0.5, 0.75, 0.95)$ |
+
+What is reused, what is trained, what is adapted:
+
+| piece | status | detail |
+|---|---|---|
+| network classes ($q_{\text{tok}}, q_{\text{query}}$ or $\alpha$, $q_\psi$) | **reused** from §13.6 | identical Flax modules, identical attention math |
+| network weights | **trained from scratch** | ~12k parameters, multi-quantile pinball loss |
+| per-item token $t^{(j^*, s)}_j$ | **adapted** | $F = 8$: x-side + z-side summaries, empirical $\hat K$-row, item metadata (see below) |
+| aux $a$ | **adapted** | $A = 2$: cohort sizes $(n/N, m/N)$ with $N = 503$ |
+| input scale | **adapted** | out-of-7 responses take values $0, \ldots, 7$ (8 levels); the wa-frame group-means are 1-indexed (range $[1, 8]$), so the rescale is $(w - 1)/7 \in [0, 1]$; categorical proportions already in $[0, 1]$ |
+| target scale | **adapted** | per-item standardisation $\rho / \hat\sigma_j$ (see loss below) |
+| training pool | **adapted** | cached Strong-Oakley wa frames (posterior draws), *not* prior-predictive — see the caveat at the end |
+
+
+### 14.1.2 Training data and target
+
+The training pool concatenates the cached wa frames of all $C = 8$ interims. One training row is the triple (interim $k$, posterior draw $s$, queried item $j^*$):
+
+$$
+\mathcal{D} \;=\; \Big\{ \big( t^{(k, s)}_{1:J},\; j^*,\; \rho^{(k, s)}_{j^*} \big) \Big\}, \qquad k \le C,\; s \le S_k,\; j^* \le J,
+$$
+
+where the target is the SVI posterior draw of the per-item endpoint ratio,
+
+$$
+\rho^{(k, s)}_{j} \;=\; r_j\big(\theta^{(k, s)}\big), \qquad \theta^{(k, s)} \sim p(\theta \mid x^{(k)}),
+$$
+
+and $r_j(\theta)$ is the direction-aware ratio built from the PCM's per-`item_time_id` ordered-probability endpoint (`eval_outcome_for_endpoint` → `get_endpoints_per_draw`), evaluated at both fake items $(j, t{=}0)$ and $(j, t{=}1)$ and combined: for `out-of-7` items the normalised change of $\mathbb{E}[y_{(j, t)} \mid \theta]$ across $t$, for `categorical` items the analogous change of $P(y_{(j, t)} \geq c \mid \theta)$. Targets are clipped at $\pm 20$ (a single numerical blow-up at `CG-VIO_ph-punish`).
+
+### 14.1.3 Per-item token
+
+Both cohorts enter the token (§10 cohort axis, as in MVN §13.6), plus an empirical K-row:
+
+$$
+t^{(j^*, s)}_j \;=\; \Big(\underbrace{w^{x}_{\text{base}, j},\; w^{x}_{\text{end}, j}}_{\text{observed cohort } x^{\text{obs}},\ s\text{-invariant}},\;\; \underbrace{w^{z, (s)}_{\text{base}, j},\; w^{z, (s)}_{\text{end}, j},\; w^{z, (s)}_{\text{ratio}, j}}_{\text{future block } z^{(s)}},\;\; \underbrace{c_j,\; d_j}_{\text{metadata}},\;\; \underbrace{\hat K_{j^*, j}}_{\text{empirical K-row}}\Big) \;\in\; \mathbb{R}^{F},\qquad F = 8.
+$$
+
+- **x-side** $w^{x}_{\text{base}, j}, w^{x}_{\text{end}, j}$: per-item group-mean **response** over the $n$ observed participants at $t = 0$ and $t = 1$, rescaled by the item type's level count: $\tfrac{1}{n (K_j - 1)}\sum_i y_{i, j, t}$ with the per-item level count $K_j$ read from `dit[cat_length]` (Ukraine: $K_j = 8$ for `out-of-7`, raw $y \in \{0, \ldots, 7\}$; $K_j = 4$ for `categorical`, raw $y \in \{0, \ldots, 3\}$). **No input-side thresholding** — the caseness threshold lives in the target only (see below). Fixed per interim.
+- **z-side** $w^{z, (s)}_{\cdot, j}$: same mean-response statistics on the $m$ shadow participants of posterior-predictive draw $z^{(s)}$. For `out-of-7` items these come from the cached wa frames (rescaled $(w-1)/(K_j - 1)$, since wa stores 1-indexed means); for `categorical` items the wa frames only carry thresholded proportions, so the mean-response summaries are rebuilt per draw from the cached SVI `draws.zarr` (same seed and draw ordering as the wa targets). The ratio is `higher_is_better`: $w_{\text{end}}/w_{\text{base}} - 1$, `lower_is_better`: $1 - w_{\text{end}}/w_{\text{base}}$, recomputed on the mean-response scale for categorical items.
+- **Metadata** $c_j \in \{0, 1\}$ (item type), $d_j \in \{0, 1\}$ (direction).
+- **Empirical K-row** $\hat K_{j^*, j}$ — the $j^*$-dependent entry, restoring the MVN-style "how informative is item $j$ for item $j^*$" channel. From the observed cohort's per-participant change scores $d_{i, j} = y_{i, j, 1} - y_{i, j, 0}$, take the Spearman correlation matrix $\hat R$ across items (rank-based — robust to the ordinal scale) and shrink toward identity: $\hat K = \lambda \hat R + (1 - \lambda) I$, $\lambda = n / (n + n_0)$, $n_0 = 50$, so the noisy early-interim estimates ($n \approx 48 \Rightarrow \lambda \approx 0.5$) are strongly regularised. Recomputed per interim.
+
+**Categorical threshold.** $c = 2$ on the 1-indexed scale $\Leftrightarrow$ raw $y \geq 1$ ("at least several days"). The CG-MH items are PHQ-style symptom-frequency Likerts; the trial's endpoint for them is the *caseness prevalence* — proportion of caregivers above the symptom cut-off — so the threshold is intrinsic to the **target** $\rho$ and stays there. The **input** summaries do NOT threshold: they use the mean response (see the token definition above), because binarising the input is pure information loss. The level counts are read from `dit[cat_length]` (never hardcoded); the threshold $c$ is a study-specific configuration parameter — Colombia's response scales have different level counts and hence a different $c$.
+
+### 14.1.4 Encoder, cross-attention, head
+
+Exactly §13.6 variant 1. Token encoder $h^{(j^*, s)}_j = q_{\text{tok}}(t^{(j^*, s)}_j) \in \mathbb{R}^{E}$; single learned query $q^{(j^*, s)} = q_{\text{query}}(t^{(j^*, s)}_{j^*})$; cross-attention over the $J$ per-item embeddings gives the summary $\bar h^{(j^*, s)} = \sum_{j} w^{(j^*, s)}_j h^{(j^*, s)}_j$; head input $\operatorname{concat}(\bar h^{(j^*, s)}, t^{(j^*, s)}_{j^*}, a)$ of dim $E + F + A = 32 + 8 + 2 = 42$; output = $K_\tau = 5$ quantiles. $J$ attention scores per batch element.
+
+### 14.1.5 Loss with per-item target standardisation
+
+Let $\hat\sigma_j = \operatorname{sd}_{k, s}\big(\rho^{(k, s)}_j\big)$ over the training pool. The network is trained on the standardised target with the summed pinball loss
+
+$$
+\ell \;=\; \sum_{k=1}^{K_\tau} L_{\tau_k}\!\Big( \frac{\rho^{(k, s)}_{j^*}}{\hat\sigma_{j^*}} \;-\; \hat Q^{\tau_k}_\phi\big(t^{(s)}_{1:J}, j^*\big) \Big),
+$$
+
+and at deployment the predicted quantiles are un-standardised, $\hat\rho^{(j^*, s)}_{\tau_k} = \hat\sigma_{j^*} \cdot \hat Q^{\tau_k}_\phi$. Without this, wide-range items (e.g. `CG-SELFCARE`, target sd 3.8) dominate the shared head's gradients and narrow-range items (the four `CG-MH` categorical items, sd ~0.1) are under-resolved.
+
+### 14.1.6 Deployment
+
+Per interim: forward-pass all $(j^*, s)$ pairs, convert the quantile grid to $\hat P(H_1 \mid x, z^{(s)})$ by CDF interpolation at the effect threshold, aggregate $\widehat{\text{PPS}} = S^{-1} \sum_s \mathbf{1}\{\hat P^{(s)} > \eta_H\}$ (§10 step 3). With the $F = 8$ token, both cohorts enter the network — hand-pooled summaries of $x^{\text{obs}}$ plus summaries of $z^{(s)}$ — putting this variant on the same footing as the MVN item amortiser (§13.6): §10-consistent on the cohort axis, with hand-computed (not learned) per-item pooling. The fully-learned pooling over raw participant responses is the deepset variant of §13.7 / §14.4.
+
+Files:
+
+- [`python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — 90 lines including docstring. `_MLP` + self-attention (`einsum` + `softmax`) + gather. Standard Flax.
+- [`scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py`](../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py) — loads all 8 interims' wa, pools them into a training tensor, trains once, deploys per interim.
+- [`scripts-py/Ukraine_interim_analysis_compare_methods.py`](../scripts-py/Ukraine_interim_analysis_compare_methods.py) extended to load the RGEE perf-long pkl alongside the existing regression + IS families.
+
+### 14.1.7 Training configuration and results
+
+- $6\,000$ steps, batch $S = 256$ draws (fanned out to $B = S \cdot J = 5120$ per-item rows / step), TARGET_CLIP = 20 (raw `pps_ratio_x` has one outlier at $-2.3 \times 10^{12}$; legitimate targets span $[-22, +17]$).
+- Per-item target standardisation + out-of-7 input rescale as above.
+- Loss: multi-quantile pinball over $\tau \in \{0.05, 0.25, 0.5, 0.75, 0.95\}$.
+- Wall-clock: ~7 min training on 6-thread CPU. Trainable params ≈ 12 K.
+- Deployment: **0.007 min / interim** across all 8 interims = 7 s total.
+
+**Effect of the F = 8 token (x-side + empirical $\hat K$-row + aux + mean-response inputs).**
+Two staged improvements over the earlier $z$-only $F = 5$ token, evaluated by per-item Pearson $\rho$ against the SVI target:
+
+| variant | interim 1: out-of-7 / CG-MH | all interims: out-of-7 / CG-MH |
+|---|---|---|
+| `itemXcompAtt`, $F = 5$ ($z$-only, thresholded cat inputs) | 0.77 / 0.48 | 0.49 / 0.23 |
+| `itemXcompAtt`, $F = 8$ (x-side + $\hat K$ + aux; thresholded cat inputs) | 0.83 / 0.48 | 0.52 / 0.24 |
+| `itemXcompAtt`, $F = 8$ + **mean-response cat inputs** | 0.83 / **0.70** | 0.52 / **0.42** |
+
+(The `itemScompAtt` counterpart is reported in §14.3.)
+
+(`CG-VIO_ph-punish` blow-up item excluded.) Attribution is clean:
+
+- **x-side summaries + empirical $\hat K$-row + aux** lift the out-of-7 items (0.77 → 0.83 at interim 1) but leave CG-MH untouched — their bottleneck was elsewhere.
+- **Mean-response categorical inputs** (threshold kept in the target only) lift CG-MH from 0.48 to ~0.70 at interim 1 and from 0.24 to ~0.42 overall — the binarised input summary was discarding most of the CG-MH signal, exactly as conjectured. Training pinball loss 0.163 → 0.115.
+
+**PPS agreement with the regression baselines.**
+Ukraine has no analytic ground-truth PPS, so we compare xcompAtt's PPS to the two closest baselines — Strong-Oakley regression with Gaussian approximation (RGE) and Strong-Oakley regression with multi-quantile regression (RGEM).
+
+**PPS agreement across 160 (interim, item) cells:**
+
+| Comparison | Pearson $\rho$ | Median \$ | \Delta \text{PPS} | \$ |
+|----------------------|------------:|------------:|------------:|------------:|
+| xcompAtt vs RGEM (mquantile) | 0.919 | 0.001 | 0.050 | 0.945 |
+| xcompAtt vs RGE (Gauss) | 0.909 | 0.001 | 0.050 | 0.945 |
+| RGE vs RGEM | 0.998 | 0.000 | 0.014 | 0.148 |
+
+- **Median absolute PPS difference is 0.001.** For the vast majority of (interim, item) cells the amortiser reproduces the Strong-Oakley regression PPS to $\le 0.1\%$.
+- **\~25% of cells differ by more than** $0.03$, driven by (item, interim) pairs where cross-item info moves the prediction. These are precisely the cells attention is designed to help on; whether the shift is beneficial requires ground-truth PPS (not available for Ukraine PCM). A leave-one-interim-out held-out evaluation would put a number on it — future work.
+- **RGE and RGEM are essentially the same estimator** ($\rho = 0.998$, median diff 0.000). xcompAtt is the first estimator in the Ukraine pipeline that produces materially different PPS values — the difference is where cross-item information becomes actionable.
+
+### 14.1.8 Reading
+
+1.  **Architecture ports cleanly.** No changes to the attention block; the K-row is replaced by discrete item metadata. That the MVN → PCM adaptation is 90 lines of code + a training-data reshaping call speaks to how modular the xcompAtt design is.
+2.  **Deployment cost is trivial.** 7 seconds for the whole 8-interim schedule × 20 items × 4000 posterior draws (640 K predictions). Strong-Oakley mquantile regression fits 20 × 5 = 100 quantile regressions per interim; xcompAtt is one JIT-compiled forward pass.
+3.  **Training pool = cached wa frames is a demo, not a full amortiser.** To be a *true* amortised method the training loop should draw from the PCM prior-predictive; here we short-circuit that by using cached HMC/SVI posterior draws as training targets. The architecture is unchanged, but the accuracy story is bounded by the training targets' quality. The full §8-10 amortiser — PCM prior sampler (`make_training_data_with_participant_tokens_prior` in `model_pcm.py`) + nested-DeepSets network (§13.7) consuming raw $x^{\text{obs}}$ and raw $z^{(s)}$ — is implemented separately; its results are reported in §14.4.
+4.  **Where xcompAtt would beat the regression baselines.** When two items share strong empirical correlation (e.g. `CG-DEPRESSION` and `CG-VIO_scream` both loading on the same latent), the amortiser's attention head can borrow strength from the correlated item's summary when the queried item's own signal is weak (early interim, small $n_x$). Ukraine's cross-item correlations are moderate; the MSE improvement (against ground truth, which we don't have) would likely be small but non-zero. The MVN $J = 60$ result (§13.5) is the clean demonstration.
+
+**Recommendation.** For real-world case studies where (a) items share a latent factor and (b) no analytic PPS is available, xcompAtt is worth trying as a supervised layer on top of the Strong-Oakley wa pipeline. Deployment cost is negligible; training cost is bounded by the wa pool size. If a PCM prior sampler is invested in, the same architecture becomes a genuine amortiser with the standard "train once → deploy anywhere" story.
+
+
+## 14.2 Diagnostics for the Ukraine item-level amortisers
+
+Ukraine has no analytic PPS, so diagnostics compare the amortiser against the SVI posterior it was trained to mimic. Notation as in §14.1: $\rho^{(j^*, s)}_\text{true} = r_{j^*}(\theta^{(s)})$, $\theta^{(s)} \sim p(\theta \mid x)$ is the SVI target; $\hat\rho^{(j^*, s)}_{\tau_3}$ is the amortiser's median-quantile prediction at $(j^*, s)$.
+
+### Distribution comparison (boxplot overview)
+
+`pcm_1_interim_pps_svi_vs_amortiser_rho_all.pdf` — one plot, mirroring the MVN `p_h1_xz_all` layout (§13.5). Facet per item, $x$ = interim, and per (interim, item) two side-by-side boxes comparing the empirical distributions over the $S$ posterior draws:
+
+$$
+\text{SVI:}\; \big\{\rho^{(j^*, s)}_\text{true}\big\}_{s=1}^{S}
+\qquad \text{vs} \qquad
+\text{amortiser:}\; \big\{\hat\rho^{(j^*, s)}_{\tau_3}\big\}_{s=1}^{S}.
+$$
+
+Boxes are drawn from precomputed quantiles — box = 25-75%, whiskers = 2.5-97.5%, no outlier dots. If the amortiser recovers the map $z^{(s)} \mapsto \rho$, the two boxes agree in location *and* spread; a compressed amortiser box signals an under-resolved item (the pre-standardisation failure mode of the `CG-MH` items). Comparing whole distributions avoids the pitfall of the per-draw scatter (plotting $\rho^{(j^*, s)}_\text{true}$ against $\hat\rho^{(j^*, s)}$ point-by-point), which mixes the shared draw index $s$ into both axes and inflates apparent correlation.
+
+### Learned-summary check (PC1 of the attention output)
+
+`pcm_1_interim_i{k}_svi_rho_vs_pc1_attn_summary.pdf` — per interim, facet per item. The attention-picked per-query summary is the vector $q_\psi$ actually consumes,
+
+$$
+\bar h^{(j^*, s)} \;=\; \sum_{j=1}^{J} w^{(j^*, s)}_j\, h^{(s)}_j \;\in\; \mathbb{R}^{E}
+\qquad (\text{cross-attn; gather } h'^{\,(j^*, s)}_{j^*} \text{ for the self-attn variant}),
+$$
+
+computed for every (interim $k$, draw $s$, item $j^*$) triple. Stack all triples into $H \in \mathbb{R}^{M \times E}$ ($M = C \cdot S \cdot J$), centre columns, take the SVD $H - \bar H = U \Sigma V^\top$, and project each row onto the first principal component, $\text{PC1} = U_{\cdot 1} \Sigma_{11}$. Each panel scatters $y = \rho^{(j^*, s)}_\text{true}$ against $x = \text{PC1}$ with the per-item Pearson correlation annotated: it measures how much of the item's posterior variation the one-dimensional learned summary already carries — the amortised analogue of plotting $\rho \mid x$ against the hand-picked Strong-Oakley statistic $w(z^{(s)})$ in the regression baseline.
+
+## 14.3 Self-attention to learn item-specific summaries (`itemScompAtt`)
+
+Identical tokens, target, loss, training pool and deployment as §14.1; only the attention block differs (§13.6 variant 2). Every token acts as query and key; a learned scalar $\alpha$ biases each row toward the queried key,
+
+$$
+\text{score}^{(j^*, s)}_{a, b} \;=\; \frac{\big\langle h^{(j^*, s)}_a,\; h^{(j^*, s)}_b\big\rangle}{\sqrt{E}} \;+\; \alpha \cdot \mathbf{1}\{b = j^*\}, \qquad h'^{\,(j^*, s)}_a \;=\; \sum_{b=1}^{J} \operatorname{softmax}_b\big(\text{score}^{(j^*, s)}_{a, \cdot}\big)\, h^{(j^*, s)}_b,
+$$
+
+and the per-query summary is the gather $\bar h^{(j^*, s)} = h'^{\,(j^*, s)}_{j^*}$ — $J^2$ attention scores per batch element (vs $J$ for cross-attention).
+
+**Results** (same protocol and token as §14.1.7, per-item Pearson $\rho$ vs the SVI target, blow-up item excluded):
+
+| variant | interim 1: out-of-7 / CG-MH | all interims: out-of-7 / CG-MH |
+|---|---|---|
+| `itemXcompAtt` (§14.1) | 0.83 / 0.70 | 0.52 / 0.42 |
+| `itemScompAtt` | 0.83 / 0.72 | 0.52 / 0.41 |
+
+**Read.** On MVN, cross-attention beat self-attention by 20-35 % at $J \le 60$ (§13.6) — the advantage came from K-row alignment through the query. On Ukraine at $J = 20$ the two variants are within noise of each other: the empirical $\hat K$-row is weaker and shrunk (mean off-diagonal $\approx 0.3$), so the query-side routing advantage largely disappears. Recorded for completeness; `itemXcompAtt` remains the default.
+
+## 14.4 Full §8-10 amortiser on the Ukraine PCM: `deepsetXcompAtt` + prior-predictive training
+
+First run of the *genuine* amortised workflow of §8-10 on the Ukraine PCM — no SVI targets at training time, raw $x^{\text{obs}}$ AND raw $z^{(s)}$ at deployment.
+
+### 14.4.1 Setup
+
+- **§8 training data.** `PartialCreditModel.make_training_data_with_participant_tokens_prior` ([`python/model_pcm.py`](../python/model_pcm.py)): per prior draw, $n \sim U\{2, \ldots, N{-}1\}$ with $N = 503$, $m = N - n$; abilities $\theta_i \sim N(0, 1)$, time effects $\beta_t \sim N(0, 1)$, per-(item, time) thresholds $\sim N(0, 3.5)$, loadings $\sim |t_3|$ (first per category type pinned to 1); ordered-categorical responses simulated per (participant, item, time); label $\rho_j(\theta)$ = direction-aware ratio of the population endpoint across the two times, clipped $\pm 20$. Responses rescaled $(k - 1)/(K_j - 1) \in [0, 1]$.
+- **§9 architecture.** `deepsetXcompAtt` (§13.7): shared $q_\tau$ over (participant, item) tokens with $R = 2$ (baseline, endline response) + item metadata $M = 2$; mean-pool per cohort per item; token = concat of the two cohort pools; cross-attention over items; multi-quantile head. Aux $= (n/N, m/N)$.
+- **§10 deployment.** Per interim: raw observed cohort from the cached xi frame, raw $z^{(s)}$ rebuilt from the cached SVI `draws.zarr` (draw-aligned with the wa evaluation targets), one forward pass per $(j^*, s)$.
+- 8000 training steps at batch $S = 32$ fresh prior draws per step $\Rightarrow$ **256,000 prior-predictive data sets** generated during training (each fanned out to $Q = 4$ queried items $\Rightarrow$ 1,024,000 training rows); ~74 min CPU. Deployment 0.11 min/interim (S = 200).
+- **Size coverage vs deployment.** Training draws $n \sim U\{2, \ldots, 502\}$ (501 values, $m = 503 - n$); the 8 deployment interims use $n \in \{48, 174, 329, 416, 473, 484, 491, 501\}$. The proportion of training data sets whose $n$ exactly matches *any* deployment interim is $8/501 \approx 1.6\%$ ($\approx 4{,}100$ of the 256,000), and $\approx 0.2\%$ ($\approx 510$) per individual interim — confirming the amortiser is genuinely interpolating across cohort sizes rather than memorising the deployment configurations; the mean-pool over participants plus the $(n/N, m/N)$ aux carry the size dependence.
+
+### 14.4.2 Results: evaluation against the SVI posterior targets
+
+Per-item Pearson $\rho$ between the amortiser median $\hat\rho^{(j^*, s)}_{\tau_3}$ and the SVI target $\rho^{(j^*, s)}_\text{true}$ across the $S$ draws (excluding the `CG-VIO_ph-punish` blow-up item):
+
+| item type | interim 1 mean $\rho$ | all-interim mean $\rho$ |
+|---|---:|---:|
+| `out-of-7` (15 items) | 0.82 | 0.53 |
+| `categorical` CG-MH (4 items) | 0.57 | 0.32 |
+
+Compared with the wa-trained item-level amortiser: the deepset variant matches the original $z$-only item token (interim 1: 0.77 / 0.48) **despite never seeing a single SVI draw at training time**, and matches the improved $F = 8$ item token (0.83 / 0.70, §14.1.7) on the out-of-7 items while trailing it on CG-MH — the item variant's mean-response input engineering has no learned counterpart yet in the deepset's $q_\tau$ at this training budget. $R^2$ is mostly negative — the amortiser tracks the *ranking* of the posterior draws well but its location/scale calibration under the diffuse PCM prior does not match the concentrated deployment posterior (the §8.1 prior-coverage caveat in action: thresholds $\sim N(0, 3.5)$ generate far more extreme cohorts than the Ukraine data region).
+
+**Per-item detail at interim 1** (Pearson $\rho$ / $R^2$ vs the SVI target over $S = 200$ draws):
+
+| item | type | $\rho$ | $R^2$ |
+|---|---|---:|---:|
+| `CG-MH_effort` | categorical | 0.65 | -2.50 |
+| `CG-MH_hopeless` | categorical | 0.49 | -0.71 |
+| `CG-MH_nervous` | categorical | 0.50 | -3.65 |
+| `CG-MH_sad` | categorical | 0.64 | -3.97 |
+| `CG-DEPRESSION` | out-of-7 | 0.84 | -0.08 |
+| `CG-INVOLVE_child-problems` | out-of-7 | 0.77 | 0.17 |
+| `CG-INVOLVE_help-learn` | out-of-7 | 0.84 | -1.09 |
+| `CG-MONITOR-CHI_child-safe` | out-of-7 | 0.87 | 0.17 |
+| `CG-MONITOR-CHI_safe-time` | out-of-7 | 0.86 | -0.15 |
+| `CG-NONVIOLENT-DISCIPLINE` | out-of-7 | 0.83 | -1.35 |
+| `CG-POS_play` | out-of-7 | 0.82 | -1.08 |
+| `CG-POS_praise` | out-of-7 | 0.78 | -0.17 |
+| `CG-RESILIENCE` | out-of-7 | 0.84 | -0.89 |
+| `CG-SELFCARE` | out-of-7 | 0.79 | -3.28 |
+| `CG-VIO_ph-punish` | out-of-7 | 0.29 | -0.47 |
+| `CG-VIO_scream` | out-of-7 | 0.79 | -0.47 |
+| `CHI-BEHAVIOUR_angry` | out-of-7 | 0.78 | 0.50 |
+| `CHI-BEHAVIOUR_no-interest` | out-of-7 | 0.83 | 0.45 |
+| `CHI-BEHAVIOUR_unhappy` | out-of-7 | 0.85 | 0.50 |
+| `grieve` | out-of-7 | 0.81 | -1.06 |
+
+High $\rho$ with mostly negative $R^2$ across the board — the ranking of posterior draws is tracked well, the location/scale calibration is not (see Reading). `CG-VIO_ph-punish` is the §14.1 numerical blow-up item.
+
+**PPS agreement** with the item-level amortiser (§14.1, RGEG) over 160 (interim, item) cells: Pearson 0.952, median $|\Delta\text{PPS}|$ = 0.001, p90 = 0.158. The two estimators agree on the vast majority of cells; the disagreeing tail sits at early interims where the deepset's prior-calibration gap is largest.
+
+### 14.4.3 Reading
+
+1. **The §8-10 loop closes.** Prior sampling → nested-DeepSets training → raw-$(x, z)$ deployment runs end-to-end on a real IRT case study with a ~1 min total deployment cost for the full 8-interim schedule.
+2. **Correlation strong, calibration weak.** High per-draw correlation with negative $R^2$ says the learned summary is informative but the output scale inherits the prior's width. Remedies, in expected order of value: tighter/empirically-motivated prior on the thresholds (§8.1), an $x$-conditioned normalisation in the head, or a small posterior-draw fine-tuning stage on top of the prior-trained weights.
+3. **Diagnostics** (§14.2) apply unchanged: `pcm_1_interim_pps_RGDX_svi_vs_amortiser_rho_all.pdf` shows the location/scale mismatch directly per (interim, item).
+
+# 15. References
 
 ```{=html}
 <!--

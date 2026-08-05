@@ -1,6 +1,6 @@
 """
 Amortiser: cross-attention over items on caller-supplied per-item
-feature tokens (§12.13 of ``dev/amortised_decision_making.md``).
+feature tokens (§13.6 of ``dev/amortised_decision_making.md``).
 Data-agnostic sibling of the self-attention variant in
 ``amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead``.
 
@@ -79,6 +79,21 @@ class Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Mod
         w = jax.nn.softmax(scores, axis=-1)                     # (B, J)
         return jnp.einsum('bj,bjd->bd', w, h)                    # (B, E)
 
+    def summary_for_query(self, tokens, mask, query_idx):
+        """Attention-picked per-query summary bar_h^(j*) in R^E.
+
+        Returns the cross-attention output at query j* -- the vector
+        q_psi actually consumes (aside from tok_query and aux). Used by
+        diagnostic plots that want the query-conditional learned summary.
+        """
+        idx = query_idx.astype(jnp.int32)                       # (B,)
+        B = tokens.shape[0]
+        b_range = jnp.arange(B, dtype=jnp.int32)
+        h = self.q_tok(tokens)                                  # (B, J, E)
+        tok_query = tokens[b_range, idx]                        # (B, F)
+        q = self.q_query(tok_query)                             # (B, E)
+        return self._cross_attention(q, h, mask)                # (B, E)
+
     def __call__(self, batch):
         tokens = batch['tokens']                                # (B, J, F)
         mask = batch['mask']                                    # (B, J)
@@ -88,7 +103,7 @@ class Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Mod
         # Per-item token embeddings (keys / values).
         h = self.q_tok(tokens)                                  # (B, J, E)
         # Query built from the queried item's raw features (approach ii of
-        # §12.13). J-invariant (no fixed lookup table).
+        # §13.6). J-invariant (no fixed lookup table).
         tok_query = tokens[b_range, idx]                        # (B, F)
         q = self.q_query(tok_query)                             # (B, E)
         # Cross-attention.

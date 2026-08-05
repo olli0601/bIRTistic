@@ -1,7 +1,7 @@
 """
 Amortiser variant 3: nested DeepSets encoder over
 (participant i, component j) tokens + K-row query + multi-quantile
-pinball loss (§12.10 of ``dev/amortised_decision_making.md``).
+pinball loss (§13.4 of ``dev/amortised_decision_making.md``).
 
 **xcomp variant** -- exploits the known cross-component covariance
 ``K`` via a two-scalar per-token feature ``(K[j*, j], y_{i, j})``.

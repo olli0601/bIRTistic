@@ -1026,3 +1026,160 @@ class PartialCreditModel(IRTModel):
             'timing': timing_data,
             'good_chains': good_chains
         }
+
+    # ------------------------------------------------------------------
+    # Prior-predictive sampler for the deepset amortisers (§8 + §14 of
+    # dev/amortised_decision_making.md)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def make_training_data_with_participant_tokens_prior(
+        rng: np.random.Generator,
+        S: int,
+        *,
+        item_type_idx: np.ndarray,
+        item_high_idx: np.ndarray,
+        n_max: int,
+        n_min: int = 2,
+        K_out_of_7: int = 8,
+        K_categorical: int = 4,
+        categorical_threshold: int = 2,
+        queries_per_sample: int = 4,
+        target_clip: float = 20.0,
+        threshold_scale: float = 3.5,
+    ):
+        """Prior-predictive sampler for the deepset{S,X}compAtt amortisers
+        on the PCM (§8 algorithm, §14.1 dimensions).
+
+        Per training sample ``s``:
+
+        1. draw ``n ~ U{n_min, .., n_max - 1}``, ``m = n_max - n``;
+        2. draw ``theta_i ~ N(0, 1)`` for all ``N = n_max`` participants
+           (ZeroSumNormal marginal), ``beta_t ~ N(0, 1)`` for the two
+           time-points (x_formula "~ time - 1");
+        3. per (real item j, time t): thresholds
+           ``tau_{j, t, .} ~ N(0, threshold_scale)`` (K_j - 1 of them)
+           and loading ``lam_{j, t} ~ |StudentT(3)|`` with the first
+           fake item per category type pinned to 1 (Stan convention);
+        4. simulate ``y_{i, j, t} ~ CategoricalLogit(eta)`` with the PCM
+           cumulative-increment logits;
+        5. label ``rho_j(theta)``: population endpoint per real item,
+           direction-aware ratio across the two time-points of
+           ``w_{j, t} = mean_i E[y | theta_i]`` (out-of-7) or
+           ``mean_i P(y >= categorical_threshold | theta_i)``
+           (categorical), clipped at +-target_clip.
+
+        Responses enter the batch rescaled to [0, 1] via
+        ``(k - 1) / (K_j - 1)`` (1-indexed category k), matching the
+        §14.1 deployment-side input rescale.
+
+        Returns ``(batch, rho)`` in the deepset batch schema with
+        ``R = 2`` (baseline, endline response) and
+        ``item_metadata = (item_type_idx, item_high_idx)``, ``aux =
+        (n / n_max, m / n_max)``; ``B = S * queries_per_sample``.
+        """
+        item_type_idx = np.asarray(item_type_idx, dtype=np.float32)
+        item_high_idx = np.asarray(item_high_idx, dtype=np.float32)
+        J = item_type_idx.shape[0]
+        Q = int(queries_per_sample)
+        N = int(n_max)
+
+        type_groups = [
+            (np.flatnonzero(item_type_idx == 0.0), K_out_of_7),
+            (np.flatnonzero(item_type_idx == 1.0), K_categorical),
+        ]
+
+        n_arr = rng.integers(n_min, n_max, size=S).astype(np.int64)
+        m_arr = (n_max - n_arr).astype(np.int64)
+
+        Y_all = np.zeros((S, N, J, 2), dtype=np.float32)   # rescaled [0, 1]
+        rho_all = np.zeros((S, J), dtype=np.float64)
+
+        for s in range(S):
+            theta = rng.standard_normal(N)
+            beta = rng.standard_normal(2)
+            for js, K in type_groups:
+                if js.size == 0:
+                    continue
+                Jt = js.size
+                Km1 = K - 1
+                tau = threshold_scale * rng.standard_normal((Jt, 2, Km1))
+                lam = np.abs(rng.standard_t(3.0, size=(Jt, 2)))
+                lam[0, 0] = 1.0
+                # eta increments: (N, Jt, 2, K-1)
+                latent = theta[:, None, None] + beta[None, None, :]
+                inc = lam[None, :, :, None] * (
+                    latent[:, :, :, None] - tau[None, :, :, :]
+                )
+                eta = np.concatenate(
+                    [np.zeros((N, Jt, 2, 1)), np.cumsum(inc, axis=-1)],
+                    axis=-1,
+                )                                           # (N, Jt, 2, K)
+                eta -= eta.max(axis=-1, keepdims=True)
+                p = np.exp(eta)
+                p /= p.sum(axis=-1, keepdims=True)
+                # sample category 1..K via inverse cdf
+                cdf = np.cumsum(p, axis=-1)
+                u = rng.random((N, Jt, 2))
+                k_idx = (cdf < u[..., None]).sum(axis=-1)   # 0..K-1
+                Y_all[s, :, js, :] = (
+                    k_idx.astype(np.float32) / float(K - 1)
+                ).transpose(1, 0, 2)
+                # population endpoint per (j, t)
+                p_bar = p.mean(axis=0)                       # (Jt, 2, K)
+                if K == K_out_of_7 and js.size and item_type_idx[js[0]] == 0.0:
+                    ks = np.arange(1, K + 1, dtype=np.float64)
+                    w_jt = (p_bar * ks[None, None, :]).sum(axis=-1)  # (Jt, 2)
+                else:
+                    w_jt = p_bar[:, :, categorical_threshold - 1:].sum(axis=-1)
+                w_base = np.maximum(w_jt[:, 0], 1e-3)
+                w_end = w_jt[:, 1]
+                high = item_high_idx[js] > 0.5
+                ratio = np.where(high, w_end / w_base - 1.0,
+                                 1.0 - w_end / w_base)
+                rho_all[s, js] = np.clip(ratio, -target_clip, target_clip)
+
+        col = np.arange(N)[None, :]
+        mask_x = (col < n_arr[:, None]).astype(np.float32)   # (S, N)
+        mask_z = (col >= n_arr[:, None]).astype(np.float32)  # (S, N)
+        # x cohort = first n participants; z cohort = remaining m. Zero out
+        # the complementary rows so padded slots carry no signal.
+        Y_x = Y_all * mask_x[:, :, None, None]
+        Y_z = Y_all * mask_z[:, :, None, None]
+
+        j_star = rng.integers(0, J, size=(S, Q))
+        B = S * Q
+        x_rep = np.broadcast_to(
+            Y_x[:, None], (S, Q, N, J, 2),
+        ).reshape(B, N, J, 2).astype(np.float32)
+        z_rep = np.broadcast_to(
+            Y_z[:, None], (S, Q, N, J, 2),
+        ).reshape(B, N, J, 2).astype(np.float32)
+        mask_x_rep = np.broadcast_to(
+            mask_x[:, None], (S, Q, N),
+        ).reshape(B, N).astype(np.float32)
+        mask_z_rep = np.broadcast_to(
+            mask_z[:, None], (S, Q, N),
+        ).reshape(B, N).astype(np.float32)
+        meta = np.stack([item_type_idx, item_high_idx], axis=-1)  # (J, 2)
+        meta_rep = np.broadcast_to(
+            meta[None], (B, J, 2),
+        ).astype(np.float32)
+        sizes = np.stack([n_arr / n_max, m_arr / n_max], axis=-1)  # (S, 2)
+        aux_rep = np.broadcast_to(
+            sizes[:, None], (S, Q, 2),
+        ).reshape(B, 2).astype(np.float32)
+        s_idx = np.arange(S)[:, None]
+        rho = rho_all[s_idx, j_star].reshape(B).astype(np.float32)
+        return (
+            {
+                'x_responses':   x_rep,
+                'mask_x':        mask_x_rep,
+                'z_responses':   z_rep,
+                'mask_z':        mask_z_rep,
+                'item_metadata': meta_rep,
+                'query_idx':     j_star.reshape(B).astype(np.int32),
+                'aux':           aux_rep,
+            },
+            rho,
+        )

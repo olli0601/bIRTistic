@@ -148,7 +148,7 @@ LBL_RGDS  = 'Amortiser-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead'
 LBL_RGDX  = 'Amortiser-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead'
 
 non_amort_methods = [LBL_HMC, LBL_IS, LBL_RGE, LBL_RGEQ, LBL_RGEM]
-# RGEB (features-MLP idcomp) dropped: undertrained on MVN scale (§12.8).
+# RGEB (features-MLP idcomp) dropped: undertrained on MVN scale (§13.2).
 amort_focus_methods = [LBL_RGE, LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
 timing_methods = non_amort_methods + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
 

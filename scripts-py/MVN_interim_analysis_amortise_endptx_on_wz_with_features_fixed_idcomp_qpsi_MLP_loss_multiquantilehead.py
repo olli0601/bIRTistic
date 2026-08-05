@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MVN interim analysis: **amortised** PPS via a DeepSets multi-quantile
-network with hardcoded per-component identity encoder (§12.7 of
+network with hardcoded per-component identity encoder (§13.1 of
 ``dev/amortised_decision_making.md``).
 
 **idcomp variant** -- independent-components approximation. The

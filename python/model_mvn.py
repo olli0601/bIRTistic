@@ -107,7 +107,7 @@ def make_factor_chol(J: int, r: int = 5, psi: float = 0.1,
 def sample_random_K_chol(rng, J, families=None):
     """Draw a random K_chol from a mixture of standard families.
 
-    Used at TRAINING for the K-family-invariant amortiser (§12.11). Each
+    Used at TRAINING for the K-family-invariant amortiser (§13.5). Each
     call returns a fresh (J, J) Cholesky factor for a K matrix drawn
     from one of ``families``:
 
@@ -899,7 +899,7 @@ class MVNModel(Model):
         queries_per_sample: int = 4,
     ):
         """Prior-predictive joint sampler for the features-MLP **xcomp**
-        amortiser (§12.10).
+        amortiser (§13.4).
 
         Emits FULL participant vectors ``y_i in R^J`` (rather than the
         per-component scalar sequences of
@@ -1013,14 +1013,14 @@ class MVNModel(Model):
         K_families=None,
     ):
         """Prior-predictive sampler for the K-family-invariant
-        attention amortiser (§12.11 xcompAtt).
+        attention amortiser (§13.5 xcompAtt).
 
         Each of the ``S`` prior draws picks a random ``K_chol`` from
         ``sample_random_K_chol`` (identity / AR(1) / block / factor by
         default) so the amortiser learns to interpret ``K[j*, :]`` under
         multiple correlation families. Per-component summaries
         ``(sum_i y_{i, j}, sum_i z_{i, j})`` replace the raw participant
-        matrices of §12.10 -- the MVN sufficient statistic for
+        matrices of §13.4 -- the MVN sufficient statistic for
         ``mu_j | (x, z)`` is preserved, and the encoder no longer needs
         to run per-participant tokens.
 
@@ -1136,7 +1136,7 @@ class MVNModel(Model):
         K_families=None,
     ):
         """Prior-predictive sampler for the deepset{S,X}compAtt
-        amortisers (§12.14).
+        amortisers (§14.2).
 
         Emits RAW per-(participant, item) response scalars plus K-row
         per-(item, query) as item metadata. K-family-invariant training

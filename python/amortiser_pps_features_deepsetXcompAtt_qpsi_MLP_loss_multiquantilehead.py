@@ -1,6 +1,6 @@
 """
 Amortiser: nested DeepSets over participants + cross-attention across
-items (approach ii of §12.13). Fully data-agnostic; fully amortised
+items (approach ii of §13.6). Fully data-agnostic; fully amortised
 over arbitrary participant cohort sizes ``(n, m)``.
 
 **Architecture.**
@@ -15,7 +15,7 @@ over arbitrary participant cohort sizes ``(n, m)``.
      per-item sufficient statistic aggregated across participants.
   4. ``q_tok`` -- MLP mixing ``(pool_x, pool_z)`` per item -> per-item
      embedding ``h_j = q_tok(concat(pool_x_j, pool_z_j)) in R^embed_dim``.
-  5. **Cross-attention (approach ii of §12.13).** Query built from
+  5. **Cross-attention (approach ii of §13.6).** Query built from
      the queried item's own per-item embedding via ``q_query`` MLP;
      attention over the J per-item embeddings. Number of scores per
      batch elem: J.
@@ -112,7 +112,7 @@ class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         B = h.shape[0]
         b_range = jnp.arange(B, dtype=jnp.int32)
         # Cross-attn query: built from queried item's per-item embedding
-        # (approach ii of §12.13, deepset version). The queried item's
+        # (approach ii of §13.6, deepset version). The queried item's
         # embedding already encodes both cohorts' per-item pool via q_tok.
         h_query = h[b_range, idx]                               # (B, E)
         q = self.q_query(h_query)                               # (B, E)

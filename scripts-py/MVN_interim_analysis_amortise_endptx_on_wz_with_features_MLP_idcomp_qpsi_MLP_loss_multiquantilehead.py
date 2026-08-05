@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
 MVN interim analysis: **amortised** PPS via a DeepSets multi-quantile
-network with a **learnable** per-item encoder ``q_tau`` (§12.8 of
+network with a **learnable** per-item encoder ``q_tau`` (§13.2 of
 ``dev/amortised_decision_making.md``).
 
 **idcomp variant** -- independent-components approximation. Same
-per-component decomposition as the features-fixed sibling (§12.7):
+per-component decomposition as the features-fixed sibling (§13.1):
 the amortiser sees ONE component's raw sequence at a time and
 predicts ``mu_j`` marginally; cross-component correlation ``K`` is
 used at TRAINING (mu prior) but discarded at DEPLOYMENT. A full-K

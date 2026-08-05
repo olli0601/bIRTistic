@@ -2,10 +2,10 @@
 """
 MVN interim analysis: **amortised** PPS via attention over the
 component axis + K-row query + K-family-invariant training
-(§12.11 of ``dev/amortised_decision_making.md``).
+(§13.5 of ``dev/amortised_decision_making.md``).
 
 **xcompAtt** replaces the inner participant-level sum-pool of the
-`xcomp` variant (§12.10) with a single-head cross-attention block over
+`xcomp` variant (§13.4) with a single-head cross-attention block over
 the J components. Component summaries `(sum_i y_{i, j}, sum_i z_{i, j},
 K[j*, j])` are pre-pooled per component -- MVN sufficient statistic --
 so the encoder no longer runs on `(participant, component)` tokens.
