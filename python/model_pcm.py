@@ -1183,3 +1183,152 @@ class PartialCreditModel(IRTModel):
             },
             rho,
         )
+
+    @staticmethod
+    def make_training_data_with_item_tokens_prior(
+        rng: np.random.Generator,
+        S: int,
+        *,
+        item_type_idx: np.ndarray,
+        item_high_idx: np.ndarray,
+        n_max: int,
+        n_min: int = 2,
+        K_out_of_7: int = 8,
+        K_categorical: int = 4,
+        categorical_threshold: int = 2,
+        target_clip: float = 20.0,
+        threshold_scale: float = 3.5,
+        khat_shrink_n0: float = 50.0,
+    ):
+        """§8 prior-predictive sampler emitting the §14.1 ITEM-LEVEL
+        F = 8 tokens for `itemS/XcompAtt` -- no SVI fits, no cached wa
+        frames. Same PCM simulation as
+        :meth:`make_training_data_with_participant_tokens_prior`
+        (prior draw -> both cohorts, both time-points), then pooled to
+        the hand-computed per-item summaries of §14.1.3:
+
+          0: w_x_baseline_j, 1: w_x_endline_j   -- x-cohort group-means
+          2: w_z_baseline_j, 3: w_z_endline_j   -- z-cohort group-means
+          4: w_z_ratio_j                        -- direction-aware
+             change on the [0, 1] mean scale
+          5: c_j (item type), 6: d_j (direction)
+          7: khat[j*, j]  -- Spearman correlation of the x-cohort
+             per-participant change scores, shrunk toward identity with
+             weight n / (n + khat_shrink_n0) (query-dependent entry)
+
+        aux = (n / n_max, m / n_max). Every prior sample fans out to
+        all J queries -> B = S * J rows. Returns ``(batch, rho)`` with
+        ``batch = {tokens (B, J, 8), mask (B, J), query_idx (B,),
+        aux (B, 2)}`` and ``rho (B,)`` the UNstandardised population
+        endpoint label (clipped at +-target_clip); standardisation is
+        the caller's responsibility.
+        """
+        item_type_idx = np.asarray(item_type_idx, dtype=np.float32)
+        item_high_idx = np.asarray(item_high_idx, dtype=np.float32)
+        J = item_type_idx.shape[0]
+        N = int(n_max)
+
+        type_groups = [
+            (np.flatnonzero(item_type_idx == 0.0), K_out_of_7),
+            (np.flatnonzero(item_type_idx == 1.0), K_categorical),
+        ]
+
+        n_arr = rng.integers(n_min, n_max, size=S).astype(np.int64)
+        m_arr = (n_max - n_arr).astype(np.int64)
+
+        Y_all = np.zeros((S, N, J, 2), dtype=np.float32)   # rescaled [0, 1]
+        rho_all = np.zeros((S, J), dtype=np.float64)
+
+        for s in range(S):
+            theta = rng.standard_normal(N)
+            beta = rng.standard_normal(2)
+            for js, K in type_groups:
+                if js.size == 0:
+                    continue
+                Jt = js.size
+                Km1 = K - 1
+                tau = threshold_scale * rng.standard_normal((Jt, 2, Km1))
+                lam = np.abs(rng.standard_t(3.0, size=(Jt, 2)))
+                lam[0, 0] = 1.0
+                latent = theta[:, None, None] + beta[None, None, :]
+                inc = lam[None, :, :, None] * (
+                    latent[:, :, :, None] - tau[None, :, :, :]
+                )
+                eta = np.concatenate(
+                    [np.zeros((N, Jt, 2, 1)), np.cumsum(inc, axis=-1)],
+                    axis=-1,
+                )
+                eta -= eta.max(axis=-1, keepdims=True)
+                p = np.exp(eta)
+                p /= p.sum(axis=-1, keepdims=True)
+                cdf = np.cumsum(p, axis=-1)
+                u = rng.random((N, Jt, 2))
+                k_idx = (cdf < u[..., None]).sum(axis=-1)
+                Y_all[s, :, js, :] = (
+                    k_idx.astype(np.float32) / float(K - 1)
+                ).transpose(1, 0, 2)
+                p_bar = p.mean(axis=0)
+                if K == K_out_of_7 and js.size and item_type_idx[js[0]] == 0.0:
+                    ks = np.arange(1, K + 1, dtype=np.float64)
+                    w_jt = (p_bar * ks[None, None, :]).sum(axis=-1)
+                else:
+                    w_jt = p_bar[:, :, categorical_threshold - 1:].sum(axis=-1)
+                w_base = np.maximum(w_jt[:, 0], 1e-3)
+                w_end = w_jt[:, 1]
+                high = item_high_idx[js] > 0.5
+                ratio = np.where(high, w_end / w_base - 1.0,
+                                 1.0 - w_end / w_base)
+                rho_all[s, js] = np.clip(ratio, -target_clip, target_clip)
+
+        # Pool to item-level tokens per prior sample.
+        meta = np.stack([item_type_idx, item_high_idx], axis=-1)   # (J, 2)
+        tokens_base = np.zeros((S, J, 7), dtype=np.float32)
+        khat_all = np.zeros((S, J, J), dtype=np.float32)
+        eye = np.eye(J, dtype=np.float32)
+        for s in range(S):
+            n = int(n_arr[s])
+            x = Y_all[s, :n]                                       # (n, J, 2)
+            z = Y_all[s, n:]                                       # (m, J, 2)
+            w_x = x.mean(axis=0)                                   # (J, 2)
+            w_z = z.mean(axis=0)                                   # (J, 2)
+            wb = np.maximum(w_z[:, 0], 1e-3)
+            we = w_z[:, 1]
+            rat = np.where(item_high_idx > 0.5, we / wb - 1.0,
+                           1.0 - we / wb)
+            # Clip the ratio INPUT like the label: extreme prior draws
+            # push categorical means to ~0 and the ratio to +-1e3.
+            rat = np.clip(rat, -target_clip, target_clip)
+            tokens_base[s] = np.concatenate(
+                [w_x, w_z, rat[:, None], meta], axis=-1,
+            )
+            chg = x[:, :, 1] - x[:, :, 0]                          # (n, J)
+            rho_m = pd.DataFrame(chg).corr(method='spearman').to_numpy()
+            rho_m = np.nan_to_num(rho_m, nan=0.0)
+            np.fill_diagonal(rho_m, 1.0)
+            lam_s = n / (n + khat_shrink_n0)
+            khat_all[s] = lam_s * rho_m + (1.0 - lam_s) * eye
+
+        # Fan out to all J queries per prior sample.
+        B = S * J
+        tokens_rep = np.empty((S, J, J, 8), dtype=np.float32)
+        tokens_rep[..., :7] = tokens_base[:, None, :, :]
+        tokens_rep[..., 7] = khat_all
+        tokens_rep = tokens_rep.reshape(B, J, 8)
+        mask_rep = np.ones((B, J), dtype=np.float32)
+        query_idx = np.broadcast_to(
+            np.arange(J)[None, :], (S, J),
+        ).reshape(B).astype(np.int32)
+        sizes = np.stack([n_arr / n_max, m_arr / n_max], axis=-1)  # (S, 2)
+        aux_rep = np.broadcast_to(
+            sizes[:, None, :], (S, J, 2),
+        ).reshape(B, 2).astype(np.float32)
+        rho = rho_all.reshape(B).astype(np.float32)
+        return (
+            {
+                'tokens':    tokens_rep,
+                'mask':      mask_rep,
+                'query_idx': query_idx,
+                'aux':       aux_rep,
+            },
+            rho,
+        )

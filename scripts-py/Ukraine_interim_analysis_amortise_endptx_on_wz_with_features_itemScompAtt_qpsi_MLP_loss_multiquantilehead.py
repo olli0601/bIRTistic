@@ -103,7 +103,9 @@ pps_H1_min_effect_size_thresh = 0.5
 pps_ProbH1_target_lwr_quantile = 0.89
 
 NET_STEPS = int(os.environ.get('UKR_XCOMPATT_STEPS', 6000))
-NET_BATCH = 256
+NET_BATCH = 64                   # PRIOR samples per step -> B = 64 * J = 1280
+PILOT_S = 2000                   # prior samples for the item_std pilot
+categorical_threshold = 2        # target-side caseness threshold (1-indexed)
 NET_LR = 1e-3
 NET_TAUS = (0.05, 0.25, 0.5, 0.75, 0.95)
 NET_TOK_HIDDEN = (32, 32)
@@ -172,16 +174,6 @@ KHAT_SHRINK_N0 = 50.0             # shrinkage prior weight for empirical K
 F_TOK = 8                         # per-item token feature dim (see below)
 
 
-def _rescale_w(w):
-    """wa-frame out-of-7 w's are means of 1-INDEXED categories in
-    [1, K_j]; map to [0, 1] via (w - 1) / (K_j - 1) with K_j =
-    dit['cat_length'] per item. Categorical columns are overwritten
-    with mean-response summaries downstream."""
-    o7 = (item_type_idx == 0.0)[None, :]
-    return np.where(
-        o7, (w - 1.0) / (item_klevels[None, :] - 1.0), w,
-    ).astype(np.float32)
-
 
 def _interim_x_features(interim_id):
     """Per-interim x-side (observed-cohort) features from the cached xi
@@ -220,21 +212,14 @@ def _interim_x_features(interim_id):
     return w_x, khat, n_pid
 
 
-def _interim_z_cat_stats(interim_id, D):
-    """Per-draw mean-response z-side summaries for the CATEGORICAL
-    items, which the cached wa frames only carry as thresholded
-    proportions. Rebuild the posterior-predictive block z^(s) from the
-    cached SVI draws (same seed + keep_order as the RGE script, so the
-    shadow cohort and draw alignment match the wa targets) and compute
-    mean(ypred - 1) / (K_j - 1) in [0, 1] per (draw, item, time), with
-    K_j = dit['cat_length'] per item.
+def _interim_z_means(interim_id, D):
+    """Per-draw mean-response z-side summaries for ALL items, rebuilt
+    from the cached SVI draws (posterior predictive at x_obs; same seed
+    + keep_order as the RGE script so draw s aligns with the wa
+    evaluation targets): mean(ypred - 1) / (K_j - 1) in [0, 1] per
+    (draw, item, time), K_j = dit['cat_length'].
 
-    Returns (D, n_cat, 2) for the items where item_type_idx == 1, in
-    items_df order."""
-    cat_j = [j for j in range(J) if item_type_idx[j] == 1.0]
-    cat_labels = [items_df['item_label'].iloc[j] for j in cat_j]
-    if not cat_labels:
-        return np.zeros((D, 0, 2), dtype=np.float32)
+    Returns (D, J, 2) in items_df order."""
     xi = pd.read_csv(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_data_dp1.csv"),
     )
@@ -247,73 +232,53 @@ def _interim_z_cat_stats(interim_id, D):
         interim_m, pps_z_total=D, seed=123, keep_order=True,
     )
     ypred_cols = [f'ypred_{s}' for s in range(D)]
-    out = np.zeros((D, len(cat_labels), 2), dtype=np.float32)
-    for jj, lbl in enumerate(cat_labels):
-        kmax = item_klevels[cat_j[jj]] - 1.0
-        for t in (0, 1):
-            sub = zi[(zi['item_label'] == lbl) & (zi['time'] == t)]
+    out = np.zeros((D, J, 2), dtype=np.float32)
+    for j, lbl in enumerate(items_df['item_label']):
+        kmax = item_klevels[j] - 1.0
+        for tt in (0, 1):
+            sub = zi[(zi['item_label'] == lbl) & (zi['time'] == tt)]
             vals = sub[ypred_cols].to_numpy(dtype=np.float32)   # (m, D), 1..K
-            out[:, jj, t] = (vals - 1.0).mean(axis=0) / kmax
+            out[:, j, tt] = (vals - 1.0).mean(axis=0) / kmax
     return out
 
 
 def _tensorise_interim(wa: pd.DataFrame, interim_id: int):
-    """Return (tokens_base [D, J, 7], target [D, J], khat [J, J],
-    aux_row [2]) for one interim.
+    """Deployment-token builder. Returns (tokens_base [D, J, 7],
+    target [D, J], khat [J, J], aux_row [2]) for one interim.
 
-    Token features (F = 8; the 8th, khat[j*, j], is query-dependent and
-    appended at batch-construction time):
-      0: w_x_baseline_j   -- OBSERVED cohort, s-invariant
-      1: w_x_endline_j    -- OBSERVED cohort, s-invariant
-      2: w_z_baseline_j^(s) -- future block z^(s)
-      3: w_z_endline_j^(s)  -- future block z^(s)
-      4: w_z_ratio_j^(s)    -- future block z^(s)
-      5: c_j (item type), 6: d_j (direction)
-    aux = (n / N_FULL, m / N_FULL).
+    All token entries are computed from raw data with the SAME formulas
+    as the prior-predictive training sampler
+    (`make_training_data_with_item_tokens_prior`): x-side group-means
+    from the observed xi frame, z-side group-means per posterior-
+    predictive draw from the rebuilt zi block, direction-aware ratio on
+    the [0, 1] mean scale (clipped), metadata, empirical khat. The wa
+    frame is used ONLY for the evaluation target `pps_ratio_x`.
     """
     w_x, khat, n_pid = _interim_x_features(interim_id)
     wa = wa.copy()
     wa['item_pos'] = wa['item_label'].map(item_pos)
-    piv = wa.pivot_table(
-        index='draw', columns='item_pos',
-        values=['w_baseline', 'w_endline', 'w_ratio', 'pps_ratio_x'],
-    )
+    piv = wa.pivot_table(index='draw', columns='item_pos',
+                         values='pps_ratio_x')
     D = piv.index.size
-    w_base = _rescale_w(
-        piv['w_baseline'].reindex(columns=range(J)).to_numpy(dtype=np.float32))
-    w_end = _rescale_w(
-        piv['w_endline'].reindex(columns=range(J)).to_numpy(dtype=np.float32))
-    w_rat = np.array(
-        piv['w_ratio'].reindex(columns=range(J)).to_numpy(dtype=np.float32),
-        copy=True,
-    )
-    # Categorical items: replace the thresholded-proportion z-side
-    # summaries from the wa frames with mean-response summaries rebuilt
-    # from the cached SVI draws (no input-side thresholding). The change
-    # ratio is recomputed on the means (all CG-MH are lower_is_better).
-    cat_pos = np.flatnonzero(item_type_idx == 1.0)
-    if cat_pos.size:
-        zc = _interim_z_cat_stats(interim_id, D)             # (D, n_cat, 2)
-        w_base[:, cat_pos] = zc[:, :, 0]
-        w_end[:, cat_pos] = zc[:, :, 1]
-        wb = np.maximum(zc[:, :, 0], 1e-3)
-        we = zc[:, :, 1]
-        high = (item_high_idx[cat_pos] > 0.5)[None, :]
-        w_rat[:, cat_pos] = np.where(high, we / wb - 1.0, 1.0 - we / wb)
+    target = piv.reindex(columns=range(J)).to_numpy(dtype=np.float32)
+    target = np.nan_to_num(target, nan=0.0, posinf=TARGET_CLIP,
+                           neginf=-TARGET_CLIP)
+    target = np.clip(target, -TARGET_CLIP, TARGET_CLIP)
+    zm = _interim_z_means(interim_id, D)                     # (D, J, 2)
+    wb = np.maximum(zm[:, :, 0], 1e-3)
+    we = zm[:, :, 1]
+    high = (item_high_idx > 0.5)[None, :]
+    w_rat = np.clip(np.where(high, we / wb - 1.0, 1.0 - we / wb),
+                    -TARGET_CLIP, TARGET_CLIP)
     w_x_b = np.broadcast_to(w_x[None, :, 0], (D, J))
     w_x_e = np.broadcast_to(w_x[None, :, 1], (D, J))
-    feats = np.stack([w_x_b, w_x_e, w_base, w_end, w_rat], axis=-1)  # (D, J, 5)
-    target = piv['pps_ratio_x'].reindex(
-        columns=range(J),
-    ).to_numpy(dtype=np.float32)                            # (D, J)
+    feats = np.stack([w_x_b, w_x_e, zm[:, :, 0], zm[:, :, 1], w_rat],
+                     axis=-1)                                # (D, J, 5)
     feats = np.nan_to_num(feats, nan=0.0, posinf=0.0, neginf=0.0)
-    target = np.nan_to_num(target, nan=0.0, posinf=TARGET_CLIP, neginf=-TARGET_CLIP)
-    target = np.clip(target, -TARGET_CLIP, TARGET_CLIP)
-    metadata = np.stack([item_type_idx, item_high_idx], axis=-1)  # (J, 2)
     metadata_b = np.broadcast_to(
-        metadata[None, :, :], (D, J, 2),
+        np.stack([item_type_idx, item_high_idx], axis=-1)[None], (D, J, 2),
     ).astype(np.float32)
-    tokens = np.concatenate([feats, metadata_b], axis=-1)   # (D, J, 7)
+    tokens = np.concatenate([feats, metadata_b], axis=-1)    # (D, J, 7)
     aux_row = np.array([n_pid / N_FULL, (N_FULL - n_pid) / N_FULL],
                        dtype=np.float32)
     return tokens.astype(np.float32), target, khat, aux_row
@@ -348,77 +313,52 @@ for i, (t, y, kh, ax) in interim_tensors.items():
 # %%
 
 # =============================================================================
-# Build training pool: concatenate all interims. At training we sample
-# uniformly across (interim, draw); each sample fans out to J = 20
-# per-item rows (one query per row).
+# Training data: PRIOR-PREDICTIVE ONLY (§8). Fresh PCM prior draws per
+# step via make_training_data_with_item_tokens_prior -- no SVI fits,
+# no cached wa frames enter training. The per-item target std for
+# standardisation comes from a prior pilot batch.
 # =============================================================================
 
-train_tokens = np.concatenate(
-    [interim_tensors[i][0] for i in INTERIM_IDS], axis=0,
-)                                                           # (D_total, J, 7)
-train_target = np.concatenate(
-    [interim_tensors[i][1] for i in INTERIM_IDS], axis=0,
-)                                                           # (D_total, J)
-train_interim_ii = np.concatenate([
-    np.full(interim_tensors[i][0].shape[0], k, dtype=np.int32)
-    for k, i in enumerate(INTERIM_IDS)
-])                                                          # (D_total,)
-khat_arr = np.stack(
-    [interim_tensors[i][2] for i in INTERIM_IDS], axis=0,
-)                                                           # (C, J, J)
-aux_arr = np.stack(
-    [interim_tensors[i][3] for i in INTERIM_IDS], axis=0,
-)                                                           # (C, 2)
-D_total = train_tokens.shape[0]
-print(f"\nTraining pool: {D_total} draws across {len(INTERIM_IDS)} interims.")
+_K_O7_LVL = int(item_klevels[item_type_idx == 0.0][0])
+_K_CAT_LVL = int(item_klevels[item_type_idx == 1.0][0])
+PRIOR_KW = dict(
+    item_type_idx=item_type_idx,
+    item_high_idx=item_high_idx,
+    n_max=N_FULL,
+    K_out_of_7=_K_O7_LVL,
+    K_categorical=_K_CAT_LVL,
+    categorical_threshold=categorical_threshold,
+    target_clip=TARGET_CLIP,
+)
 
-# Per-item target standardisation (§14.1 CG-MH resolution fix).
 ITEM_STD_PATH = os.path.join(dir_out, f"{file_prefix}_item_std.npy")
 if os.path.exists(ITEM_STD_PATH):
     item_std = np.load(ITEM_STD_PATH).astype(np.float32)
     assert item_std.shape == (J,)
     print(f"Loaded cached per-item target std: {ITEM_STD_PATH}")
 else:
-    item_std = np.nanstd(train_target, axis=0).astype(np.float32)
+    print(f"Computing per-item target std from a {PILOT_S}-sample prior "
+          f"pilot ...")
+    _pilot_rng = np.random.default_rng(NET_SEED + 1)
+    _pb, _prho = PartialCreditModel.make_training_data_with_item_tokens_prior(
+        _pilot_rng, PILOT_S, **PRIOR_KW,
+    )
+    item_std = _prho.reshape(PILOT_S, J).std(axis=0).astype(np.float32)
     item_std = np.where(item_std > 1e-6, item_std, 1.0).astype(np.float32)
     np.save(ITEM_STD_PATH, item_std)
-    print(f"Computed + saved per-item target std to {ITEM_STD_PATH}")
+    print(f"Saved per-item target std to {ITEM_STD_PATH}")
 print(f"item_std range [{item_std.min():.3g}, {item_std.max():.3g}], "
       f"mean {item_std.mean():.3g}")
 
 
 def sample_fn(rng, S):
-    """Sample S draws from the pooled tensors. Fan out to B = S * J
-    per-item rows -- one query index per row, khat[q, :] appended as
-    the query-dependent 8th token feature. Target is standardised per
-    item by item_std."""
-    draw_idx = rng.integers(0, D_total, size=S)              # (S,)
-    tok = train_tokens[draw_idx]                            # (S, J, 7)
-    kk = khat_arr[train_interim_ii[draw_idx]]               # (S, J, J)
-    ax = aux_arr[train_interim_ii[draw_idx]]                # (S, 2)
-    tgt = train_target[draw_idx] / item_std[None, :]        # (S, J) standardised
-    B = S * J
-    tokens_rep = np.empty((S, J, J, F_TOK), dtype=np.float32)
-    tokens_rep[..., :7] = tok[:, None, :, :]
-    tokens_rep[..., 7] = kk
-    tokens_rep = tokens_rep.reshape(B, J, F_TOK)
-    mask_rep = np.ones((B, J), dtype=np.float32)
-    query_idx = np.broadcast_to(
-        np.arange(J)[None, :], (S, J),
-    ).reshape(B).astype(np.int32)
-    aux_rep = np.broadcast_to(
-        ax[:, None, :], (S, J, 2),
-    ).reshape(B, 2).astype(np.float32)
-    target_rho = tgt.reshape(B).astype(np.float32)
-    return (
-        {
-            'tokens': tokens_rep,
-            'mask': mask_rep,
-            'query_idx': query_idx,
-            'aux': aux_rep,
-        },
-        target_rho,
+    """S fresh PCM prior-predictive draws, fanned out to B = S * J
+    per-item query rows by the sampler. Target standardised per item."""
+    batch, rho = PartialCreditModel.make_training_data_with_item_tokens_prior(
+        rng, S, **PRIOR_KW,
     )
+    rho = rho / item_std[batch['query_idx']]
+    return batch, rho
 
 
 def _predict_with_unstandardise(fit, batch, thresh):
@@ -837,104 +777,50 @@ p.save(pdf_path, verbose=False, limitsize=False)
 print(f"  saved combined boxplot: {pdf_path}")
 
 # =============================================================================
-# Attention-picked per-query summary scatter (§13.6 diagnostic).
-# For each (interim, posterior draw s, item j*), compute the query-
-# conditional attention output that q_psi actually consumes:
-#     bar_h^(j*) = self_attention(h)[j*] in R^E   (self-attn + gather + B)
-# then project all (interim, draw, item) bar_h vectors to R via a single
-# global PCA (first component). Scatter y = SVI posterior draw of rho
-# for that (interim, draw, item) vs x = PC1(bar_h^(j*)); facet per item.
-# Panel Pearson rho then measures how well the per-query learned summary
-# tracks the item's SVI posterior across draws.
+# Median-prediction association scatter (§14.2.2). Per interim, facet
+# per item: y = SVI posterior draw rho_true^(j*,s), x = the amortiser's
+# median head output rho_hat_3^(j*,s). Assesses ASSOCIATION (per-draw
+# correlation / ranking) only -- distributional calibration is the
+# separate tests script's job (§14.2.1).
 # =============================================================================
 
-import importlib
-
-_net_module  = importlib.import_module(fit['net_class_module'])
-_net_class   = getattr(_net_module, fit['net_class_name'])
-_net_kwargs  = dict(fit['net_kwargs'])
-_net_kwargs.setdefault('num_quantiles', len(fit['pps_ProbH1_lwr_quantiles_mesh']))
-_net         = _net_class(**_net_kwargs)
-
-_summary_rows = []
-for interim_id in INTERIM_IDS:
-    tokens_c, _t, khat_c, aux_c = interim_tensors[interim_id]  # (D, J, 7)
-    D_i = tokens_c.shape[0]
-    tokens_rep, mask_rep, qidx_rep, _aux_rep = _fanout_with_khat(
-        tokens_c, khat_c, aux_c,
-    )
-    bar_h = _net.apply(
-        fit['params'], tokens_rep, mask_rep, qidx_rep,
-        method=lambda mdl, t, m, q: mdl.summary_for_query(t, m, q),
-    )                                                        # (D*J, E)
-    bar_h = np.asarray(bar_h).reshape(D_i, J, -1)            # (D, J, E)
-    for d in range(D_i):
-        for j in range(J):
-            _summary_rows.append({
-                'interim_id': interim_id,
-                's':          d + 1,
-                'item_label': items_df.iloc[j]['item_label'],
-                'bar_h':      bar_h[d, j],
-            })
-_bar_all     = np.stack([r['bar_h'] for r in _summary_rows], axis=0)  # (N, E)
-_bar_center  = _bar_all - _bar_all.mean(axis=0, keepdims=True)
-_U, _s, _Vt  = np.linalg.svd(_bar_center, full_matrices=False)
-_pc1_all     = (_U[:, 0] * _s[0]).astype(np.float64)                  # (N,)
-_pc1_df  = pd.DataFrame({
-    'interim_id': [r['interim_id'] for r in _summary_rows],
-    's':          [r['s']          for r in _summary_rows],
-    'item_label': [r['item_label'] for r in _summary_rows],
-    'pc1':        _pc1_all,
-})
-_scatter = dp_h1_xz.merge(
-    _pc1_df, on=['interim_id', 's', 'item_label'], how='inner',
-)
-
-for interim_id in sorted(_scatter['interim_id'].unique()):
-    sub = _scatter[_scatter['interim_id'] == interim_id][
-        ['item_label', 'pps_ratio_x', 'pc1']
-    ].copy()
+for interim_id in sorted(dp_h1_xz['interim_id'].unique()):
+    sub = dp_h1_xz[dp_h1_xz['interim_id'] == interim_id][
+        ['item_label', 'pps_ratio_x', 'q_hat']
+    ].dropna()
     if sub.empty:
         continue
     ann_rows = []
     for item in sub['item_label'].unique():
         g = sub[sub['item_label'] == item]
-        rho_v = float(g['pc1'].corr(g['pps_ratio_x'])) if len(g) >= 2 else float('nan')
+        rho_v = (float(np.corrcoef(g['q_hat'], g['pps_ratio_x'])[0, 1])
+                 if len(g) >= 2 else float('nan'))
         ann_rows.append({
             'item_label': item,
-            'x_left':  float(g['pc1'].min()),
-            'y_top':   float(g['pps_ratio_x'].max()),
-            'rho_label': f"rho(PC1,y)={rho_v:.2f}",
+            'x_left': float(g['q_hat'].min()),
+            'y_top': float(g['pps_ratio_x'].max()),
+            'rho_label': f"rho={rho_v:.2f}",
         })
     ann = pd.DataFrame(ann_rows)
-
-    _items_sorted = sorted(sub['item_label'].unique())
-    _item_colors  = dict(
-        zip(_items_sorted, _futurama_palette(len(_items_sorted))),
-    )
     p = (
-        ggplot(sub, aes(x='pc1', y='pps_ratio_x', colour='item_label'))
-        + geom_point(alpha=0.3, size=0.5)
+        ggplot(sub, aes(x='q_hat', y='pps_ratio_x'))
+        + geom_point(alpha=0.25, size=0.5, colour='#1f77b4')
         + geom_smooth(method='glm', method_args={'family': 'gaussian'},
-                      se=True, colour='black', size=0.8)
+                      se=False, colour='black', size=0.6)
         + geom_text(ann, aes(x='x_left', y='y_top', label='rho_label'),
                     ha='left', va='top', size=8, inherit_aes=False)
         + facet_wrap('~ item_label', ncol=4, scales='free')
-        + scale_colour_manual(values=_item_colors)
         + theme_bw()
-        + theme(
-            figure_size=(15, 14),
-            strip_background=element_rect(fill='none', colour='none'),
-            panel_background=element_rect(fill='none', colour='none'),
-            legend_position='none',
-        )
-        + labs(x=f'PC1 of attention-picked per-query summary bar_h^(j*) at interim {interim_id}',
-               y=f'SVI posterior draw of rho from p(theta | x) at interim {interim_id}')
+        + theme(figure_size=(15, 14),
+                strip_background=element_blank(),
+                strip_text=element_text(face='bold'))
+        + labs(x=f'amortiser median rho_hat_3 at interim {interim_id}',
+               y=f'SVI posterior draw of rho at interim {interim_id}')
     )
     pdf_path = os.path.join(
-        dir_out, f"{file_prefix}_i{interim_id}_svi_rho_vs_pc1_attn_summary.pdf",
+        dir_out, f"{file_prefix}_i{interim_id}_svi_rho_vs_amortiser_median.pdf",
     )
     p.save(pdf_path, verbose=False, limitsize=False)
-    print(f"  saved PC1 diagnostic plot: {pdf_path}")
+    print(f"  saved median-association plot: {pdf_path}")
 
 print("\nAll interims done -- Ukraine xcompAtt amortised PPS complete.")

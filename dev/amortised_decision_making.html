@@ -406,42 +406,87 @@ id="toc-cross-component-attention-to-learn-item-specific-summaries-itemxcompatt"
 Cross-component attention to learn item-specific summaries
 (<code>itemXcompAtt</code>)</a>
 <ul>
-<li><a href="#study-structure-dimensions-and-what-is-trained"
-id="toc-study-structure-dimensions-and-what-is-trained">14.1.1 Study
-structure, dimensions, and what is trained</a></li>
+<li><a href="#structure-of-learning-task"
+id="toc-structure-of-learning-task">14.1.1 Structure of learning
+task</a></li>
 <li><a href="#training-data-and-target"
 id="toc-training-data-and-target">14.1.2 Training data and
 target</a></li>
 <li><a href="#per-item-token" id="toc-per-item-token">14.1.3 Per-item
 token</a></li>
-<li><a href="#encoder-cross-attention-head"
-id="toc-encoder-cross-attention-head">14.1.4 Encoder, cross-attention,
-head</a></li>
-<li><a href="#loss-with-per-item-target-standardisation"
-id="toc-loss-with-per-item-target-standardisation">14.1.5 Loss with
-per-item target standardisation</a></li>
+<li><a href="#encoder-cross-attention-head-loss-function"
+id="toc-encoder-cross-attention-head-loss-function">14.1.4 Encoder,
+cross-attention, head, loss function</a></li>
+<li><a href="#training-summary" id="toc-training-summary">14.1.5
+Training summary</a></li>
 <li><a href="#deployment" id="toc-deployment">14.1.6 Deployment</a></li>
-<li><a href="#training-configuration-and-results"
-id="toc-training-configuration-and-results">14.1.7 Training
-configuration and results</a></li>
-<li><a href="#reading-3" id="toc-reading-3">14.1.8 Reading</a></li>
-</ul></li>
-<li><a href="#diagnostics-for-the-ukraine-item-level-amortisers"
-id="toc-diagnostics-for-the-ukraine-item-level-amortisers">14.2
-Diagnostics for the Ukraine item-level amortisers</a>
-<ul>
-<li><a href="#distribution-comparison-boxplot-overview"
-id="toc-distribution-comparison-boxplot-overview">Distribution
-comparison (boxplot overview)</a></li>
-<li><a href="#learned-summary-check-pc1-of-the-attention-output"
-id="toc-learned-summary-check-pc1-of-the-attention-output">Learned-summary
-check (PC1 of the attention output)</a></li>
-</ul></li>
 <li><a
-href="#self-attention-to-learn-item-specific-summaries-itemscompatt"
-id="toc-self-attention-to-learn-item-specific-summaries-itemscompatt">14.3
-Self-attention to learn item-specific summaries
-(<code>itemScompAtt</code>)</a></li>
+href="#diagnostic-conditional-calibration-on-x-zs-quantile-coverage-pit"
+id="toc-diagnostic-conditional-calibration-on-x-zs-quantile-coverage-pit">14.1.7
+Diagnostic: conditional calibration on <span class="math inline">\((x,
+z^{(s)})\)</span> — quantile coverage + PIT</a></li>
+<li><a href="#diagnostic-marginal-prho-mid-x-svi-vs-amortiser"
+id="toc-diagnostic-marginal-prho-mid-x-svi-vs-amortiser">14.1.8
+Diagnostic: marginal <span class="math inline">\(p(\rho \mid x)\)</span>
+(SVI vs amortiser)</a></li>
+<li><a
+href="#diagnostic-median-prediction-association-per-draw-correlation"
+id="toc-diagnostic-median-prediction-association-per-draw-correlation">14.1.9
+Diagnostic: median-prediction association (per-draw
+correlation)</a></li>
+<li><a href="#results-correlation-against-the-svi-posteriors"
+id="toc-results-correlation-against-the-svi-posteriors">14.1.10 Results:
+correlation against the SVI posteriors</a></li>
+<li><a href="#diagnostic-pps-agreement-with-the-regression-baselines"
+id="toc-diagnostic-pps-agreement-with-the-regression-baselines">14.1.11
+Diagnostic: PPS agreement with the regression baselines</a></li>
+<li><a href="#reading-3" id="toc-reading-3">14.1.12 Reading</a></li>
+</ul></li>
+<li><a href="#calibration-remedies-for-the-item-amortiser"
+id="toc-calibration-remedies-for-the-item-amortiser">14.2 Calibration
+remedies for the item amortiser</a>
+<ul>
+<li><a href="#training-noise-control-s-256-drawsstep-negative"
+id="toc-training-noise-control-s-256-drawsstep-negative">14.2.1
+Training-noise control — <span class="math inline">\(S = 256\)</span>
+draws/step (negative)</a></li>
+<li><a href="#prior-narrowing-threshold_scale-2.0-1.0-negative"
+id="toc-prior-narrowing-threshold_scale-2.0-1.0-negative">14.2.2 Prior
+narrowing — <code>threshold_scale</code> 2.0 / 1.0 (negative)</a></li>
+<li><a
+href="#full-net-fine-tune-leave-one-interim-out-reference-upper-bound"
+id="toc-full-net-fine-tune-leave-one-interim-out-reference-upper-bound">14.2.3
+Full-net fine-tune, leave-one-interim-out (reference upper
+bound)</a></li>
+<li><a href="#head-only-fine-tune-on-interim-1-too-thin"
+id="toc-head-only-fine-tune-on-interim-1-too-thin">14.2.4 Head-only
+fine-tune on interim 1 (too thin)</a></li>
+<li><a
+href="#head-only-fine-tune-expanding-window-the-deployable-recipe"
+id="toc-head-only-fine-tune-expanding-window-the-deployable-recipe">14.2.5
+Head-only fine-tune, expanding window (the deployable recipe)</a></li>
+<li><a href="#post-hoc-conformal-recalibration-partial"
+id="toc-post-hoc-conformal-recalibration-partial">14.2.6 Post-hoc
+conformal recalibration (partial)</a></li>
+<li><a href="#reading-4" id="toc-reading-4">14.2.7 Reading</a></li>
+</ul></li>
+<li><a href="#self-attention-variant-itemscompatt-detailed-diagnostics"
+id="toc-self-attention-variant-itemscompatt-detailed-diagnostics">14.3
+Self-attention variant (<code>itemScompAtt</code>): detailed
+diagnostics</a>
+<ul>
+<li><a href="#association-with-the-svi-target"
+id="toc-association-with-the-svi-target">14.3.1 Association with the SVI
+target</a></li>
+<li><a
+href="#baseline-calibration-the-same-priorposterior-mislocation-as-14.1.7"
+id="toc-baseline-calibration-the-same-priorposterior-mislocation-as-14.1.7">14.3.2
+Baseline calibration — the same prior/posterior mislocation as
+§14.1.7</a></li>
+<li><a href="#head-only-expanding-fine-tune-14.2.5-transfers-unchanged"
+id="toc-head-only-expanding-fine-tune-14.2.5-transfers-unchanged">14.3.3
+Head-only expanding fine-tune (§14.2.5) transfers unchanged</a></li>
+</ul></li>
 <li><a
 href="#full-8-10-amortiser-on-the-ukraine-pcm-deepsetxcompatt-prior-predictive-training"
 id="toc-full-8-10-amortiser-on-the-ukraine-pcm-deepsetxcompatt-prior-predictive-training">14.4
@@ -452,7 +497,23 @@ prior-predictive training</a>
 <li><a href="#results-evaluation-against-the-svi-posterior-targets"
 id="toc-results-evaluation-against-the-svi-posterior-targets">14.4.2
 Results: evaluation against the SVI posterior targets</a></li>
-<li><a href="#reading-4" id="toc-reading-4">14.4.3 Reading</a></li>
+<li><a href="#baseline-calibration-diagnostics-..._diag.py"
+id="toc-baseline-calibration-diagnostics-..._diag.py">14.4.3 Baseline
+calibration diagnostics (<code>..._diag.py</code>)</a></li>
+<li><a
+href="#workstream-a-post-hoc-conformal-recalibration-insufficient-here-too"
+id="toc-workstream-a-post-hoc-conformal-recalibration-insufficient-here-too">14.4.4
+Workstream A: post-hoc conformal recalibration (insufficient here
+too)</a></li>
+<li><a
+href="#head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix"
+id="toc-head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix">14.4.5
+Head-only expanding fine-tune (§14.2.5) — the architecture-independent
+fix</a></li>
+<li><a href="#cross-architecture-summary"
+id="toc-cross-architecture-summary">14.4.6 Cross-architecture
+summary</a></li>
+<li><a href="#reading-5" id="toc-reading-5">14.4.7 Reading</a></li>
 </ul></li>
 </ul></li>
 <li><a href="#references" id="toc-references">15. References</a></li>
@@ -944,9 +1005,9 @@ across the 10 interims.</p>
 <p><strong>What we compare.</strong></p>
 <table>
 <colgroup>
-<col style="width: 22%" />
+<col style="width: 15%" />
+<col style="width: 44%" />
 <col style="width: 40%" />
-<col style="width: 37%" />
 </colgroup>
 <thead>
 <tr>
@@ -2201,11 +2262,11 @@ reflects estimator quality rather than divergent
 across the 11 monthly interims:</p>
 <table>
 <colgroup>
-<col style="width: 30%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 40%" />
+<col style="width: 7%" />
+<col style="width: 13%" />
+<col style="width: 22%" />
+<col style="width: 15%" />
 </colgroup>
 <thead>
 <tr>
@@ -2338,11 +2399,11 @@ same deployment cohort. Selectable at run time via the
 script:</p>
 <table>
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 38%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
+<col style="width: 18%" />
+<col style="width: 48%" />
+<col style="width: 8%" />
+<col style="width: 14%" />
+<col style="width: 10%" />
 </colgroup>
 <thead>
 <tr>
@@ -2462,11 +2523,11 @@ deployment script.</p>
 <p><strong>Combined table (fixed + MLP, sorted by MSE):</strong></p>
 <table>
 <colgroup>
-<col style="width: 35%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 45%" />
+<col style="width: 10%" />
+<col style="width: 10%" />
+<col style="width: 18%" />
+<col style="width: 13%" />
 </colgroup>
 <thead>
 <tr>
@@ -2684,11 +2745,11 @@ keeps CPU and MPS checkpoints separate so both remain reproducible.</p>
 config).</strong></p>
 <table>
 <colgroup>
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 22%" />
+<col style="width: 23%" />
+<col style="width: 20%" />
+<col style="width: 11%" />
+<col style="width: 16%" />
+<col style="width: 27%" />
 </colgroup>
 <thead>
 <tr>
@@ -2835,12 +2896,12 @@ per <span class="math inline">\(J\)</span> grid cell (deployment <span
 class="math inline">\(S = 4000\)</span>):</p>
 <table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 20%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 3%" />
+<col style="width: 31%" />
+<col style="width: 9%" />
+<col style="width: 25%" />
+<col style="width: 14%" />
+<col style="width: 15%" />
 </colgroup>
 <thead>
 <tr>
@@ -2975,12 +3036,12 @@ class="math inline">\(4000\)</span> to <span
 class="math inline">\(500\)</span> to cap wall-clock):</p>
 <table>
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 22%" />
-<col style="width: 15%" />
+<col style="width: 4%" />
+<col style="width: 32%" />
+<col style="width: 6%" />
+<col style="width: 25%" />
+<col style="width: 14%" />
 <col style="width: 16%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
 </colgroup>
 <thead>
 <tr>
@@ -3075,13 +3136,13 @@ against the closed-form <span class="math inline">\(\Phi\)</span>-tail
 PPS <code>pps_cf</code> from <code>mvn_pps_closed_form.pkl</code>.
 Aggregate mean MSE per method per <span class="math inline">\(J\)</span>
 (averaged over the 7 interims):</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 39%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
+<col style="width: 51%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 20%" />
 </colgroup>
 <thead>
 <tr>
@@ -3454,11 +3515,11 @@ interims per <span class="math inline">\(J\)</span> (block-equicorr
 deployment K; K-mixture training):</p>
 <table>
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 21%" />
-<col style="width: 24%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 3%" />
+<col style="width: 29%" />
+<col style="width: 33%" />
+<col style="width: 14%" />
+<col style="width: 18%" />
 </colgroup>
 <thead>
 <tr>
@@ -3726,9 +3787,9 @@ the ONLY new learnable parameter compared to the cross-attn variant with
 s)\)</span> superscript above; the table below drops it for brevity.</p>
 <table>
 <colgroup>
-<col style="width: 22%" />
-<col style="width: 43%" />
-<col style="width: 34%" />
+<col style="width: 15%" />
+<col style="width: 47%" />
+<col style="width: 37%" />
 </colgroup>
 <thead>
 <tr>
@@ -3787,10 +3848,10 @@ impact on MVN (15k steps, K-mixture training)</h3>
 <p>MSE against analytic PPS, averaged over the 7-interim schedule:</p>
 <table>
 <colgroup>
-<col style="width: 19%" />
-<col style="width: 20%" />
-<col style="width: 30%" />
-<col style="width: 29%" />
+<col style="width: 2%" />
+<col style="width: 25%" />
+<col style="width: 36%" />
+<col style="width: 35%" />
 </colgroup>
 <thead>
 <tr>
@@ -3884,9 +3945,9 @@ raw per-(participant, item) responses</strong>, chaining nested DeepSets
 <span class="math inline">\(R\)</span>):</p>
 <table>
 <colgroup>
-<col style="width: 20%" />
-<col style="width: 20%" />
-<col style="width: 58%" />
+<col style="width: 16%" />
+<col style="width: 17%" />
+<col style="width: 65%" />
 </colgroup>
 <thead>
 <tr>
@@ -3991,12 +4052,12 @@ random K per prior draw (K-family-invariant training, families
 class="math inline">\(J = 20\)</span>; both deepset variants trained 8k
 steps (~71 min each on CPU) with mean-pool over participants (see
 “Mean-pool vs sum-pool” below):</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 46%" />
+<col style="width: 3%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 55%" />
 </colgroup>
 <thead>
 <tr>
@@ -4108,10 +4169,10 @@ amortiser of §13.6 (<code>itemXcompAtt</code>) to the Ukraine
 partial-credit (PCM) interim analysis. The network class is reused
 <strong>unchanged</strong>; everything Ukraine-specific lives in the
 token construction, the target, and the training pool. Diagnostics:
-§14.2. Self-attention sibling: §14.3. Fully-amortised deepset variant:
-§14.4.</p>
-<h3 id="study-structure-dimensions-and-what-is-trained">14.1.1 Study
-structure, dimensions, and what is trained</h3>
+§14.1.7–14.1.11. Calibration remedies: §14.2. Self-attention sibling:
+§14.3. Fully-amortised deepset variant: §14.4.</p>
+<h3 id="structure-of-learning-task">14.1.1 Structure of learning
+task</h3>
 <p>Each participant contributes <strong>two</strong> responses per item
 — baseline (<span class="math inline">\(t = 0\)</span>) and endline
 (<span class="math inline">\(t = 1\)</span>). The interim cohort <span
@@ -4131,21 +4192,17 @@ item, with the two time-points entering as separate scalar features.</p>
 (<span class="math inline">\(x^{\text{obs}}\)</span> vs <span
 class="math inline">\(z^{(s)}\)</span> — the §10 deployment passes both
 through the network) and the <strong>time axis</strong> (baseline vs
-endline within a participant, present in both cohorts). An earlier
-version of this amortiser built its token from <span
-class="math inline">\(z^{(s)}\)</span> only — regression-style in the
-sense of §6.2, with <span class="math inline">\(x^{\text{obs}}\)</span>
-entering only through <span class="math inline">\(p(\theta \mid
-x)\)</span>. The current <span class="math inline">\(F = 8\)</span>
-token (§14.1.3) carries both cohorts and both time-points. The remaining
-§10 gap at the item level is that the per-item pooling over participants
-is hand-computed (group-means), not learned; the learned version is the
-nested-DeepSets variant (§13.7, results §14.4).</p>
+endline within a participant, present in both cohorts). The current
+<span class="math inline">\(F = 8\)</span> token (§14.1.3) carries both
+cohorts and both time-points. The remaining §10 gap at the item level is
+that the per-item pooling over participants is hand-computed
+(group-means), not learned; the learned version is the nested-DeepSets
+variant (§13.7, results §14.4).</p>
 <table>
 <colgroup>
-<col style="width: 13%" />
-<col style="width: 13%" />
-<col style="width: 72%" />
+<col style="width: 4%" />
+<col style="width: 8%" />
+<col style="width: 87%" />
 </colgroup>
 <thead>
 <tr>
@@ -4181,9 +4238,11 @@ J m\)</span> posterior-predictive responses per draw)</td>
 </tr>
 <tr>
 <td><span class="math inline">\(S\)</span></td>
-<td>200</td>
-<td>posterior draws of <span class="math inline">\(z\)</span> used per
-interim at deploy time</td>
+<td>4000</td>
+<td>posterior-predictive draws of <span
+class="math inline">\(z^{(s)}\)</span> per interim at deploy time (item
+amortisers, §14.1/§14.3); the deepset variant (§14.4) uses <span
+class="math inline">\(S = 200\)</span></td>
 </tr>
 <tr>
 <td><span class="math inline">\(C\)</span></td>
@@ -4219,9 +4278,9 @@ class="math inline">\(N = 503\)</span></td>
 <p>What is reused, what is trained, what is adapted:</p>
 <table>
 <colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
+<col style="width: 24%" />
+<col style="width: 7%" />
+<col style="width: 67%" />
 </colgroup>
 <thead>
 <tr>
@@ -4262,11 +4321,11 @@ class="math inline">\(N = 503\)</span></td>
 <tr>
 <td>input scale</td>
 <td><strong>adapted</strong></td>
-<td>out-of-7 responses take values <span class="math inline">\(0,
-\ldots, 7\)</span> (8 levels); the wa-frame group-means are 1-indexed
-(range <span class="math inline">\([1, 8]\)</span>), so the rescale is
-<span class="math inline">\((w - 1)/7 \in [0, 1]\)</span>; categorical
-proportions already in <span class="math inline">\([0, 1]\)</span></td>
+<td>raw responses rescaled <span class="math inline">\((y)/(K_j - 1) \in
+[0, 1]\)</span> with the per-item level count <span
+class="math inline">\(K_j\)</span> from <code>dit[cat_length]</code> (8
+for out-of-7, 4 for categorical); all summaries are group-means of these
+rescaled responses</td>
 </tr>
 <tr>
 <td>target scale</td>
@@ -4276,28 +4335,25 @@ proportions already in <span class="math inline">\([0, 1]\)</span></td>
 </tr>
 <tr>
 <td>training pool</td>
-<td><strong>adapted</strong></td>
-<td>cached Strong-Oakley wa frames (posterior draws), <em>not</em>
-prior-predictive — see the caveat at the end</td>
+<td><strong>§8 prior-predictive</strong></td>
+<td>fresh PCM prior draws per training step; no SVI fits or cached
+posterior draws enter training</td>
 </tr>
 </tbody>
 </table>
 <h3 id="training-data-and-target">14.1.2 Training data and target</h3>
-<p>The training pool concatenates the cached wa frames of all <span
-class="math inline">\(C = 8\)</span> interims. One training row is the
-triple (interim <span class="math inline">\(k\)</span>, posterior draw
-<span class="math inline">\(s\)</span>, queried item <span
+<p>Training data are generated <strong>from the PCM prior predictive
+only</strong> (§8): no SVI fits and no cached posterior draws enter
+training. One training row is the pair (prior sample <span
+class="math inline">\(s\)</span>, queried item <span
 class="math inline">\(j^*\)</span>):</p>
-<p><span class="math display">\[
-\mathcal{D} \;=\; \Big\{ \big( t^{(k, s)}_{1:J},\; j^*,\; \rho^{(k,
-s)}_{j^*} \big) \Big\}, \qquad k \le C,\; s \le S_k,\; j^* \le J,
-\]</span></p>
-<p>where the target is the SVI posterior draw of the per-item endpoint
-ratio,</p>
-<p><span class="math display">\[
-\rho^{(k, s)}_{j} \;=\; r_j\big(\theta^{(k, s)}\big), \qquad \theta^{(k,
-s)} \sim p(\theta \mid x^{(k)}),
-\]</span></p>
+<p><span class="math display">\[\mathcal{D} \;=\; \Big\{ \big( t^{(j^*,
+s)}_{1:J},\; j^*,\; \rho^{(j^*, s)} \big) \Big\}, \qquad s \le
+S_{\text{train}},\; j^* \le J,\]</span></p>
+<p>with the target the population endpoint under the prior draw,</p>
+<p><span class="math display">\[\rho^{(j^*, s)} \;=\;
+r_{j^*}\big(\theta^{(s)}\big), \qquad \theta^{(s)} \sim
+p(\theta),\]</span></p>
 <p>and <span class="math inline">\(r_j(\theta)\)</span> is the
 direction-aware ratio built from the PCM’s per-<code>item_time_id</code>
 ordered-probability endpoint (<code>eval_outcome_for_endpoint</code> →
@@ -4311,18 +4367,54 @@ items the analogous change of <span class="math inline">\(P(y_{(j, t)}
 \geq c \mid \theta)\)</span>. Targets are clipped at <span
 class="math inline">\(\pm 20\)</span> (a single numerical blow-up at
 <code>CG-VIO_ph-punish</code>).</p>
+<p><strong>Generation algorithm.</strong> For <span
+class="math inline">\(s = 1, \ldots, S_{\text{train}}\)</span>:</p>
+<ol type="1">
+<li>draw cohort sizes <span class="math inline">\(n^{(s)} \sim U\{2,
+\ldots, N - 1\}\)</span>, <span class="math inline">\(m^{(s)} = N -
+n^{(s)}\)</span>;</li>
+<li>draw the PCM parameters from the prior, <span
+class="math display">\[\theta^{(s)} = \big(\{\theta_i\}_{i \le N},\;
+\{\beta_t\}_{t \in \{0,1\}},\; \{\tau_{j, t, \cdot}\},\; \{\lambda_{j,
+t}\}\big), \quad \theta_i \sim N(0, 1),\; \beta_t \sim N(0, 1),\;
+\tau_{j, t, k} \sim N(0, 3.5),\; \lambda_{j, t} \sim
+|t_3|;\]</span></li>
+<li>simulate ordered-categorical responses for both cohorts at both
+time-points from the PCM likelihood, <span
+class="math inline">\(x^{(s)}_{i, j, t} \sim
+\text{PCM}(\theta^{(s)})\)</span> for <span class="math inline">\(i \le
+n^{(s)}\)</span> and <span class="math inline">\(z^{(s)}_{i, j, t} \sim
+\text{PCM}(\theta^{(s)})\)</span> for <span class="math inline">\(i \le
+m^{(s)}\)</span>;</li>
+<li>compute the token entries of §14.1.3 from the simulated raw cohorts
+(group-means, change ratio, empirical <span class="math inline">\(\hat
+K\)</span> from the simulated <span
+class="math inline">\(x^{(s)}\)</span>, sizes aux) — the token is a
+deterministic function of the raw data, so the same formulas apply
+verbatim;</li>
+<li>label with the population endpoint <span
+class="math inline">\(\rho^{(s)}_j = r_j(\theta^{(s)})\)</span>
+evaluated on the ordered probabilities under <span
+class="math inline">\(\theta^{(s)}\)</span> (threshold <span
+class="math inline">\(c\)</span> enters here, as at deployment).</li>
+</ol>
+<p>Implemented by
+<code>PartialCreditModel.make_training_data_with_item_tokens_prior</code>
+(the raw-cohort simulation, steps 1-3, is shared with the deepset
+sampler of §14.4, which consumes the cohorts directly; here step 4 pools
+them to the item-level token). Every training draw is fresh — the
+amortiser never sees the operational data during training.</p>
 <h3 id="per-item-token">14.1.3 Per-item token</h3>
-<p>Both cohorts enter the token (§10 cohort axis, as in MVN §13.6), plus
-an empirical K-row:</p>
-<p><span class="math display">\[
-t^{(j^*, s)}_j \;=\; \Big(\underbrace{w^{x}_{\text{base}, j},\;
-w^{x}_{\text{end}, j}}_{\text{observed cohort } x^{\text{obs}},\
-s\text{-invariant}},\;\; \underbrace{w^{z, (s)}_{\text{base}, j},\;
-w^{z, (s)}_{\text{end}, j},\; w^{z, (s)}_{\text{ratio},
-j}}_{\text{future block } z^{(s)}},\;\; \underbrace{c_j,\;
-d_j}_{\text{metadata}},\;\; \underbrace{\hat K_{j^*,
-j}}_{\text{empirical K-row}}\Big) \;\in\; \mathbb{R}^{F},\qquad F = 8.
-\]</span></p>
+<p>The following response data from the observed and future cohorts
+enter the token (§10 cohort axis, as in MVN §13.6):</p>
+<p><span class="math display">\[t^{(j^*, s)}_j \;=\;
+\Big(\underbrace{w^{x}_{\text{base}, j},\; w^{x}_{\text{end},
+j}}_{\text{observed cohort } x^{\text{obs}},\ s\text{-invariant}},\;\;
+\underbrace{w^{z, (s)}_{\text{base}, j},\; w^{z, (s)}_{\text{end}, j},\;
+w^{z, (s)}_{\text{ratio}, j}}_{\text{future block } z^{(s)}},\;\;
+\underbrace{c_j,\; d_j}_{\text{metadata}},\;\; \underbrace{\hat K_{j^*,
+j}}_{\text{empirical K-row}}\Big) \;\in\; \mathbb{R}^{F},\qquad F =
+8.\]</span></p>
 <ul>
 <li><strong>x-side</strong> <span
 class="math inline">\(w^{x}_{\text{base}, j}, w^{x}_{\text{end},
@@ -4340,20 +4432,16 @@ class="math inline">\(K_j = 4\)</span> for <code>categorical</code>, raw
 input-side thresholding</strong> — the caseness threshold lives in the
 target only (see below). Fixed per interim.</li>
 <li><strong>z-side</strong> <span class="math inline">\(w^{z,
-(s)}_{\cdot, j}\)</span>: same mean-response statistics on the <span
-class="math inline">\(m\)</span> shadow participants of
-posterior-predictive draw <span class="math inline">\(z^{(s)}\)</span>.
-For <code>out-of-7</code> items these come from the cached wa frames
-(rescaled <span class="math inline">\((w-1)/(K_j - 1)\)</span>, since wa
-stores 1-indexed means); for <code>categorical</code> items the wa
-frames only carry thresholded proportions, so the mean-response
-summaries are rebuilt per draw from the cached SVI
-<code>draws.zarr</code> (same seed and draw ordering as the wa targets).
-The ratio is <code>higher_is_better</code>: <span
+(s)}_{\cdot, j}\)</span>: the same mean-response statistics on the <span
+class="math inline">\(m\)</span> future-cohort participants of <span
+class="math inline">\(z^{(s)}\)</span> — simulated from the prior at
+training time, posterior-predictive at deployment (§14.1.6). The ratio
+is <code>higher_is_better</code>: <span
 class="math inline">\(w_{\text{end}}/w_{\text{base}} - 1\)</span>,
 <code>lower_is_better</code>: <span class="math inline">\(1 -
-w_{\text{end}}/w_{\text{base}}\)</span>, recomputed on the mean-response
-scale for categorical items.</li>
+w_{\text{end}}/w_{\text{base}}\)</span>, computed on the <span
+class="math inline">\([0, 1]\)</span> mean scale and clipped at <span
+class="math inline">\(\pm 20\)</span>.</li>
 <li><strong>Metadata</strong> <span class="math inline">\(c_j \in \{0,
 1\}\)</span> (item type), <span class="math inline">\(d_j \in \{0,
 1\}\)</span> (direction).</li>
@@ -4382,349 +4470,864 @@ CG-MH items are PHQ-style symptom-frequency Likerts; the trial’s
 endpoint for them is the <em>caseness prevalence</em> — proportion of
 caregivers above the symptom cut-off — so the threshold is intrinsic to
 the <strong>target</strong> <span class="math inline">\(\rho\)</span>
-and stays there. The <strong>input</strong> summaries do NOT threshold:
+and stays there. The <strong>input</strong> summaries do not threshold:
 they use the mean response (see the token definition above), because
 binarising the input is pure information loss. The level counts are read
 from <code>dit[cat_length]</code> (never hardcoded); the threshold <span
 class="math inline">\(c\)</span> is a study-specific configuration
 parameter — Colombia’s response scales have different level counts and
 hence a different <span class="math inline">\(c\)</span>.</p>
-<h3 id="encoder-cross-attention-head">14.1.4 Encoder, cross-attention,
-head</h3>
-<p>Exactly §13.6 variant 1. Token encoder <span
-class="math inline">\(h^{(j^*, s)}_j = q_{\text{tok}}(t^{(j^*, s)}_j)
-\in \mathbb{R}^{E}\)</span>; single learned query <span
-class="math inline">\(q^{(j^*, s)} = q_{\text{query}}(t^{(j^*,
-s)}_{j^*})\)</span>; cross-attention over the <span
-class="math inline">\(J\)</span> per-item embeddings gives the summary
-<span class="math inline">\(\bar h^{(j^*, s)} = \sum_{j} w^{(j^*, s)}_j
-h^{(j^*, s)}_j\)</span>; head input <span
-class="math inline">\(\operatorname{concat}(\bar h^{(j^*, s)}, t^{(j^*,
-s)}_{j^*}, a)\)</span> of dim <span class="math inline">\(E + F + A = 32
-+ 8 + 2 = 42\)</span>; output = <span class="math inline">\(K_\tau =
-5\)</span> quantiles. <span class="math inline">\(J\)</span> attention
-scores per batch element.</p>
-<h3 id="loss-with-per-item-target-standardisation">14.1.5 Loss with
-per-item target standardisation</h3>
-<p>Let <span class="math inline">\(\hat\sigma_j = \operatorname{sd}_{k,
-s}\big(\rho^{(k, s)}_j\big)\)</span> over the training pool. The network
-is trained on the standardised target with the summed pinball loss</p>
-<p><span class="math display">\[
-\ell \;=\; \sum_{k=1}^{K_\tau} L_{\tau_k}\!\Big( \frac{\rho^{(k,
-s)}_{j^*}}{\hat\sigma_{j^*}} \;-\; \hat
-Q^{\tau_k}_\phi\big(t^{(s)}_{1:J}, j^*\big) \Big),
-\]</span></p>
-<p>and at deployment the predicted quantiles are un-standardised, <span
-class="math inline">\(\hat\rho^{(j^*, s)}_{\tau_k} = \hat\sigma_{j^*}
-\cdot \hat Q^{\tau_k}_\phi\)</span>. Without this, wide-range items
-(e.g. <code>CG-SELFCARE</code>, target sd 3.8) dominate the shared
-head’s gradients and narrow-range items (the four <code>CG-MH</code>
-categorical items, sd ~0.1) are under-resolved.</p>
-<h3 id="deployment">14.1.6 Deployment</h3>
-<p>Per interim: forward-pass all <span class="math inline">\((j^*,
-s)\)</span> pairs, convert the quantile grid to <span
-class="math inline">\(\hat P(H_1 \mid x, z^{(s)})\)</span> by CDF
-interpolation at the effect threshold, aggregate <span
-class="math inline">\(\widehat{\text{PPS}} = S^{-1} \sum_s
-\mathbf{1}\{\hat P^{(s)} &gt; \eta_H\}\)</span> (§10 step 3). With the
-<span class="math inline">\(F = 8\)</span> token, both cohorts enter the
-network — hand-pooled summaries of <span
-class="math inline">\(x^{\text{obs}}\)</span> plus summaries of <span
-class="math inline">\(z^{(s)}\)</span> — putting this variant on the
-same footing as the MVN item amortiser (§13.6): §10-consistent on the
-cohort axis, with hand-computed (not learned) per-item pooling. The
-fully-learned pooling over raw participant responses is the deepset
-variant of §13.7 / §14.4.</p>
-<p>Files:</p>
-<ul>
-<li><a
-href="../python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py"><code>python/amortiser_pps_ukraine_xcompAtt_qpsi_MLP_loss_multiquantilehead.py</code></a>
-— 90 lines including docstring. <code>_MLP</code> + self-attention
-(<code>einsum</code> + <code>softmax</code>) + gather. Standard
-Flax.</li>
-<li><a
-href="../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py"><code>scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_xcompAtt_qpsi_MLP_loss_multiquantilehead.py</code></a>
-— loads all 8 interims’ wa, pools them into a training tensor, trains
-once, deploys per interim.</li>
-<li><a
-href="../scripts-py/Ukraine_interim_analysis_compare_methods.py"><code>scripts-py/Ukraine_interim_analysis_compare_methods.py</code></a>
-extended to load the RGEE perf-long pkl alongside the existing
-regression + IS families.</li>
-</ul>
-<h3 id="training-configuration-and-results">14.1.7 Training
-configuration and results</h3>
-<ul>
-<li><span class="math inline">\(6\,000\)</span> steps, batch <span
-class="math inline">\(S = 256\)</span> draws (fanned out to <span
-class="math inline">\(B = S \cdot J = 5120\)</span> per-item rows /
-step), TARGET_CLIP = 20 (raw <code>pps_ratio_x</code> has one outlier at
-<span class="math inline">\(-2.3 \times 10^{12}\)</span>; legitimate
-targets span <span class="math inline">\([-22, +17]\)</span>).</li>
-<li>Per-item target standardisation + out-of-7 input rescale as
-above.</li>
-<li>Loss: multi-quantile pinball over <span class="math inline">\(\tau
-\in \{0.05, 0.25, 0.5, 0.75, 0.95\}\)</span>.</li>
-<li>Wall-clock: ~7 min training on 6-thread CPU. Trainable params ≈ 12
-K.</li>
-<li>Deployment: <strong>0.007 min / interim</strong> across all 8
-interims = 7 s total.</li>
-</ul>
-<p><strong>Effect of the F = 8 token (x-side + empirical <span
-class="math inline">\(\hat K\)</span>-row + aux + mean-response
-inputs).</strong> Two staged improvements over the earlier <span
-class="math inline">\(z\)</span>-only <span class="math inline">\(F =
-5\)</span> token, evaluated by per-item Pearson <span
-class="math inline">\(\rho\)</span> against the SVI target:</p>
+<h3 id="encoder-cross-attention-head-loss-function">14.1.4 Encoder,
+cross-attention, head, loss function</h3>
+<p>Exactly §13.6 variant 1. Two SiLU MLPs to build the tokens and query
+for each item <span class="math inline">\(j^*\)</span> in embedding
+space:</p>
+<p><span class="math display">\[h^{(j^*, s)}_j \;=\;
+q_{\text{tok}}\big(t^{(j^*, s)}_j;\, \tau_{\text{tok}}\big) \;\in\;
+\mathbb{R}^{E}, \qquad q^{(j^*, s)} \;=\; q_{\text{query}}\big(t^{(j^*,
+s)}_{j^*};\, \tau_{\text{query}}\big) \;\in\;
+\mathbb{R}^{E}.\]</span></p>
+<p>Cross-attention over the <span class="math inline">\(J\)</span>
+per-item embeddings (<span class="math inline">\(J\)</span> attention
+scores per batch element):</p>
+<p><span class="math display">\[\bar h^{(j^*, s)} \;=\; \sum_{j=1}^{J}
+\omega^{(j^*, s)}_j\, h^{(j^*, s)}_j, \qquad \omega^{(j^*, s)}_j \;=\;
+\operatorname{softmax}_{j&#39;}\Big( \big\langle q^{(j^*, s)},\;
+h^{(j^*, s)}_{j&#39;} \big\rangle \big/ \sqrt{E} \Big)\Big|_{j&#39; =
+j}.\]</span></p>
+<p><span class="math inline">\(\bar h^{(j^*, s)} \in
+\mathbb{R}^{E}\)</span> is the <strong>learned summary in embedding
+space</strong> for the queried item — the amortised counterpart of the
+hand-picked scalar statistic <span
+class="math inline">\(w(z^{(s)})\)</span> of the regression baseline
+(§6.2). Using the learned summary, we then learn the mapping to the
+item-specific endpoints <span class="math inline">\(\rho\)</span> . For
+each item, we learn a more efficient multi-quantile head rather than a
+specific quantile, so we are free to interpolate to any user-desired
+quantile:</p>
+<p><span class="math display">\[\hat\rho^{(j^*, s)} \;=\; q_\psi\big(
+\operatorname{concat}(\bar h^{(j^*, s)},\; t^{(j^*, s)}_{j^*},\; a);\,
+\psi \big) \in \mathbb{R}^K,\]</span></p>
+<p>with head-input dimension <span class="math inline">\(E + F + A = 32
++ 8 + 2 = 42\)</span> and head output dimension <span
+class="math inline">\(Q = 5\)</span>. Each dimension <span
+class="math inline">\(q\)</span> of <span
+class="math inline">\(\hat\rho^{(j^*, s)}\)</span> corresponds to one of
+the quantile levels <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span>, <span
+class="math inline">\(q = 1, \ldots, Q\)</span>, with <span
+class="math inline">\((\eta^{\text{inpol}}_1, \ldots,
+\eta^{\text{inpol}}_Q) = (0.05,\, 0.25,\, 0.5,\, 0.75,\, 0.95)\)</span>,
+which are used to interpolate to the specific quantile that the user
+requests.</p>
+<p>The learned parameters are <span class="math inline">\(\tau =
+(\tau_{\text{tok}},\, \tau_{\text{query}})\)</span> — the weights of the
+two encoder MLPs — and <span class="math inline">\(\psi\)</span>, the
+weights of the head MLP <span class="math inline">\(q_\psi\)</span> (the
+notation of §8-10). The attention weights <span
+class="math inline">\(\omega^{(j^*, s)}\)</span> are
+<strong>not</strong> free parameters: they are deterministic functions
+of the embeddings (softmax of scaled dot products) and carry no
+trainable degrees of freedom of their own in this variant (contrast the
+learned scalar bias <span class="math inline">\(\alpha\)</span> of
+<code>itemScompAtt</code>, §14.3). The same <span
+class="math inline">\((\tau, \psi)\)</span> apply to <strong>every
+item</strong> <span class="math inline">\(j^*\)</span> and every interim
+— one network serves all queries — in contrast to the regression
+baseline (§6.2, RGE/RGEM), where the learned regression function is
+item-specific <em>and</em> interim-specific (one fit per (item, interim)
+pair; <span class="math inline">\(20 \times 8 = 160\)</span> separate
+fits over the schedule). Sizes at the Ukraine configuration (<span
+class="math inline">\(F = 8\)</span>, <span class="math inline">\(E =
+32\)</span>, hidden <span class="math inline">\((32, 32)\)</span> for
+the encoders and <span class="math inline">\((64, 64)\)</span> for the
+head, <span class="math inline">\(K = 5\)</span>):</p>
 <table>
-<colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
-</colgroup>
 <thead>
 <tr>
-<th>variant</th>
-<th>interim 1: out-of-7 / CG-MH</th>
-<th>all interims: out-of-7 / CG-MH</th>
+<th>block</th>
+<th>architecture</th>
+<th style="text-align: right;"># parameters</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>itemXcompAtt</code>, <span class="math inline">\(F =
-5\)</span> (<span class="math inline">\(z\)</span>-only, thresholded cat
-inputs)</td>
-<td>0.77 / 0.48</td>
-<td>0.49 / 0.23</td>
+<td><span class="math inline">\(\tau_{\text{tok}}\)</span></td>
+<td><span class="math inline">\(8 \to 32 \to 32 \to 32\)</span></td>
+<td style="text-align: right;">2,400</td>
 </tr>
 <tr>
-<td><code>itemXcompAtt</code>, <span class="math inline">\(F =
-8\)</span> (x-side + <span class="math inline">\(\hat K\)</span> + aux;
-thresholded cat inputs)</td>
-<td>0.83 / 0.48</td>
-<td>0.52 / 0.24</td>
+<td><span class="math inline">\(\tau_{\text{query}}\)</span></td>
+<td><span class="math inline">\(8 \to 32 \to 32 \to 32\)</span></td>
+<td style="text-align: right;">2,400</td>
 </tr>
 <tr>
-<td><code>itemXcompAtt</code>, <span class="math inline">\(F =
-8\)</span> + <strong>mean-response cat inputs</strong></td>
-<td>0.83 / <strong>0.70</strong></td>
-<td>0.52 / <strong>0.42</strong></td>
+<td><span class="math inline">\(\psi\)</span></td>
+<td><span class="math inline">\(42 \to 64 \to 64 \to 5\)</span></td>
+<td style="text-align: right;">7,237</td>
+</tr>
+<tr>
+<td><strong>total</strong></td>
+<td></td>
+<td style="text-align: right;"><strong>12,037</strong></td>
 </tr>
 </tbody>
 </table>
-<p>(The <code>itemScompAtt</code> counterpart is reported in §14.3.)</p>
-<p>(<code>CG-VIO_ph-punish</code> blow-up item excluded.) Attribution is
-clean:</p>
+<p>We feed <span class="math inline">\(t^{(j^*, s)}_{j^*}\)</span> and
+<span class="math inline">\(a\)</span> are into <span
+class="math inline">\(q_\psi\)</span> alongside <span
+class="math inline">\(\bar h^{(j^*, s)}\)</span> for the following
+reasons:</p>
 <ul>
-<li><strong>x-side summaries + empirical <span
-class="math inline">\(\hat K\)</span>-row + aux</strong> lift the
-out-of-7 items (0.77 → 0.83 at interim 1) but leave CG-MH untouched —
-their bottleneck was elsewhere.</li>
-<li><strong>Mean-response categorical inputs</strong> (threshold kept in
-the target only) lift CG-MH from 0.48 to ~0.70 at interim 1 and from
-0.24 to ~0.42 overall — the binarised input summary was discarding most
-of the CG-MH signal, exactly as conjectured. Training pinball loss 0.163
-→ 0.115.</li>
+<li><p><span class="math inline">\(t^{(j^*, s)}_{j^*}\)</span> is a
+<strong>skip connection to the queried item’s own raw
+summaries</strong>. The attention output is a weighted mix over all
+<span class="math inline">\(J\)</span> items; when <span
+class="math inline">\(\omega\)</span> is diffuse (early training, or
+weakly informative <span class="math inline">\(\hat K\)</span>) the
+queried item’s own signal is diluted by a factor of order <span
+class="math inline">\(1/J\)</span>. The skip guarantees the head always
+sees the query’s own statistics undiluted — and it is the only place the
+query identity enters the head, since <span class="math inline">\(\bar
+h\)</span> alone need not identify <span
+class="math inline">\(j^*\)</span>. Attention is thereby free to
+specialise in <em>cross-item borrowing</em> instead of having to
+reconstruct the own-item signal.</p></li>
+<li><p><span class="math inline">\(a = (n/N, m/N)\)</span> carries the
+<strong>cohort sizes</strong>, which are not recoverable from the
+group-mean summaries: the same means imply a much tighter posterior for
+<span class="math inline">\(\rho\)</span> at <span
+class="math inline">\(n = 501\)</span> than at <span
+class="math inline">\(n = 48\)</span>, so the head needs <span
+class="math inline">\(a\)</span> to scale the predicted quantile spread.
+This mirrors §9.3’s exp-fam recipe, where the sufficient-statistic sums
+must be accompanied by <span class="math inline">\((n, m)\)</span> as
+extra scalar inputs to the head.</p></li>
 </ul>
-<p><strong>PPS agreement with the regression baselines.</strong> Ukraine
-has no analytic ground-truth PPS, so we compare xcompAtt’s PPS to the
-two closest baselines — Strong-Oakley regression with Gaussian
-approximation (RGE) and Strong-Oakley regression with multi-quantile
-regression (RGEM).</p>
-<p><strong>PPS agreement across 160 (interim, item) cells:</strong></p>
-<table>
+<p>The loss function is as follows. Index the training data by prior
+sample <span class="math inline">\(s = 1, \ldots,
+S_{\text{train}}\)</span> and queried item <span
+class="math inline">\(j^* = 1, \ldots, J\)</span>; write <span
+class="math inline">\(\rho^{(j^*, s)}\)</span> for the target and <span
+class="math inline">\(\hat\rho^{(j^*, s)}_q\)</span> for the <span
+class="math inline">\(q\)</span>-th component of the head output of
+§14.1.4. The per-item standardisation scale is estimated once from a
+prior pilot batch (<span class="math inline">\(2{,}000\)</span> prior
+samples),</p>
+<p><span class="math display">\[\hat\sigma^{(j^*)} \;=\;
+\operatorname{sd}_{s}\big(\rho^{(j^*, s)}\big).\]</span></p>
+<p>The network is trained on the standardised multi-quantile target with
+the pinball loss summed over quantile levels, prior samples and queried
+items:</p>
+<p><span class="math display">\[\ell(\tau, \psi) \;=\;
+\sum_{s=1}^{S_{\text{train}}} \sum_{j^*=1}^{J} \sum_{q=1}^{Q}
+L_{\eta^{\text{inpol}}_q}\!\Big( \frac{\rho^{(j^*,
+s)}}{\hat\sigma^{(j^*)}} \;-\; \hat\rho^{(j^*, s)}_q \Big),\]</span></p>
+<p>where the pinball (check) loss at level <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span> is</p>
+<p><span class="math display">\[L_{\eta^{\text{inpol}}_q}(u) \;=\;
+\big(\eta^{\text{inpol}}_q - \mathbf{1}\{u &lt; 0\}\big)\, u \;=\;
+\begin{cases} \eta^{\text{inpol}}_q\, |u| &amp; u \geq 0,\\ \big(1 -
+\eta^{\text{inpol}}_q\big)\, |u| &amp; u &lt; 0.
+\end{cases}\]</span></p>
+<p>In practice the sum over <span class="math inline">\(s\)</span> is
+realised by drawing fresh prior mini-batches every step, and the sum
+over <span class="math inline">\(j^*\)</span> by fanning each prior
+sample out to all <span class="math inline">\(J\)</span> queries. At
+deployment the head output is mapped back to the target scale by the
+same per-item factor,</p>
+<p><span class="math display">\[\hat\rho^{(j^*, s)}_{q} \;\leftarrow\;
+\hat\sigma^{(j^*)} \cdot \hat\rho^{(j^*, s)}_q,\]</span></p>
+<p>which is what the CDF interpolation of §14.1.6 consumes. Without the
+standardisation, wide-range items dominate the shared head’s gradients
+and narrow-range items (the four <code>CG-MH</code> categorical items)
+are under-resolved.</p>
+<h3 id="training-summary">14.1.5 Training summary</h3>
+<ul>
+<li><span class="math inline">\(6\,000\)</span> steps, <span
+class="math inline">\(S = 64\)</span> <strong>fresh prior-predictive
+draws per step</strong> (fanned out to <span class="math inline">\(B = S
+\cdot J = 1280\)</span> query rows / step) <span
+class="math inline">\(\Rightarrow\)</span> 384,000 prior data sets over
+training; targets and input ratios clipped at <span
+class="math inline">\(\pm 20\)</span>.</li>
+<li>Per-item target standardisation (<span
+class="math inline">\(\hat\sigma^{(j^*)}\)</span> from the 2,000-sample
+prior pilot, range <span class="math inline">\([0.94, 5.07]\)</span>) +
+<span class="math inline">\([0, 1]\)</span> input rescale as above.</li>
+<li>Wall-clock: ~12 min training on 6-thread CPU. Trainable params ≈ 12
+K.</li>
+</ul>
+<h3 id="deployment">14.1.6 Deployment</h3>
+<p>Per interim, the current data are held <strong>fixed at the
+observed</strong> <span class="math inline">\(x^{\text{obs}}\)</span> —
+they enter every token through the x-side summaries, the empirical <span
+class="math inline">\(\hat K\)</span>-row and the size aux. The future
+data <span class="math inline">\(z^{(s)}\)</span> are simulated from the
+<strong>posterior predictive</strong> at <span
+class="math inline">\(x^{\text{obs}}\)</span> (§10 step 1) — SVI is run
+<strong>once per interim</strong> on <span
+class="math inline">\(x^{\text{obs}}\)</span> (the only inference cost
+at deployment; training never touches it), then <span
+class="math inline">\(\theta^{(s)} \sim p(\theta \mid
+x^{\text{obs}})\)</span>, then simulate the <span
+class="math inline">\(m = N - n\)</span> missing participants’ responses
+at both time-points under <span
+class="math inline">\(\theta^{(s)}\)</span>
+(<code>get_interim_z_from_ypredi</code>: shadow participants resampled
+with replacement from the observed cohort’s covariate rows, responses
+taken from the model’s <code>ypred</code> at draw <span
+class="math inline">\(s\)</span>). We use <strong>all</strong> <span
+class="math inline">\(S = 4000\)</span> cached posterior draws per
+interim, so one interim costs <span class="math inline">\(J \cdot S =
+80{,}000\)</span> head evaluations (one JIT-compiled batch). Each <span
+class="math inline">\((j^*, s)\)</span> pair is forward-passed, the
+quantile grid converted to a conditional success probability by CDF
+interpolation at the effect threshold <span
+class="math inline">\(\eta_0\)</span>, and aggregated over draws (§10
+step 3). The hypothesis is <strong>item-specific</strong>, <span
+class="math inline">\(H_1^{(j^*)} = \big\{\rho^{(j^*)} &gt;
+\eta_0\big\}\)</span> — item <span class="math inline">\(j^*\)</span>’s
+improvement ratio exceeds the effect threshold (<span
+class="math inline">\(\eta_0 = 0.5\)</span>; decision threshold <span
+class="math inline">\(\eta_H = 0.89\)</span>):</p>
+<p><span class="math display">\[\hat P\big(H_1^{(j^*)} \mid x,
+z^{(s)}\big) \;=\; 1 - \operatorname{interp}\big(\eta_0;\;
+\hat\rho^{(j^*, s)},\; \eta^{\text{inpol}}\big),\]</span></p>
+<p><span class="math display">\[\widehat{\text{PPS}}^{(j^*)}(x) \;=\;
+\frac{1}{S} \sum_{s=1}^{S} \mathbf{1}\big\{ \hat P\big(H_1^{(j^*)} \mid
+x, z^{(s)}\big) &gt; \eta_H \big\}.\]</span></p>
+<p>With the <span class="math inline">\(F = 8\)</span> token, both
+cohorts enter the network — hand-pooled summaries of <span
+class="math inline">\(x^{\text{obs}}\)</span> plus summaries of <span
+class="math inline">\(z^{(s)}\)</span> — putting this variant on the
+same footing as the MVN item amortiser (§13.6): §10-consistent on the
+cohort axis, with hand-computed (not learned) per-item pooling.
+Files:</p>
+<ul>
+<li><a
+href="../python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py"><code>python/amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py</code></a>
+— the data-agnostic network class (§13.6): <code>_MLP</code> +
+cross-attention (<code>einsum</code> + <code>softmax</code>). Standard
+Flax.</li>
+<li><a
+href="../python/model_pcm.py"><code>python/model_pcm.py</code></a> —
+<code>make_training_data_with_item_tokens_prior</code>, the §8
+prior-predictive training sampler (§14.1.2).</li>
+<li><a
+href="../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py"><code>scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead.py</code></a>
+— trains once on fresh prior draws, then deploys per interim (SVI once →
+posterior-predictive <span class="math inline">\(z^{(s)}\)</span> →
+tokens → forward pass); <code>_RGEG_</code> outputs.</li>
+</ul>
+<p>Deployment time is dominated by rebuilding the posterior-predictive
+<span class="math inline">\(z^{(s)}\)</span> block per interim (~1 min /
+interim at <span class="math inline">\(S = 4000\)</span>); the network
+forward pass itself is seconds.</p>
+<h3
+id="diagnostic-conditional-calibration-on-x-zs-quantile-coverage-pit">14.1.7
+Diagnostic: conditional calibration on <span class="math inline">\((x,
+z^{(s)})\)</span> — quantile coverage + PIT</h3>
+<p>Ukraine has no analytic PPS, so we use several diagnostics to
+evaluate estimation accuracy.</p>
+<p>For each SVI posterior draw <span class="math inline">\(s\)</span>,
+take <span class="math inline">\(\theta^{(s)} \sim p(\theta \mid
+x^{\text{obs}})\)</span> (SVI fit to the current data only). Compute
+<span class="math inline">\(\rho^{(j^*, s)}_{\text{SVI}} =
+r_{j^*}(\theta^{(s)})\)</span> — a draw from the current posterior <span
+class="math inline">\(p(\rho \mid x)\)</span> and generate the future
+block <span class="math inline">\(z^{(s)} \sim p(z \mid
+\theta^{(s)})\)</span> that the amortiser conditions on. Because <span
+class="math inline">\((\theta^{(s)}, z^{(s)})\)</span> is a joint draw
+given <span class="math inline">\(x\)</span>, Bayes gives <span
+class="math inline">\(\theta^{(s)} \mid z^{(s)} \sim p(\theta \mid x,
+z^{(s)})\)</span>, so <span class="math inline">\(\rho^{(j^*,
+s)}_{\text{SVI}} | z^{(s)}\)</span> is an exact single draw from the
+conditional <span class="math inline">\(p(\rho \mid x, z^{(s)})\)</span>
+that the amortiser aims to target. Marginally, <span
+class="math inline">\(\rho^{(j^*, s)}_{\text{SVI}}\)</span> is a draw
+from <span class="math inline">\(p(\rho \mid x)\)</span>. Exactly as for
+any joint $(A,B)$ a realised $a$ is simultaneously a draw from $p(A)$
+and, paired with its own $b$, from $p(A\mid B{=}b)$. The output of the
+amortiser <span class="math inline">\(\hat\rho^{(j^*, s)}_{1:Q}\)</span>
+approximates the conditional <span class="math inline">\(p(\rho \mid x,
+z^{(s)})\)</span>.</p>
+<ol type="1">
+<li><strong>Quantile coverage.</strong> For each level <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span>, compute for the
+same index <span class="math inline">\(s\)</span>:</li>
+</ol>
+<p><span class="math display">\[\widehat{\text{Cov}}^{(j^*)}_q \;=\;
+\frac{1}{S} \sum_{s=1}^{S} \mathbf{1}\big\{ \rho^{(j^*, s)}_{\text{SVI}}
+\le \hat\rho^{(j^*, s)}_q \big\} \;\stackrel{!}{=}\;
+\eta^{\text{inpol}}_q .\]</span></p>
+<ol start="2" type="1">
+<li><strong>PIT uniformity.</strong> The probability integral transform
+obtained by CDF interpolation of the quantile grid,</li>
+</ol>
+<p><span class="math display">\[u^{(j^*, s)} \;=\; \hat
+F\big(\rho^{(j^*, s)}_{\text{SVI-}x} \mid x, z^{(s)}\big) \;=\;
+\operatorname{interp}\big(\rho^{(j^*, s)}_{\text{SVI-}x};\;
+\hat\rho^{(j^*, s)}_{1:Q};\;
+\eta^{\text{inpol}}_{1:Q}\big),\]</span></p>
+<p>should be <span class="math inline">\(\text{Uniform}(0, 1)\)</span>
+over <span class="math inline">\(s\)</span>; deviations are summarised
+per (interim, item) by the Kolmogorov-Smirnov distance <span
+class="math inline">\(\max_u |\widehat{\text{ecdf}}(u) - u|\)</span>.
+Under-dispersion shows as a U-shaped PIT histogram, over-dispersion as a
+hump, location bias as a tilt.</p>
+<p>Implemented in the separate script <a
+href="../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead_tests.py"><code>..._itemXcompAtt_..._tests.py</code></a>
+(kept apart from train/deploy). Outputs:
+<code>..._tests_coverage.csv/.pdf</code> (empirical-vs-nominal coverage
+curves, diagonal = calibrated) and <code>..._tests_pit.pdf</code> +
+<code>..._tests_pit_ks.csv</code> (PIT histograms + KS). Result:</p>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 29%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 70%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
+<col style="width: 5%" />
 </colgroup>
 <thead>
 <tr>
-<th>Comparison</th>
+<th>nominal <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span></th>
+<th style="text-align: right;">0.05</th>
+<th style="text-align: right;">0.25</th>
+<th style="text-align: right;">0.50</th>
+<th style="text-align: right;">0.75</th>
+<th style="text-align: right;">0.95</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>empirical coverage (mean over items × interims)</td>
+<td style="text-align: right;">0.05</td>
+<td style="text-align: right;">0.10</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.23</td>
+<td style="text-align: right;">0.44</td>
+</tr>
+</tbody>
+</table>
+<p>Coverage falls far below nominal above the 0.05 level; mean PIT-KS
+<span class="math inline">\(\approx 0.61\)</span>, improving
+monotonically across the schedule (0.75 at interim 1 <span
+class="math inline">\(\to\)</span> 0.47 at interim 8). Interpretation in
+§14.1.12.</p>
+<p><strong>Why the training loss is tiny yet coverage is far
+off.</strong> The pinball loss and this coverage test measure the
+<em>same</em> property — the <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span>-level pinball is
+minimised by the conditional <span
+class="math inline">\(\eta^{\text{inpol}}_q\)</span>-quantile, whose
+coverage is <span class="math inline">\(\eta^{\text{inpol}}_q\)</span> —
+but under <strong>different distributions</strong>. Training minimises
+expected pinball over the <strong>prior-predictive</strong> (<span
+class="math inline">\(\theta \sim p(\theta)\)</span>, simulated
+cohorts); this diagnostic measures coverage on the
+<strong>posterior-predictive deployment slice</strong> (<span
+class="math inline">\(\theta \sim p(\theta \mid
+x^{\text{obs}})\)</span>). A head calibrated on the prior-predictive
+average need not be calibrated on that slice when the two differ (the
+§8.1 prior-coverage gap: thresholds <span class="math inline">\(\sim
+N(0, 3.5)\)</span> generate cohorts far more extreme than Ukraine’s),
+and the average loss is dominated by the bulk of the diffuse prior mass
+— the thin deployment region barely registers in it. Direct
+confirmation: <strong>coverage on held-out prior-predictive draws is
+essentially nominal</strong> (0.05, 0.27, 0.51, 0.76, 0.95 at the five
+levels), so the small loss is doing its job — the deployment
+miscalibration is distribution shift, not an optimisation or objective
+failure.</p>
+<h3 id="diagnostic-marginal-prho-mid-x-svi-vs-amortiser">14.1.8
+Diagnostic: marginal <span class="math inline">\(p(\rho \mid x)\)</span>
+(SVI vs amortiser)</h3>
+<p>Two distributions of <span class="math inline">\(\rho \mid x\)</span>
+are compared:</p>
+<ul>
+<li><strong>SVI:</strong> the set <span
+class="math inline">\(\{\rho^{(j^*,
+s)}_{\text{SVI-}x}\}_{s=1}^{S}\)</span> (endpoints of the SVI-on-<span
+class="math inline">\(x\)</span> draws) — its empirical CDF is <span
+class="math inline">\(p(\rho \mid x)\)</span>.</li>
+<li><strong>Amortiser:</strong> its marginal predictive <span
+class="math inline">\(\hat p(\rho \mid x) = \mathbb{E}_{z \mid
+x}\big[\hat p(\rho \mid x, z)\big]\)</span>, estimated by averaging the
+per-draw quantile CDFs, <span class="math inline">\(\hat F(\rho \mid x)
+= \tfrac{1}{S}\sum_s \hat F(\rho \mid x, z^{(s)})\)</span>. Note the
+item tokens require a future cohort and so we marginalise over <span
+class="math inline">\(s\)</span>. Agreement is summarised per (interim,
+item) by the two-sample KS distance <span
+class="math inline">\(\max_\rho |\hat F(\rho \mid x) -
+\widehat{\text{ecdf}}_{\text{SVI}}(\rho)|\)</span>.</li>
+</ul>
+<p>Outputs (same tests script as §14.1.7):
+<code>..._tests_marginal_ks.csv</code> and per-interim
+<code>pcm_1_interim_i{k}_svi_vs_amortiser_marginal_cdf.pdf</code> (facet
+per item, the two CDFs overlaid). Two-sample KS <span
+class="math inline">\(\max_\rho |\hat F -
+\widehat{\text{ecdf}}_{\text{SVI}}|\)</span>
+(<code>CG-VIO_ph-punish</code> excluded):</p>
+<table>
+<thead>
+<tr>
+<th>marginal KS</th>
+<th style="text-align: right;">out-of-7</th>
+<th style="text-align: right;">CG-MH</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>interim 1</td>
+<td style="text-align: right;">0.51</td>
+<td style="text-align: right;">0.53</td>
+</tr>
+<tr>
+<td>all interims</td>
+<td style="text-align: right;">0.42</td>
+<td style="text-align: right;">0.62</td>
+</tr>
+</tbody>
+</table>
+<p>The amortiser’s <span class="math inline">\(\hat p(\rho \mid
+x)\)</span> sits <strong>below</strong> the SVI posterior — the same
+downward location bias as §14.1.7, now on the current-decision object.
+Unlike the conditional PIT-KS (which falls 0.75 → 0.47 across the
+schedule), the marginal KS is roughly <strong>flat</strong> (<span
+class="math inline">\(\approx 0.47\)</span> overall): a genuine
+location/shape mismatch of the marginal, not conditional
+under-dispersion that averages out. Reading in §14.1.12.</p>
+<h3
+id="diagnostic-median-prediction-association-per-draw-correlation">14.1.9
+Diagnostic: median-prediction association (per-draw correlation)</h3>
+<p><code>pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf</code> — per
+interim, facet per item. Scatter of</p>
+<p><span class="math display">\[y \;=\; \rho^{(j^*, s)}_{\text{SVI-}x}
+\qquad \text{against} \qquad x \;=\; \hat\rho^{(j^*, s)}_{3} \quad
+(\eta^{\text{inpol}}_3 = 0.5),\]</span></p>
+<p>the median head output after <span
+class="math inline">\(q_\psi\)</span> for same <span
+class="math inline">\(s\)</span>. <strong>D</strong>eployment thresholds
+and averages into <span
+class="math inline">\(\widehat{\text{PPS}}^{(j^*)}\)</span>, whereas
+this diagnostic keeps each pair and correlates the median output against
+<span class="math inline">\(\rho^{(j^*, s)}_{\text{SVI}}\)</span>.
+Unlike §14.1.7 it tests <strong>association only</strong> (does the
+central prediction move with the target across <span
+class="math inline">\(z^{(s)}\)</span>?), not location or spread — the
+two are deliberately separated because the amortiser can rank well while
+being mis-located. An earlier version scattered <span
+class="math inline">\(\rho^{(j*,s)}_{\text{SVI}}\)</span> against PC1 of
+<span class="math inline">\(\bar h^{(j^*, s)}\)</span> similar to the
+Strong-Oakly diagnostic. We dropped this because PC1 is a 1-D
+<em>linear</em> proxy for the nonlinear <span
+class="math inline">\(q_\psi\)</span> read-out, so it is uninformative
+about the network.</p>
+<h3 id="results-correlation-against-the-svi-posteriors">14.1.10 Results:
+correlation against the SVI posteriors</h3>
+<p>Per-item Pearson <span class="math inline">\(\rho\)</span> between
+<span class="math inline">\(\hat\rho^{(j^*, s)}_3\)</span> and <span
+class="math inline">\(\rho^{(j^*, s)}_{\text{SVI-}x}\)</span> for the
+prior-predictive-trained amortiser (<code>CG-VIO_ph-punish</code>
+blow-up item excluded):</p>
+<table>
+<thead>
+<tr>
+<th>correlation</th>
+<th style="text-align: right;">out-of-7</th>
+<th style="text-align: right;">CG-MH</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>interim 1</td>
+<td style="text-align: right;">0.82</td>
+<td style="text-align: right;">0.71</td>
+</tr>
+<tr>
+<td>all interims</td>
+<td style="text-align: right;">0.53</td>
+<td style="text-align: right;">0.42</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Threshold on the CG-MH token responses.</strong> The four
+<code>CG-MH</code> items are categorical; the endpoint <span
+class="math inline">\(r_j(\theta)\)</span> is a caseness prevalence,
+defined via a response threshold <span class="math inline">\(c\)</span>.
+It was important to keep that threshold <strong>out of the input
+token</strong>: an earlier token summarised the CG-MH responses as the
+proportion above <span class="math inline">\(c\)</span> (a thresholded,
+lossy summary) and capped their correlation at <span
+class="math inline">\(\rho \approx 0.48\)</span>; replacing it with the
+<strong>mean response</strong> (no threshold, no information loss) —
+while keeping <span class="math inline">\(c\)</span> only in the target
+— lifted CG-MH to <span class="math inline">\(\approx 0.71\)</span> with
+no change to the out-of-7 items. The threshold belongs in the endpoint
+definition, never in the summary the network reads.</p>
+<p>Synthesis in §14.1.12.</p>
+<h3 id="diagnostic-pps-agreement-with-the-regression-baselines">14.1.11
+Diagnostic: PPS agreement with the regression baselines</h3>
+<p>No analytic ground-truth PPS exists for Ukraine, so the deployed
+<span class="math inline">\(\widehat{\text{PPS}}^{(j^*)}\)</span> is
+compared to the two closest Strong-Oakley baselines —
+Gaussian-approximation regression (RGE) and multi-quantile regression
+(RGEM) — over the <span class="math inline">\(J \cdot C = 160\)</span>
+(item, interim) cells:</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 47%" />
+<col style="width: 16%" />
+<col style="width: 10%" />
+<col style="width: 19%" />
+<col style="width: 5%" />
+</colgroup>
+<thead>
+<tr>
+<th>comparison</th>
 <th style="text-align: right;">Pearson <span
 class="math inline">\(\rho\)</span></th>
-<th style="text-align: right;">Median $</th>
+<th style="text-align: right;">median $</th>
 <th style="text-align: right;"></th>
 <th style="text-align: right;">$</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>xcompAtt vs RGEM (mquantile)</td>
-<td style="text-align: right;">0.919</td>
+<td><code>itemXcompAtt</code> vs RGE (Gauss)</td>
+<td style="text-align: right;">0.905</td>
 <td style="text-align: right;">0.001</td>
-<td style="text-align: right;">0.050</td>
-<td style="text-align: right;">0.945</td>
+<td style="text-align: right;">0.223</td>
+<td style="text-align: right;">0.880</td>
 </tr>
 <tr>
-<td>xcompAtt vs RGE (Gauss)</td>
-<td style="text-align: right;">0.909</td>
-<td style="text-align: right;">0.001</td>
-<td style="text-align: right;">0.050</td>
-<td style="text-align: right;">0.945</td>
+<td><code>itemXcompAtt</code> vs RGEM (mquantile)</td>
+<td style="text-align: right;">0.916</td>
+<td style="text-align: right;">0.002</td>
+<td style="text-align: right;">0.241</td>
+<td style="text-align: right;">0.830</td>
 </tr>
 <tr>
-<td>RGE vs RGEM</td>
-<td style="text-align: right;">0.998</td>
+<td><code>itemXcompAtt</code> vs <code>itemScompAtt</code> (§14.3)</td>
+<td style="text-align: right;">0.997</td>
 <td style="text-align: right;">0.000</td>
-<td style="text-align: right;">0.014</td>
-<td style="text-align: right;">0.148</td>
+<td style="text-align: right;">0.041</td>
+<td style="text-align: right;">—</td>
 </tr>
 </tbody>
 </table>
-<ul>
-<li><strong>Median absolute PPS difference is 0.001.</strong> For the
-vast majority of (interim, item) cells the amortiser reproduces the
-Strong-Oakley regression PPS to <span class="math inline">\(\le
-0.1\%\)</span>.</li>
-<li><strong>~25% of cells differ by more than</strong> <span
-class="math inline">\(0.03\)</span>, driven by (item, interim) pairs
-where cross-item info moves the prediction. These are precisely the
-cells attention is designed to help on; whether the shift is beneficial
-requires ground-truth PPS (not available for Ukraine PCM). A
-leave-one-interim-out held-out evaluation would put a number on it —
-future work.</li>
-<li><strong>RGE and RGEM are essentially the same estimator</strong>
-(<span class="math inline">\(\rho = 0.998\)</span>, median diff 0.000).
-xcompAtt is the first estimator in the Ukraine pipeline that produces
-materially different PPS values — the difference is where cross-item
-information becomes actionable.</li>
-</ul>
-<h3 id="reading-3">14.1.8 Reading</h3>
+<p>Median difference to the regression baselines is <span
+class="math inline">\(\le 0.002\)</span>; the disagreeing tail (p90
+<span class="math inline">\(\approx 0.22\)</span>-<span
+class="math inline">\(0.24\)</span>) is where cross-item information and
+the calibration gap move the prediction. The two attention variants
+agree almost perfectly. Reading in §14.1.12.</p>
+<h3 id="reading-3">14.1.12 Reading</h3>
+<p>Synthesising the diagnostics (§14.1.7 conditional calibration,
+§14.1.8 marginal <span class="math inline">\(p(\rho\mid x)\)</span>,
+§14.1.9 association / §14.1.10 results, §14.1.11 PPS agreement):</p>
 <ol type="1">
-<li><strong>Architecture ports cleanly.</strong> No changes to the
-attention block; the K-row is replaced by discrete item metadata. That
-the MVN → PCM adaptation is 90 lines of code + a training-data reshaping
-call speaks to how modular the xcompAtt design is.</li>
-<li><strong>Deployment cost is trivial.</strong> 7 seconds for the whole
-8-interim schedule × 20 items × 4000 posterior draws (640 K
-predictions). Strong-Oakley mquantile regression fits 20 × 5 = 100
-quantile regressions per interim; xcompAtt is one JIT-compiled forward
-pass.</li>
-<li><strong>Training pool = cached wa frames is a demo, not a full
-amortiser.</strong> To be a <em>true</em> amortised method the training
-loop should draw from the PCM prior-predictive; here we short-circuit
-that by using cached HMC/SVI posterior draws as training targets. The
-architecture is unchanged, but the accuracy story is bounded by the
-training targets’ quality. The full §8-10 amortiser — PCM prior sampler
-(<code>make_training_data_with_participant_tokens_prior</code> in
-<code>model_pcm.py</code>) + nested-DeepSets network (§13.7) consuming
-raw <span class="math inline">\(x^{\text{obs}}\)</span> and raw <span
-class="math inline">\(z^{(s)}\)</span> — is implemented separately; its
-results are reported in §14.4.</li>
-<li><strong>Where xcompAtt would beat the regression baselines.</strong>
-When two items share strong empirical correlation
-(e.g. <code>CG-DEPRESSION</code> and <code>CG-VIO_scream</code> both
-loading on the same latent), the amortiser’s attention head can borrow
-strength from the correlated item’s summary when the queried item’s own
-signal is weak (early interim, small <span
-class="math inline">\(n_x\)</span>). Ukraine’s cross-item correlations
-are moderate; the MSE improvement (against ground truth, which we don’t
-have) would likely be small but non-zero. The MVN <span
-class="math inline">\(J = 60\)</span> result (§13.5) is the clean
-demonstration.</li>
+<li><p><strong>Ranking is good, calibration is not — the two are
+dissociated.</strong> Median-output association with the SVI draws is
+strong (Pearson <span class="math inline">\(\rho \approx 0.8\)</span>
+out-of-7, <span class="math inline">\(\approx 0.7\)</span> CG-MH;
+§14.1.9), yet quantile coverage sits far below nominal and PIT-KS <span
+class="math inline">\(\approx 0.61\)</span> (§14.1.7), and the marginal
+<span class="math inline">\(\hat p(\rho\mid x)\)</span> sits below the
+SVI posterior (§14.1.8): the amortiser orders the posterior draws well
+but its conditional distribution is <strong>mis-located and
+under-dispersed</strong>. The calibration diagnostic quantifies
+distributionally what the negative <span
+class="math inline">\(R^2\)</span> hints; the median diagnostic confirms
+the location error does not come from a broken ranking. The PPS agrees
+with the Strong-Oakley baselines on the bulk of cells (<span
+class="math inline">\(\le 0.002\)</span> median), with a tail exactly
+where the calibration gap bites (§14.1.10).</p></li>
+<li><p><strong>Cause: prior coverage.</strong> The output scale inherits
+the diffuse PCM prior — thresholds <span class="math inline">\(\sim N(0,
+3.5)\)</span> place most training mass on far more extreme cohorts than
+Ukraine’s, and the training label is the <em>population</em> endpoint
+<span class="math inline">\(r_j(\theta)\)</span> while the evaluation
+target is the finite-cohort SVI estimate. The monotone improvement of
+PIT-KS across the schedule (interim 1 → 8) fits this: as <span
+class="math inline">\(n\)</span> grows the operational posterior moves
+into the prior-covered region. This is the §8.1 prior-coverage caveat,
+made concrete.</p></li>
+<li><p><strong>Remedies (the actionable next step).</strong> these are
+executed as a full remedy sweep in §14.2 — the deployable fix is an
+expanding-window head-only fine-tune (§14.2.5), which reaches
+near-nominal calibration with correlation intact. Same calibration
+origin as the deepset variant (§14.4.3).</p></li>
+<li><p><strong>The §8-10 loop closes at the item level at no accuracy
+cost.</strong> Prior-predictive training (fresh PCM draws, no SVI
+anywhere) with the hand-computed <span class="math inline">\(F =
+8\)</span> token reaches the same correlation as the superseded
+posterior-trained regime (§14.1.9, final vs third row) — the
+train-once-deploy-anywhere property is free on this metric; only
+calibration is outstanding.</p></li>
+<li><p><strong>Architecture ports cleanly from MVN, and cross-item
+routing is a wash here.</strong> The network class is unchanged; the
+analytic K-row becomes the empirical Spearman-shrunk <span
+class="math inline">\(\hat K\)</span>-row. Cross- vs self-attention are
+within noise on Ukraine (§14.3) because <span class="math inline">\(\hat
+K\)</span> is weak (off-diagonals <span class="math inline">\(\approx
+0.3\)</span>); the MVN <span class="math inline">\(J = 60\)</span>
+result (§13.5) is where the routing advantage shows.</p></li>
+<li><p><strong>Deployment cost is simulation, not network.</strong>
+Rebuilding the posterior-predictive <span
+class="math inline">\(z^{(s)}\)</span> block is ~1 min/interim at <span
+class="math inline">\(S = 4000\)</span>; the <span
+class="math inline">\(80{,}000\)</span> head evaluations take seconds.
+SVI on <span class="math inline">\(x^{\text{obs}}\)</span> (once per
+interim) is the only inference step left.</p></li>
 </ol>
-<p><strong>Recommendation.</strong> For real-world case studies where
-(a) items share a latent factor and (b) no analytic PPS is available,
-xcompAtt is worth trying as a supervised layer on top of the
-Strong-Oakley wa pipeline. Deployment cost is negligible; training cost
-is bounded by the wa pool size. If a PCM prior sampler is invested in,
-the same architecture becomes a genuine amortiser with the standard
-“train once → deploy anywhere” story.</p>
-<h2 id="diagnostics-for-the-ukraine-item-level-amortisers">14.2
-Diagnostics for the Ukraine item-level amortisers</h2>
-<p>Ukraine has no analytic PPS, so diagnostics compare the amortiser
-against the SVI posterior it was trained to mimic. Notation as in §14.1:
-<span class="math inline">\(\rho^{(j^*, s)}_\text{true} =
-r_{j^*}(\theta^{(s)})\)</span>, <span class="math inline">\(\theta^{(s)}
-\sim p(\theta \mid x)\)</span> is the SVI target; <span
-class="math inline">\(\hat\rho^{(j^*, s)}_{\tau_3}\)</span> is the
-amortiser’s median-quantile prediction at <span
-class="math inline">\((j^*, s)\)</span>.</p>
-<h3 id="distribution-comparison-boxplot-overview">Distribution
-comparison (boxplot overview)</h3>
-<p><code>pcm_1_interim_pps_svi_vs_amortiser_rho_all.pdf</code> — one
-plot, mirroring the MVN <code>p_h1_xz_all</code> layout (§13.5). Facet
-per item, <span class="math inline">\(x\)</span> = interim, and per
-(interim, item) two side-by-side boxes comparing the empirical
-distributions over the <span class="math inline">\(S\)</span> posterior
-draws:</p>
-<p><span class="math display">\[
-\text{SVI:}\; \big\{\rho^{(j^*, s)}_\text{true}\big\}_{s=1}^{S}
-\qquad \text{vs} \qquad
-\text{amortiser:}\; \big\{\hat\rho^{(j^*, s)}_{\tau_3}\big\}_{s=1}^{S}.
-\]</span></p>
-<p>Boxes are drawn from precomputed quantiles — box = 25-75%, whiskers =
-2.5-97.5%, no outlier dots. If the amortiser recovers the map <span
-class="math inline">\(z^{(s)} \mapsto \rho\)</span>, the two boxes agree
-in location <em>and</em> spread; a compressed amortiser box signals an
-under-resolved item (the pre-standardisation failure mode of the
-<code>CG-MH</code> items). Comparing whole distributions avoids the
-pitfall of the per-draw scatter (plotting <span
-class="math inline">\(\rho^{(j^*, s)}_\text{true}\)</span> against <span
-class="math inline">\(\hat\rho^{(j^*, s)}\)</span> point-by-point),
-which mixes the shared draw index <span class="math inline">\(s\)</span>
-into both axes and inflates apparent correlation.</p>
+<h2 id="calibration-remedies-for-the-item-amortiser">14.2 Calibration
+remedies for the item amortiser</h2>
+<p>The diagnostics of §14.1.7–14.1.8 leave one defect: the prior-trained
+amortiser is well-calibrated on the prior-predictive (held-out-prior
+coverage nominal, §14.1.7) but its deployment predictive is
+<strong>mis-located</strong> on the posterior-predictive slice —
+coverage far below nominal, PIT-KS <span class="math inline">\(\approx
+0.61\)</span>, marginal-KS <span class="math inline">\(\approx
+0.47\)</span> — while ranking stays strong (correlation <span
+class="math inline">\(\approx 0.8/0.7\)</span>, §14.1.10). This section
+reports a remedy sweep. Goal: near-nominal calibration
+<strong>without</strong> losing correlation or the §8 generality.
+Decision metrics: coverage at <span
+class="math inline">\(\eta^{\text{inpol}} = 0.5, 0.95\)</span>, PIT-KS,
+marginal-KS, and correlation (out-of-7 / CG-MH;
+<code>CG-VIO_ph-punish</code> blow-up item excluded). Guardrail:
+held-out-prior coverage must stay nominal. Every configuration writes
+the full diagnostic PDFs (coverage curves, PIT histograms, marginal-CDF
+overlays) into its own <code>…_260808</code>/<code>_260809</code>
+sandbox dir.</p>
+<table>
+<colgroup>
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+</colgroup>
+<thead>
+<tr>
+<th>config</th>
+<th>corr (o7/cat)</th>
+<th style="text-align: right;">cov@.5</th>
+<th style="text-align: right;">cov@.95</th>
+<th style="text-align: right;">PIT-KS</th>
+<th style="text-align: right;">marg-KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>baseline (§14.1)</td>
+<td>0.53/0.42</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.61</td>
+<td style="text-align: right;">0.47</td>
+</tr>
+<tr>
+<td>S=256/step (§14.2.1)</td>
+<td>0.52/0.41</td>
+<td style="text-align: right;">0.14</td>
+<td style="text-align: right;">0.48</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.47</td>
+</tr>
+<tr>
+<td>thresh=2.0 (§14.2.2)</td>
+<td>0.53/0.42</td>
+<td style="text-align: right;">0.14</td>
+<td style="text-align: right;">0.40</td>
+<td style="text-align: right;">0.64</td>
+<td style="text-align: right;">0.50</td>
+</tr>
+<tr>
+<td>thresh=1.0 (§14.2.2)</td>
+<td>0.53/0.41</td>
+<td style="text-align: right;">0.14</td>
+<td style="text-align: right;">0.45</td>
+<td style="text-align: right;">0.62</td>
+<td style="text-align: right;">0.50</td>
+</tr>
+<tr>
+<td>full-ft LOIO (§14.2.3)</td>
+<td>0.51/0.41</td>
+<td style="text-align: right;">0.53</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.17</td>
+<td style="text-align: right;">0.14</td>
+</tr>
+<tr>
+<td>head-ft(i1) (§14.2.4)</td>
+<td>0.52/0.13</td>
+<td style="text-align: right;">0.53</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.40</td>
+<td style="text-align: right;">0.40</td>
+</tr>
+<tr>
+<td><strong>head-ft expand 1:k (§14.2.5)</strong></td>
+<td><strong>0.52/0.39</strong></td>
+<td style="text-align: right;"><strong>0.50</strong></td>
+<td style="text-align: right;"><strong>0.95</strong></td>
+<td style="text-align: right;"><strong>0.16</strong></td>
+<td style="text-align: right;"><strong>0.14</strong></td>
+</tr>
+<tr>
+<td>conformal i1 (§14.2.6)</td>
+<td>0.53/0.41</td>
+<td style="text-align: right;">0.38</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.58</td>
+<td style="text-align: right;">0.66</td>
+</tr>
+<tr>
+<td>conformal expand 1:k (§14.2.6)</td>
+<td>0.53/0.41</td>
+<td style="text-align: right;">0.40</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.56</td>
+<td style="text-align: right;">0.59</td>
+</tr>
+</tbody>
+</table>
+<p>(nominal cov@.5 = 0.50, cov@.95 = 0.95; lower KS is better.)</p>
+<h3 id="training-noise-control-s-256-drawsstep-negative">14.2.1
+Training-noise control — <span class="math inline">\(S = 256\)</span>
+draws/step (negative)</h3>
+<p>More fresh prior draws per step (1280 → 5120 query rows;
+lower-variance gradients) leaves every calibration metric unchanged (cov
+0.14/0.48, PIT-KS 0.60, marg 0.47). Confirms the §14.1.7 diagnosis: the
+gap is distribution shift, not optimisation noise. Dir
+<code>…itemXcompAtt…_256step_260808</code>.</p>
+<h3 id="prior-narrowing-threshold_scale-2.0-1.0-negative">14.2.2 Prior
+narrowing — <code>threshold_scale</code> 2.0 / 1.0 (negative)</h3>
+<p>Tightening the diffuse threshold prior toward the operational region
+does not help (cov ≈ 0.14/0.40–0.45, PIT-KS 0.62–0.64, marg 0.50 — if
+anything slightly worse). The OOD gap is not fixed by shrinking
+threshold spread alone: abilities/loadings and the
+population-endpoint-vs-finite-cohort-target mismatch dominate.
+Data-agnostic prior narrowing is off the table for this study. Dirs
+<code>…_thresh2p0/thresh1p0_260808</code>.</p>
 <h3
-id="learned-summary-check-pc1-of-the-attention-output">Learned-summary
-check (PC1 of the attention output)</h3>
-<p><code>pcm_1_interim_i{k}_svi_rho_vs_pc1_attn_summary.pdf</code> — per
-interim, facet per item. The attention-picked per-query summary is the
-vector <span class="math inline">\(q_\psi\)</span> actually
-consumes,</p>
-<p><span class="math display">\[
-\bar h^{(j^*, s)} \;=\; \sum_{j=1}^{J} w^{(j^*, s)}_j\, h^{(s)}_j
-\;\in\; \mathbb{R}^{E}
-\qquad (\text{cross-attn; gather } h&#39;^{\,(j^*, s)}_{j^*} \text{ for
-the self-attn variant}),
-\]</span></p>
-<p>computed for every (interim <span class="math inline">\(k\)</span>,
-draw <span class="math inline">\(s\)</span>, item <span
-class="math inline">\(j^*\)</span>) triple. Stack all triples into <span
-class="math inline">\(H \in \mathbb{R}^{M \times E}\)</span> (<span
-class="math inline">\(M = C \cdot S \cdot J\)</span>), centre columns,
-take the SVD <span class="math inline">\(H - \bar H = U \Sigma
-V^\top\)</span>, and project each row onto the first principal
-component, <span class="math inline">\(\text{PC1} = U_{\cdot 1}
-\Sigma_{11}\)</span>. Each panel scatters <span class="math inline">\(y
-= \rho^{(j^*, s)}_\text{true}\)</span> against <span
-class="math inline">\(x = \text{PC1}\)</span> with the per-item Pearson
-correlation annotated: it measures how much of the item’s posterior
-variation the one-dimensional learned summary already carries — the
-amortised analogue of plotting <span class="math inline">\(\rho \mid
-x\)</span> against the hand-picked Strong-Oakley statistic <span
-class="math inline">\(w(z^{(s)})\)</span> in the regression
-baseline.</p>
-<h2
-id="self-attention-to-learn-item-specific-summaries-itemscompatt">14.3
-Self-attention to learn item-specific summaries
-(<code>itemScompAtt</code>)</h2>
-<p>Identical tokens, target, loss, training pool and deployment as
-§14.1; only the attention block differs (§13.6 variant 2). Every token
-acts as query and key; a learned scalar <span
+id="full-net-fine-tune-leave-one-interim-out-reference-upper-bound">14.2.3
+Full-net fine-tune, leave-one-interim-out (reference upper bound)</h3>
+<p>Warm-start from the prior-trained weights, fine-tune
+<strong>all</strong> parameters 1000 steps on interims 2–8, evaluate
+held-out interim 1. Near-nominal calibration (cov 0.53/0.94, PIT-KS 0.61
+→ <strong>0.17</strong>, marg 0.47 → <strong>0.14</strong>) with
+correlation preserved in- and out-of-sample (all-interim 0.51/0.41;
+held-out interim-1 0.71/0.72). The fine-tune is <em>light</em> — every
+weight block moves only 8–15 % in norm, cosine <span
+class="math inline">\(\approx 0.99\)</span> with the prior weights
+(<span class="math inline">\(q_\text{tok}\)</span> barely 8 %) — so it
+is the prior amortiser <strong>lightly recalibrated</strong>, not
+re-fit: the prior stage supplies the retained feature extractor, the
+fine-tune does the location/scale correction. Cost: reintroduces a
+per-study SVI dependency at fine-tune time. Dir
+<code>…_ftfull-loio-i1_260808</code>.</p>
+<h3 id="head-only-fine-tune-on-interim-1-too-thin">14.2.4 Head-only
+fine-tune on interim 1 (too thin)</h3>
+<p>Freeze the encoders, fine-tune only <span
+class="math inline">\(q_\psi\)</span> on interim 1. Coverage jumps to
+nominal (0.53/0.94) but CG-MH correlation <strong>collapses</strong>
+0.42 → 0.13 — one interim over-fits interim-1’s categorical scale and
+destroys held-out CG-MH ranking. Head-only is not wrong; one fit-interim
+is too little data. Dir <code>…_ftheadi1_260808</code>.</p>
+<h3
+id="head-only-fine-tune-expanding-window-the-deployable-recipe">14.2.5
+Head-only fine-tune, expanding window (the deployable recipe)</h3>
+<p>The realistic sequential version: at interim <span
+class="math inline">\(k\)</span> the SVI fits for interims <span
+class="math inline">\(1..k\)</span> are already in hand (deployment runs
+SVI per interim), so fine-tune only <span
+class="math inline">\(q_\psi\)</span> on <span
+class="math inline">\(1..k\)</span> and apply to interim <span
+class="math inline">\(k\)</span> (encoders frozen throughout).
+<strong>Best result:</strong> cov 0.50/0.95 (nominal), PIT-KS 0.61 →
+<strong>0.16</strong>, marginal-KS 0.47 → <strong>0.14</strong>,
+correlation preserved (0.52/0.39 — CG-MH recovers vs §14.2.4 because the
+expanding window supplies enough data). It <strong>matches the full-net
+upper bound (§14.2.3) while keeping the encoders universal</strong>, and
+uses only SVI already computed at interims <span
+class="math inline">\(\le k\)</span>. Recommended operating point. Dir
+<code>…_ftheadexpand_260809</code>.</p>
+<h3 id="post-hoc-conformal-recalibration-partial">14.2.6 Post-hoc
+conformal recalibration (partial)</h3>
+<p>No fine-tuning: fit a per-item monotone PIT map <span
+class="math inline">\(\hat g = \text{ecdf}(u_{\text{cal}})\)</span>
+(distribution calibration, Kuleshov et al. 2018) and recalibrate the
+predictive CDF. Two protocols — interim-1 map applied to all interims,
+and expanding (map from <span class="math inline">\(1..k\)</span>
+applied to interim <span class="math inline">\(k\)</span>). Both only
+<strong>partly</strong> help: cov@.5 0.15 → 0.38–0.40 (not 0.50), PIT-KS
+0.61 → 0.56–0.58, marginal-KS <em>worse</em> (0.59–0.66). Cause: the
+miscalibration <strong>varies across interims</strong> (the location
+bias shrinks as <span class="math inline">\(n\)</span> grows, §14.1.8),
+so a single static monotone map cannot correct all interims at once — a
+<em>conditional</em> re-scale (fine-tune) can. Dirs
+<code>…_conformal-i1/conformal-expand_260809</code>.</p>
+<h3 id="reading-4">14.2.7 Reading</h3>
+<ol type="1">
+<li><strong>Diagnosis holds.</strong> The <span
+class="math inline">\(S=256\)</span> null (§14.2.1) reconfirms the gap
+is distribution shift, curable only by moving the predictive toward the
+operational region.</li>
+<li><strong>Cheap, data-agnostic fixes fail.</strong> Prior narrowing
+(§14.2.2) and static conformal recalibration (§14.2.6) both fall short —
+the latter because the bias is interim-heteroscedastic, which a single
+monotone map cannot absorb.</li>
+<li><strong>Fine-tuning on the operational SVI works, and head-only is
+enough.</strong> The <strong>expanding-window head-only</strong>
+fine-tune (§14.2.5) is the deployable operating point: near-nominal
+calibration, correlation intact, universal encoders retained, using only
+SVI already computed at interims <span class="math inline">\(\le
+k\)</span>. It buys a correctly-located predictive for a light
+per-interim head re-fit — a small, honest trade of §8 purity.</li>
+<li><strong>The correction is a small warp, not a retrain.</strong> The
+full-net fine-tune (§14.2.3) reaches the same calibration by moving the
+weights only <span class="math inline">\(\approx 10\%\)</span> near the
+prior solution — the amortiser is recalibrated, not relearned; the prior
+stage’s representation is doing the heavy lifting throughout.</li>
+</ol>
+<h2 id="self-attention-variant-itemscompatt-detailed-diagnostics">14.3
+Self-attention variant (<code>itemScompAtt</code>): detailed
+diagnostics</h2>
+<p>Identical tokens, target, loss, prior-predictive training data and
+deployment as §14.1; only the attention block differs (§13.6 variant 2).
+Every token acts as query and key; a learned scalar <span
 class="math inline">\(\alpha\)</span> biases each row toward the queried
 key,</p>
-<p><span class="math display">\[
-\text{score}^{(j^*, s)}_{a, b} \;=\; \frac{\big\langle h^{(j^*, s)}_a,\;
-h^{(j^*, s)}_b\big\rangle}{\sqrt{E}} \;+\; \alpha \cdot \mathbf{1}\{b =
-j^*\}, \qquad h&#39;^{\,(j^*, s)}_a \;=\; \sum_{b=1}^{J}
-\operatorname{softmax}_b\big(\text{score}^{(j^*, s)}_{a, \cdot}\big)\,
-h^{(j^*, s)}_b,
-\]</span></p>
+<p><span class="math display">\[\text{score}^{(j^*, s)}_{a, b} \;=\;
+\frac{\big\langle h^{(j^*, s)}_a,\; h^{(j^*, s)}_b\big\rangle}{\sqrt{E}}
+\;+\; \alpha \cdot \mathbf{1}\{b = j^*\}, \qquad h&#39;^{\,(j^*, s)}_a
+\;=\; \sum_{b=1}^{J} \operatorname{softmax}_b\big(\text{score}^{(j^*,
+s)}_{a, \cdot}\big)\, h^{(j^*, s)}_b,\]</span></p>
 <p>and the per-query summary is the gather <span
 class="math inline">\(\bar h^{(j^*, s)} = h&#39;^{\,(j^*,
 s)}_{j^*}\)</span> — <span class="math inline">\(J^2\)</span> attention
 scores per batch element (vs <span class="math inline">\(J\)</span> for
-cross-attention).</p>
-<p><strong>Results</strong> (same protocol and token as §14.1.7,
-per-item Pearson <span class="math inline">\(\rho\)</span> vs the SVI
-target, blow-up item excluded):</p>
+cross-attention). <span class="math inline">\(\alpha\)</span> adds one
+learned scalar to <span class="math inline">\((\tau, \psi)\)</span>.</p>
+<h3 id="association-with-the-svi-target">14.3.1 Association with the SVI
+target</h3>
+<p>Same protocol and token as §14.1.9 (per-item Pearson <span
+class="math inline">\(\rho\)</span> between the amortiser median <span
+class="math inline">\(\hat\rho^{(j^*, s)}_3\)</span> and <span
+class="math inline">\(\rho^{(j^*, s)}_{\text{SVI-}x}\)</span>, blow-up
+item excluded):</p>
 <table>
 <colgroup>
-<col style="width: 33%" />
-<col style="width: 33%" />
-<col style="width: 33%" />
+<col style="width: 27%" />
+<col style="width: 34%" />
+<col style="width: 37%" />
 </colgroup>
 <thead>
 <tr>
@@ -4736,33 +5339,152 @@ target, blow-up item excluded):</p>
 <tbody>
 <tr>
 <td><code>itemXcompAtt</code> (§14.1)</td>
-<td>0.83 / 0.70</td>
-<td>0.52 / 0.42</td>
+<td>0.82 / 0.71</td>
+<td>0.53 / 0.42</td>
 </tr>
 <tr>
 <td><code>itemScompAtt</code></td>
-<td>0.83 / 0.72</td>
-<td>0.52 / 0.41</td>
+<td>0.83 / 0.70</td>
+<td>0.53 / 0.41</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Read.</strong> On MVN, cross-attention beat self-attention by
-20-35 % at <span class="math inline">\(J \le 60\)</span> (§13.6) — the
-advantage came from K-row alignment through the query. On Ukraine at
-<span class="math inline">\(J = 20\)</span> the two variants are within
-noise of each other: the empirical <span class="math inline">\(\hat
-K\)</span>-row is weaker and shrunk (mean off-diagonal <span
-class="math inline">\(\approx 0.3\)</span>), so the query-side routing
-advantage largely disappears. Recorded for completeness;
-<code>itemXcompAtt</code> remains the default.</p>
+<p>(Both rows: §8 prior-predictive training, identical protocol.) On
+MVN, cross-attention beat self-attention by 20-35 % at <span
+class="math inline">\(J \le 60\)</span> (§13.6) — the advantage came
+from K-row alignment through the query. On Ukraine at <span
+class="math inline">\(J = 20\)</span> the two variants are within noise:
+the empirical <span class="math inline">\(\hat K\)</span>-row is weaker
+and shrunk (mean off-diagonal <span class="math inline">\(\approx
+0.3\)</span>), so the query-side routing advantage largely disappears.
+Association plots:
+<code>pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf</code>.</p>
+<h3
+id="baseline-calibration-the-same-priorposterior-mislocation-as-14.1.7">14.3.2
+Baseline calibration — the same prior/posterior mislocation as
+§14.1.7</h3>
+<p>The full SBC suite (<code>..._tests.py</code>, net-agnostic) on the
+prior-trained self-attention net gives the identical picture as
+<code>itemXcompAtt</code>: strong ranking, badly mislocated
+intervals.</p>
+<table>
+<colgroup>
+<col style="width: 38%" />
+<col style="width: 8%" />
+<col style="width: 26%" />
+<col style="width: 26%" />
+</colgroup>
+<thead>
+<tr>
+<th>metric (mean over items/interims)</th>
+<th style="text-align: right;">nominal</th>
+<th style="text-align: right;"><code>itemXcompAtt</code> baseline</th>
+<th style="text-align: right;"><code>itemScompAtt</code> baseline</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>coverage @ <span class="math inline">\(\eta = 0.5\)</span></td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.19</td>
+</tr>
+<tr>
+<td>coverage @ <span class="math inline">\(\eta = 0.95\)</span></td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.53</td>
+</tr>
+<tr>
+<td>PIT–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.61</td>
+<td style="text-align: right;">0.55</td>
+</tr>
+<tr>
+<td>marginal–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.47</td>
+<td style="text-align: right;">0.42</td>
+</tr>
+</tbody>
+</table>
+<p>Diagnostics in the baseline dir:
+<code>pcm_1_interim_pps_RGEG_tests_coverage.pdf</code>,
+<code>..._tests_pit.pdf</code>,
+<code>..._i{k}_svi_vs_amortiser_marginal_cdf.pdf</code>. The mechanism
+is §8.1’s prior-coverage gap, architecture-independent: the diffuse PCM
+prior is wider than the concentrated deployment posterior slice, so the
+predicted quantiles are correctly <em>ordered</em> but too wide and
+off-centre.</p>
+<h3 id="head-only-expanding-fine-tune-14.2.5-transfers-unchanged">14.3.3
+Head-only expanding fine-tune (§14.2.5) transfers unchanged</h3>
+<p>Applying the §14.2.5 recipe — freeze the encoder, refit only the head
+<span class="math inline">\(q_\psi\)</span> on interims <span
+class="math inline">\(1..k\)</span> SVI, evaluate at <span
+class="math inline">\(k\)</span> — to the self-attention net (universal
+freeze: train <code>q_psi</code>, freeze <code>q_tok</code> and the
+self-attention bias <span class="math inline">\(\alpha\)</span>):</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th style="text-align: right;">nominal</th>
+<th style="text-align: right;">baseline</th>
+<th style="text-align: right;">head-ft-expand</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>coverage @ 0.5</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.19</td>
+<td style="text-align: right;">0.50</td>
+</tr>
+<tr>
+<td>coverage @ 0.95</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.53</td>
+<td style="text-align: right;">0.94</td>
+</tr>
+<tr>
+<td>PIT–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.55</td>
+<td style="text-align: right;">0.15</td>
+</tr>
+<tr>
+<td>marginal–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.42</td>
+<td style="text-align: right;">0.13</td>
+</tr>
+<tr>
+<td>corr o7/cat (i1)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.83/0.70</td>
+<td style="text-align: right;">0.83/0.72</td>
+</tr>
+</tbody>
+</table>
+<p>Same outcome as <code>itemXcompAtt</code> (§14.2.5): near-nominal
+calibration, correlation preserved (encoders frozen). Diagnostics in
+<code>..._itemScompAtt_..._ftheadexpand_260809/</code>.
+<code>itemXcompAtt</code> remains the default — the two variants are
+within noise on this <span class="math inline">\(J = 20\)</span> case
+and share the same remedy.</p>
 <h2
 id="full-8-10-amortiser-on-the-ukraine-pcm-deepsetxcompatt-prior-predictive-training">14.4
 Full §8-10 amortiser on the Ukraine PCM: <code>deepsetXcompAtt</code> +
 prior-predictive training</h2>
-<p>First run of the <em>genuine</em> amortised workflow of §8-10 on the
-Ukraine PCM — no SVI targets at training time, raw <span
-class="math inline">\(x^{\text{obs}}\)</span> AND raw <span
-class="math inline">\(z^{(s)}\)</span> at deployment.</p>
+<p>The nested-DeepSets variant of the §8-10 workflow on the Ukraine PCM.
+Training is prior-predictive as in §14.1; the difference is
+architectural: instead of the hand-computed <span
+class="math inline">\(F = 8\)</span> item summaries, the network
+consumes the RAW cohorts — <code>x_responses</code> and
+<code>z_responses</code> per (participant, item, time) — and
+<strong>learns</strong> the per-item pooling through <span
+class="math inline">\(q_\tau\)</span> (§9.2).</p>
 <h3 id="setup">14.4.1 Setup</h3>
 <ul>
 <li><strong>§8 training data.</strong>
@@ -4819,11 +5541,16 @@ m/N)\)</span> aux carry the size dependence.</li>
 Results: evaluation against the SVI posterior targets</h3>
 <p>Per-item Pearson <span class="math inline">\(\rho\)</span> between
 the amortiser median <span class="math inline">\(\hat\rho^{(j^*,
-s)}_{\tau_3}\)</span> and the SVI target <span
-class="math inline">\(\rho^{(j^*, s)}_\text{true}\)</span> across the
+s)}_{3}\)</span> and the SVI target <span
+class="math inline">\(\rho^{(j^*, s)}_{\text{SVI-}x}\)</span> across the
 <span class="math inline">\(S\)</span> draws (excluding the
 <code>CG-VIO_ph-punish</code> blow-up item):</p>
 <table>
+<colgroup>
+<col style="width: 39%" />
+<col style="width: 28%" />
+<col style="width: 31%" />
+</colgroup>
 <thead>
 <tr>
 <th>item type</th>
@@ -4846,21 +5573,21 @@ class="math inline">\(\rho\)</span></th>
 </tr>
 </tbody>
 </table>
-<p>Compared with the wa-trained item-level amortiser: the deepset
-variant matches the original <span class="math inline">\(z\)</span>-only
-item token (interim 1: 0.77 / 0.48) <strong>despite never seeing a
-single SVI draw at training time</strong>, and matches the improved
-<span class="math inline">\(F = 8\)</span> item token (0.83 / 0.70,
-§14.1.7) on the out-of-7 items while trailing it on CG-MH — the item
-variant’s mean-response input engineering has no learned counterpart yet
-in the deepset’s <span class="math inline">\(q_\tau\)</span> at this
-training budget. <span class="math inline">\(R^2\)</span> is mostly
-negative — the amortiser tracks the <em>ranking</em> of the posterior
-draws well but its location/scale calibration under the diffuse PCM
-prior does not match the concentrated deployment posterior (the §8.1
-prior-coverage caveat in action: thresholds <span
-class="math inline">\(\sim N(0, 3.5)\)</span> generate far more extreme
-cohorts than the Ukraine data region).</p>
+<p>Both the deepset and the item-level amortiser (§14.1.9) are now
+trained purely prior-predictively, so the comparison isolates the
+<strong>architecture</strong>: learned pooling matches the hand-computed
+<span class="math inline">\(F = 8\)</span> token on the out-of-7 items
+(0.82 vs 0.82 at interim 1) but trails it on CG-MH (0.57 vs 0.71) — the
+item token’s mean-response summaries have no learned counterpart yet in
+<span class="math inline">\(q_\tau\)</span> at this training budget.
+<span class="math inline">\(R^2\)</span> is mostly negative — the
+amortiser tracks the <em>ranking</em> of the posterior draws well but
+its location/scale calibration under the diffuse PCM prior does not
+match the concentrated deployment posterior (the §8.1 prior-coverage
+caveat in action: thresholds <span class="math inline">\(\sim N(0,
+3.5)\)</span> generate far more extreme cohorts than the Ukraine data
+region). Association plots:
+<code>pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf</code>.</p>
 <p><strong>Per-item detail at interim 1</strong> (Pearson <span
 class="math inline">\(\rho\)</span> / <span
 class="math inline">\(R^2\)</span> vs the SVI target over <span
@@ -5005,28 +5732,308 @@ of posterior draws is tracked well, the location/scale calibration is
 not (see Reading). <code>CG-VIO_ph-punish</code> is the §14.1 numerical
 blow-up item.</p>
 <p><strong>PPS agreement</strong> with the item-level amortiser (§14.1,
-RGEG) over 160 (interim, item) cells: Pearson 0.952, median <span
-class="math inline">\(|\Delta\text{PPS}|\)</span> = 0.001, p90 = 0.158.
-The two estimators agree on the vast majority of cells; the disagreeing
-tail sits at early interims where the deepset’s prior-calibration gap is
-largest.</p>
-<h3 id="reading-4">14.4.3 Reading</h3>
+RGEG): high on the bulk of cells, with the disagreeing tail at early
+interims where the calibration gap is largest.</p>
+<h3 id="baseline-calibration-diagnostics-..._diag.py">14.4.3 Baseline
+calibration diagnostics (<code>..._diag.py</code>)</h3>
+<p>The same SBC suite as §14.1.7, run on the deepset by forward-passing
+every draw and capturing the full multi-quantile prediction (and the
+frozen-encoder head input <code>head_in</code>, sown for §14.4.5). It
+reproduces the item-level picture exactly — strong ranking, mislocated
+intervals:</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 42%" />
+<col style="width: 9%" />
+<col style="width: 25%" />
+<col style="width: 22%" />
+</colgroup>
+<thead>
+<tr>
+<th>metric (mean over items/interims)</th>
+<th style="text-align: right;">nominal</th>
+<th style="text-align: right;"><code>itemXcompAtt</code> §14.1</th>
+<th style="text-align: right;"><code>deepsetXcompAtt</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>coverage @ 0.5</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.18</td>
+</tr>
+<tr>
+<td>coverage @ 0.95</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.41</td>
+</tr>
+<tr>
+<td>PIT–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.61</td>
+<td style="text-align: right;">0.60</td>
+</tr>
+<tr>
+<td>marginal–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.47</td>
+<td style="text-align: right;">0.47</td>
+</tr>
+</tbody>
+</table>
+<p>Diagnostics in the baseline dir:
+<code>pcm_1_interim_pps_RGDX_tests_coverage.pdf</code>,
+<code>..._tests_pit.pdf</code>,
+<code>..._i{k}_svi_vs_amortiser_marginal_cdf.pdf</code>,
+<code>..._i{k}_svi_rho_vs_amortiser_median.pdf</code>. The mislocation
+is the §8.1 prior/posterior gap again — architecture makes no difference
+to it.</p>
+<h3
+id="workstream-a-post-hoc-conformal-recalibration-insufficient-here-too">14.4.4
+Workstream A: post-hoc conformal recalibration (insufficient here
+too)</h3>
+<p>We expected the nested-DeepSets amortiser to be <em>more</em>
+amenable to a static distribution-calibration map (Kuleshov et al. 2018)
+than the item-level net — it is not. Per-item monotone PIT maps fitted
+on interim-1 SVI (A1) and on the expanding pool <span
+class="math inline">\(1..k\)</span> (A2):</p>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 10%" />
+<col style="width: 12%" />
+<col style="width: 23%" />
+<col style="width: 29%" />
+</colgroup>
+<thead>
+<tr>
+<th>metric</th>
+<th style="text-align: right;">nominal</th>
+<th style="text-align: right;">baseline</th>
+<th style="text-align: right;">A1 conformal-i1</th>
+<th style="text-align: right;">A2 conformal-expand</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>coverage @ 0.5</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.18</td>
+<td style="text-align: right;">0.38</td>
+<td style="text-align: right;">0.39</td>
+</tr>
+<tr>
+<td>coverage @ 0.95</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.41</td>
+<td style="text-align: right;">0.41</td>
+<td style="text-align: right;">0.41</td>
+</tr>
+<tr>
+<td>PIT–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.59</td>
+</tr>
+<tr>
+<td>marginal–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.47</td>
+<td style="text-align: right;">0.62</td>
+<td style="text-align: right;">0.54</td>
+</tr>
+</tbody>
+</table>
+<p>Exactly as for <code>itemXcompAtt</code> (§14.2.6): the map nudges
+the median coverage (0.18 → 0.38) but leaves the upper tail pinned
+(coverage @ 0.95 stuck at 0.41), barely moves the PIT–KS, and makes the
+marginal <em>worse</em>. <strong>Why the deepset intuition
+fails:</strong> conformal can only fix miscalibration that is a single,
+interim-invariant monotone warp of the PIT. Here the bias is
+<em>interim-heteroscedastic</em> — its magnitude shrinks as the cohort
+<span class="math inline">\(n\)</span> grows — so one static per-item
+map cannot serve all 8 interims at once. This is a property of the
+prior/posterior gap, not of the encoder, which is why the deepset
+behaves like the item net.</p>
+<h3
+id="head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix">14.4.5
+Head-only expanding fine-tune (§14.2.5) — the architecture-independent
+fix</h3>
+<p>Because <code>head_in</code> (the frozen-encoder input to <span
+class="math inline">\(q_\psi\)</span>) is sown by the net, the §14.2.5
+recipe runs <em>without re-running the encoder</em>: cache
+<code>head_in</code> for every <span class="math inline">\((k, s,
+j^*)\)</span> in the Phase-0 pass, then refit only <span
+class="math inline">\(q_\psi\)</span> on the pooled embeddings of
+interims <span class="math inline">\(1..k\)</span> and evaluate at <span
+class="math inline">\(k\)</span>.</p>
+<table>
+<thead>
+<tr>
+<th>metric</th>
+<th style="text-align: right;">nominal</th>
+<th style="text-align: right;">baseline</th>
+<th style="text-align: right;">head-ft-expand</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>coverage @ 0.5</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.18</td>
+<td style="text-align: right;">0.50</td>
+</tr>
+<tr>
+<td>coverage @ 0.95</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.41</td>
+<td style="text-align: right;">0.94</td>
+</tr>
+<tr>
+<td>PIT–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.18</td>
+</tr>
+<tr>
+<td>marginal–KS</td>
+<td style="text-align: right;">0.00</td>
+<td style="text-align: right;">0.47</td>
+<td style="text-align: right;">0.17</td>
+</tr>
+<tr>
+<td>corr o7/cat (i1)</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">0.82/0.57</td>
+<td style="text-align: right;">0.82/0.54</td>
+</tr>
+</tbody>
+</table>
+<p>Near-nominal calibration, correlation preserved — identical outcome
+to <code>itemXcompAtt</code> (§14.2.5) and <code>itemScompAtt</code>
+(§14.3.3). Diagnostics in
+<code>..._deepsetXcompAtt_..._ftheadexpand_260809/</code>.</p>
+<h3 id="cross-architecture-summary">14.4.6 Cross-architecture
+summary</h3>
+<p>The remedy sweep run on all three encoders gives one consistent
+conclusion:</p>
+<table style="width:100%;">
+<colgroup>
+<col style="width: 47%" />
+<col style="width: 18%" />
+<col style="width: 7%" />
+<col style="width: 9%" />
+<col style="width: 7%" />
+<col style="width: 9%" />
+</colgroup>
+<thead>
+<tr>
+<th>architecture (interim-1 corr o7/cat)</th>
+<th>remedy</th>
+<th style="text-align: right;">cov@.5</th>
+<th style="text-align: right;">cov@.95</th>
+<th style="text-align: right;">PIT–KS</th>
+<th style="text-align: right;">marg–KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>itemXcompAtt</code> (0.82/0.71)</td>
+<td>baseline</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.61</td>
+<td style="text-align: right;">0.47</td>
+</tr>
+<tr>
+<td></td>
+<td>conformal-exp</td>
+<td style="text-align: right;">0.40</td>
+<td style="text-align: right;">0.44</td>
+<td style="text-align: right;">0.56</td>
+<td style="text-align: right;">0.59</td>
+</tr>
+<tr>
+<td></td>
+<td>head-ft-expand</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.95</td>
+<td style="text-align: right;">0.16</td>
+<td style="text-align: right;">0.14</td>
+</tr>
+<tr>
+<td><code>itemScompAtt</code> (0.83/0.70)</td>
+<td>baseline</td>
+<td style="text-align: right;">0.19</td>
+<td style="text-align: right;">0.53</td>
+<td style="text-align: right;">0.55</td>
+<td style="text-align: right;">0.42</td>
+</tr>
+<tr>
+<td></td>
+<td>head-ft-expand</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.15</td>
+<td style="text-align: right;">0.13</td>
+</tr>
+<tr>
+<td><code>deepsetXcompAtt</code> (0.82/0.57)</td>
+<td>baseline</td>
+<td style="text-align: right;">0.18</td>
+<td style="text-align: right;">0.41</td>
+<td style="text-align: right;">0.60</td>
+<td style="text-align: right;">0.47</td>
+</tr>
+<tr>
+<td></td>
+<td>conformal-exp</td>
+<td style="text-align: right;">0.39</td>
+<td style="text-align: right;">0.41</td>
+<td style="text-align: right;">0.59</td>
+<td style="text-align: right;">0.54</td>
+</tr>
+<tr>
+<td></td>
+<td>head-ft-expand</td>
+<td style="text-align: right;">0.50</td>
+<td style="text-align: right;">0.94</td>
+<td style="text-align: right;">0.18</td>
+<td style="text-align: right;">0.17</td>
+</tr>
+</tbody>
+</table>
+<h3 id="reading-5">14.4.7 Reading</h3>
 <ol type="1">
 <li><strong>The §8-10 loop closes.</strong> Prior sampling →
 nested-DeepSets training → raw-<span class="math inline">\((x,
 z)\)</span> deployment runs end-to-end on a real IRT case study with a
 ~1 min total deployment cost for the full 8-interim schedule.</li>
-<li><strong>Correlation strong, calibration weak.</strong> High per-draw
-correlation with negative <span class="math inline">\(R^2\)</span> says
-the learned summary is informative but the output scale inherits the
-prior’s width. Remedies, in expected order of value:
-tighter/empirically-motivated prior on the thresholds (§8.1), an <span
-class="math inline">\(x\)</span>-conditioned normalisation in the head,
-or a small posterior-draw fine-tuning stage on top of the prior-trained
-weights.</li>
-<li><strong>Diagnostics</strong> (§14.2) apply unchanged:
-<code>pcm_1_interim_pps_RGDX_svi_vs_amortiser_rho_all.pdf</code> shows
-the location/scale mismatch directly per (interim, item).</li>
+<li><strong>Architecture affects ranking, not calibration.</strong>
+Cross-attention, self-attention and nested-DeepSets share the
+<em>same</em> prior/posterior mislocation (baseline coverage @ 0.5 <span
+class="math inline">\(\approx 0.15\)</span>–<span
+class="math inline">\(0.19\)</span>, PIT–KS <span
+class="math inline">\(\approx 0.55\)</span>–<span
+class="math inline">\(0.61\)</span> across all three). The encoder
+choice only moves the correlation — the deepset’s learned pooling
+matches the hand token on out-of-7 (0.82) but trails on CG-MH (0.57 vs
+0.70–0.71) at this budget.</li>
+<li><strong>The fix is architecture-independent and it is the head, not
+a static map.</strong> The expanding head-only fine-tune (§14.2.5)
+recovers near-nominal calibration for all three encoders with
+correlation preserved, whereas post-hoc conformal is insufficient for
+all three (including the deepset, contrary to expectation) because the
+bias is interim-heteroscedastic. Refitting <span
+class="math inline">\(q_\psi\)</span> conditions on each interim’s data
+through the frozen embedding; a single monotone PIT map cannot.</li>
+<li><strong>Diagnostics</strong> (§14.1.7–14.1.9) are produced in full
+for every configuration: coverage curves, PIT histograms, marginal-CDF
+overlays and median-association scatters, plus
+<code>pcm_1_interim_pps_RGDX_svi_vs_amortiser_rho_all.pdf</code>.</li>
 </ol>
 <h1 id="references">15. References</h1>
 <!--

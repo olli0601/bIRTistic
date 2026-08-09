@@ -125,4 +125,8 @@ class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         if aux is not None:
             parts.append(aux)
         head_in = jnp.concatenate(parts, axis=-1)
+        # Expose the frozen-encoder head input so head-only recalibration
+        # (§14.2.5) can fine-tune q_psi on cached embeddings without
+        # re-running the encoder. Params are unchanged by sow.
+        self.sow('intermediates', 'head_in', head_in)
         return self.q_psi(head_in)                              # (B, num_quantiles)
