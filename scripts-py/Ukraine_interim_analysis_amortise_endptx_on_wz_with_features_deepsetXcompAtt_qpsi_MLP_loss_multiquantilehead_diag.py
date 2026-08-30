@@ -33,7 +33,9 @@ import optax
 from flax import linen as nn
 from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point,
                       geom_smooth, geom_histogram, geom_hline, facet_wrap,
-                      theme_bw, theme, element_blank, element_text, labs)
+                      facet_grid, theme_bw, theme, element_blank, element_text,
+                      labs, scale_color_cmap, scale_linetype_manual,
+                      scale_color_manual)
 
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model
@@ -237,6 +239,20 @@ def save(dirn, cov, pk, mk, mc, perf, sc, title):
          + labs(x=f'rho at interim {k}', y='CDF', colour='',
            title=f'Marginal p(rho|x) — {title}, interim {k}')).save(
             f"{d}/{file_prefix}_i{k}_svi_vs_amortiser_marginal_cdf.pdf", verbose=False, limitsize=False)
+    # posterior-contraction grid: items in rows, interims in columns; per panel
+    # SVI solid vs amortiser dotted. Read contraction left->right. x per-item scaled.
+    cc = mcdf.copy()
+    cc['x'] = cc.groupby('item_label')['rho'].transform(lambda r: (r - r.min()) / (r.max() - r.min() + 1e-9))
+    (ggplot(cc, aes('x', 'cdf', colour='source', linetype='source', group='source'))
+     + geom_line(size=.55) + facet_grid('item_label ~ interim_id')
+     + scale_color_manual(values={'SVI  p(rho|x)': '#1f77b4', 'amortiser  p_hat(rho|x)': '#d62728'})
+     + scale_linetype_manual(values={'SVI  p(rho|x)': 'solid', 'amortiser  p_hat(rho|x)': 'dotted'})
+     + theme_bw() + theme(figure_size=(13, 24), legend_position='top', panel_spacing=0.015,
+       strip_background=element_blank(), strip_text_x=element_text(face='bold', size=8),
+       strip_text_y=element_text(angle=0, ha='left', size=6))
+     + labs(x='rho (per-item min-max scaled)', y='CDF',
+       title=f'Posterior contraction — {title}  (rows=item, cols=interim; SVI solid, amortiser dotted)')).save(
+        f"{d}/{file_prefix}_pps_{SUF}_contraction_cdf_by_item.pdf", verbose=False, limitsize=False)
     scdf = pd.DataFrame(sc)
     for k in INTERIMS:
         s = scdf[scdf.interim_id == k]

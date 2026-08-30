@@ -35,8 +35,9 @@ import pandas as pd
 import jax
 import jax.numpy as jnp
 from plotnine import (ggplot, aes, geom_point, geom_line, geom_smooth,
-                      facet_wrap, scale_x_log10, scale_y_log10, theme_bw,
-                      theme, element_blank, element_text, labs)
+                      facet_wrap, facet_grid, scale_x_log10, scale_y_log10, theme_bw,
+                      theme, element_blank, element_text, labs,
+                      scale_color_cmap, scale_linetype_manual, scale_color_manual)
 
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model
@@ -145,6 +146,7 @@ def marg_width(qs):
 
 print(f"Phase 0: forward-pass weekly interims (S={S}) ...")
 rows = []
+QS, TGT = {}, {}
 for k in INTERIMS:
     cf = f"{CACHE}/wk_{k}.npz"
     if os.path.exists(cf):
@@ -152,6 +154,7 @@ for k in INTERIMS:
     else:
         qs, tgt, n = build(k)
         np.savez(cf, qs=qs, tgt=tgt, n=n)
+    QS[k], TGT[k] = qs, tgt
     for j in range(J):
         y = tgt[:, j]; ok = np.isfinite(y); yv = y[ok]
         if yv.size < 10:
@@ -219,4 +222,47 @@ pooled = (long[long.item_label != BLOW].groupby(['n', 'source'])['width']
  + labs(x='observed cohort size n (log)', y='median 90% interval width (log)', colour='',
         title='Posterior contraction (median over items) vs n')).save(
     f"{out}/{file_prefix}_pps_RGDX_contraction_pooled.pdf", verbose=False, limitsize=False)
+
+# ---- contraction-CDF grid: items in rows, interims in columns (8 evenly-
+# spaced from the weekly grid), SVI solid vs amortiser dotted ----
+SEL = [INTERIMS[i] for i in np.linspace(0, len(INTERIMS) - 1, 8).astype(int)]
+ccrows = []
+for j in range(J):
+    if labels[j] == BLOW:
+        continue
+    vals = []
+    for k in SEL:
+        y = TGT[k][:, j]; ok = np.isfinite(y)
+        if ok.sum() >= 10:
+            vals.append(y[ok]); vals.append(QS[k][ok, j, :].ravel())
+    if not vals:
+        continue
+    lo, hi = np.percentile(np.concatenate(vals), [1, 99])
+    if hi <= lo:
+        continue
+    gr = np.linspace(lo, hi, 120); grs = (gr - lo) / (hi - lo)
+    for k in SEL:
+        y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
+        if yv.size < 10:
+            continue
+        qs = QS[k][ok, j, :]
+        Fs = (yv[:, None] <= gr[None]).mean(0)
+        Fm = np.zeros_like(gr)
+        for s in range(qs.shape[0]):
+            Fm += np.interp(gr, qs[s], TAUS, 0., 1.)
+        Fm /= qs.shape[0]
+        for xs, fs, fm in zip(grs, Fs, Fm):
+            ccrows.append(dict(interim_id=k, item_label=labels[j], x=float(xs), cdf=float(fs), source='SVI'))
+            ccrows.append(dict(interim_id=k, item_label=labels[j], x=float(xs), cdf=float(fm), source='amortiser'))
+ccdf = pd.DataFrame(ccrows)
+(ggplot(ccdf, aes('x', 'cdf', colour='source', linetype='source', group='source'))
+ + geom_line(size=.55) + facet_grid('item_label ~ interim_id')
+ + scale_color_manual(values={'SVI': '#1f77b4', 'amortiser': '#d62728'})
+ + scale_linetype_manual(values={'SVI': 'solid', 'amortiser': 'dotted'})
+ + theme_bw() + theme(figure_size=(13, 24), legend_position='top', panel_spacing=0.015,
+   strip_background=element_blank(), strip_text_x=element_text(face='bold', size=8),
+   strip_text_y=element_text(angle=0, ha='left', size=6))
+ + labs(x='rho (per-item min-max scaled)', y='CDF',
+   title='Posterior contraction — contraction-pressure retrain  (rows=item, cols=weekly interim)')).save(
+    f"{out}/{file_prefix}_pps_RGDX_contraction_cdf_by_item.pdf", verbose=False, limitsize=False)
 print(f"\nContraction diagnostic complete -> {out}")

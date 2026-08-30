@@ -531,17 +531,291 @@ def read_data_ukraine(file_data: str) -> Dict[str, pd.DataFrame]:
         'categorical': 4,
         'out-of-7': 8
     }).astype('Int64')
-    
+
     # Set item_type_id
     type_mapping = pd.DataFrame({
         'item_type': sorted(dit['item_type'].unique())
     })
     type_mapping['item_type_id'] = range(1, len(type_mapping) + 1)
     dit = dit.merge(type_mapping, on='item_type')
-    
+
     # Reset indices
     dp = dp.reset_index(drop=True)
     dit = dit.reset_index(drop=True)
     dmeta = dmeta.reset_index(drop=True)
-    
+
     return {'dp': dp, 'dit': dit, 'dmeta': dmeta}
+
+
+def _common_dit(items, item_type, high_low, group_of, group_long, endpoint, cat_length):
+    """Assemble a `dit` item-metadata table in the common bIRTistic format."""
+    dit = pd.DataFrame({'item_label': list(items)})
+    dit['item_type'] = item_type
+    dit['item_high_label'] = [high_low(i) for i in dit['item_label']]
+    dit['group_label'] = [group_of(i) for i in dit['item_label']]
+    dit['item_label_short'] = dit['item_label']
+    dit['group_label_long'] = [group_long.get(g, g) for g in dit['group_label']]
+    dit['endpoint_measure'] = endpoint
+    dit['cat_length'] = pd.array([cat_length] * len(dit), dtype='Int64')
+    tmap = pd.DataFrame({'item_type': sorted(dit['item_type'].unique())})
+    tmap['item_type_id'] = range(1, len(tmap) + 1)
+    return dit.merge(tmap, on='item_type').reset_index(drop=True)
+
+
+# Mycelium acceptance items (1-7 Likert): positive constructs vs reverse-direction
+# risk/disgust. Recoded duplicates (hearR, envrR), composites (Env, EnvD), the Q17
+# battery and design/demographic columns are excluded from the item set.
+_MYCELIUM_HIGH = ['INT1', 'INT2', 'ATT1', 'ATT2', 'SOC1', 'SOC2', 'SOC3',
+                  'HeaB', 'EnvB', 'NATURAL', 'Familiarity']
+_MYCELIUM_LOW = ['DISG1', 'DISG2', 'DISG3', 'DISG4', 'HeaR', 'EnvR']
+_MYCELIUM_GROUP_LONG = {'INT': 'Intention to eat', 'ATT': 'Attitude', 'SOC': 'Social norms',
+                        'DISG': 'Disgust', 'HeaB': 'Health benefit', 'EnvB': 'Environmental benefit',
+                        'HeaR': 'Health risk', 'EnvR': 'Environmental risk',
+                        'NATURAL': 'Naturalness', 'Familiarity': 'Familiarity'}
+
+
+def read_data_mycelium(file_data: str) -> Dict[str, pd.DataFrame]:
+    """Read the mycelium novel-food acceptance survey (doc §3.14) into common format.
+
+    Cross-sectional 3x3 (processing x substrate) survey, UK Prolific N=449, item-level
+    1-7 Likert acceptance constructs (Zenodo 10628634).
+
+    Parameters
+    ----------
+    file_data : str
+        Path to ``Mycelium.csv``.
+
+    Returns
+    -------
+    dict
+        'dp'  : long format (time, time_label, pid, pid_label, fid, f_label,
+                submission_date, treat, item_label, y, y_label);
+        'dit' : item metadata; 'dmeta': age, gender, education, condition, processing, substrate.
+    """
+    import re
+    if not Path(file_data).exists():
+        raise FileNotFoundError(f"Data file not found: {file_data}")
+    raw = pd.read_csv(file_data, encoding='utf-8-sig', low_memory=False)
+    raw.columns = [str(c).replace('﻿', '').replace('ï»¿', '').strip() for c in raw.columns]
+    raw = raw.reset_index(drop=True)
+    raw['pid'] = np.arange(1, len(raw) + 1)
+
+    items = [c for c in _MYCELIUM_HIGH + _MYCELIUM_LOW if c in raw.columns]
+    cond = pd.to_numeric(raw['Condition'], errors='coerce') if 'Condition' in raw.columns else pd.Series(np.nan, index=raw.index)
+    pid2cond = dict(zip(raw['pid'], cond))
+
+    # dmeta: design + demographics
+    dmeta = raw[['pid']].copy()
+    for src, out in [('Age', 'age'), ('Gender', 'gender'), ('Education', 'education'),
+                     ('Condition', 'treat'), ('Process', 'processing'), ('Source', 'substrate')]:
+        if src in raw.columns:
+            dmeta[out] = pd.to_numeric(raw[src], errors='coerce')
+
+    # dp long
+    long = raw[['pid'] + items].melt(id_vars='pid', var_name='item_label', value_name='y')
+    long['y'] = pd.to_numeric(long['y'], errors='coerce')
+    long = long.dropna(subset=['y'])
+    dp = pd.DataFrame({
+        'time': 0, 'time_label': 'survey',
+        'pid': long['pid'].to_numpy(), 'pid_label': long['pid'].astype(str).to_numpy(),
+        'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT,
+        'treat': long['pid'].map(pid2cond).to_numpy(),
+        'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(float).to_numpy(),
+        'y_label': long['y'].astype(int).astype(str).to_numpy(),
+    })
+
+    dit = _common_dit(
+        items, 'likert-7',
+        high_low=lambda i: 'lower_is_better' if i in _MYCELIUM_LOW else 'higher_is_better',
+        group_of=lambda i: re.match(r'([A-Za-z]+)', i).group(1),
+        group_long=_MYCELIUM_GROUP_LONG,
+        endpoint='mean 7-point acceptance rating', cat_length=7)
+    return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
+
+
+# REFUGE-ED MSPSS: drop the four subscale-mean / total columns, keep the 12 items.
+_REFUGE_MSPSS_DROP = {'MSPSS_Mean', 'MSPSS_SO', 'MSPSS_Fam', 'MSPSS_Fri'}
+
+
+def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
+    """Read REFUGE-ED Youth Baseline & Endline (doc §3.9) into common format.
+
+    Refugee/migrant youth, baseline+endline, item-level 1-7 MSPSS perceived-social-support
+    items (Zenodo 10908209). The four MSPSS subscale means/totals are excluded.
+
+    Parameters
+    ----------
+    file_data : str
+        Path to ``Youth Baseline & Endline .xlsx`` (requires ``openpyxl``).
+
+    Returns
+    -------
+    dict
+        'dp' (long, time 0=baseline / 1=endline), 'dit', 'dmeta' (country, site, gender, age).
+    """
+    if not Path(file_data).exists():
+        raise FileNotFoundError(f"Data file not found: {file_data}")
+    xl = pd.ExcelFile(file_data)
+    bl = xl.parse('Baseline Data').dropna(how='all'); bl['time'] = 0
+    el = xl.parse('Endline Data').dropna(how='all'); el['time'] = 1
+    raw = pd.concat([bl, el], ignore_index=True)
+    pc = 'Participant Code'
+
+    def clean_item(c):
+        s = pd.to_numeric(raw[c], errors='coerce').dropna()
+        return len(s) > 0 and s.min() >= 1 and s.max() <= 7
+    items = [c for c in raw.columns
+             if str(c).startswith('MSPSS_') and c not in _REFUGE_MSPSS_DROP and clean_item(c)]
+    raw['pid'] = raw[pc].astype('category').cat.codes + 1
+
+    meta_cols = {'Country Code': 'country', 'Pilot Site': 'site', 'Gender': 'gender', 'Y_Age': 'age'}
+    dmeta = raw[['pid', pc, 'time'] + [c for c in meta_cols if c in raw.columns]].rename(
+        columns={pc: 'pid_label', **meta_cols})
+
+    long = raw[['pid', pc, 'time'] + items].melt(
+        id_vars=['pid', pc, 'time'], var_name='item_label', value_name='y')
+    long['y'] = pd.to_numeric(long['y'], errors='coerce')
+    long = long.dropna(subset=['y'])
+    dp = pd.DataFrame({
+        'time': long['time'].to_numpy(),
+        'time_label': long['time'].map({0: 'Baseline', 1: 'Endline'}).to_numpy(),
+        'pid': long['pid'].to_numpy(), 'pid_label': long[pc].astype(str).to_numpy(),
+        'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT, 'treat': 0.0,
+        'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(float).to_numpy(),
+        'y_label': long['y'].astype(int).astype(str).to_numpy(),
+    })
+
+    dit = _common_dit(
+        items, 'likert-7',
+        high_low=lambda i: 'higher_is_better',                 # more perceived support = better
+        group_of=lambda i: 'MSPSS',
+        group_long={'MSPSS': 'Multidimensional Scale of Perceived Social Support'},
+        endpoint='mean 7-point perceived-support rating', cat_length=7)
+    dit['item_label_short'] = [c.replace('MSPSS_', '') for c in dit['item_label']]
+    return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
+
+
+# Temporal-dynamics symptom scales (doc §3.5). All score higher = worse (lower_is_better).
+_TEMPORAL_SCALES = {'phq9': 'Patient Health Questionnaire (depression)',
+                    'gad7': 'Generalised Anxiety Disorder scale',
+                    'isi': 'Insomnia Severity Index',
+                    'pss': 'Perceived Stress Scale'}
+
+
+def read_data_temporal_dynamics(file_data: str) -> Dict[str, pd.DataFrame]:
+    """Read the temporal-dynamics psychological item bank (doc §3.5) into common format.
+
+    Cross-sectional; four self-report symptom scales at the item level (Zenodo 10423537).
+
+    Parameters
+    ----------
+    file_data : str
+        Directory holding phq9.csv, gad7.csv, isi.csv, pss.csv
+        (each: export_id, score, question1.., time1..).
+
+    Returns
+    -------
+    dict with 'dp', 'dit' (per-scale cat_length inferred from the data), 'dmeta'.
+    """
+    d = Path(file_data)
+    if not d.exists():
+        raise FileNotFoundError(f"Directory not found: {file_data}")
+    dps, dits = [], []
+    for scale, longname in _TEMPORAL_SCALES.items():
+        fp = d / f"{scale}.csv"
+        if not fp.exists():
+            continue
+        raw = pd.read_csv(fp)
+        qcols = [c for c in raw.columns if str(c).startswith('question')]
+        sub = raw[['export_id'] + qcols].copy()
+        for c in qcols:
+            sub[c] = pd.to_numeric(sub[c], errors='coerce')
+        cat_len = int(np.nanmax(sub[qcols].to_numpy())) + 1        # infer K (values 0..K-1)
+        ren = {c: f"{scale}_q{int(str(c).replace('question', ''))}" for c in qcols}
+        long = sub.rename(columns=ren).melt(
+            id_vars='export_id', var_name='item_label', value_name='y').dropna(subset=['y'])
+        dps.append(long)
+        di = pd.DataFrame({'item_label': list(ren.values())})
+        di['item_type'] = scale
+        di['item_high_label'] = 'lower_is_better'
+        di['group_label'] = scale.upper()
+        di['item_label_short'] = [l.split('_')[-1] for l in di['item_label']]
+        di['group_label_long'] = longname
+        di['endpoint_measure'] = 'mean symptom item score'
+        di['cat_length'] = pd.array([cat_len] * len(di), dtype='Int64')
+        dits.append(di)
+    long = pd.concat(dps, ignore_index=True)
+    pmap = {e: i + 1 for i, e in enumerate(sorted(long['export_id'].unique()))}
+    dp = pd.DataFrame({
+        'time': 0, 'time_label': 'survey',
+        'pid': long['export_id'].map(pmap).to_numpy(),
+        'pid_label': long['export_id'].astype(str).to_numpy(),
+        'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT, 'treat': np.nan,
+        'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(float).to_numpy(),
+        'y_label': long['y'].astype(int).astype(str).to_numpy(),
+    })
+    dit = pd.concat(dits, ignore_index=True)
+    tmap = pd.DataFrame({'item_type': sorted(dit['item_type'].unique())})
+    tmap['item_type_id'] = range(1, len(tmap) + 1)
+    dit = dit.merge(tmap, on='item_type').reset_index(drop=True)
+    dmeta = pd.DataFrame({'pid': list(pmap.values()), 'pid_label': list(pmap.keys())})
+    return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta}
+
+
+_CHATGPT_SURVEY = {'Pre-Intervention Survey on Critical Approach to AI.xlsx': 0,
+                   'Post-Intervention Survey on Critical Approach to AI.xlsx': 1}
+
+
+def read_data_chatgpt_rct(file_data: str) -> Dict[str, pd.DataFrame]:
+    """Read the ChatGPT-vs-expert-feedback RCT survey (doc §3.7) into common format.
+
+    Two-arm RCT; the six 'critical approach to AI' 1-7 Likert items, pre (time 0) and
+    post (time 1). The partial-credit key-feature test items are not loaded here.
+
+    Parameters
+    ----------
+    file_data : str
+        Directory holding the Pre-/Post-Intervention Survey xlsx files (Zenodo 13769970).
+        Requires openpyxl.
+
+    Returns
+    -------
+    dict with 'dp' (time 0=pre / 1=post, treat = arm), 'dit', 'dmeta'.
+    """
+    d = Path(file_data)
+    if not d.exists():
+        raise FileNotFoundError(f"Directory not found: {file_data}")
+    frames = []
+    for fname, t in _CHATGPT_SURVEY.items():
+        fp = d / fname
+        if not fp.exists():
+            continue
+        raw = pd.ExcelFile(fp).parse('Survey')
+        cols = list(raw.columns)
+        items = cols[4:]                                    # 6 statement items (after ID/Group/Gender/Repeat)
+        sub = raw[[cols[0], cols[1]] + items].copy()
+        sub.columns = ['ID', 'treat'] + [f"AI_q{i + 1}" for i in range(len(items))]
+        sub['time'] = t
+        frames.append(sub)
+    alld = pd.concat(frames, ignore_index=True)
+    qs = [c for c in alld.columns if c.startswith('AI_q')]
+    long = alld.melt(id_vars=['ID', 'treat', 'time'], value_vars=qs,
+                     var_name='item_label', value_name='y')
+    long['y'] = pd.to_numeric(long['y'], errors='coerce')
+    long = long.dropna(subset=['y'])
+    dp = pd.DataFrame({
+        'time': long['time'].to_numpy(),
+        'time_label': long['time'].map({0: 'Pre', 1: 'Post'}).to_numpy(),
+        'pid': pd.to_numeric(long['ID'], errors='coerce').astype('Int64').to_numpy(),
+        'pid_label': long['ID'].astype(str).to_numpy(),
+        'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT,
+        'treat': pd.to_numeric(long['treat'], errors='coerce').to_numpy(),
+        'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(float).to_numpy(),
+        'y_label': long['y'].astype(int).astype(str).to_numpy(),
+    })
+    dit = _common_dit(
+        qs, 'likert-7', high_low=lambda i: 'higher_is_better', group_of=lambda i: 'AI-attitude',
+        group_long={'AI-attitude': 'Critical approach to AI'},
+        endpoint='mean 7-point attitude rating', cat_length=7)
+    dmeta = alld[['ID', 'treat']].drop_duplicates().rename(columns={'ID': 'pid'}).reset_index(drop=True)
+    return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta}

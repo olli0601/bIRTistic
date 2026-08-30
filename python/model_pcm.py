@@ -1185,6 +1185,144 @@ class PartialCreditModel(IRTModel):
         )
 
     @staticmethod
+    def make_training_data_with_item_tokens_prior_flex(
+        rng: np.random.Generator,
+        S: int,
+        *,
+        item_type_idx: np.ndarray,
+        item_high_idx: np.ndarray,
+        N_lo: int = 503,
+        N_hi: int = 503,
+        n_lo: int = 2,
+        decouple: bool = False,
+        m_lo: int = 2,
+        m_hi: int = 503,
+        dr: float = 0.0,
+        M_ref: int = 2000,
+        aux_ref: float = 503.0,
+        K_out_of_7: int = 8,
+        K_categorical: int = 4,
+        categorical_threshold: int = 2,
+        target_clip: float = 20.0,
+        threshold_scale: float = 3.5,
+        khat_shrink_n0: float = 50.0,
+    ):
+        """§14.4.19 proposal-ablation variant of the item-token prior sampler.
+
+        Emits the SAME 8-feature `itemXcompAtt` hand-token and the SAME
+        theta-level endpoint target as
+        :meth:`make_training_data_with_item_tokens_prior`, but decouples
+        the *training proposal* so the effect of the sampling scheme on the
+        encoder's $z$-response can be measured in isolation:
+
+          * the target $\\rho_j$ is the theta-level endpoint estimated over a
+            large fixed reference population (M_ref abilities) -- independent
+            of the cohort sizes, so contraction is a genuine finite-sample
+            effect;
+          * the observed cohort $x$ (size $n$) and future cohort $z$ (size
+            $m$) are simulated SEPARATELY, so their sizes can be coupled
+            ($m = N - n$, `decouple=False`, $N \\sim U[N_{lo}, N_{hi}]$) or
+            drawn independently ($m \\sim U[m_{lo}, m_{hi}]$, `decouple=True`);
+          * `dr` (>0) domain-randomises the $z$ cohort by perturbing its
+            time-effect $\\beta_z = \\beta + \\mathcal N(0, dr)$ (mirrors the
+            deepset `PP_DR`), so $z$ is a noisier read-out of the target.
+
+        `decouple=False, N_lo=N_hi=503, dr=0` reproduces the §14.2.5 recipe
+        (fixed total, large clean $z$). `aux_ref` is the fixed normaliser for
+        aux = (n/aux_ref, m/aux_ref) so the head is not locked to a single N.
+        Returns (batch, rho) with the identical schema to the non-flex method.
+        """
+        item_type_idx = np.asarray(item_type_idx, dtype=np.float32)
+        item_high_idx = np.asarray(item_high_idx, dtype=np.float32)
+        J = item_type_idx.shape[0]
+        type_groups = [
+            (np.flatnonzero(item_type_idx == 0.0), K_out_of_7),
+            (np.flatnonzero(item_type_idx == 1.0), K_categorical),
+        ]
+
+        def _sim_cohort(theta, beta, tau, lam, js, K):
+            """(len(theta), Jt, 2) rescaled responses + (len,Jt,2) probs mean."""
+            Km1 = K - 1
+            latent = theta[:, None, None] + beta[None, None, :]
+            inc = lam[None, :, :, None] * (latent[:, :, :, None] - tau[None, :, :, :])
+            eta = np.concatenate(
+                [np.zeros((theta.shape[0], js.size, 2, 1)), np.cumsum(inc, axis=-1)],
+                axis=-1)
+            eta -= eta.max(axis=-1, keepdims=True)
+            p = np.exp(eta); p /= p.sum(axis=-1, keepdims=True)
+            cdf = np.cumsum(p, axis=-1)
+            u = rng.random((theta.shape[0], js.size, 2))
+            k_idx = (cdf < u[..., None]).sum(axis=-1)
+            Y = (k_idx.astype(np.float32) / float(K - 1))            # (len, Jt, 2)
+            return Y, p
+
+        def _endpoint(p_bar, js, K):
+            """theta-level w_base,w_end -> direction-aware ratio for items js."""
+            if K == K_out_of_7:
+                ks = np.arange(1, K + 1, dtype=np.float64)
+                w = (p_bar * ks[None, None, :]).sum(axis=-1)          # (Jt,2)
+            else:
+                w = p_bar[:, :, categorical_threshold - 1:].sum(axis=-1)
+            wb = np.maximum(w[:, 0], 1e-3); we = w[:, 1]
+            high = item_high_idx[js] > 0.5
+            return np.where(high, we / wb - 1.0, 1.0 - we / wb)
+
+        meta = np.stack([item_type_idx, item_high_idx], axis=-1)     # (J,2)
+        tokens_base = np.zeros((S, J, 7), dtype=np.float32)
+        khat_all = np.zeros((S, J, J), dtype=np.float32)
+        rho_all = np.zeros((S, J), dtype=np.float64)
+        n_arr = np.zeros(S, np.int64); m_arr = np.zeros(S, np.int64)
+        eye = np.eye(J, dtype=np.float32)
+        theta_ref = rng.standard_normal(M_ref)
+
+        for s in range(S):
+            N = int(rng.integers(N_lo, N_hi + 1))
+            n = int(rng.integers(n_lo, max(n_lo + 1, N)))            # 2..N-1
+            m = int(rng.integers(m_lo, m_hi + 1)) if decouple else (N - n)
+            m = max(m, 1)
+            n_arr[s] = n; m_arr[s] = m
+            beta = rng.standard_normal(2)
+            beta_z = beta + rng.normal(0.0, dr, size=2) if dr > 0 else beta
+            theta_x = rng.standard_normal(n); theta_z = rng.standard_normal(m)
+            w_x = np.zeros((J, 2), np.float32); w_z = np.zeros((J, 2), np.float32)
+            chg = np.zeros((n, J), np.float64)
+            for js, K in type_groups:
+                if js.size == 0:
+                    continue
+                tau = threshold_scale * rng.standard_normal((js.size, 2, K - 1))
+                lam = np.abs(rng.standard_t(3.0, size=(js.size, 2))); lam[0, 0] = 1.0
+                # target: theta-level endpoint over the reference population
+                _, p_ref = _sim_cohort(theta_ref, beta, tau, lam, js, K)
+                rho_all[s, js] = np.clip(_endpoint(p_ref.mean(axis=0), js, K),
+                                         -target_clip, target_clip)
+                Yx, _ = _sim_cohort(theta_x, beta, tau, lam, js, K)     # (n,Jt,2)
+                Yz, _ = _sim_cohort(theta_z, beta_z, tau, lam, js, K)   # (m,Jt,2)
+                w_x[js] = Yx.mean(axis=0); w_z[js] = Yz.mean(axis=0)
+                chg[:, js] = Yx[:, :, 1] - Yx[:, :, 0]
+            wb = np.maximum(w_z[:, 0], 1e-3); we = w_z[:, 1]
+            rat = np.clip(np.where(item_high_idx > 0.5, we / wb - 1.0,
+                                   1.0 - we / wb), -target_clip, target_clip)
+            tokens_base[s] = np.concatenate([w_x, w_z, rat[:, None], meta], axis=-1)
+            rho_m = np.nan_to_num(
+                pd.DataFrame(chg).corr(method='spearman').to_numpy(), nan=0.0)
+            np.fill_diagonal(rho_m, 1.0)
+            lam_s = n / (n + khat_shrink_n0)
+            khat_all[s] = lam_s * rho_m + (1.0 - lam_s) * eye
+
+        B = S * J
+        tokens_rep = np.empty((S, J, J, 8), dtype=np.float32)
+        tokens_rep[..., :7] = tokens_base[:, None, :, :]
+        tokens_rep[..., 7] = khat_all
+        tokens_rep = tokens_rep.reshape(B, J, 8)
+        mask_rep = np.ones((B, J), dtype=np.float32)
+        query_idx = np.broadcast_to(np.arange(J)[None, :], (S, J)).reshape(B).astype(np.int32)
+        sizes = np.stack([n_arr / aux_ref, m_arr / aux_ref], axis=-1)
+        aux_rep = np.broadcast_to(sizes[:, None, :], (S, J, 2)).reshape(B, 2).astype(np.float32)
+        rho = rho_all.reshape(B).astype(np.float32)
+        return ({'tokens': tokens_rep, 'mask': mask_rep,
+                 'query_idx': query_idx, 'aux': aux_rep}, rho)
+
+    @staticmethod
     def make_training_data_with_item_tokens_prior(
         rng: np.random.Generator,
         S: int,

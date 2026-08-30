@@ -17,7 +17,7 @@ ecdf_u(eta)); a per-item monotone map g = ecdf(u_cal) recalibrates to
 u' = g(u); recalibrated coverage/PIT/marginal follow from u' and the
 per-s quantile CDFs.
 """
-import os, sys, importlib
+import os, sys, importlib, glob
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'python'))
 import numpy as np, pandas as pd, jax, jax.numpy as jnp, optax
@@ -27,7 +27,9 @@ from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point, geom_smoo
 from amortiser_common import load_fitted_model, _jax_pytree
 from model_pcm import PartialCreditModel
 
-DIR_RGE = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-regression-on-endptx-wz-260601"
+# SVI grid source. Default weekly-29 (ids 2..30) to match the deepset deploy;
+# point RX_RGE at the monthly dir (…-regression-on-endptx-wz-260601) for monthly-8.
+DIR_RGE = os.environ.get('RX_RGE', "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-weekly-svi-260811")
 SB = "/Users/or105/sandbox/bIRTistic"
 # B = xcomp default; OUTB names the output dirs, RX_BASE the net to load.
 # Both parameterised so this script serves itemXcompAtt AND itemScompAtt
@@ -41,13 +43,16 @@ CTAG = os.environ.get('RX_CTAG', 'xcomp')
 file_prefix = "pcm_1_interim"
 N_FULL, KHAT_N0, F_TOK, CLIP = 503, 50.0, 8, 20.0
 TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32)
-INTERIMS = list(range(1, 9))
+# derive the interim grid from whatever SVI fits DIR_RGE holds (weekly: ids 2..30)
+_rge = sorted(glob.glob(f"{DIR_RGE}/{file_prefix}_i*_regression_training.pkl"),
+              key=lambda p: int(p.split('_i')[-1].split('_')[0]))
+INTERIMS = [int(p.split('_i')[-1].split('_')[0]) for p in _rge]
 SUF = "RGEG"
 
 # ---- metadata + net ----
 iw = {i: pd.read_pickle(f"{DIR_RGE}/{file_prefix}_i{i}_regression_training.pkl")
       for i in INTERIMS}
-items = (iw[1][['item_label', 'item_type', 'item_high_label']].drop_duplicates()
+items = (iw[INTERIMS[0]][['item_label', 'item_type', 'item_high_label']].drop_duplicates()
          .sort_values(['item_type', 'item_label']).reset_index(drop=True))
 items['item_pos'] = np.arange(len(items)); J = len(items)
 ipos = dict(zip(items.item_label, items.item_pos))
@@ -123,7 +128,7 @@ def preds_of(params, cell):
 
 
 print("Phase 0: build cells + baseline preds (cached) ...")
-CACHE = "/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad/remedy_cells"
+CACHE = "/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad/remedy_cells_" + os.path.basename(DIR_RGE)
 os.makedirs(CACHE, exist_ok=True)
 CELL = {}
 for k in INTERIMS:
@@ -264,7 +269,7 @@ if 'C2' in DO:
     gexp, lvlexp = {}, {}
     for k in INTERIMS:
         for j in range(J):
-            pool = np.concatenate([PB[i][j] for i in range(1, k+1)])
+            pool = np.concatenate([PB[i][j] for i in INTERIMS if i <= k])
             gexp[(k, j)] = ecdf_map(pool); lvlexp[(k, j)] = float(np.median(pool))
     def c2(k, j):
         qs = CELL[k]['qs'][:, j, :]
@@ -285,25 +290,87 @@ def lab(params):
     # block (xcomp: q_tok,q_query; scomp: q_tok,query_bias_alpha).
     return jax.tree_util.tree_map_with_path(
         lambda p, _: 'train' if (len(p) > 1 and p[1].key == 'q_psi') else 'frozen', params)
+MARGW = float(os.environ.get('RX_MARGW', '0'))   # marginal-CDF (mixture) loss weight
+GG, SMARG = 40, 64
+
+
+def _marg_data(k):
+    """interim-k standardised SVI marginal (grid GR, empirical CDF GS, dr) +
+    the SMARG-draw token block per item for the mixture forward."""
+    Dk = CELL[k]['tgt'].shape[0]
+    GR = np.zeros((J, GG), np.float32); GS = np.zeros((J, GG), np.float32); DR = np.zeros(J, np.float32)
+    mtok, maux, mqid = [], [], []
+    for j in range(J):
+        yv = (CELL[k]['tgt'][:, j] / istd[j]); yv = yv[np.isfinite(yv)]
+        lo, hi = np.percentile(yv, [1, 99]) if yv.size >= 10 else (-1., 1.); hi = max(hi, lo + 1e-3)
+        GR[j] = np.linspace(lo, hi, GG); DR[j] = (hi - lo) / GG
+        if yv.size >= 10:
+            GS[j] = (yv[:, None] <= GR[j][None]).mean(0)
+        rows = np.arange(j, Dk * J, J)[:SMARG]
+        mtok.append(CELL[k]['tok'][rows]); maux.append(CELL[k]['aux'][rows]); mqid.append(CELL[k]['qid'][rows])
+    return (jnp.asarray(np.concatenate(mtok)), jnp.asarray(np.concatenate(maux)),
+            jnp.asarray(np.concatenate(mqid)), jnp.asarray(GR), jnp.asarray(GS), jnp.asarray(DR))
+
+
 HK = {}
 for k in INTERIMS:
-    TOK = np.concatenate([CELL[i]['tok'] for i in range(1, k+1)])
-    AUX = np.concatenate([CELL[i]['aux'] for i in range(1, k+1)])
-    QID = np.concatenate([CELL[i]['qid'] for i in range(1, k+1)])
-    TGT = np.concatenate([(CELL[i]['tgt']/istd[None]).reshape(-1) for i in range(1, k+1)]).astype(np.float32)
+    TOK = np.concatenate([CELL[i]['tok'] for i in INTERIMS if i <= k])
+    AUX = np.concatenate([CELL[i]['aux'] for i in INTERIMS if i <= k])
+    QID = np.concatenate([CELL[i]['qid'] for i in INTERIMS if i <= k])
+    TGT = np.concatenate([(CELL[i]['tgt']/istd[None]).reshape(-1) for i in INTERIMS if i <= k]).astype(np.float32)
+    MT, MA, MQ, GR, GS, DR = _marg_data(k)
     tx = optax.multi_transform({'train': optax.adam(3e-4), 'frozen': optax.set_to_zero()}, lab(fit['params']))
     params = fit['params']; ost = tx.init(params); rng = np.random.default_rng(k)
+
     @jax.jit
     def step(params, ost, b):
-        l, g = jax.value_and_grad(lambda pp: pinball(net.apply(pp, b), b['target']))(params)
+        def loss(pp):
+            lc = pinball(net.apply(pp, b), b['target'])
+            if MARGW > 0:
+                pm = jnp.maximum.accumulate(net.apply(pp, {'tokens': MT, 'mask': jnp.ones((MT.shape[0], J)),
+                                                           'query_idx': MQ, 'aux': MA}), 1).reshape(J, SMARG, 5)
+                Fmix = jax.vmap(lambda pj, grj: jax.vmap(lambda q: jnp.interp(grj, q, taus_j, 0., 1.))(pj).mean(0))(pm, GR)
+                return lc + MARGW * jnp.mean(jnp.sum((Fmix - GS) ** 2 * DR[:, None], axis=1))
+            return lc
+        l, g = jax.value_and_grad(loss)(params)
         up, ost = tx.update(g, ost, params); return optax.apply_updates(params, up), ost, l
-    for s in range(800):
+    nstep = 800 if MARGW == 0 else 400
+    for s in range(nstep):
         ix = rng.integers(0, TOK.shape[0], 2048)
         b = {'tokens': jnp.asarray(TOK[ix]), 'mask': jnp.ones((2048, J)),
              'query_idx': jnp.asarray(QID[ix]), 'aux': jnp.asarray(AUX[ix]), 'target': jnp.asarray(TGT[ix])}
         params, ost, l = step(params, ost, b)
     HK[k] = preds_of(params, CELL[k])   # eval interim k with head-fit-on-1..k
     print(f"  interim {k}: head-ft on 1..{k} done (loss {float(l):.4f})")
+
+# §14.2.7 / §14.3.4 per-item EXPANDING affine median-shift (ports the deepset §14.4.23 default):
+# the prior-trained encoder under-predicts every item; the shared head-ft fixes spread not the
+# per-item location. Delta_j(k) = mean_{i<=k}(SVI marginal median - amortiser marginal median),
+# shift ALL quantiles (pure location). On by default; RX_MEDSHIFT=0 disables.
+if os.environ.get('RX_MEDSHIFT', '1') == '1':
+    def _margmed(qs):
+        lo, hi = float(qs.min()), float(qs.max())
+        if hi <= lo:
+            return float(np.median(qs))
+        gr = np.linspace(lo, hi, 200); F = np.zeros_like(gr)
+        for s in range(qs.shape[0]):
+            F += np.interp(gr, qs[s], np.asarray(TAUS), 0., 1.)
+        return float(np.interp(0.5, F / qs.shape[0], gr))
+    _resid = {}
+    for k in INTERIMS:
+        rj = np.full(J, np.nan)
+        for j in range(J):
+            yv = CELL[k]['tgt'][:, j]; yv = yv[np.isfinite(yv)]
+            if yv.size >= 10:
+                rj[j] = np.median(yv) - _margmed(HK[k][:, j, :])
+        _resid[k] = rj
+    _HK0 = {k: HK[k].copy() for k in INTERIMS}
+    for k in sorted(INTERIMS):
+        dj = np.nan_to_num(np.nanmean(np.stack([_resid[i] for i in sorted(INTERIMS) if i <= k]), 0))
+        HK[k] = _HK0[k] + dj[None, :, None]
+    print("  applied per-item expanding affine median-shift (RX_MEDSHIFT=0 to disable)")
+
+
 def hexp(k, j):
     qs = HK[k][:, j, :]; y = CELL[k]['tgt'][:, j]
     return pit(qs, y), qs[:, 2], None
@@ -328,5 +395,27 @@ def diag_H():
             for a, b2 in zip(qs[si, 2], y[si]):
                 sc.append(dict(interim_id=k, item_label=lbl, med=float(a), y=float(b2)))
     return cov, pk, mk, mc, perf, sc
+# --- PPS across items/interims (§14.1.6): P(H1|x,z^s)=P(rho>eta0|x,z^s) via CDF interp;
+#     PPS = mean over future draws s of 1{ P(H1|x,z^s) > etaH }. Uses the final affine-shifted HK. ---
+_ETA0 = float(os.environ.get('RX_ETA0', '0.5')); _ETAH = float(os.environ.get('RX_ETAH', '0.89'))
+_ppsrows = []
+for k in INTERIMS:
+    _n = int(round(float(np.asarray(CELL[k]['aux'])[0, 0]) * N_FULL))
+    for j in range(J):
+        q = HK[k][:, j, :]
+        ph1 = 1.0 - np.array([np.interp(_ETA0, q[s], TAUS, 0.0, 1.0) for s in range(q.shape[0])])
+        _ppsrows.append(dict(interim_id=k, n=_n, item_label=labels[j],
+                             pps=float(np.mean(ph1 > _ETAH)), eta0=_ETA0, etaH=_ETAH,
+                             method=f"handtoken-{CTAG}"))
+os.makedirs(f"{SB}/{OUTB}_ftheadexpand_260809", exist_ok=True)
+pd.DataFrame(_ppsrows).to_csv(f"{SB}/{OUTB}_ftheadexpand_260809/{file_prefix}_pps_RGEG_pps_by_item.csv", index=False)
+print(f"  wrote PPS by item, eta0={_ETA0} etaH={_ETAH} -> handtoken-{CTAG}")
 save(f"{OUTB}_ftheadexpand_260809", *diag_H(), "head-ft expanding 1..k")
+
+# §14.4.25 comparison plots (shared module -> same figures as the deepset deploy)
+from amortiser_diag_plots import all_plots
+NOBS = {k: int(round(float(np.asarray(CELL[k]['aux'])[0, 0]) * N_FULL)) for k in INTERIMS}
+all_plots(lambda k: HK[k], lambda k: CELL[k]['tgt'], lambda k: NOBS[k],
+          labels, INTERIMS, np.asarray(TAUS), f"{SB}/{OUTB}_ftheadexpand_260809", file_prefix,
+          "RGEG", "CG-VIO_ph-punish")
 print("Remedy-extra complete.")

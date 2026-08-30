@@ -236,6 +236,39 @@ setup</a></li>
 </ul></li>
 <li><a href="#item-response-model" id="toc-item-response-model">3.4
 Item-response model</a></li>
+<li><a
+href="#application-temporal-dynamics-in-psychological-assessments"
+id="toc-application-temporal-dynamics-in-psychological-assessments">3.5
+Application: temporal dynamics in psychological assessments</a></li>
+<li><a href="#application-hope-groups-in-ukraine"
+id="toc-application-hope-groups-in-ukraine">3.6 Application: Hope Groups
+in Ukraine</a></li>
+<li><a href="#application-chatgpt-versus-expert-feedback-rct"
+id="toc-application-chatgpt-versus-expert-feedback-rct">3.7 Application:
+ChatGPT-versus-expert-feedback RCT</a></li>
+<li><a
+href="#application-nurse-led-self-management-rct-in-inflammatory-bowel-disease"
+id="toc-application-nurse-led-self-management-rct-in-inflammatory-bowel-disease">3.8
+Application: nurse-led self-management RCT in inflammatory bowel
+disease</a></li>
+<li><a href="#application-refugee-and-migrant-youth-refuge-ed"
+id="toc-application-refugee-and-migrant-youth-refuge-ed">3.9
+Application: refugee and migrant youth (REFUGE-ED)</a></li>
+<li><a href="#application-icrc-community-level-mhpss-in-armed-conflict"
+id="toc-application-icrc-community-level-mhpss-in-armed-conflict">3.10
+Application: ICRC community-level MHPSS in armed conflict</a></li>
+<li><a href="#application-pisa-international-assessment"
+id="toc-application-pisa-international-assessment">3.11 Application:
+PISA international assessment</a></li>
+<li><a href="#application-product-launch-rating-experiments"
+id="toc-application-product-launch-rating-experiments">3.12 Application:
+product-launch rating experiments</a></li>
+<li><a href="#application-movielens-ratings"
+id="toc-application-movielens-ratings">3.13 Application: MovieLens
+ratings</a></li>
+<li><a href="#application-mycelium-novel-food-acceptance"
+id="toc-application-mycelium-novel-food-acceptance">3.14 Application:
+mycelium novel-food acceptance</a></li>
 </ul></li>
 <li><a href="#no-reduction-of-the-pps-to-todays-knowledge"
 id="toc-no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of
@@ -400,6 +433,9 @@ id="toc-mean-pool-vs-sum-pool-bugfix">Mean-pool vs sum-pool
 id="toc-results-for-the-partial-credit-model-on-ukraine-data">14.
 Results for the partial credit model on Ukraine data</a>
 <ul>
+<li><a href="#roadmap-estimand-estimator-and-result"
+id="toc-roadmap-estimand-estimator-and-result">14.0 Roadmap: estimand,
+estimator, and result</a></li>
 <li><a
 href="#cross-component-attention-to-learn-item-specific-summaries-itemxcompatt"
 id="toc-cross-component-attention-to-learn-item-specific-summaries-itemxcompatt">14.1
@@ -468,7 +504,12 @@ Head-only fine-tune, expanding window (the deployable recipe)</a></li>
 <li><a href="#post-hoc-conformal-recalibration-partial"
 id="toc-post-hoc-conformal-recalibration-partial">14.2.6 Post-hoc
 conformal recalibration (partial)</a></li>
-<li><a href="#reading-4" id="toc-reading-4">14.2.7 Reading</a></li>
+<li><a
+href="#per-item-affine-median-shift-ports-the-deepset-14.4.6-default"
+id="toc-per-item-affine-median-shift-ports-the-deepset-14.4.6-default">14.2.7
+Per-item affine median-shift (ports the deepset §14.4.6
+default)</a></li>
+<li><a href="#reading-4" id="toc-reading-4">14.2.8 Reading</a></li>
 </ul></li>
 <li><a href="#self-attention-variant-itemscompatt-detailed-diagnostics"
 id="toc-self-attention-variant-itemscompatt-detailed-diagnostics">14.3
@@ -486,6 +527,9 @@ Baseline calibration — the same prior/posterior mislocation as
 <li><a href="#head-only-expanding-fine-tune-14.2.5-transfers-unchanged"
 id="toc-head-only-expanding-fine-tune-14.2.5-transfers-unchanged">14.3.3
 Head-only expanding fine-tune (§14.2.5) transfers unchanged</a></li>
+<li><a href="#per-item-affine-median-shift-ports-14.2.7"
+id="toc-per-item-affine-median-shift-ports-14.2.7">14.3.4 Per-item
+affine median-shift (ports §14.2.7)</a></li>
 </ul></li>
 <li><a href="#deep-set-variant-deepsetxcompatt"
 id="toc-deep-set-variant-deepsetxcompatt">14.4 Deep-set variant
@@ -497,48 +541,28 @@ task</a></li>
 <li><a href="#training-data-and-target-1"
 id="toc-training-data-and-target-1">14.4.2 Training data and
 target</a></li>
-<li><a href="#inputs-raw-cohort-response-tensors-δ-from-14.1.3"
-id="toc-inputs-raw-cohort-response-tensors-δ-from-14.1.3">14.4.3 Inputs:
-raw cohort response tensors (Δ from §14.1.3)</a></li>
-<li><a href="#encoder-nested-deepsets-pooling-cross-attention-head-loss"
-id="toc-encoder-nested-deepsets-pooling-cross-attention-head-loss">14.4.4
-Encoder (nested DeepSets), pooling, cross-attention, head, loss</a></li>
-<li><a href="#results-evaluation-against-the-svi-posterior-targets"
-id="toc-results-evaluation-against-the-svi-posterior-targets">14.4.5
-Results: evaluation against the SVI posterior targets</a></li>
-<li><a href="#baseline-calibration-diagnostics-..._diag.py"
-id="toc-baseline-calibration-diagnostics-..._diag.py">14.4.6 Baseline
-calibration diagnostics (<code>..._diag.py</code>)</a></li>
-<li><a
-href="#workstream-a-post-hoc-conformal-recalibration-insufficient-here-too"
-id="toc-workstream-a-post-hoc-conformal-recalibration-insufficient-here-too">14.4.7
-Workstream A: post-hoc conformal recalibration (insufficient here
-too)</a></li>
-<li><a
-href="#head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix"
-id="toc-head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix">14.4.8
-Head-only expanding fine-tune (§14.2.5) — the architecture-independent
-fix</a></li>
-<li><a
-href="#diagnostic-posterior-contraction-does-the-amortiser-learn-the-n-scaling"
-id="toc-diagnostic-posterior-contraction-does-the-amortiser-learn-the-n-scaling">14.4.9
-Diagnostic: posterior contraction — does the amortiser learn the <span
-class="math inline">\(n\)</span>-scaling?</a></li>
-<li><a
-href="#next-step-tested-contraction-pressure-negative-the-target-not-the-encoder-is-the-ceiling"
-id="toc-next-step-tested-contraction-pressure-negative-the-target-not-the-encoder-is-the-ceiling">14.4.10
-Next step tested: contraction pressure (negative — the target, not the
-encoder, is the ceiling)</a></li>
-<li><a
-href="#planned-redesign-focused-proposal-amortised-posterior-inference"
-id="toc-planned-redesign-focused-proposal-amortised-posterior-inference">14.4.11
-Planned redesign: focused-proposal amortised posterior
-inference</a></li>
+<li><a href="#ragged-per-participant-data-structure"
+id="toc-ragged-per-participant-data-structure">14.4.3 Ragged
+per-participant data structure</a></li>
+<li><a href="#encoder-pooling-item-cross-attention-quantile-head-loss"
+id="toc-encoder-pooling-item-cross-attention-quantile-head-loss">14.4.4
+Encoder: pooling, item cross-attention, quantile head, loss</a></li>
+<li><a href="#diagnostics" id="toc-diagnostics">14.4.5
+Diagnostics</a></li>
+<li><a href="#head-fine-tune-expanding-window-and-affine-shift"
+id="toc-head-fine-tune-expanding-window-and-affine-shift">14.4.6 Head
+fine-tune: expanding window and affine shift</a></li>
+<li><a href="#bernsteinvon-mises-best-fit-contraction-law"
+id="toc-bernsteinvon-mises-best-fit-contraction-law">14.4.7
+Bernstein–von Mises best-fit contraction law</a></li>
 <li><a href="#cross-architecture-summary"
 id="toc-cross-architecture-summary">14.5.1 Cross-architecture
 summary</a></li>
 <li><a href="#reading-5" id="toc-reading-5">14.5.2 Reading</a></li>
 </ul></li>
+<li><a href="#approaches-examined-and-set-aside"
+id="toc-approaches-examined-and-set-aside">14.10 Approaches examined and
+set aside</a></li>
 </ul></li>
 <li><a href="#references" id="toc-references">15. References</a></li>
 <li><a href="#a.-appendix" id="toc-a.-appendix">A. Appendix</a>
@@ -1029,9 +1053,9 @@ across the 10 interims.</p>
 <p><strong>What we compare.</strong></p>
 <table>
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 44%" />
+<col style="width: 22%" />
 <col style="width: 40%" />
+<col style="width: 37%" />
 </colgroup>
 <thead>
 <tr>
@@ -1138,7 +1162,686 @@ category <span class="math inline">\(k\)</span>.</p>
 specific events (<span class="math inline">\(Pr(Y=k)\)</span> not <span
 class="math inline">\(Pr(Y\leq k)\)</span>) and therefore tends to be
 much faster to evaluate and less prone to numerical issues than other
-IRT models. Standard priors can be attached to all free parameters.</p>
+IRT models.</p>
+<p><strong>Priors.</strong> Weakly-informative, standard priors are
+placed on all free parameters, with a deliberately wide prior on the
+thresholds so that a finite cohort still leaves substantial posterior
+uncertainty to resolve (the contraction the amortiser of §14 later
+exploits): <span class="math display">\[\theta_i \sim N(0,1),\qquad
+c_{j,s}\sim N(0,3.5^2),\qquad \lambda_j \sim |t_3|,\qquad \beta_p \sim
+N(0,1).\]</span> That is: participant skills <span
+class="math inline">\(\theta_i\)</span> standard normal; the <span
+class="math inline">\(J(K-1)\)</span> incremental category thresholds
+<span class="math inline">\(c_{j,s}\)</span> Gaussian with a wide
+standard deviation of <span class="math inline">\(3.5\)</span>; the
+<span class="math inline">\(J\)</span> item loadings <span
+class="math inline">\(\lambda_j\)</span> half-Student-<span
+class="math inline">\(t\)</span> with <span
+class="math inline">\(3\)</span> degrees of freedom (constrained
+positive, with one loading fixed to <span
+class="math inline">\(1\)</span> for identification); and the
+participant / intervention effects <span
+class="math inline">\(\beta_p\)</span> standard normal. The same
+specification is fit in Pyro and Stan.</p>
+<h2 id="application-temporal-dynamics-in-psychological-assessments">3.5
+Application: temporal dynamics in psychological assessments</h2>
+<p>A large cross-sectional dataset of <span
+class="math inline">\(24{,}292\)</span> students, each answering four
+self-report symptom scales at the item level <span class="citation"
+data-cites="su2023temporal">(Su 2023)</span>. It contains no
+intervention and no repeat measurement, so it does not itself define an
+endpoint effect; its value is as a <strong>real, large-scale polytomous
+item bank</strong>: fit the PCM once, then simulate realistic cohorts
+from the fitted item parameters to check that the amortised predictive
+is calibrated against a ground truth we control.</p>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 76%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Setting</td>
+<td>24,292 students, single administration (Feb–Mar 2021)</td>
+</tr>
+<tr>
+<td>Design</td>
+<td>cross-sectional; no arms, no baseline/endline</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>PHQ-9 (9 items, 0–3), GAD-7 (7, 0–3), ISI (7, 0–4), PSS (10, 0–4) —
+all ordinal, PCM-ready</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>not defined (no pre/post)</td>
+</tr>
+<tr>
+<td>Interims</td>
+<td>not applicable</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>validate the PCM amortiser</strong>; simulate cohorts from
+the real fitted item bank</td>
+</tr>
+<tr>
+<td>Data</td>
+<td><span class="citation" data-cites="su2023temporal">(Su
+2023)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-hope-groups-in-ukraine">3.6 Application: Hope Groups
+in Ukraine</h2>
+<p>The primary real-time case study of this document. Hope Groups is a
+12-session, peer-facilitated psychosocial, mental-health and
+parenting-support programme for Ukrainian parents and caregivers
+affected by war and displacement (externally displaced, internally
+displaced, and living in war-affected areas), evaluated in a pragmatic
+cluster-randomised controlled trial <span class="citation"
+data-cites="tucker2026hopegroups tucker2024hopeprotocol">(<span
+class="nocase">Tucker et al.</span> 2026, 2024)</span>. Caregivers
+self-report a battery of ordinal items at baseline and endline; the
+estimand is the item-level endpoint effect <span
+class="math inline">\(\rho_j\)</span>, and enrolment accrues over time,
+so the decision of interest is whether the accumulated evidence already
+predicts success — the PPS — at each weekly interim.</p>
+<table>
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 83%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>psychosocial / mental-health / parenting support for Ukrainian
+caregivers in war and displacement</td>
+</tr>
+<tr>
+<td>Arms</td>
+<td>Hope Groups intervention vs waitlist control (cluster-randomised, 90
+clusters)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>baseline and endline (1-week post-intervention); later
+follow-ups</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>caregiver-report — mental health (depression/anxiety), violence
+against children, positive parenting, wellbeing; two PCM types:
+<em>out-of-7</em> “days in week” (<span
+class="math inline">\(K=8\)</span>) and <em>categorical</em>
+caseness</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td><span class="math inline">\(r_j(\theta)=s_j(\bar w_{e,j}/\bar
+w_{b,j}-1)\)</span>, direction-aware endpoint effect per item</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N\approx510\)</span> accrued over time;
+<strong>weekly</strong> SVI interims</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time evaluation</strong> (the deployment case study of
+§14)</td>
+</tr>
+<tr>
+<td>Reference</td>
+<td><span class="citation" data-cites="tucker2026hopegroups">(<span
+class="nocase">Tucker et al.</span> 2026)</span> (effectiveness), <span
+class="citation" data-cites="tucker2024hopeprotocol">(Tucker et al.
+2024)</span> (protocol)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-chatgpt-versus-expert-feedback-rct">3.7 Application:
+ChatGPT-versus-expert-feedback RCT</h2>
+<p>A randomised controlled trial in medical education comparing ChatGPT
+feedback with expert feedback on clinical-reasoning (key-feature)
+questions, with item-level scores and a critical-approach-to-AI survey
+<span class="citation" data-cites="cicek2024chatgpt">(Çiçek et al.
+2024)</span>. A genuine two-arm design with pre/post measurement, at
+modest scale.</p>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 81%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>effect of ChatGPT vs expert feedback on clinical-reasoning
+learning</td>
+</tr>
+<tr>
+<td>Arms</td>
+<td>control (expert feedback) vs intervention (ChatGPT)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>immediate and delayed test; pre/post survey</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>12 key-feature items (partial-credit scored — non-consecutive
+maxima, collapse per item) + 6 critical-approach-to-AI items (<span
+class="math inline">\(1\)</span>–<span class="math inline">\(7\)</span>
+Likert)</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>pre<span class="math inline">\(\to\)</span>post (immediate<span
+class="math inline">\(\to\)</span>delayed) endpoint effect per item</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N=115\)</span> test / <span
+class="math inline">\(86\)</span> survey (modest); interims by accrual
+order</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time evaluation</strong> — a stress test at modest
+<span class="math inline">\(N\)</span></td>
+</tr>
+<tr>
+<td>Data</td>
+<td><span class="citation" data-cites="cicek2024chatgpt">(Çiçek et al.
+2024)</span></td>
+</tr>
+</tbody>
+</table>
+<h2
+id="application-nurse-led-self-management-rct-in-inflammatory-bowel-disease">3.8
+Application: nurse-led self-management RCT in inflammatory bowel
+disease</h2>
+<p>A single-centre longitudinal study of a nurse-led psychoeducational
+self-management intervention for inflammatory bowel disease, with
+item-level patient-reported outcomes across five waves <span
+class="citation" data-cites="riverasequeiros2026ibd">(Rivera-Sequeiros
+et al. 2026)</span>. Single-arm, but the richest timepoint structure of
+the set — well suited to exhibiting posterior contraction with cohort
+size.</p>
+<table>
+<colgroup>
+<col style="width: 23%" />
+<col style="width: 76%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>nurse-led self-management for inflammatory bowel disease</td>
+</tr>
+<tr>
+<td>Arms</td>
+<td>single-arm (no control)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>five waves (baseline <span class="math inline">\(\to\)</span> 12
+months)</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>IBDQ-9, Family APGAR-5, PSS-14, CCVEII-9, HADS-14 — ordinal
+Likert</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>baseline<span class="math inline">\(\to\)</span>endline endpoint
+effect per item</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N=60\)</span> (modest); the five waves
+serve as interims</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time evaluation</strong> at modest <span
+class="math inline">\(N\)</span>; showcases contraction with <span
+class="math inline">\(n\)</span></td>
+</tr>
+<tr>
+<td>Data</td>
+<td><span class="citation"
+data-cites="riverasequeiros2026ibd">(Rivera-Sequeiros et al.
+2026)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-refugee-and-migrant-youth-refuge-ed">3.9
+Application: refugee and migrant youth (REFUGE-ED)</h2>
+<p>Questionnaires administered to refugee and migrant children and young
+people across six countries under the EC Horizon 2020 REFUGE-ED project,
+at baseline and endline, at the item level <span class="citation"
+data-cites="refugeed2024youth">(REFUGE-ED Consortium 2024)</span>. A
+second humanitarian cohort — the largest linked pre/post sample of the
+set — with no treatment arm, so the estimand is the within-cohort
+endpoint effect.</p>
+<table>
+<colgroup>
+<col style="width: 17%" />
+<col style="width: 82%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>education / psychosocial support and integration of refugee and
+migrant youth (6 countries)</td>
+</tr>
+<tr>
+<td>Arms</td>
+<td>none (multi-site practices pilot)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>baseline and endline (326 linked participants)</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>MSPSS perceived social support (12 items, <span
+class="math inline">\(1\)</span>–<span
+class="math inline">\(7\)</span>), PSSM school belonging (Likert),
+wellbeing — ordinal, PCM-ready</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>baseline<span class="math inline">\(\to\)</span>endline endpoint
+effect (e.g. perceived-support gain)</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N=994\)</span> baseline / <span
+class="math inline">\(705\)</span> endline; accrual ordered by
+site/date</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time evaluation</strong> in a humanitarian setting, and
+a cross-cohort <strong>generalisation test</strong> of the deepset
+amortiser (deployable beyond <span
+class="math inline">\(N=503\)</span>)</td>
+</tr>
+<tr>
+<td>Data</td>
+<td><span class="citation" data-cites="refugeed2024youth">(REFUGE-ED
+Consortium 2024)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-icrc-community-level-mhpss-in-armed-conflict">3.10
+Application: ICRC community-level MHPSS in armed conflict</h2>
+<p>A large International Committee of the Red Cross (ICRC) cohort of
+victims of violence, assessed before and after community-level
+mental-health and psychosocial support across armed-conflict settings in
+the Democratic Republic of the Congo, Mali and Nigeria <span
+class="citation" data-cites="andersen2022mhpss">(Andersen et al.
+2022)</span>. Item-level ordinal symptom scales, pre/post, at
+humanitarian scale — but individual-level data is
+<strong>controlled-access</strong>, released on request to the ICRC
+corresponding author rather than openly deposited.</p>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 81%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>community-level MHPSS for victims of violence in armed conflict</td>
+</tr>
+<tr>
+<td>Setting</td>
+<td>ICRC, 32 projects — DR Congo (81%), Nigeria (16%), Mali (3%)</td>
+</tr>
+<tr>
+<td>Arms</td>
+<td>single cohort (pre/post; no randomised control)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>baseline and post-support (median <span
+class="math inline">\(\approx\)</span> 30–60 days apart; range <span
+class="math inline">\(&lt;8\)</span> to <span
+class="math inline">\(&gt;150\)</span>)</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>DASS-21 (21 items, ordinal), IES-R, ICRC functioning scale —
+item-level ordinal, PCM-ready</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>baseline<span class="math inline">\(\to\)</span>endline endpoint
+effect per item (distress lower-is-better; functioning higher)</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N=6{,}413\)</span>; accrual ordered by
+assessment date</td>
+</tr>
+<tr>
+<td>Data access</td>
+<td><strong>controlled-access</strong> — request to corresponding
+author, <code>iandersen@icrc.org</code></td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time humanitarian evaluation</strong> at scale (subject
+to data access)</td>
+</tr>
+<tr>
+<td>Reference</td>
+<td><span class="citation" data-cites="andersen2022mhpss">(Andersen et
+al. 2022)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-pisa-international-assessment">3.11 Application:
+PISA international assessment</h2>
+<p>The OECD Programme for International Student Assessment, a triennial
+cross-national assessment whose constructed-response cognitive items are
+scored with <strong>partial credit</strong> and calibrated with the
+generalized partial credit model — the PCM’s own family <span
+class="citation" data-cites="oecd2022pisa">(OECD 2023)</span>. No
+intervention or repeat measurement, but the largest open, genuinely
+polytomous item bank available.</p>
+<table>
+<colgroup>
+<col style="width: 19%" />
+<col style="width: 80%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Setting</td>
+<td>OECD PISA, <span class="math inline">\(\approx\)</span> 80
+countries, <span class="math inline">\(\approx\)</span> 600,000 students
+per cycle (triennial)</td>
+</tr>
+<tr>
+<td>Design</td>
+<td>cross-sectional per cycle; no arms, no baseline/endline</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>cognitive constructed-response items scored 0–1 / 0–2 (partial
+credit, GPCM) + Likert questionnaire items</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>not a pre/post effect; country / group / cycle contrasts if a
+comparison is wanted</td>
+</tr>
+<tr>
+<td>Interims</td>
+<td>not applicable (accrual = students)</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>validate the PCM amortiser</strong> on a real, purpose-built
+partial-credit item bank at scale</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>public microdata, <span class="citation"
+data-cites="oecd2022pisa">(OECD 2023)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-product-launch-rating-experiments">3.12 Application:
+product-launch rating experiments</h2>
+<p>The setting of interest is not the public review corpus at scale but
+the <strong>small internal experiments a retailer runs before launching
+a new product</strong> — a concept test or limited release in which a
+modest panel of customers rate the product on ordered scales, ratings
+accruing over days. This is a genuine real-time-decision regime: ordinal
+ratings fit the PCM directly (raters carry the latent trait <span
+class="math inline">\(\theta\)</span>, product variants or attributes
+are the items, the hedonic/star/Likert score is the ordered response),
+the cohort is small and accrues over time, and the decision is a PPS —
+<em>given the ratings so far, will the product clear its launch
+threshold once the test completes?</em> The closest open match is a
+<strong>consumer acceptance test</strong>: the black-coffee preference
+dataset <span class="citation"
+data-cites="ristenpart2023coffee">(Ristenpart et al. 2023)</span> has
+118 consumers each rating 27 coffees on a <strong>9-point hedonic
+scale</strong> (<span class="math inline">\(K=9\)</span>) plus four
+5-point just-about-right attributes — exactly the per-consumer,
+per-product ordinal structure of a pre-launch panel. The public Amazon
+Review Data corpus <span class="citation" data-cites="ni2019amazon">(Ni
+et al. 2019)</span> provides the same rating structure at scale for
+validation.</p>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 81%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Setting</td>
+<td>internal pre-launch product / concept tests (modest consumer panel);
+open example: black-coffee acceptance test <span class="citation"
+data-cites="ristenpart2023coffee">(Ristenpart et al. 2023)</span></td>
+</tr>
+<tr>
+<td>Design</td>
+<td>small accruing cohort; ordinal ratings, optionally comparing product
+variants</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>product variants / attributes; response <span
+class="math inline">\(=\)</span> 9-point hedonic liking (<span
+class="math inline">\(K=9\)</span>) or <span
+class="math inline">\(1\)</span>–<span class="math inline">\(5\)</span>
+JAR / star</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>liking of a variant vs a launch benchmark, or a contrast between
+variants</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td>small <span class="math inline">\(N\)</span> ($$100 consumers),
+accruing over the test — the real-time interim regime</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time launch decision</strong> (PPS the product clears
+its liking threshold); amortiser validated at scale on <span
+class="citation" data-cites="ni2019amazon">(Ni et al. 2019)</span></td>
+</tr>
+<tr>
+<td>Data</td>
+<td>open, <span class="citation"
+data-cites="ristenpart2023coffee">(Ristenpart et al. 2023)</span> (small
+panel) and <span class="citation" data-cites="ni2019amazon">(Ni et al.
+2019)</span> (at scale)</td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-movielens-ratings">3.13 Application: MovieLens
+ratings</h2>
+<p>The MovieLens rating datasets — up to 25M timestamped <span
+class="math inline">\(0.5\)</span>–<span
+class="math inline">\(5\)</span> star movie ratings from GroupLens <span
+class="citation" data-cites="harper2015movielens">(Harper and Konstan
+2015)</span>. A clean, classic ordinal (user <span
+class="math inline">\(\times\)</span> item) benchmark, smaller and
+tidier than the Amazon corpus.</p>
+<table>
+<colgroup>
+<col style="width: 22%" />
+<col style="width: 77%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Setting</td>
+<td>GroupLens MovieLens (ml-25m and smaller releases)</td>
+</tr>
+<tr>
+<td>Design</td>
+<td>observational; timestamped</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>movies; response <span class="math inline">\(=0.5\)</span>–<span
+class="math inline">\(5\)</span> star rating (10 ordered
+categories)</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>temporal rating shift, if an effect is wanted</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td>up to 25M ratings; interims accrue by timestamp</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>validate the amortiser</strong> on ordinal ratings; tidy
+benchmark for the accrual/PPS framing</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>open download, <span class="citation"
+data-cites="harper2015movielens">(Harper and Konstan 2015)</span></td>
+</tr>
+</tbody>
+</table>
+<h2 id="application-mycelium-novel-food-acceptance">3.14 Application:
+mycelium novel-food acceptance</h2>
+<p>A new-product acceptance study for mycelium as a human food protein —
+the launch-decision setting of §3.12 with an explicit experimental
+design <span class="citation" data-cites="fischer2024mycelium">(Fischer
+and Hilboesen 2024)</span>. A UK Prolific panel rates the product under
+a <span class="math inline">\(3\times3\)</span> manipulation, on
+item-level ordinal scales.</p>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 81%" />
+</colgroup>
+<thead>
+<tr>
+<th>field</th>
+<th>value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Problem</td>
+<td>consumer acceptance of mycelium as a novel food (protein)
+source</td>
+</tr>
+<tr>
+<td>Setting</td>
+<td>UK Prolific panel, <span class="math inline">\(N=449\)</span></td>
+</tr>
+<tr>
+<td>Arms</td>
+<td><span class="math inline">\(3\times3\)</span> factorial — processing
+(unprocessed / protein powder / burger) <span
+class="math inline">\(\times\)</span> substrate (manure / wood log /
+glucose syrup)</td>
+</tr>
+<tr>
+<td>Timepoints</td>
+<td>single survey (cross-sectional; no pre/post)</td>
+</tr>
+<tr>
+<td>Items</td>
+<td>36 ordinal <span class="math inline">\(1\)</span>–<span
+class="math inline">\(7\)</span> Likert items — intention, attitude,
+social norms, disgust, health/environmental benefit (<span
+class="math inline">\(K=7\)</span>)</td>
+</tr>
+<tr>
+<td>Effect measure <span class="math inline">\(\rho\)</span></td>
+<td>between-condition contrast (processing / substrate effect on
+acceptance)</td>
+</tr>
+<tr>
+<td>Cohort / interims</td>
+<td><span class="math inline">\(N=449\)</span>; accrual order for
+interims</td>
+</tr>
+<tr>
+<td><strong>Application target</strong></td>
+<td><strong>real-time launch/acceptance evaluation</strong> of a novel
+product, with a genuine condition contrast</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>open, <span class="citation"
+data-cites="fischer2024mycelium">(Fischer and Hilboesen
+2024)</span></td>
+</tr>
+</tbody>
+</table>
 <hr />
 <h1 id="no-reduction-of-the-pps-to-todays-knowledge">4. No reduction of
 the PPS to today’s knowledge</h1>
@@ -1799,11 +2502,11 @@ hardcoded-<span class="math inline">\(T\)</span> + multi-quantile head
 should match the analytic PPS to Monte-Carlo precision.</p>
 <p><strong>Architectural variants.</strong> The plain DeepSets sum can
 be swapped for a Set Transformer <span class="citation"
-data-cites="lee2019set">(<strong>lee2019set?</strong>)</span> (ISAB
-blocks with self-attention) when sum-pooling is a bottleneck. For our
-IRT model the per-item interactions are weak once the item-position
-embedding is included, so plain DeepSets is the natural first pass; Set
-Transformer is a fallback if the DeepSets model plateaus.</p>
+data-cites="lee2019set">(Lee et al. 2019)</span> (ISAB blocks with
+self-attention) when sum-pooling is a bottleneck. For our IRT model the
+per-item interactions are weak once the item-position embedding is
+included, so plain DeepSets is the natural first pass; Set Transformer
+is a fallback if the DeepSets model plateaus.</p>
 <h2 id="training-practicalities">9.3 Training practicalities</h2>
 <ul>
 <li><strong>Sample budget.</strong> Cover the joint <span
@@ -2286,11 +2989,11 @@ reflects estimator quality rather than divergent
 across the 11 monthly interims:</p>
 <table>
 <colgroup>
-<col style="width: 40%" />
-<col style="width: 7%" />
-<col style="width: 13%" />
-<col style="width: 22%" />
-<col style="width: 15%" />
+<col style="width: 30%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
 </colgroup>
 <thead>
 <tr>
@@ -2423,11 +3126,11 @@ same deployment cohort. Selectable at run time via the
 script:</p>
 <table>
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 48%" />
-<col style="width: 8%" />
-<col style="width: 14%" />
-<col style="width: 10%" />
+<col style="width: 16%" />
+<col style="width: 36%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -2547,11 +3250,11 @@ deployment script.</p>
 <p><strong>Combined table (fixed + MLP, sorted by MSE):</strong></p>
 <table>
 <colgroup>
-<col style="width: 45%" />
-<col style="width: 10%" />
-<col style="width: 10%" />
-<col style="width: 18%" />
-<col style="width: 13%" />
+<col style="width: 34%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -2769,11 +3472,11 @@ keeps CPU and MPS checkpoints separate so both remain reproducible.</p>
 config).</strong></p>
 <table>
 <colgroup>
-<col style="width: 23%" />
-<col style="width: 20%" />
-<col style="width: 11%" />
-<col style="width: 16%" />
-<col style="width: 27%" />
+<col style="width: 19%" />
+<col style="width: 19%" />
+<col style="width: 19%" />
+<col style="width: 19%" />
+<col style="width: 22%" />
 </colgroup>
 <thead>
 <tr>
@@ -2920,11 +3623,11 @@ per <span class="math inline">\(J\)</span> grid cell (deployment <span
 class="math inline">\(S = 4000\)</span>):</p>
 <table>
 <colgroup>
-<col style="width: 3%" />
-<col style="width: 31%" />
-<col style="width: 9%" />
-<col style="width: 25%" />
-<col style="width: 14%" />
+<col style="width: 15%" />
+<col style="width: 21%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
 <col style="width: 15%" />
 </colgroup>
 <thead>
@@ -3060,12 +3763,12 @@ class="math inline">\(4000\)</span> to <span
 class="math inline">\(500\)</span> to cap wall-clock):</p>
 <table>
 <colgroup>
-<col style="width: 4%" />
-<col style="width: 32%" />
-<col style="width: 6%" />
-<col style="width: 25%" />
-<col style="width: 14%" />
+<col style="width: 15%" />
+<col style="width: 22%" />
+<col style="width: 15%" />
 <col style="width: 16%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
 </colgroup>
 <thead>
 <tr>
@@ -3160,13 +3863,13 @@ against the closed-form <span class="math inline">\(\Phi\)</span>-tail
 PPS <code>pps_cf</code> from <code>mvn_pps_closed_form.pkl</code>.
 Aggregate mean MSE per method per <span class="math inline">\(J\)</span>
 (averaged over the 7 interims):</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 51%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
-<col style="width: 20%" />
+<col style="width: 39%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
 </colgroup>
 <thead>
 <tr>
@@ -3539,11 +4242,11 @@ interims per <span class="math inline">\(J\)</span> (block-equicorr
 deployment K; K-mixture training):</p>
 <table>
 <colgroup>
-<col style="width: 3%" />
-<col style="width: 29%" />
-<col style="width: 33%" />
-<col style="width: 14%" />
-<col style="width: 18%" />
+<col style="width: 17%" />
+<col style="width: 21%" />
+<col style="width: 24%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
 </colgroup>
 <thead>
 <tr>
@@ -3811,9 +4514,9 @@ the ONLY new learnable parameter compared to the cross-attn variant with
 s)\)</span> superscript above; the table below drops it for brevity.</p>
 <table>
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 47%" />
-<col style="width: 37%" />
+<col style="width: 22%" />
+<col style="width: 43%" />
+<col style="width: 34%" />
 </colgroup>
 <thead>
 <tr>
@@ -3870,12 +4573,12 @@ information through it</td>
 <h3 id="empirical-impact-on-mvn-15k-steps-k-mixture-training">Empirical
 impact on MVN (15k steps, K-mixture training)</h3>
 <p>MSE against analytic PPS, averaged over the 7-interim schedule:</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 2%" />
-<col style="width: 25%" />
-<col style="width: 36%" />
-<col style="width: 35%" />
+<col style="width: 19%" />
+<col style="width: 20%" />
+<col style="width: 30%" />
+<col style="width: 30%" />
 </colgroup>
 <thead>
 <tr>
@@ -3969,9 +4672,9 @@ raw per-(participant, item) responses</strong>, chaining nested DeepSets
 <span class="math inline">\(R\)</span>):</p>
 <table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 17%" />
-<col style="width: 65%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 58%" />
 </colgroup>
 <thead>
 <tr>
@@ -4076,12 +4779,12 @@ random K per prior draw (K-family-invariant training, families
 class="math inline">\(J = 20\)</span>; both deepset variants trained 8k
 steps (~71 min each on CPU) with mean-pool over participants (see
 “Mean-pool vs sum-pool” below):</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 3%" />
-<col style="width: 20%" />
-<col style="width: 20%" />
-<col style="width: 55%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 46%" />
 </colgroup>
 <thead>
 <tr>
@@ -4184,6 +4887,147 @@ likely close the gap further.</li>
 <hr />
 <h1 id="results-for-the-partial-credit-model-on-ukraine-data">14.
 Results for the partial credit model on Ukraine data</h1>
+<h2 id="roadmap-estimand-estimator-and-result">14.0 Roadmap: estimand,
+estimator, and result</h2>
+<p><strong>Estimand.</strong> For each item <span
+class="math inline">\(j\)</span> the target is the direction-aware
+endpoint effect size <span class="math inline">\(\rho_j = s_j\big(\bar
+w_{e,j}/\bar w_{b,j}-1\big)\)</span>, where <span
+class="math inline">\(\bar w_{b,j},\bar w_{e,j}\)</span> are the
+population mean baseline/endline levels under the fitted partial-credit
+model and <span class="math inline">\(s_j=\pm1\)</span> the item
+direction; the interim decision quantity is the predictive probability
+of success <span class="math inline">\(\Pr\!\big(\rho_j \ge \delta \mid
+x\big)\)</span> for a threshold <span
+class="math inline">\(\delta\)</span>. The reference posterior is SVI
+applied per interim; the amortiser is trained to reproduce, at
+deployment, the SVI predictive <span class="math inline">\(p(\rho_j\mid
+x)\)</span> and — for the decision — the conditional <span
+class="math inline">\(p(\rho_j\mid x, z^{(s)})\)</span> over
+posterior-predictive future cohorts <span
+class="math inline">\(z^{(s)}\sim p(z\mid x)\)</span>.</p>
+<p><strong>The two statistical problems.</strong> (i)
+<em>Calibration</em>: the network is fitted purely on the prior
+predictive (§8), so at deployment its predictive is
+<strong>mislocated</strong> relative to the operational region — the
+coverage and PIT diagnostics of §14.1.7 quantify this. (ii)
+<em>Contraction</em>: the posterior SD of <span
+class="math inline">\(\rho_j\)</span> must fall with the observed cohort
+size <span class="math inline">\(n\)</span> at the Bernstein–von Mises
+rate; a fixed-scale head does not reproduce it.</p>
+<p><strong>The estimator this section builds to (A/C</strong> <span
+class="math inline">\(+\)</span> BvM). Read in sequence:</p>
+<ol type="1">
+<li><strong>Encoder.</strong> Nested DeepSets over the raw cohort
+response tensors with cross-attention over items, on a ragged
+participant axis (no padding/mask), so the <span
+class="math inline">\(1/n\)</span> pooling delivers the posterior
+precision — <code>deepsetXcompAtt</code>, §14.4.1–14.4.4. (Hand-computed
+item-summary encoders, <code>itemXcompAtt</code> §14.1 and
+<code>itemScompAtt</code> §14.3, are the alternatives used for
+comparison in §14.5.)</li>
+<li><strong>Training law.</strong> Wide <strong>prior</strong> proposal
+over item parameters, a <span
+class="math inline">\(\theta\)</span>-level target functional (endpoint
+over a large reference ability population), decoupled cohort sizes <span
+class="math inline">\((n,m)\)</span>, and the interval-score loss —
+§14.4.3. Net directory
+<code>…-deepsetXcompAtt-ragged-priorproposal-{260812 (plain), A-powerlaw, C-floor}</code>.</li>
+<li><strong>Deployment calibration.</strong> Expanding-window head-only
+fine-tune of the quantile head on the SVI of interims <span
+class="math inline">\(1..k\)</span> (§14.4.6), followed by the per-item
+<strong>affine median-shift</strong> <span
+class="math inline">\(\Delta_j(k)=\operatorname{mean}_{i\le
+k}[\operatorname{med}p_{\mathrm{SVI}}(\rho\mid
+x_i)-\operatorname{med}\hat p(\rho\mid x_i)]\)</span> that removes the
+residual location bias (§14.4.6). Output directories carry the suffix
+<code>_ftheadexpand</code>.</li>
+<li><strong>Parametric contraction.</strong> The posterior SD follows an
+item-specific power law <span
+class="math inline">\(\mathrm{SD}(\rho_j\mid x)=C_j\,n^{-p_j}\)</span>
+(Bernstein–von Mises <span class="math inline">\(+\)</span> delta
+method, §14.4.7), realised as the power-law head <strong>A</strong>
+(<span class="math inline">\(m+z_\tau C\,n^{-p}\)</span>) and the floor
+head <strong>C</strong> (<span
+class="math inline">\(\sqrt{a^2+b^2/n}\)</span>) — §14.4.7, directories
+<code>…-A-powerlaw</code>, <code>…-C-floor</code>.</li>
+<li><strong>BvM self-consistency correction.</strong> A post-hoc
+correction of the deployed quantiles (§14.4.7): with the law of total
+variance <span
+class="math inline">\(\operatorname{Var}_{\text{mix}}=W+B\)</span>, the
+non-spurious between term is pinned by the same power law read at <span
+class="math inline">\(n\)</span> and <span
+class="math inline">\(n+m\)</span>, <span
+class="math inline">\(B^\ast=C^2\big(n^{-2p}-(n+m)^{-2p}\big)\)</span>;
+scaling within by <span
+class="math inline">\(\alpha=\sqrt{W_{\text{true}}/W}\)</span> and
+shrinking the median spread by <span
+class="math inline">\(\beta=\sqrt{B^\ast/B}\)</span> makes the mixture
+variance equal the target exactly and removes the finite-<span
+class="math inline">\(m\)</span> contraction upturn. Directories
+<code>…-A-powerlaw_ftheadexpand_bvm</code>,
+<code>…-C-floor_ftheadexpand_bvm</code>.</li>
+</ol>
+<p><strong>Result (weekly grid,
+<code>py-ukraine-interim-weekly-svi-260811</code>, 29 interims;
+excluding the degenerate item <code>CG-VIO_ph-punish</code>).</strong>
+With the affine shift applied throughout, the correction lowers the
+marginal KS at every cohort size, most in the large-<span
+class="math inline">\(n\)</span> tail, and makes the amortiser’s
+contraction curve track SVI’s (§14.4.7):</p>
+<table>
+<colgroup>
+<col style="width: 42%" />
+<col style="width: 19%" />
+<col style="width: 19%" />
+<col style="width: 19%" />
+</colgroup>
+<thead>
+<tr>
+<th>pipeline</th>
+<th style="text-align: right;">PIT-KS (conditional)</th>
+<th style="text-align: right;">marg-KS (all <span
+class="math inline">\(n\)</span>)</th>
+<th style="text-align: right;">marg-KS (<span
+class="math inline">\(n\ge450\)</span>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>plain <span class="math inline">\(+\)</span> affine
+(<code>…-260812_ftheadexpand</code>)</td>
+<td style="text-align: right;"><strong>0.069</strong></td>
+<td style="text-align: right;"><strong>0.157</strong></td>
+<td style="text-align: right;">0.181</td>
+</tr>
+<tr>
+<td><strong>A power-law</strong> <span class="math inline">\(+\)</span>
+BvM (<code>…-A-powerlaw_ftheadexpand_bvm</code>)</td>
+<td style="text-align: right;">0.112</td>
+<td style="text-align: right;">0.177</td>
+<td style="text-align: right;">0.180</td>
+</tr>
+<tr>
+<td><strong>C floor</strong> <span class="math inline">\(+\)</span> BvM
+(<code>…-C-floor_ftheadexpand_bvm</code>)</td>
+<td style="text-align: right;">0.115</td>
+<td style="text-align: right;">0.166</td>
+<td style="text-align: right;"><strong>0.170</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The <strong>A/C</strong> <span class="math inline">\(+\)</span> BvM
+estimator is the statistically coherent recommendation: its width obeys
+a BvM contraction law and its marginal is self-consistent under the law
+of total variance. The plain net <span class="math inline">\(+\)</span>
+affine remains numerically ahead on the aggregate conditional PIT-KS and
+on all-<span class="math inline">\(n\)</span> marg-KS, and is the
+lighter alternative when the parametric contraction guarantee is not
+required. Comparison figures — conditional-calibration PIT box, marginal
+quantile box, contraction-factor, contraction-law — are produced for
+every configuration from <code>python/amortiser_diag_plots.py</code>.
+Approaches examined during the development and set aside are catalogued
+in §14.10.</p>
 <h2
 id="cross-component-attention-to-learn-item-specific-summaries-itemxcompatt">14.1
 Cross-component attention to learn item-specific summaries
@@ -4224,9 +5068,9 @@ that the per-item pooling over participants is hand-computed
 variant (§13.7, results §14.4).</p>
 <table>
 <colgroup>
-<col style="width: 4%" />
-<col style="width: 8%" />
-<col style="width: 87%" />
+<col style="width: 13%" />
+<col style="width: 13%" />
+<col style="width: 72%" />
 </colgroup>
 <thead>
 <tr>
@@ -4302,9 +5146,9 @@ class="math inline">\(N = 503\)</span></td>
 <p>What is reused, what is trained, what is adapted:</p>
 <table>
 <colgroup>
-<col style="width: 24%" />
-<col style="width: 7%" />
-<col style="width: 67%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 58%" />
 </colgroup>
 <thead>
 <tr>
@@ -4713,8 +5557,10 @@ step 3). The hypothesis is <strong>item-specific</strong>, <span
 class="math inline">\(H_1^{(j^*)} = \big\{\rho^{(j^*)} &gt;
 \eta_0\big\}\)</span> — item <span class="math inline">\(j^*\)</span>’s
 improvement ratio exceeds the effect threshold (<span
-class="math inline">\(\eta_0 = 0.5\)</span>; decision threshold <span
-class="math inline">\(\eta_H = 0.89\)</span>):</p>
+class="math inline">\(\eta_0 = 0.5\)</span>, the
+<code>pps_H1_min_effect_size_thresh</code> of the code; decision
+threshold <span class="math inline">\(\eta_H = 0.89\)</span>, the
+<code>pps_ProbH1_target_lwr_quantile</code>):</p>
 <p><span class="math display">\[\hat P\big(H_1^{(j^*)} \mid x,
 z^{(s)}\big) \;=\; 1 - \operatorname{interp}\big(\eta_0;\;
 \hat\rho^{(j^*, s)},\; \eta^{\text{inpol}}\big),\]</span></p>
@@ -4771,8 +5617,11 @@ conditional <span class="math inline">\(p(\rho \mid x, z^{(s)})\)</span>
 that the amortiser aims to target. Marginally, <span
 class="math inline">\(\rho^{(j^*, s)}_{\text{SVI}}\)</span> is a draw
 from <span class="math inline">\(p(\rho \mid x)\)</span>. Exactly as for
-any joint $(A,B)$ a realised $a$ is simultaneously a draw from $p(A)$
-and, paired with its own $b$, from $p(A\mid B{=}b)$. The output of the
+any joint <span class="math inline">\((A,B)\)</span> a realised <span
+class="math inline">\(a\)</span> is simultaneously a draw from <span
+class="math inline">\(p(A)\)</span> and, paired with its own <span
+class="math inline">\(b\)</span>, from <span
+class="math inline">\(p(A\mid B{=}b)\)</span>. The output of the
 amortiser <span class="math inline">\(\hat\rho^{(j^*, s)}_{1:Q}\)</span>
 approximates the conditional <span class="math inline">\(p(\rho \mid x,
 z^{(s)})\)</span>.</p>
@@ -4808,12 +5657,12 @@ curves, diagonal = calibrated) and <code>..._tests_pit.pdf</code> +
 <code>..._tests_pit_ks.csv</code> (PIT histograms + KS). Result:</p>
 <table style="width:100%;">
 <colgroup>
-<col style="width: 70%" />
-<col style="width: 5%" />
-<col style="width: 5%" />
-<col style="width: 5%" />
-<col style="width: 5%" />
-<col style="width: 5%" />
+<col style="width: 51%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
+<col style="width: 9%" />
 </colgroup>
 <thead>
 <tr>
@@ -5001,13 +5850,13 @@ compared to the two closest Strong-Oakley baselines —
 Gaussian-approximation regression (RGE) and multi-quantile regression
 (RGEM) — over the <span class="math inline">\(J \cdot C = 160\)</span>
 (item, interim) cells:</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 47%" />
+<col style="width: 36%" />
 <col style="width: 16%" />
-<col style="width: 10%" />
-<col style="width: 19%" />
-<col style="width: 5%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -5130,12 +5979,12 @@ overlays) into its own <code>…_260808</code>/<code>_260809</code>
 sandbox dir.</p>
 <table>
 <colgroup>
-<col style="width: 41%" />
-<col style="width: 16%" />
-<col style="width: 10%" />
-<col style="width: 10%" />
-<col style="width: 10%" />
-<col style="width: 10%" />
+<col style="width: 29%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
+<col style="width: 14%" />
 </colgroup>
 <thead>
 <tr>
@@ -5298,7 +6147,60 @@ bias shrinks as <span class="math inline">\(n\)</span> grows, §14.1.8),
 so a single static monotone map cannot correct all interims at once — a
 <em>conditional</em> re-scale (fine-tune) can. Dirs
 <code>…_conformal-i1/conformal-expand_260809</code>.</p>
-<h3 id="reading-4">14.2.7 Reading</h3>
+<h3
+id="per-item-affine-median-shift-ports-the-deepset-14.4.6-default">14.2.7
+Per-item affine median-shift (ports the deepset §14.4.6 default)</h3>
+<p>The head-only fine-tune fixes the quantile <em>spread</em> but leaves
+a per-item <em>location</em> residual — the prior-trained encoder
+under-predicts every item (the global shrinkage-to-prior bias diagnosed
+on the deepset in §14.4.6). We port the same fix here: one scalar per
+item, fit on the <em>same</em> SVI of interims <span
+class="math inline">\(1..k\)</span> the head fine-tune already uses,
+<span class="math inline">\(\Delta_j(k)=\operatorname{mean}_{i\le
+k}\big[\operatorname{med}\,p_{\text{SVI}}(\rho\mid
+x_i)-\operatorname{med}\,\hat p(\rho\mid x_i)\big]\)</span>, applied as
+a pure location shift to all quantiles (<code>RX_MEDSHIFT</code>, on by
+default). It improves both objectives on the hand token:</p>
+<table>
+<thead>
+<tr>
+<th>itemXcompAtt, head-ft expand (weekly-29)</th>
+<th style="text-align: right;">PIT-KS</th>
+<th style="text-align: right;">marg-KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>no shift</td>
+<td style="text-align: right;">0.154</td>
+<td style="text-align: right;">0.135</td>
+</tr>
+<tr>
+<td><span class="math inline">\(+\)</span> affine shift</td>
+<td style="text-align: right;"><strong>0.139</strong></td>
+<td style="text-align: right;"><strong>0.119</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Use as the fair baseline against the deepset.</strong> With
+the affine now applied uniformly to <em>every</em> encoder and both
+evaluated on the same weekly-29 grid (<span
+class="math inline">\(n=48\to500\)</span>), the §14.5.1
+conditional-vs-marginal trade-off is the honest comparison: the
+<strong>deepset wins the conditional</strong> (PIT-KS <span
+class="math inline">\(\approx0.07\)</span> vs the hand token’s <span
+class="math inline">\(0.14\)</span> — the object the PPS decision
+consumes), while the <strong>hand token wins the marginal</strong>
+(marg-KS <span class="math inline">\(\approx0.12\)</span> vs the
+deepset’s <span class="math inline">\(\approx0.16\)</span>; marg-KS is
+secondary since <span class="math inline">\(p(\rho\mid x)\)</span> is
+available from SVI directly). So for the interim decision the deepset
+remains preferred; the hand token is the better <em>effect-size</em>
+estimator by a small margin. All four comparison figures (§14.4.5:
+coloured PIT-box, marginal quantile-box, contraction-factor,
+contraction-law) are now produced for both encoders from the shared
+<code>amortiser_diag_plots</code> module for a like-for-like read.</p>
+<h3 id="reading-4">14.2.8 Reading</h3>
 <ol type="1">
 <li><strong>Diagnosis holds.</strong> The <span
 class="math inline">\(S=256\)</span> null (§14.2.1) reconfirms the gap
@@ -5393,10 +6295,10 @@ prior-trained self-attention net gives the identical picture as
 intervals.</p>
 <table>
 <colgroup>
-<col style="width: 38%" />
-<col style="width: 8%" />
-<col style="width: 26%" />
-<col style="width: 26%" />
+<col style="width: 32%" />
+<col style="width: 20%" />
+<col style="width: 23%" />
+<col style="width: 23%" />
 </colgroup>
 <thead>
 <tr>
@@ -5497,6 +6399,36 @@ calibration, correlation preserved (encoders frozen). Diagnostics in
 <code>itemXcompAtt</code> remains the default — the two variants are
 within noise on this <span class="math inline">\(J = 20\)</span> case
 and share the same remedy.</p>
+<h3 id="per-item-affine-median-shift-ports-14.2.7">14.3.4 Per-item
+affine median-shift (ports §14.2.7)</h3>
+<p>The self-attention encoder inherits the same per-item location
+residual, and the same affine shift (§14.2.7 / §14.4.6) fixes it, on by
+default (<code>RX_MEDSHIFT</code>):</p>
+<table>
+<thead>
+<tr>
+<th>itemScompAtt, head-ft expand (weekly-29)</th>
+<th style="text-align: right;">PIT-KS</th>
+<th style="text-align: right;">marg-KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="math inline">\(+\)</span> affine shift</td>
+<td style="text-align: right;"><strong>0.136</strong></td>
+<td style="text-align: right;"><strong>0.108</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The numbers track <code>itemXcompAtt</code> (§14.2.7) to within noise
+— PIT-KS <span class="math inline">\(0.14\)</span>, marg-KS <span
+class="math inline">\(0.11\)</span> on the same weekly-29 grid —
+confirming the two hand-token encoders are interchangeable under the
+full remedy stack, and both sit at the same point of the §14.5.1
+conditional-vs-marginal trade-off relative to the deepset (worse
+conditional, better marginal). The four §14.4.5 comparison figures are
+produced here too via the shared <code>amortiser_diag_plots</code>
+module.</p>
 <h2 id="deep-set-variant-deepsetxcompatt">14.4 Deep-set variant
 (<code>deepsetXcompAtt</code> )</h2>
 <p>The nested-DeepSets variant of the §8-10 workflow on the Ukraine PCM.
@@ -5507,6 +6439,31 @@ consumes the RAW cohorts — <code>x_responses</code> and
 <code>z_responses</code> per (participant, item, time) — and
 <strong>learns</strong> the per-item pooling through <span
 class="math inline">\(q_\tau\)</span> (§9.2).</p>
+<p><strong>Why the raw-cohort encoder is the strategic choice, not just
+a refinement.</strong> The hand-token amortisers of §14.1–14.3 are bound
+to <em>this</em> trial. Their only cohort-size input is the enrolment
+fractions <span class="math inline">\((n/N,m/N)\)</span> under a fixed
+total <span class="math inline">\(N=503\)</span>, with the future cohort
+pinned to <span class="math inline">\(m=N-n\)</span>; carrying no
+absolute-scale input, they cannot price a cohort from a trial of any
+other size and would need retraining per trial. The deepset removes that
+ceiling. By pooling over the raw per-participant responses and taking
+absolute-scale aux <span class="math inline">\((1/\sqrt n,1/\sqrt
+m)\)</span> — with <span class="math inline">\((n,m)\)</span> trained
+<em>independently</em> over <span
+class="math inline">\(\{2,\dots,503\}\)</span> rather than tied to <span
+class="math inline">\(n+m=N\)</span> — it is a <strong>general amortised
+posterior over PCM cohorts</strong>: one trained network reusable across
+datasets and cohort sizes, an asset rather than a single-trial artefact.
+That portability is the reason to pay for the architectural machinery
+below, and it holds even though the deepset trades a little marginal
+calibration for its decisive edge on the conditional PIT the decision
+consumes (§14.4.6). (The <span class="math inline">\(n/N\)</span>
+fraction feature stays <span
+class="math inline">\(503\)</span>-normalised, so a markedly different
+total <span class="math inline">\(N\)</span> would want it
+re-normalised; the absolute <span class="math inline">\(1/\sqrt
+n\)</span> carries the leading contraction regardless.)</p>
 <p>The subsections below mirror §14.1.1–14.1.4 and state only what
 <strong>changes</strong> under the nested-DeepSets construction;
 everything not mentioned is inherited verbatim from the item-level
@@ -5532,10 +6489,10 @@ separate tensor axes rather than as separate token slots.</p>
 <p>Symbol deltas from the §14.1.1 table:</p>
 <table>
 <colgroup>
-<col style="width: 5%" />
-<col style="width: 8%" />
-<col style="width: 41%" />
-<col style="width: 43%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 32%" />
+<col style="width: 34%" />
 </colgroup>
 <thead>
 <tr>
@@ -5597,9 +6554,9 @@ embeddings, not a hand statistic</td>
 <p>Reused / trained / adapted (cf. §14.1.1):</p>
 <table>
 <colgroup>
-<col style="width: 34%" />
-<col style="width: 12%" />
-<col style="width: 53%" />
+<col style="width: 30%" />
+<col style="width: 21%" />
+<col style="width: 47%" />
 </colgroup>
 <thead>
 <tr>
@@ -5655,1019 +6612,870 @@ normalises scale internally (§14.4.4)</td>
 </tbody>
 </table>
 <h3 id="training-data-and-target-1">14.4.2 Training data and target</h3>
-<p>The target and the prior-predictive generation are
-<strong>identical</strong> to §14.1.2 — same prior draws, same <span
-class="math inline">\(r_j(\theta)\)</span> endpoint ratio, same <span
-class="math inline">\(\pm 20\)</span> clip. Steps 1–3 of the §14.1.2
-generation algorithm (draw sizes, draw PCM parameters, simulate
-ordered-categorical responses for both cohorts at both times) are
-literally the shared code path. The <strong>only</strong> change is that
-§14.1.2’s <strong>step 4 (pool the raw cohorts to the item token) is
-skipped</strong>: the raw simulated cohorts <span
-class="math inline">\(x^{(s)}, z^{(s)}\)</span> are handed to the
-network as tensors and the pooling is learned. Implemented by
-<code>PartialCreditModel.make_training_data_with_participant_tokens_prior</code>
-(<a href="../python/model_pcm.py"><code>python/model_pcm.py</code></a>);
-each prior draw is fanned out to <span class="math inline">\(Q =
-4\)</span> queried items. Training is still fresh prior draws every step
-— no SVI fits enter training.</p>
-<h3 id="inputs-raw-cohort-response-tensors-δ-from-14.1.3">14.4.3 Inputs:
-raw cohort response tensors (Δ from §14.1.3)</h3>
-<p>The <span class="math inline">\(F = 8\)</span> per-item token of
-§14.1.3 is removed entirely. The network’s inputs per <span
-class="math inline">\((j^*, s)\)</span> are:</p>
-<p><span class="math display">\[\big(\underbrace{X^{\text{obs}} \in
-\mathbb{R}^{N \times J \times 2}}_{\text{x cohort}},\;
-\underbrace{Z^{(s)} \in \mathbb{R}^{N \times J \times 2}}_{\text{z
-cohort}},\; \underbrace{\text{mask}_x, \text{mask}_z \in
-\{0,1\}^{N}}_{\text{which rows are real}},\; \underbrace{c_j,
-d_j}_{\text{metadata }M=2},\; \underbrace{a = (n/N,
-m/N)}_{\text{aux}},\; j^*\big),\]</span></p>
-<p>with responses padded to <span class="math inline">\(N = 503\)</span>
-rows and rescaled <span class="math inline">\((y - 1)/(K_j - 1) \in [0,
-1]\)</span> per item type (<span class="math inline">\(K_j\)</span> from
-<code>dit[cat_length]</code>, as §14.1.3). Three §14.1.3 token channels
-have <strong>no explicit input here</strong> — they are subsumed by the
-learned encoder: the x-side / z-side group-means become the learned
-mean-pool (§14.4.4), and the empirical <span class="math inline">\(\hat
-K\)</span>-row’s cross-item channel becomes attention over the learned
-per-item embeddings. The <strong>categorical threshold</strong> <span
-class="math inline">\(c\)</span> is treated exactly as §14.1.3: raw
-responses enter unthresholded, and <span
-class="math inline">\(c\)</span> lives only in the target <span
-class="math inline">\(\rho\)</span> (it changes Ukraine → Colombia, so
-it must not be baked into the inputs).</p>
-<h3
-id="encoder-nested-deepsets-pooling-cross-attention-head-loss">14.4.4
-Encoder (nested DeepSets), pooling, cross-attention, head, loss</h3>
-<p>The §14.1.4 cross-attention → head → loss stack is
-<strong>prepended</strong> with the §9.2 participant encoder — this is
-the whole architectural difference. A shared SiLU MLP <span
-class="math inline">\(q_\tau\)</span> embeds every (participant, item,
-time) feature vector (the <span class="math inline">\(R = 2\)</span>
-responses augmented with the <span class="math inline">\(M = 2\)</span>
-item metadata), then a mask-aware <strong>mean-pool over
-participants</strong> gives one embedding per cohort per item:</p>
-<p><span class="math display">\[\text{pool}^{x, (j^*, s)}_j \;=\;
-\frac{1}{n}\sum_{i \le n} q_\tau\big(X^{\text{obs}}_{i, j, \cdot},\,
-c_j, d_j;\, \tau_\tau\big), \qquad \text{pool}^{z, (s)}_j \;=\;
-\frac{1}{m}\sum_{i \le m} q_\tau\big(Z^{(s)}_{i, j, \cdot},\, c_j,
-d_j;\, \tau_\tau\big) \;\in\; \mathbb{R}^{E}.\]</span></p>
-<p>This learned sum-then-pool is the amortised replacement for §14.1.3’s
-hand group-means. The per-item embedding is then formed by mixing the
-two cohort pools,</p>
-<p><span class="math display">\[h^{(j^*, s)}_j \;=\;
-q_{\text{tok}}\big(\operatorname{concat}(\text{pool}^{x, (j^*, s)}_j,\;
-\text{pool}^{z, (s)}_j);\, \tau_{\text{tok}}\big) \;\in\;
-\mathbb{R}^{E},\]</span></p>
-<p>and <strong>from here the pipeline is exactly §14.1.4</strong>: the
-query is built from the queried item’s own embedding, <span
-class="math inline">\(q^{(j^*, s)} = q_{\text{query}}(h^{(j^*,
-s)}_{j^*})\)</span>; cross-attention over the <span
-class="math inline">\(J\)</span> learned <span
-class="math inline">\(h_j\)</span> gives <span
-class="math inline">\(\bar h^{(j^*, s)}\)</span>; the multi-quantile
-head consumes the attention output, the queried item’s own embedding
-(the skip connection — now a <em>learned</em> embedding rather than the
-raw token), and the aux:</p>
-<p><span class="math display">\[\hat\rho^{(j^*, s)} \;=\;
-q_\psi\big(\operatorname{concat}(\bar h^{(j^*, s)},\; h^{(j^*,
-s)}_{j^*},\; a);\, \psi\big) \in \mathbb{R}^K, \qquad \text{head-input
-dim } E + E + A = 32 + 32 + 2 = 66.\]</span></p>
-<p>The learned parameters are <span class="math inline">\((\tau_\tau,
-\tau_{\text{tok}}, \tau_{\text{query}}, \psi)\)</span>. Sizes:</p>
-<table style="width:100%;">
-<colgroup>
-<col style="width: 41%" />
-<col style="width: 42%" />
-<col style="width: 16%" />
-</colgroup>
-<thead>
-<tr>
-<th>block</th>
-<th>architecture</th>
-<th style="text-align: right;"># parameters</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><span class="math inline">\(\tau_\tau\)</span> (participant
-encoder)</td>
-<td><span class="math inline">\((R{+}M){=}4 \to 32 \to 32 \to
-32\)</span></td>
-<td style="text-align: right;">2,272</td>
-</tr>
-<tr>
-<td><span class="math inline">\(\tau_{\text{tok}}\)</span></td>
-<td><span class="math inline">\(2E{=}64 \to 32 \to 32 \to
-32\)</span></td>
-<td style="text-align: right;">4,192</td>
-</tr>
-<tr>
-<td><span class="math inline">\(\tau_{\text{query}}\)</span></td>
-<td><span class="math inline">\(E{=}32 \to 32 \to 32 \to
-32\)</span></td>
-<td style="text-align: right;">3,168</td>
-</tr>
-<tr>
-<td><span class="math inline">\(\psi\)</span></td>
-<td><span class="math inline">\(66 \to 64 \to 64 \to 5\)</span></td>
-<td style="text-align: right;">8,773</td>
-</tr>
-<tr>
-<td><strong>total</strong></td>
-<td></td>
-<td style="text-align: right;"><strong>18,405</strong></td>
-</tr>
-</tbody>
-</table>
-<p>The loss is the <strong>identical</strong> multi-quantile pinball of
-§14.1.4, summed over prior samples <span
-class="math inline">\(s\)</span>, queried items <span
-class="math inline">\(j^*\)</span> and quantile levels <span
-class="math inline">\(q\)</span>. The one change: <strong>no per-item
-standardisation</strong> <span
-class="math inline">\(\hat\sigma_j\)</span> — the learned mean-pool
-already carries the per-item scale, so the head regresses <span
-class="math inline">\(\rho\)</span> directly (this is why the deepset
-diagnostics read the predictions in <span
-class="math inline">\(\rho\)</span> units without an unstandardisation
-step). Aux <span class="math inline">\(a\)</span> still carries the
-cohort sizes for the reason given in §14.1.4 (the pooled means do not
-reveal <span class="math inline">\(n, m\)</span>).</p>
-<p><strong>Training and deployment.</strong> 8000 steps at batch <span
-class="math inline">\(S = 32\)</span> fresh prior draws/step <span
-class="math inline">\(\Rightarrow\)</span> <strong>256,000
-prior-predictive data sets</strong> (<span class="math inline">\(\times
-Q = 4\)</span> queries <span class="math inline">\(=\)</span> 1,024,000
-rows), ~74 min CPU. §10 deployment per interim: raw observed cohort from
-the cached xi frame, raw <span class="math inline">\(z^{(s)}\)</span>
-rebuilt from the cached SVI <code>draws.zarr</code> (draw-aligned with
-the wa targets), one forward pass per <span class="math inline">\((j^*,
-s)\)</span>; 0.11 min/interim at <span class="math inline">\(S =
-200\)</span>. <strong>Size coverage:</strong> training <span
-class="math inline">\(n \sim U\{2, \ldots, 502\}\)</span>; the 8
-deployment interims use <span class="math inline">\(n \in \{48, 174,
-329, 416, 473, 484, 491, 501\}\)</span> — only <span
-class="math inline">\(\approx 0.2\%\)</span> of training data sets match
-any individual interim’s <span class="math inline">\(n\)</span>, so the
-amortiser interpolates across cohort sizes rather than memorising them;
-the mean-pool plus the <span class="math inline">\((n/N, m/N)\)</span>
-aux carry the size dependence.</p>
-<h3 id="results-evaluation-against-the-svi-posterior-targets">14.4.5
-Results: evaluation against the SVI posterior targets</h3>
-<p>Per-item Pearson <span class="math inline">\(\rho\)</span> between
-the amortiser median <span class="math inline">\(\hat\rho^{(j^*,
-s)}_{3}\)</span> and the SVI target <span
-class="math inline">\(\rho^{(j^*, s)}_{\text{SVI-}x}\)</span> across the
-<span class="math inline">\(S\)</span> draws (excluding the
-<code>CG-VIO_ph-punish</code> blow-up item):</p>
-<table>
-<colgroup>
-<col style="width: 39%" />
-<col style="width: 28%" />
-<col style="width: 31%" />
-</colgroup>
-<thead>
-<tr>
-<th>item type</th>
-<th style="text-align: right;">interim 1 mean <span
-class="math inline">\(\rho\)</span></th>
-<th style="text-align: right;">all-interim mean <span
-class="math inline">\(\rho\)</span></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>out-of-7</code> (15 items)</td>
-<td style="text-align: right;">0.82</td>
-<td style="text-align: right;">0.53</td>
-</tr>
-<tr>
-<td><code>categorical</code> CG-MH (4 items)</td>
-<td style="text-align: right;">0.57</td>
-<td style="text-align: right;">0.32</td>
-</tr>
-</tbody>
-</table>
-<p>Both the deepset and the item-level amortiser (§14.1.9) are now
-trained purely prior-predictively, so the comparison isolates the
-<strong>architecture</strong>: learned pooling matches the hand-computed
-<span class="math inline">\(F = 8\)</span> token on the out-of-7 items
-(0.82 vs 0.82 at interim 1) but trails it on CG-MH (0.57 vs 0.71) — the
-item token’s mean-response summaries have no learned counterpart yet in
-<span class="math inline">\(q_\tau\)</span> at this training budget.
-<span class="math inline">\(R^2\)</span> is mostly negative — the
-amortiser tracks the <em>ranking</em> of the posterior draws well but
-its location/scale calibration under the diffuse PCM prior does not
-match the concentrated deployment posterior (the §8.1 prior-coverage
-caveat in action: thresholds <span class="math inline">\(\sim N(0,
-3.5)\)</span> generate far more extreme cohorts than the Ukraine data
-region). Association plots:
-<code>pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf</code>.</p>
-<p><strong>Per-item detail at interim 1</strong> (Pearson <span
-class="math inline">\(\rho\)</span> / <span
-class="math inline">\(R^2\)</span> vs the SVI target over <span
-class="math inline">\(S = 200\)</span> draws):</p>
-<table>
-<thead>
-<tr>
-<th>item</th>
-<th>type</th>
-<th style="text-align: right;"><span
-class="math inline">\(\rho\)</span></th>
-<th style="text-align: right;"><span
-class="math inline">\(R^2\)</span></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>CG-MH_effort</code></td>
-<td>categorical</td>
-<td style="text-align: right;">0.65</td>
-<td style="text-align: right;">-2.50</td>
-</tr>
-<tr>
-<td><code>CG-MH_hopeless</code></td>
-<td>categorical</td>
-<td style="text-align: right;">0.49</td>
-<td style="text-align: right;">-0.71</td>
-</tr>
-<tr>
-<td><code>CG-MH_nervous</code></td>
-<td>categorical</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">-3.65</td>
-</tr>
-<tr>
-<td><code>CG-MH_sad</code></td>
-<td>categorical</td>
-<td style="text-align: right;">0.64</td>
-<td style="text-align: right;">-3.97</td>
-</tr>
-<tr>
-<td><code>CG-DEPRESSION</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.84</td>
-<td style="text-align: right;">-0.08</td>
-</tr>
-<tr>
-<td><code>CG-INVOLVE_child-problems</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.77</td>
-<td style="text-align: right;">0.17</td>
-</tr>
-<tr>
-<td><code>CG-INVOLVE_help-learn</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.84</td>
-<td style="text-align: right;">-1.09</td>
-</tr>
-<tr>
-<td><code>CG-MONITOR-CHI_child-safe</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.87</td>
-<td style="text-align: right;">0.17</td>
-</tr>
-<tr>
-<td><code>CG-MONITOR-CHI_safe-time</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.86</td>
-<td style="text-align: right;">-0.15</td>
-</tr>
-<tr>
-<td><code>CG-NONVIOLENT-DISCIPLINE</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.83</td>
-<td style="text-align: right;">-1.35</td>
-</tr>
-<tr>
-<td><code>CG-POS_play</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.82</td>
-<td style="text-align: right;">-1.08</td>
-</tr>
-<tr>
-<td><code>CG-POS_praise</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.78</td>
-<td style="text-align: right;">-0.17</td>
-</tr>
-<tr>
-<td><code>CG-RESILIENCE</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.84</td>
-<td style="text-align: right;">-0.89</td>
-</tr>
-<tr>
-<td><code>CG-SELFCARE</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.79</td>
-<td style="text-align: right;">-3.28</td>
-</tr>
-<tr>
-<td><code>CG-VIO_ph-punish</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.29</td>
-<td style="text-align: right;">-0.47</td>
-</tr>
-<tr>
-<td><code>CG-VIO_scream</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.79</td>
-<td style="text-align: right;">-0.47</td>
-</tr>
-<tr>
-<td><code>CHI-BEHAVIOUR_angry</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.78</td>
-<td style="text-align: right;">0.50</td>
-</tr>
-<tr>
-<td><code>CHI-BEHAVIOUR_no-interest</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.83</td>
-<td style="text-align: right;">0.45</td>
-</tr>
-<tr>
-<td><code>CHI-BEHAVIOUR_unhappy</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.85</td>
-<td style="text-align: right;">0.50</td>
-</tr>
-<tr>
-<td><code>grieve</code></td>
-<td>out-of-7</td>
-<td style="text-align: right;">0.81</td>
-<td style="text-align: right;">-1.06</td>
-</tr>
-</tbody>
-</table>
-<p>High <span class="math inline">\(\rho\)</span> with mostly negative
-<span class="math inline">\(R^2\)</span> across the board — the ranking
-of posterior draws is tracked well, the location/scale calibration is
-not (see Reading). <code>CG-VIO_ph-punish</code> is the §14.1 numerical
-blow-up item.</p>
-<p><strong>PPS agreement</strong> with the item-level amortiser (§14.1,
-RGEG): high on the bulk of cells, with the disagreeing tail at early
-interims where the calibration gap is largest.</p>
-<h3 id="baseline-calibration-diagnostics-..._diag.py">14.4.6 Baseline
-calibration diagnostics (<code>..._diag.py</code>)</h3>
-<p>The same SBC suite as §14.1.7, run on the deepset by forward-passing
-every draw and capturing the full multi-quantile prediction (and the
-frozen-encoder head input <code>head_in</code>, sown for §14.4.8). It
-reproduces the item-level picture exactly — strong ranking, mislocated
-intervals:</p>
-<table style="width:100%;">
-<colgroup>
-<col style="width: 42%" />
-<col style="width: 9%" />
-<col style="width: 25%" />
-<col style="width: 22%" />
-</colgroup>
-<thead>
-<tr>
-<th>metric (mean over items/interims)</th>
-<th style="text-align: right;">nominal</th>
-<th style="text-align: right;"><code>itemXcompAtt</code> §14.1</th>
-<th style="text-align: right;"><code>deepsetXcompAtt</code></th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>coverage @ 0.5</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.15</td>
-<td style="text-align: right;">0.18</td>
-</tr>
-<tr>
-<td>coverage @ 0.95</td>
-<td style="text-align: right;">0.95</td>
-<td style="text-align: right;">0.44</td>
-<td style="text-align: right;">0.41</td>
-</tr>
-<tr>
-<td>PIT–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.61</td>
-<td style="text-align: right;">0.60</td>
-</tr>
-<tr>
-<td>marginal–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.47</td>
-<td style="text-align: right;">0.47</td>
-</tr>
-</tbody>
-</table>
-<p>Diagnostics in the baseline dir:
-<code>pcm_1_interim_pps_RGDX_tests_coverage.pdf</code>,
-<code>..._tests_pit.pdf</code>,
-<code>..._i{k}_svi_vs_amortiser_marginal_cdf.pdf</code>,
-<code>..._i{k}_svi_rho_vs_amortiser_median.pdf</code>. The mislocation
-is the §8.1 prior/posterior gap again — architecture makes no difference
-to it.</p>
-<h3
-id="workstream-a-post-hoc-conformal-recalibration-insufficient-here-too">14.4.7
-Workstream A: post-hoc conformal recalibration (insufficient here
-too)</h3>
-<p>We expected the nested-DeepSets amortiser to be <em>more</em>
-amenable to a static distribution-calibration map (Kuleshov et al. 2018)
-than the item-level net — it is not. Per-item monotone PIT maps fitted
-on interim-1 SVI (A1) and on the expanding pool <span
-class="math inline">\(1..k\)</span> (A2):</p>
-<table>
-<colgroup>
-<col style="width: 24%" />
-<col style="width: 10%" />
-<col style="width: 12%" />
-<col style="width: 23%" />
-<col style="width: 29%" />
-</colgroup>
-<thead>
-<tr>
-<th>metric</th>
-<th style="text-align: right;">nominal</th>
-<th style="text-align: right;">baseline</th>
-<th style="text-align: right;">A1 conformal-i1</th>
-<th style="text-align: right;">A2 conformal-expand</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>coverage @ 0.5</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.18</td>
-<td style="text-align: right;">0.38</td>
-<td style="text-align: right;">0.39</td>
-</tr>
-<tr>
-<td>coverage @ 0.95</td>
-<td style="text-align: right;">0.95</td>
-<td style="text-align: right;">0.41</td>
-<td style="text-align: right;">0.41</td>
-<td style="text-align: right;">0.41</td>
-</tr>
-<tr>
-<td>PIT–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.60</td>
-<td style="text-align: right;">0.60</td>
-<td style="text-align: right;">0.59</td>
-</tr>
-<tr>
-<td>marginal–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.47</td>
-<td style="text-align: right;">0.62</td>
-<td style="text-align: right;">0.54</td>
-</tr>
-</tbody>
-</table>
-<p>Exactly as for <code>itemXcompAtt</code> (§14.2.6): the map nudges
-the median coverage (0.18 → 0.38) but leaves the upper tail pinned
-(coverage @ 0.95 stuck at 0.41), barely moves the PIT–KS, and makes the
-marginal <em>worse</em>. <strong>Why the deepset intuition
-fails:</strong> conformal can only fix miscalibration that is a single,
-interim-invariant monotone warp of the PIT. Here the bias is
-<em>interim-heteroscedastic</em> — its magnitude shrinks as the cohort
-<span class="math inline">\(n\)</span> grows — so one static per-item
-map cannot serve all 8 interims at once. This is a property of the
-prior/posterior gap, not of the encoder, which is why the deepset
-behaves like the item net.</p>
-<h3
-id="head-only-expanding-fine-tune-14.2.5-the-architecture-independent-fix">14.4.8
-Head-only expanding fine-tune (§14.2.5) — the architecture-independent
-fix</h3>
-<p>Because <code>head_in</code> (the frozen-encoder input to <span
-class="math inline">\(q_\psi\)</span>) is sown by the net, the §14.2.5
-recipe runs <em>without re-running the encoder</em>: cache
-<code>head_in</code> for every <span class="math inline">\((k, s,
-j^*)\)</span> in the Phase-0 pass, then refit only <span
-class="math inline">\(q_\psi\)</span> on the pooled embeddings of
-interims <span class="math inline">\(1..k\)</span> and evaluate at <span
-class="math inline">\(k\)</span>.</p>
-<table>
-<thead>
-<tr>
-<th>metric</th>
-<th style="text-align: right;">nominal</th>
-<th style="text-align: right;">baseline</th>
-<th style="text-align: right;">head-ft-expand</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>coverage @ 0.5</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.18</td>
-<td style="text-align: right;">0.50</td>
-</tr>
-<tr>
-<td>coverage @ 0.95</td>
-<td style="text-align: right;">0.95</td>
-<td style="text-align: right;">0.41</td>
-<td style="text-align: right;">0.94</td>
-</tr>
-<tr>
-<td>PIT–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.60</td>
-<td style="text-align: right;">0.18</td>
-</tr>
-<tr>
-<td>marginal–KS</td>
-<td style="text-align: right;">0.00</td>
-<td style="text-align: right;">0.47</td>
-<td style="text-align: right;">0.17</td>
-</tr>
-<tr>
-<td>corr o7/cat (i1)</td>
-<td style="text-align: right;">—</td>
-<td style="text-align: right;">0.82/0.57</td>
-<td style="text-align: right;">0.82/0.54</td>
-</tr>
-</tbody>
-</table>
-<p>Near-nominal calibration, correlation preserved — identical outcome
-to <code>itemXcompAtt</code> (§14.2.5) and <code>itemScompAtt</code>
-(§14.3.3). Diagnostics in
-<code>..._deepsetXcompAtt_..._ftheadexpand_260809/</code>.</p>
-<h3
-id="diagnostic-posterior-contraction-does-the-amortiser-learn-the-n-scaling">14.4.9
-Diagnostic: posterior contraction — does the amortiser learn the <span
-class="math inline">\(n\)</span>-scaling?</h3>
-<p>The expanding-window head fine-tune (§14.4.8) works but must be
-re-fit at every interim, because a single interim-1 head fit fails to
-transfer (§14.2.4): the calibration bias is
-<em>interim-heteroscedastic</em>. This diagnostic asks
-<strong>why</strong>, and whether it could be removed at source. The
-nested-DeepSets encoder consumes the raw cohorts + aux <span
-class="math inline">\((n/N, m/N)\)</span> and mean-pools over
-participants, so it <em>has the inputs</em> to represent how the
-posterior <span class="math inline">\(p(\rho \mid x)\)</span> narrows as
-the observed cohort <span class="math inline">\(n\)</span> grows
-(Bernstein–von Mises: posterior SD <span class="math inline">\(\sim
-n^{-1/2}\)</span>). <strong>If</strong> it encoded that contraction
-faithfully, the head’s job would be a fixed map (embedding, <span
-class="math inline">\(n\)</span>) <span
-class="math inline">\(\to\)</span> calibrated quantiles, and one
-calibration point would pin every interim.</p>
-<p><strong>Method.</strong> To get many <span class="math inline">\((n,
-\text{width})\)</span> points we re-slice the same trial at
-<strong>weekly</strong> cutoffs
-(<code>Ukraine_interim_weekly_svi_for_contraction.py</code>,
-<code>freq='W'</code> in place of the monthly <code>'MS'</code>): 29
-usable interims spanning <span class="math inline">\(n = 48 \to
-500\)</span>, each with its own SVI fit. Per (interim, item) we compare
-three 90 %-interval widths (<code>..._contraction.py</code>):</p>
-<ul>
-<li><span class="math inline">\(W_{\text{SVI}}\)</span> — 5–95 % spread
-of the SVI draws <span
-class="math inline">\(\rho_{\text{SVI-}x}\)</span> = the true <span
-class="math inline">\(p(\rho \mid x)\)</span> width;</li>
-<li><span class="math inline">\(W_{\text{marg}}\)</span> — 5–95 % width
-of the amortiser’s <strong>marginal</strong> <span
-class="math inline">\(\hat p(\rho \mid x)\)</span> (mixture over draws
-of the per-draw conditionals);</li>
-<li><span class="math inline">\(W_{\text{cond}}\)</span> — mean per-draw
-width <span class="math inline">\(\overline{q_{95}^{s} -
-q_{05}^{s}}\)</span> (the amortiser’s claimed per-slice
-uncertainty).</li>
-</ul>
-<p><strong>Result.</strong> Log–log slope of width vs <span
-class="math inline">\(n\)</span> (contraction rate; BvM <span
-class="math inline">\(\approx -0.5\)</span>), and the median width
-shrinkage across the enrolment (blow-up item excluded):</p>
-<table style="width:100%;">
-<colgroup>
-<col style="width: 13%" />
-<col style="width: 21%" />
-<col style="width: 36%" />
-<col style="width: 20%" />
-<col style="width: 8%" />
-</colgroup>
-<thead>
-<tr>
-<th>quantity</th>
-<th style="text-align: right;">log–log slope</th>
-<th style="text-align: right;">median <span
-class="math inline">\(W\)</span> at <span
-class="math inline">\(n{=}48\)</span></th>
-<th style="text-align: right;">at <span
-class="math inline">\(n{=}500\)</span></th>
-<th style="text-align: right;">ratio</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><span class="math inline">\(W_{\text{SVI}}\)</span> (truth)</td>
-<td style="text-align: right;"><strong>−0.59</strong></td>
-<td style="text-align: right;">0.99</td>
-<td style="text-align: right;">0.25</td>
-<td style="text-align: right;"><strong>0.25</strong> (≈4× narrower)</td>
-</tr>
-<tr>
-<td><span class="math inline">\(W_{\text{marg}}\)</span> (amortiser
-marg.)</td>
-<td style="text-align: right;">−0.11</td>
-<td style="text-align: right;">0.51</td>
-<td style="text-align: right;">0.70</td>
-<td style="text-align: right;">1.37 (<em>widens</em>)</td>
-</tr>
-<tr>
-<td><span class="math inline">\(W_{\text{cond}}\)</span> (amortiser
-slice)</td>
-<td style="text-align: right;">−0.16</td>
-<td style="text-align: right;">0.39</td>
-<td style="text-align: right;">0.19</td>
-<td style="text-align: right;">0.49</td>
-</tr>
-</tbody>
-</table>
-<p>The verdict is clear: <strong>the amortiser does not learn posterior
-contraction.</strong> The true posterior narrows almost fourfold from
-the first to the last interim (slope −0.59, close to the BvM <span
-class="math inline">\(-\tfrac12\)</span>), but the amortiser’s marginal
-predicted width is essentially flat in <span
-class="math inline">\(n\)</span> — it even <em>widens</em> slightly
-(slope −0.11) — and its per-draw width contracts only weakly (slope
-−0.16, roughly halving where the truth quarters). By item type the gap
-is worst on the categorical CG-MH items (<span
-class="math inline">\(W_{\text{SVI}}\)</span> slope −0.29 vs <span
-class="math inline">\(W_{\text{marg}}\)</span> +0.05). Plots:
-<code>pcm_1_interim_pps_RGDX_contraction_by_item.pdf</code> (per item,
-log–log) and <code>..._contraction_pooled.pdf</code> (median over
-items).</p>
-<p><strong>Consequences.</strong></p>
-<ol type="1">
-<li>This is the <strong>mechanism</strong> behind the
-interim-heteroscedastic bias of §14.2.6 / §14.4.7: because the predicted
-spread barely moves with <span class="math inline">\(n\)</span> while
-the truth contracts, the miscalibration required to correct it
-<em>must</em> change with the interim — which is exactly why a static
-conformal map (one warp for all interims) cannot work and why the head
-must be re-fit per interim.</li>
-<li>It answers the standing question — <em>“if the deepset learned
-contraction, would an interim-1-only head fine-tune suffice?”</em> —
-with <strong>not as trained</strong>: the prerequisite fails, so the
-expanding window (§14.4.8) remains necessary. Confirms the §14.2.4
-failure was not a fluke.</li>
-<li><strong>Contraction pressure was implemented and tested — it does
-not make interim-1 calibration sufficient (§14.4.10).</strong></li>
-</ol>
-<h3
-id="next-step-tested-contraction-pressure-negative-the-target-not-the-encoder-is-the-ceiling">14.4.10
-Next step tested: contraction pressure (negative — the target, not the
-encoder, is the ceiling)</h3>
-<p>Following the memory note
-<code>deepset-contraction-calibration</code>, we injected the two cheap
-contraction mechanisms and retrained
-(<code>..._contraction_retrain.py</code>, 106 min): (1) <strong>BvM aux
-features</strong> <span class="math inline">\(a = (n/N, m/N, 1/\sqrt n,
-1/\sqrt m)\)</span> giving the head the exact posterior-SD rate, and (3)
-<strong><span class="math inline">\(n\)</span>-stratified
-mini-batches</strong> (log-spaced strata of <span
-class="math inline">\([2, N)\)</span>). Two probes decide it before the
-deployment test.</p>
-<p><strong>Probe A — is there an <span
-class="math inline">\(n\)</span>-signal to learn?</strong> On the
-<em>base</em> net’s own prior-predictive training distribution the
-predicted width is already flat (slope <span
-class="math inline">\(-0.02\)</span>), and — the diagnostic that matters
-— the <strong>prediction error saturates</strong>: median <span
-class="math inline">\(|\rho - \hat\rho_3|\)</span> is <span
-class="math inline">\(0.035\)</span> at <span class="math inline">\(n
-&lt; 80\)</span> and <span class="math inline">\(0.033\)</span> at <span
-class="math inline">\(n &gt; 400\)</span> (slope <span
-class="math inline">\(-0.14\)</span>, all of it below <span
-class="math inline">\(n \approx 15\)</span>). The reason is structural:
-<strong>training conditions on both cohorts, and <span
-class="math inline">\(n + m = N = 503\)</span> always</strong>, so <span
-class="math inline">\((x, z)\)</span> jointly identify the
-full-population endpoint regardless of the split — there is almost no
-<span class="math inline">\(n\)</span>-contraction in the training
-target to learn. The SVI posterior contracts (<span
-class="math inline">\(-0.59\)</span>) because it is the <span
-class="math inline">\(x\)</span>-only posterior, an uncertainty source
-the prior-predictive target never exposes.</p>
-<p><strong>Probe B — did the retrain help?</strong> On the training
-distribution the retrained net’s width now <em>does</em> scale (slope
-<span class="math inline">\(-0.02 \to -0.15\)</span>) and, tellingly,
-its width slope now <strong>equals its error slope</strong> (<span
-class="math inline">\(-0.153\)</span> vs <span
-class="math inline">\(-0.154\)</span>) — it correctly scales spread to
-its own accuracy. But that accuracy ceiling is the mild <span
-class="math inline">\(-0.15\)</span>, not the SVI <span
-class="math inline">\(-0.59\)</span>. And at <strong>deployment</strong>
-the improvement vanishes: the retrained net’s marginal width slope is
-<span class="math inline">\(-0.05\)</span> (it <em>widens</em>, <span
-class="math inline">\(0.50 \to 0.86\)</span> over <span
-class="math inline">\(n = 48 \to 500\)</span>), no better than the base
-net’s <span class="math inline">\(-0.11\)</span> — because the
-posterior-predictive <span class="math inline">\(z^{(s)}\)</span> shift
-is not what the BvM aux was fit against.</p>
-<p><strong>The interim-1-only test (the actual objective).</strong> On
-the retrained net, refit <span class="math inline">\(q_\psi\)</span> on
-interim-1 SVI only and apply to all 8 interims:</p>
-<table>
-<thead>
-<tr>
-<th>config (mean over interims)</th>
-<th style="text-align: right;">cov @ 0.5</th>
-<th style="text-align: right;">cov @ 0.95</th>
-<th style="text-align: right;">PIT–KS</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>baseline (retrained net)</td>
-<td style="text-align: right;">0.17</td>
-<td style="text-align: right;">0.49</td>
-<td style="text-align: right;">0.54</td>
-</tr>
-<tr>
-<td>head-ft <strong>interim-1 only</strong></td>
-<td style="text-align: right;">0.58</td>
-<td style="text-align: right;">0.89</td>
-<td style="text-align: right;">0.37</td>
-</tr>
-<tr>
-<td>head-ft <strong>expanding</strong> (§14.4.8)</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.94</td>
-<td style="text-align: right;">0.18</td>
-</tr>
-</tbody>
-</table>
-<p>The interim-1 fit nails interim 1 itself (cov <span
-class="math inline">\(0.51/0.95\)</span>, PIT–KS <span
-class="math inline">\(0.07\)</span>) but <strong>drifts at interims
-2–8</strong> (cov@0.5 <span class="math inline">\(\approx 0.6\)</span>,
-PIT–KS <span class="math inline">\(\approx 0.45\)</span>) — no better
-transfer than on the base net. <strong>Verdict: contraction pressure via
-aux + stratification does not work, and the expanding-window head
-fine-tune (§14.4.8) remains the operating point.</strong> The ceiling is
-the <em>training target</em>, not the encoder: a scalar full-population
-endpoint conditioned on both cohorts has no <span
-class="math inline">\(x\)</span>-only contraction to represent. Making
-interim-1 calibration sufficient would require changing the
-<strong>target construction</strong> so training exposes the <span
-class="math inline">\(x\)</span>-only posterior contraction —
-e.g. labelling each draw with an endpoint under a <span
-class="math inline">\(\theta\)</span> resampled from <span
-class="math inline">\(p(\theta \mid x_n)\)</span> rather than the
-generating population <span class="math inline">\(\theta\)</span> —
-which reintroduces a nested posterior step at training time. Left as
-future work; memory updated. Artifacts:
-<code>..._contraction-260811/</code> (net,
-<code>..._prior_contraction_probe.csv</code>,
-<code>..._headft_i1_coverage.csv</code>, deployment contraction
-PDFs).</p>
-<h3
-id="planned-redesign-focused-proposal-amortised-posterior-inference">14.4.11
-Planned redesign: focused-proposal amortised posterior inference</h3>
-<p>§14.4.10 localised the ceiling to the <strong>estimand’s <span
-class="math inline">\(n\)</span>-scaling</strong>, not the encoder:
-training used the finite-cohort endpoint with both cohorts <span
-class="math inline">\(= N\)</span> (no <span
-class="math inline">\(n\)</span>-contraction), whereas the deployment
-target <span class="math inline">\(\rho_{\text{SVI-}x}\)</span> — the
-existing <code>get_endpoints_per_draw</code> functional of a posterior
-draw — contracts at the BvM rate. This redesign keeps that diagnosis but
-drops the super-population construction of the previous draft (which
-needed an ability law <span class="math inline">\(G\)</span> and a
-reference-MC estimator — a departure from the SVI workflow). Instead it
-stays inside a <strong>standard Bayesian workflow, ML-enhanced</strong>:
-amortised posterior inference with a <em>focused proposal</em>, the
-mainstream simulation-based-inference (SBI) recipe <span
-class="citation"
-data-cites="cranmer2020frontier radev2020bayesflow">(Cranmer et al.
-2020; Radev et al. 2020)</span>.</p>
-<p><strong>Reframing (dissolves the super-population
-objection).</strong> Anchor once at the first interim:</p>
-<ul>
-<li><strong>proposal</strong> <span class="math inline">\(\theta^{(s)}
-\sim p(\theta \mid x_1)\)</span> — the interim-1 SVI posterior, in place
-of the diffuse prior. This is the sequential/focused-proposal step of
-SBI <span class="citation"
-data-cites="greenberg2019automatic papamakarios2019sequential hermans2020likelihood">(Greenberg
-et al. 2019; Papamakarios et al. 2019; Hermans et al. 2020)</span>, done
-once rather than iterated;</li>
-<li><strong>target</strong> <span class="math inline">\(\rho^{(s)} =
-r(\theta^{(s)})\)</span> — the <em>exact</em> endpoint code the workflow
-already runs for <span
-class="math inline">\(\rho_{\text{SVI-}x}\)</span>. No new estimator, no
-ability law to choose;</li>
-<li><strong>contraction source</strong> — feed the network a simulated
-cohort of size <span class="math inline">\(n\)</span> drawn from <span
-class="math inline">\(\theta^{(s)}\)</span>; a size-<span
-class="math inline">\(n\)</span> sample identifies <span
-class="math inline">\(\theta^{(s)}\)</span> to <span
-class="math inline">\(O(n^{-1/2})\)</span>, so <span
-class="math inline">\(\operatorname{SD}(\rho^{(s)}\mid
-\text{size-}n\text{ summary}) \asymp n^{-1/2}\)</span> (delta method
-through the smooth <span class="math inline">\(\theta \mapsto
-r(\theta)\)</span>). The contraction the amortiser must learn is now
-<em>present in the training target</em>, because <span
-class="math inline">\(\rho^{(s)}\)</span> is a parameter-level
-functional the finite cohort only estimates — exactly as SVI’s <span
-class="math inline">\(\rho_{\text{SVI-}x}\)</span> is.</li>
-</ul>
-<p>Components:</p>
-<p><strong>A. Focused proposal with a drift guard (median-shift
-augmentation).</strong> A single interim-1 posterior can fail to
-<em>envelope</em> later interims if enrolment drifts (the
-displacement-status composition changes over the trial). Rather than
-trust <span class="math inline">\(p(\theta \mid x_1)\)</span> to cover
-every later location, <strong>widen the proposal in effect-size
-location</strong>: per draw, translate the endline-vs-baseline contrast
-by <span class="math inline">\(\delta^{(s)} \sim
-\pi_{\text{shift}}\)</span> (e.g. <span class="math inline">\(\delta
-\sim U[-\Delta, \Delta]\)</span> on the standardised effect-size scale)
-so the proposal brackets a range of <em>median</em> <span
-class="math inline">\(\rho\)</span> around the interim-1 estimate. This
-is a defensive/robustified proposal in the spirit of truncated-support
-schemes <span class="citation"
-data-cites="deistler2022truncated">(Deistler et al. 2022)</span>: a
-little efficiency traded for coverage of a shifting target, with <span
-class="math inline">\(\Delta\)</span> set from the between-interim drift
-measured in the weekly SVI fits.</p>
-<p><strong>B. Decoupled varies-<span class="math inline">\(N\)</span>
-schedule.</strong> Draw the two cohort sizes independently, <span
-class="math inline">\(n, m \sim \lfloor \text{LogUniform}[2, N_{\max}]
-\rfloor\)</span> (not <span class="math inline">\(m = N - n\)</span> —
-the coupling is what caused §14.4.10’s saturation); simulate <span
-class="math inline">\(x_n, z_m\)</span> from <span
-class="math inline">\(\theta^{(s)}\)</span>; aux <span
-class="math inline">\(= (1/\sqrt n, 1/\sqrt m, \dots)\)</span>. Because
-we simulate cohorts of <em>any</em> size from the interim-1 posterior
-draws, training covers all later interim sizes even though interim 1
-holds only <span class="math inline">\(n_1\)</span> real
-participants.</p>
-<p><strong>C. Interval-score loss.</strong> Score width directly with
-the strictly proper interval score <span class="citation"
-data-cites="gneiting2007strictly">(Gneiting and Raftery 2007)</span>:
-for a central <span class="math inline">\(1-\alpha\)</span> interval
-with bounds <span class="math inline">\(\ell = \hat\rho_{\alpha/2}, u =
-\hat\rho_{1-\alpha/2}\)</span>, <span
-class="math display">\[\text{IS}_\alpha(\ell, u; y) = (u - \ell) +
-\tfrac{2}{\alpha}(\ell - y)_+ + \tfrac{2}{\alpha}(y - u)_+,\]</span>
-summed over the symmetric <span
-class="math inline">\(\eta^{\text{inpol}}\)</span> pairs (<span
-class="math inline">\(\alpha \in \{0.10, 0.50\}\)</span>) plus the
-median pinball, with the per-item <span
-class="math inline">\(\hat\sigma_j\)</span> standardisation and a
-monotone head.</p>
-<p><strong>D. Ragged variable-<span class="math inline">\(n\)</span>
-encoder (no fixed-<span class="math inline">\(N\)</span>
-padding).</strong> Replace the fixed <span class="math inline">\((J,
-N_{\max}{=}503, J, 2)\)</span> padded tensor + masks with a
-<strong>ragged participant axis</strong>: participants are concatenated
-across the batch and pooled with a segmented mean
-(<code>jax.ops.segment_sum</code> over per-participant segment ids), so
-the encoder consumes exactly the real <span
-class="math inline">\(n\)</span> participants and the <span
-class="math inline">\(1/n\)</span> pooling delivers the correct BvM
-precision to the head. This is the exchangeable/permutation-invariant
-summary network SBI uses to <em>learn</em> contraction across dataset
-size <span class="citation"
-data-cites="radev2020bayesflow chan2018likelihood">(Radev et al. 2020;
-Chan et al. 2018)</span>; cross-attention and head are unchanged.
-Implemented in <a
-href="../python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py"><code>python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py</code></a>.</p>
-<p><strong>E. Anchor at ~15%, evaluate on existing weekly SVI
-fits.</strong> Set interim 1 to <span class="math inline">\(\approx
-15\%\)</span> of the final <span class="math inline">\(N = 503\)</span>
-(<span class="math inline">\(\approx 75\)</span>), rounded to the
-nearest existing weekly SVI simulation: <span class="math inline">\(n_1
-= 57\)</span> (weekly interim 4, <span class="math inline">\(\approx
-11\%\)</span>; the alternative <span class="math inline">\(n_1 = 104
-\approx 21\%\)</span> gives a safer BvM margin). <strong>Reuse the 29
-weekly SVI fits</strong>
+<p>The network is trained on the prior predictive of the partial-credit
+model (§8): every training example is a fresh draw from the model prior,
+so no SVI fit enters training (6000 steps, batch <span
+class="math inline">\(B=24\)</span>, fresh draws each step).</p>
+<p><strong>Prior.</strong> Each draw uses the standard
+partial-credit-model priors — the same specification fit in Pyro/Stan —
+with the ordered-category thresholds given a deliberately wide variance:
+item time-effects <span class="math inline">\(\beta_t\sim
+N(0,1)\)</span> for <span
+class="math inline">\(t\in\{\text{baseline},\text{endline}\}\)</span>;
+thresholds <span class="math inline">\(\tau_{j,t,k}\sim
+N(0,3.5^2)\)</span>; discriminations <span
+class="math inline">\(\lambda_{j,t}=\lvert T_3\rvert\)</span>
+(half-Student-<span class="math inline">\(t\)</span>, 3 df, the first
+item-time fixed to <span class="math inline">\(1\)</span> for
+identification); and participant abilities <span
+class="math inline">\(\theta_i\sim N(0,1)\)</span>. The wide threshold
+prior is deliberate, for two reasons. First, the training prior must
+<strong>envelope</strong> any posterior that can arise at deployment:
+because the amortiser is only ever fitted where the prior predictive
+puts mass, the prior predictive has to cover the region the real data’s
+posterior occupies, or the network is evaluated out of distribution —
+the prior/deployment mislocation of §14.4.5 is precisely this
+distribution shift, and a proposal that fails to envelope it cannot be
+repaired by the head fine-tune. Second, a broad proposal leaves
+posterior uncertainty for a finite cohort to resolve, which is what
+makes contraction with cohort size learnable.</p>
+<p><strong>Cohort sampling.</strong> For each parameter draw, two cohort
+sizes are chosen <strong>independently</strong> — the observed size
+<span class="math inline">\(n\)</span> and the future size <span
+class="math inline">\(m\)</span> — spread log-uniformly over <span
+class="math inline">\(\{2,\dots,N\}\)</span> with <span
+class="math inline">\(N=503\)</span>, so all cohort sizes are
+represented across a batch. A cohort of <span
+class="math inline">\(n_{\text{ab}}\)</span> participants is then
+simulated: draw <span class="math inline">\(n_{\text{ab}}\)</span>
+abilities <span class="math inline">\(\theta_i\sim N(0,1)\)</span>, and
+at the drawn <span class="math inline">\((\beta,\tau,\lambda)\)</span>
+sample each participant’s ordered-categorical response at baseline and
+at endline from the PCM (inverse-CDF from the cumulative category
+probabilities), rescaled to <span class="math inline">\([0,1]\)</span>
+as <span class="math inline">\(y/(K_j-1)\)</span>. This yields the
+observed cohort <span class="math inline">\(x^{(s)}\)</span> and the
+future cohort <span class="math inline">\(z^{(s)}\)</span> as raw
+per-participant response tensors.</p>
+<p><strong>Target.</strong> The estimand the amortiser fits is the
+<strong>conditional posterior</strong> <span
+class="math inline">\(p(\rho_j\mid x,z)\)</span> — the posterior over
+the population effect size given the observed and future cohorts. It is
+fitted by the standard simulation-based-inference argument (§14.1.7):
+for a joint draw <span
+class="math inline">\((\theta^{(s)},x^{(s)},z^{(s)})\)</span> —
+parameters from the prior, cohorts simulated from them — the value <span
+class="math inline">\(\rho_j^{(s)}=r_j(\theta^{(s)})\)</span> is a
+<em>single valid draw</em> from <span class="math inline">\(p(\rho_j\mid
+x^{(s)},z^{(s)})\)</span>, so training the amortiser’s quantiles against
+<span class="math inline">\(\rho_j^{(s)}\)</span> (interval score) fits
+that conditional. Concretely: every amortiser output <span
+class="math inline">\(\hat\rho_j^{(s)}\)</span> is scored against the
+<span class="math inline">\(\rho_j^{(s)}\)</span> from which its own
+inputs <span class="math inline">\(x^{(s)},z^{(s)}\)</span> were
+generated.</p>
+<p>The functional <span class="math inline">\(r_j(\theta)\)</span> of
+the drawn parameters <span
+class="math inline">\(\theta=(\beta,\tau,\lambda)\)</span> is the
+direction-aware relative change in the mean item response level between
+baseline and endline, <span
+class="math display">\[r_j(\theta)=s_j\Big(\bar w_{e,j}/\bar
+w_{b,j}-1\Big),\qquad \bar w_{t,j}=\mathbb E_{\theta_i\sim
+N(0,1)}\!\big[\,g_j(\text{response}_{i,j,t}\mid\theta)\,\big],\]</span>
+where <span class="math inline">\(g_j\)</span> is the expected score
+<span class="math inline">\(\sum_k k\,p_{jk}\)</span> for out-of-7 items
+and the caseness probability <span class="math inline">\(\Pr(y_j\ge
+c)\)</span> for categorical items, <span
+class="math inline">\(s_j=\pm1\)</span> the item direction; clipped to
+<span class="math inline">\(\pm20\)</span>. <strong>There is no
+closed-form expression for</strong> <span
+class="math inline">\(r_j(\theta)\)</span>: the mean response level
+<span class="math inline">\(\bar w_{t,j}\)</span> is the expectation
+<em>over the ability distribution</em> <span
+class="math inline">\(\theta_i\sim N(0,1)\)</span> of a nonlinear
+category probability (a softmax of cumulative threshold sums), and this
+Gaussian integral has no analytic solution under the partial-credit
+likelihood. We therefore estimate <span class="math inline">\(\bar
+w_{t,j}\)</span> by a <strong>reference simulation</strong> of <span
+class="math inline">\(N_{\text{ref}}=2000\)</span> abilities drawn from
+<span class="math inline">\(N(0,1)\)</span>. This keeps the construction
+model-general — it needs only the ability to <em>simulate</em> the
+model, never to integrate it — under the assumption that <span
+class="math inline">\(N_{\text{ref}}\)</span> is large enough that the
+Monte-Carlo error in <span class="math inline">\(\bar w_{t,j}\)</span>
+is negligible against the posterior width, i.e. <span
+class="math inline">\(r_j(\theta)\)</span> is treated as the exact
+target.</p>
+<p>Because the target is this population functional while the network
+sees only finite cohorts, the predictive <span
+class="math inline">\(\hat p(\rho_j\mid x,z)\)</span> must
+<strong>contract</strong> toward <span
+class="math inline">\(r_j(\theta)\)</span> as the cohorts grow — the
+signal quantified in §14.4.7 and exploited in §14.4.7. The sampler
+(<code>draw_params</code>, <code>theta_level_rho</code>,
+<code>sim_cohort</code> in the explore script; <a
+href="../python/model_pcm.py"><code>python/model_pcm.py</code></a>) fans
+each draw out to <span class="math inline">\(Q=4\)</span> queried
+items.</p>
+<h3 id="ragged-per-participant-data-structure">14.4.3 Ragged
+per-participant data structure</h3>
+<p>The two cohorts enter the network as raw per-participant response
+tensors, not pooled summaries; because the cohort sizes vary from one
+training example to the next, they are stored <strong>ragged</strong> —
+no padding to a common size, and no participant mask.</p>
+<p><strong>Structure.</strong> Across a batch of <span
+class="math inline">\(B\)</span> examples, all observed-cohort
+participants are concatenated along a single flat axis, <span
+class="math inline">\(x_{\text{flat}}\in\mathbb R^{T\times J\times
+2}\)</span>, where <span class="math inline">\(T=\sum_b n_b\)</span> is
+the total participant count over the batch, <span
+class="math inline">\(J\)</span> the items, and the last axis the
+(baseline, endline) responses; a companion segment vector <span
+class="math inline">\(x_{\text{seg}}\in\{0,\dots,B-1\}^{T}\)</span>
+records which example each participant belongs to. The future cohorts
+are stored identically as <span class="math inline">\((z_{\text{flat}},
+z_{\text{seg}})\)</span>. The arrays therefore hold exactly the real
+participants — there is no <span
+class="math inline">\(N\)</span>-padding and no <span
+class="math inline">\(0/1\)</span> mask.</p>
+<h3 id="encoder-pooling-item-cross-attention-quantile-head-loss">14.4.4
+Encoder: pooling, item cross-attention, quantile head, loss</h3>
+<p><strong>Pooling.</strong> The per-item cohort summary is a
+<strong>segmented mean</strong> over participants. A shared MLP <span
+class="math inline">\(q_\tau\)</span> embeds each (participant, item,
+time) response vector, and <code>jax.ops.segment_sum</code> sums the
+embeddings within each example’s segment, divided by the segment count:
+<span class="math display">\[\text{pool}^{x}_{b,j} \;=\;
+\frac{1}{n_b}\sum_{i:\,x_{\text{seg}}(i)=b}
+q_\tau\big(x_{\text{flat}}[i,j,\cdot],\,c_j,d_j\big) \;\in\;\mathbb
+R^{E}, \qquad \text{pool}^{z}_{b,j}\ \text{from}\ m_b\
+\text{likewise}.\]</span> Dividing by the true <span
+class="math inline">\(n_b\)</span> (resp. <span
+class="math inline">\(m_b\)</span>) makes each summary the sample mean
+of the learned per-participant embedding at the actual cohort size — the
+amortised replacement for the hand-computed group-means of §14.1.3, and
+the standard exchangeable-set summary used by simulation-based inference
+for variable dataset sizes (Radev et al. 2020; Chan et al. 2018).</p>
+<p><strong>Cross-attention and head.</strong> The per-item embedding
+mixes the two cohort pools, <span class="math inline">\(h_j =
+q_{\text{tok}}(\operatorname{concat}(\text{pool}^x_j,\text{pool}^z_j))\)</span>;
+from here the pipeline is exactly §14.1.4 — the query is built from the
+queried item’s embedding, cross-attention over the <span
+class="math inline">\(J\)</span> embeddings gives <span
+class="math inline">\(\bar h_{j^*}\)</span>, and the multi-quantile head
+consumes <span class="math inline">\((\bar h_{j^*}, h_{j^*}, a)\)</span>
+with aux <span class="math inline">\(a=(1/\sqrt n,1/\sqrt
+m,n/N,m/N)\)</span>: <span class="math display">\[\hat\rho^{(j^*,s)} =
+q_\psi\big(\operatorname{concat}(\bar h_{j^*}, h_{j^*},
+a)\big)\in\mathbb R^K.\]</span> The learned parameters are <span
+class="math inline">\((q_\tau,q_{\text{tok}},q_{\text{query}},q_\psi)\)</span>,
+<span class="math inline">\(\approx18{,}400\)</span> in total.</p>
+<p><strong>Loss.</strong> The head outputs <span
+class="math inline">\(K\)</span> monotone quantiles at fixed levels
+<span
+class="math inline">\(0&lt;\tau_1&lt;\dots&lt;\tau_K&lt;1\)</span>.
+Training minimises the <strong>pinball (quantile) score</strong>, summed
+over prior draws <span class="math inline">\(s\)</span>, queried items
+<span class="math inline">\(j^*\)</span> and levels <span
+class="math inline">\(\tau_k\)</span>: <span
+class="math display">\[\mathcal
+L=\sum_{s}\sum_{j^*}\sum_{k}\ell_{\tau_k}\!\big(\rho^{(s)}_{j^*}-\hat\rho^{(j^*,s)}_{\tau_k}\big),\qquad
+\ell_\tau(u)=\big(\tau-\mathbf 1\{u&lt;0\}\big)\,u,\]</span>
+equivalently the interval score summed over the symmetric quantile pairs
+<span class="math inline">\((\tau_k,1-\tau_k)\)</span>. The pinball
+score at level <span class="math inline">\(\tau\)</span> is minimised
+exactly at the <span class="math inline">\(\tau\)</span>-quantile of the
+target’s conditional law; since <span
+class="math inline">\(\rho^{(s)}_{j^*}\)</span> is a draw from <span
+class="math inline">\(p(\rho\mid x^{(s)},z^{(s)})\)</span> (§14.4.2),
+the fitted head recovers the quantiles of that conditional
+posterior.</p>
+<p><strong>Alternatives considered.</strong> A head that instead fits
+the <strong>marginal</strong> <span class="math inline">\(p(\rho\mid
+x)\)</span> directly — or an architecture that guarantees the law of
+total probability <span class="math inline">\(p(\rho\mid x)=\int
+p(\rho\mid x,z)\,p(z\mid x)\,dz\)</span> by construction (a
+normalising-flow or diffusion posterior head) — was considered and
+dropped. At deployment <span class="math inline">\(p(\rho\mid
+x)\)</span> is obtained directly from the SVI fit of the observed cohort
+because we need this to generate future cohorts; the piece SVI cannot
+supply is the future cohort <span class="math inline">\(z\)</span>, so
+the amortiser is needed only for the <strong>conditional</strong> <span
+class="math inline">\(p(\rho\mid x,z)\)</span>.</p>
+<p>Net module
+<code>python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py</code>;
+trained network directory
+<code>…-deepsetXcompAtt-ragged-priorproposal-260812</code>. The
+evaluation grid is the 29 weekly SVI fits
 (<code>py-ukraine-interim-weekly-svi-260811</code>, <span
-class="math inline">\(n = 48 \to 500\)</span>) as the
-posterior-contraction evaluation grid — no recompute. Adequacy criterion
-(verify, don’t assume): the interim-1 posterior-predictive must cover
-<span class="math inline">\(\ge 90\%\)</span> of every later weekly
-interim’s summary statistics; if drift breaks this, re-anchor later or
-widen <span class="math inline">\(\pi_{\text{shift}}\)</span> (A).</p>
-<p><strong>What established SBI does for contraction (context).</strong>
-The mainstream tools learn <span
-class="math inline">\(n\)</span>-contraction through B+D: exchangeable
-summary networks over the <em>actual</em> variable-<span
-class="math inline">\(n\)</span> data (BayesFlow <span class="citation"
-data-cites="radev2020bayesflow">(Radev et al. 2020)</span>, exchangeable
-neural nets <span class="citation" data-cites="chan2018likelihood">(Chan
-et al. 2018)</span>), optionally conditioning the estimator on <span
-class="math inline">\(n\)</span>, verified calibrated across <span
-class="math inline">\(n\)</span> by SBC; and they focus the proposal
-with sequential/truncated schemes (APT/SNPE-C <span class="citation"
-data-cites="greenberg2019automatic">(Greenberg et al. 2019)</span>, SNL
-<span class="citation"
-data-cites="papamakarios2019sequential">(Papamakarios et al.
-2019)</span>, SNRE <span class="citation"
-data-cites="hermans2020likelihood">(Hermans et al. 2020)</span>, TSNPE
-<span class="citation" data-cites="deistler2022truncated">(Deistler et
-al. 2022)</span>, FMPE <span class="citation"
-data-cites="wildberger2023flow">(Wildberger et al. 2023)</span>). We
-have been hampered on all three fronts — fixed-<span
-class="math inline">\(N\)</span> padding, prior proposal, finite-<span
-class="math inline">\(N\)</span> target — which this redesign flips.</p>
-<p><strong>Success criterion.</strong> On the retrained net: the
-deployment marginal width slope <span
-class="math inline">\(W_{\text{marg}} \to \approx
-W_{\text{SVI}}\,(-0.59)\)</span> across the weekly grid,
-<strong>and</strong> an interim-1-only head fine-tune reaches
-near-nominal coverage at all interims (PIT–KS <span
-class="math inline">\(\lesssim 0.2\)</span>), collapsing the expanding
-window (§14.4.8) to a single calibration.</p>
-<h3 id="cross-architecture-summary">14.5.1 Cross-architecture
-summary</h3>
-<p>The remedy sweep run on all three encoders gives one consistent
-conclusion:</p>
+class="math inline">\(n=48\to500\)</span>), reused with no
+recomputation. (The fixed-<span class="math inline">\(N\)</span> padded
+predecessor and the focused interim-1 proposal are catalogued in
+§14.10.)</p>
+<h3 id="diagnostics">14.4.5 Diagnostics</h3>
+<p>Four diagnostics probe the raw (pre-calibration) network,
+forward-passing every SVI draw; all quantities exclude the degenerate
+item <code>CG-VIO_ph-punish</code>. Each is defined here as a statistic
+on the amortiser output, with the figure that illustrates it; the
+numbers themselves appear from §14.4.6 on.</p>
+<p><strong>Association with the SVI target.</strong> For a joint draw,
+the SVI posterior draw <span
+class="math inline">\(\rho^{(s)}_{\text{SVI-}x}\)</span> from the
+observed cohort is passed through the amortiser to obtain the
+conditional median <span class="math inline">\(\operatorname{med}\hat
+p(\rho\mid x^{(s)},z^{(s)})\)</span>. The diagnostic is the Pearson
+correlation between the two as a function of cohort size <span
+class="math inline">\(n\)</span> — whether the encoder’s set-summary
+retains the cohort’s signal. It necessarily decays with <span
+class="math inline">\(n\)</span>: as the SVI posterior tightens onto
+<span class="math inline">\(r_j(\theta)\)</span> the spread of targets
+to track collapses, so a falling correlation is expected, and this
+diagnostic needs to condition on a particular n band.</p>
+<p><strong>Conditional calibration (PIT / SBC).</strong> Under the
+§14.1.7 joint-draw construction <span
+class="math inline">\(\rho^{(s)}_{\text{SVI-}x}\)</span> is a valid draw
+from the conditional <span class="math inline">\(p(\rho_j\mid
+x,z^{(s)})\)</span> the amortiser targets, so its probability-integral
+transform under the amortiser’s predictive, <span
+class="math display">\[u^{(s)}_j \;=\; \hat
+F_j\big(\rho^{(s)}_{\text{SVI-}x}\mid x,z^{(s)}\big)\ \in[0,1]\]</span>
+— the rank of the target among the predicted quantiles, linearly
+interpolated — must be <strong>uniform</strong> if that conditional
+predictive is calibrated. The scalar summary is the KS distance of the
+empirical PIT CDF from uniform, <span
+class="math inline">\(\text{PIT–KS}_j=\sup_t\lvert \hat
+G_j(t)-t\rvert\)</span>. Illustrated by the <strong>PIT box</strong>
+(<code>…_pit_box_by_item.pdf</code>): per item, precomputed whiskers
+(10/90% quantiles), box (25/75%) and median line of <span
+class="math inline">\(\{u^{(s)}_j\}\)</span> across draws, coloured by
+the signed deviation of the PIT median from <span
+class="math inline">\(\tfrac12\)</span>; a calibrated item sits at
+median <span class="math inline">\(\tfrac12\)</span> with box edges near
+<span class="math inline">\(0.25/0.75\)</span>.</p>
+<p><strong>Marginal calibration.</strong> The marginal predictive is
+built by the law of total probability over the future cohort: draw <span
+class="math inline">\(z^{(s)}\sim p(z\mid x)\)</span> —
+posterior-predictive future cohorts simulated from the SVI fit of the
+observed cohort <span class="math inline">\(x\)</span> — run the
+amortiser on each to get the conditional <span
+class="math inline">\(\hat p(\rho_j\mid x,z^{(s)})\)</span>, and pool
+them, <span class="math inline">\(\hat p(\rho_j\mid
+x)=\frac1S\sum_{s=1}^S \hat p(\rho_j\mid x,z^{(s)})\)</span>. At a fixed
+interim this should match the SVI posterior <span
+class="math inline">\(p_{\text{SVI}}(\rho_j\mid x)\)</span>. The scalar
+summary is the KS distance between the two CDFs, <span
+class="math inline">\(\text{marg–KS}_j=\sup_t\lvert \hat
+F^{\text{marg}}_j(t)-F^{\text{SVI}}_j(t)\rvert\)</span>, pooled over
+interims. Illustrated by the <strong>marginal quantile box</strong>
+(<code>…_contraction_cdf_by_item.pdf</code>, with a
+<code>…RAGDbase…</code> raw-network companion): <span
+class="math inline">\(x\)</span>-axis interim, <span
+class="math inline">\(y\)</span>-axis <span
+class="math inline">\(\rho\)</span>-quantiles, one box per interim for
+SVI and one for the amortiser (whiskers 10/90%, box 25/75%, median
+line), so a systematic location or spread mismatch is read off
+directly.</p>
+<p><strong>Posterior contraction.</strong> The predictive should sharpen
+with cohort size at the SVI rate. The <strong>contraction law</strong>
+plot (<code>…_contraction-law_trained-vs-svi.pdf</code>) shows, per
+item, <span class="math inline">\(\log\mathrm{SD}(\rho_j\mid x)\)</span>
+against <span class="math inline">\(\log n\)</span> for the SVI
+posterior and for the amortiser, with a fitted power law <span
+class="math inline">\(\mathrm{SD}=C_j\,n^{-p_j}\)</span> overlaid. The
+fit takes <span class="math inline">\((C_j,p_j)\)</span> by least
+squares of <span class="math inline">\(\log\mathrm{SD}\)</span> on <span
+class="math inline">\(\log n\)</span> across the weekly SVI grid; on
+log–log axes <span class="math inline">\(\log\mathrm{SD}=\log
+C_j-p_j\log n\)</span> is a <strong>straight line of slope</strong>
+<span class="math inline">\(-p_j\)</span>, so the constant relative
+contraction rate <span
+class="math inline">\(\mathrm{d}\log\mathrm{SD}/\mathrm{d}\log
+n=-p_j\)</span> is exactly that slope. The SVI SDs fall along this line;
+a well-matched amortiser tracks the same slope, an under-contracting one
+is shallower. The companion <strong>contraction factor</strong> plot
+(<code>…_posterior-contraction-factor.pdf</code>) shows the ratio of
+amortiser to SVI predictive SD against <span
+class="math inline">\(n\)</span> — flat at one when the rates agree,
+drifting above one and growing with <span
+class="math inline">\(n\)</span> when the amortiser under-contracts.
+This rate is the second target, modelled in §14.4.7.</p>
+<p>All figures are produced by
+<code>python/amortiser_diag_plots.py</code>.</p>
+<h3 id="head-fine-tune-expanding-window-and-affine-shift">14.4.6 Head
+fine-tune: expanding window and affine shift</h3>
+<p>The mislocation is corrected by refitting only the quantile head
+<span class="math inline">\(q_\psi\)</span> on the operational SVI, with
+the encoder frozen, followed by a per-item affine location shift. Two
+fine-tune schedules are compared against the raw network on the weekly
+grid (conditional PIT–KS; marginal KS):</p>
 <table>
-<colgroup>
-<col style="width: 46%" />
-<col style="width: 17%" />
-<col style="width: 8%" />
-<col style="width: 10%" />
-<col style="width: 7%" />
-<col style="width: 8%" />
-</colgroup>
 <thead>
 <tr>
-<th>architecture (interim-1 corr o7/cat)</th>
-<th>remedy</th>
-<th style="text-align: right;">cov@.5</th>
-<th style="text-align: right;">cov@.95</th>
+<th>head fine-tune (<span class="math inline">\(+\)</span> affine
+shift)</th>
 <th style="text-align: right;">PIT–KS</th>
 <th style="text-align: right;">marg–KS</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>itemXcompAtt</code> (0.82/0.71)</td>
-<td>baseline</td>
-<td style="text-align: right;">0.15</td>
-<td style="text-align: right;">0.44</td>
+<td>none (raw network)</td>
+<td style="text-align: right;">0.465</td>
+<td style="text-align: right;">0.441</td>
+</tr>
+<tr>
+<td>interim-1 only (<code>…_ftheadi1</code>)</td>
+<td style="text-align: right;">0.144</td>
+<td style="text-align: right;">0.238</td>
+</tr>
+<tr>
+<td><strong>expanding</strong> <span class="math inline">\(1..k\)</span>
+(<code>…_ftheadexpand</code>)</td>
+<td style="text-align: right;"><strong>0.069</strong></td>
+<td style="text-align: right;"><strong>0.157</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Interim-1 fitting is not pursued further.</strong> A head
+fitted at interim 1 alone calibrates the anchor but drifts (PIT–KS <span
+class="math inline">\(0.144\)</span>, marg–KS <span
+class="math inline">\(0.238\)</span> over the 29 interims), because the
+location bias is <em>interim-heteroscedastic</em> — its magnitude
+shrinks as <span class="math inline">\(n\)</span> grows, so one fit
+cannot serve all cohort sizes. The <strong>expanding-window</strong> fit
+— refit <span class="math inline">\(q_\psi\)</span> on interims <span
+class="math inline">\(1..k\)</span> at each <span
+class="math inline">\(k\)</span> (cost <span
+class="math inline">\(\approx0.5\)</span> s/refit, negligible) —
+conditions on each interim through the frozen embedding and reaches
+near-nominal calibration (PIT–KS <span
+class="math inline">\(0.069\)</span>).</p>
+<p><strong>Post-hoc conformal recalibration fails for the same
+reason.</strong> A static per-item monotone PIT map (distribution
+calibration, Kuleshov et al. 2018), fitted on interim-1 or on the
+expanding pool, only partly corrects coverage (PIT–KS <span
+class="math inline">\(\approx0.56\)</span>–<span
+class="math inline">\(0.59\)</span>) and <em>worsens</em> the marginal
+KS: a single monotone map cannot absorb an interim-heteroscedastic bias,
+whereas refitting the head can. Set aside (§14.10).</p>
+<p><strong>Affine median-shift (on by default).</strong> The head
+fine-tune fixes the quantile spread but leaves a per-item
+<em>location</em> residual — the prior-trained encoder systematically
+under-predicts every item. One scalar per item, fitted on the same SVI
+of interims <span class="math inline">\(1..k\)</span>, corrects it,
+<span class="math inline">\(\Delta_j(k)=\operatorname{mean}_{i\le
+k}\big[\operatorname{med}p_{\mathrm{SVI}}(\rho\mid
+x_i)-\operatorname{med}\hat p(\rho\mid x_i)\big]\)</span>, applied as a
+pure location shift to all quantiles (<code>RAGD_MEDSHIFT</code>,
+default on). It lowers PIT–KS <span
+class="math inline">\(0.075\to0.069\)</span> and marg–KS <span
+class="math inline">\(0.180\to0.157\)</span>, and removes the systematic
+under-prediction visible in the marginal quantile box.</p>
+<p><strong>Direct comparison against the hand-token encoders.</strong>
+The <em>same</em> expanding head-ft <span
+class="math inline">\(+\)</span> affine remedy is applied to the two
+§14.1 hand-token encoders — <code>itemXcompAtt</code> (cross-attention,
+§14.2.7) and <code>itemScompAtt</code> (self-attention, §14.3.4) — as
+fair baselines for the deepset, all on the <strong>same weekly-29
+grid</strong> (ids 2..30, <span
+class="math inline">\(n=48\to500\)</span>); all four §14.4.5 figures are
+produced for each from the shared <code>amortiser_diag_plots</code>
+module for a like-for-like read:</p>
+<table>
+<colgroup>
+<col style="width: 68%" />
+<col style="width: 15%" />
+<col style="width: 15%" />
+</colgroup>
+<thead>
+<tr>
+<th>encoder (expand head-ft <span class="math inline">\(+\)</span>
+affine, weekly-29)</th>
+<th style="text-align: right;">PIT–KS</th>
+<th style="text-align: right;">marg–KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong><code>deepsetXcompAtt</code></strong> (learned pooling)</td>
+<td style="text-align: right;"><strong>0.069</strong></td>
+<td style="text-align: right;">0.157</td>
+</tr>
+<tr>
+<td><code>itemXcompAtt</code> (hand token, §14.2.7)</td>
+<td style="text-align: right;">0.139</td>
+<td style="text-align: right;">0.119</td>
+</tr>
+<tr>
+<td><code>itemScompAtt</code> (hand token, §14.3.4)</td>
+<td style="text-align: right;">0.136</td>
+<td style="text-align: right;"><strong>0.108</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The split is consistent across the two hand-token encoders
+(interchangeable to within noise, §14.3.4): the <strong>deepset wins the
+conditional PIT–KS by</strong> <span
+class="math inline">\(\approx2\times\)</span> — the object the PPS
+decision consumes — while the <strong>hand tokens win the marginal
+KS</strong> by a smaller margin. marg–KS is secondary, since <span
+class="math inline">\(p(\rho\mid x)\)</span> is available from SVI
+directly (§14.4.5); so for the interim decision the deepset stays
+preferred, with the hand token the marginally better pure effect-size
+estimator. The trade-off is taken up in §14.5.1.</p>
+<p><strong>Both KS metrics vary with cohort size; the all-interim means
+above hide an</strong> <span class="math inline">\(n\)</span>-gradient.
+Splitting the weekly grid into small (<span
+class="math inline">\(n\le150\)</span>; interims 2–5), mid (<span
+class="math inline">\(150&lt;n\le400\)</span>; 6–13) and large (<span
+class="math inline">\(n&gt;400\)</span>; 14–30):</p>
+<table>
+<thead>
+<tr>
+<th>encoder</th>
+<th style="text-align: center;">PIT–KS s/m/l</th>
+<th style="text-align: center;">marg–KS s/m/l</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>deepset</td>
+<td style="text-align: center;">0.072 / 0.085 / 0.060</td>
+<td style="text-align: center;">0.111 / 0.144 /
+<strong>0.172</strong></td>
+</tr>
+<tr>
+<td>itemXcompAtt</td>
+<td style="text-align: center;">0.150 / 0.168 / 0.122</td>
+<td style="text-align: center;">0.070 / 0.101 / 0.138</td>
+</tr>
+<tr>
+<td>itemScompAtt</td>
+<td style="text-align: center;">0.139 / 0.166 / 0.121</td>
+<td style="text-align: center;">0.065 / 0.092 / 0.126</td>
+</tr>
+</tbody>
+</table>
+<p><strong>marg–KS worsens monotonically with</strong> <span
+class="math inline">\(n\)</span> for every encoder (deepset <span
+class="math inline">\(0.111\to0.172\)</span>), and the deepset is the
+worst of the three at large <span class="math inline">\(n\)</span>. The
+cause is under-contraction: the deepset’s marginal 5–95% width
+<em>relative to the SVI width</em> runs <span
+class="math inline">\(0.61\to0.80\to1.58\)</span> across the three bands
+— narrower than SVI at small <span class="math inline">\(n\)</span>, but
+<span class="math inline">\(58\%\)</span> too wide at large <span
+class="math inline">\(n\)</span>. That is, the amortiser’s marginal SD
+sits <em>above</em> the SVI best-fit power law (§14.4.7) at large <span
+class="math inline">\(n\)</span> and stops contracting where SVI keeps
+sharpening; this upward departure from the law is precisely the residual
+the Bernstein–von Mises correction of §14.4.7 removes. Conditional
+PIT–KS, by contrast, has no strong <span
+class="math inline">\(n\)</span>-trend and the deepset leads in every
+band.</p>
+<h3 id="bernsteinvon-mises-best-fit-contraction-law">14.4.7
+Bernstein–von Mises best-fit contraction law</h3>
+<p><strong>The best-fit law.</strong> Bernstein–von Mises gives the
+leading order: the posterior SD of a smooth functional contracts as
+<span class="math inline">\(\mathrm{SD}(\rho_j\mid x)\approx
+\sqrt{V_{\rho_j}}\,n^{-1/2}\)</span> with <span
+class="math inline">\(V_{\rho_j}=\nabla r^\top \mathcal I^{-1}\nabla
+r\)</span> the delta-method (sandwich) variance at the semiparametric
+efficiency bound <span class="citation"
+data-cites="vandervaart1998asymptotic kleijn2012bernstein">(Vaart 1998;
+Kleijn and Vaart 2012)</span>. Over the finite <span
+class="math inline">\(n\)</span>-range of a trial the effective exponent
+departs from <span class="math inline">\(\tfrac12\)</span> for
+item-specific reasons: <span class="math inline">\(\rho\)</span> is a
+<strong>ratio</strong> <span class="math inline">\(\bar w_e/\bar
+w_b\)</span>, whose delta-method variance is inflated by denominator
+uncertainty at small <span class="math inline">\(n\)</span> (Fieller
+<span class="citation" data-cites="fieller1954some">(Fieller
+1954)</span>); finite-<span class="math inline">\(n\)</span>
+higher-order terms add curvature; the endpoint integrates over the
+ability distribution; items near a response boundary identify faster;
+and the finite-population correction <span
+class="math inline">\((1-n/N)\)</span> <span class="citation"
+data-cites="cochran1977sampling">(Cochran 1977)</span> speeds
+contraction as <span class="math inline">\(n\to N\)</span>. These
+corrections do not overturn the leading <span
+class="math inline">\(n^{-1/2}\)</span>; they bend it, and over a finite
+window that bend reads as a shifted exponent. Formally, define the
+<strong>effective exponent</strong> as the local log–log slope <span
+class="math display">\[p_j(n):=-\,\frac{\mathrm
+d\log\mathrm{SD}(\rho_j\mid x)}{\mathrm d\log n},\]</span> which is
+identically <span class="math inline">\(\tfrac12\)</span> under pure
+BvM. Collecting the corrections into a sub-leading factor <span
+class="math inline">\(g_j(n)\)</span>, <span
+class="math inline">\(\mathrm{SD}^2(\rho_j\mid
+x)=V_{\rho_j}\,n^{-1}\,g_j(n)\)</span>, gives <span
+class="math inline">\(p_j(n)=\tfrac12-\tfrac12\,\mathrm d\log
+g_j/\mathrm d\log n\)</span> — generally <span
+class="math inline">\(\neq\tfrac12\)</span>, and drifting only slowly
+with <span class="math inline">\(n\)</span>. Over the trial’s narrow
+window (<span class="math inline">\(n:48\to500\)</span> spans only <span
+class="math inline">\(\Delta\log n\approx2.3\)</span>, a <span
+class="math inline">\(3.2\times\)</span> range in <span
+class="math inline">\(\sqrt n\)</span>) this slope is nearly constant,
+so <span class="math inline">\(\log\mathrm{SD}\)</span> is nearly
+<strong>linear</strong> in <span class="math inline">\(\log n\)</span>:
+a single-exponent power law <span
+class="math inline">\(\mathrm{SD}=C_j\,n^{-p_j}\)</span> with <span
+class="math inline">\(p_j\)</span> the window-averaged slope. The
+exponent is item-specific because <span
+class="math inline">\(g_j\)</span> — hence its slope — depends on the
+item’s <span class="math inline">\(\mathcal I^{-1}\)</span>, <span
+class="math inline">\(\nabla r\)</span>, boundary proximity and floor.
+Fitting candidate laws to the weekly SVI SD (<span
+class="math inline">\(n=48\to500\)</span>, 25 points/item):</p>
+<table>
+<thead>
+<tr>
+<th>form</th>
+<th style="text-align: right;">median <span
+class="math inline">\(R^2\)</span></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>power law <span
+class="math inline">\(\mathrm{SD}=C\,n^{-p}\)</span></td>
+<td style="text-align: right;"><strong>0.90</strong></td>
+</tr>
+<tr>
+<td>floor <span class="math inline">\(\sqrt{a^2+b^2/n}\)</span></td>
+<td style="text-align: right;">0.68</td>
+</tr>
+<tr>
+<td>BvM (fixed <span class="math inline">\(p=\tfrac12\)</span>)</td>
+<td style="text-align: right;">0.65</td>
+</tr>
+<tr>
+<td>finite-population <span
+class="math inline">\(\sqrt{1/n-1/N}\)</span></td>
+<td style="text-align: right;"><span
+class="math inline">\(&lt;0\)</span></td>
+</tr>
+</tbody>
+</table>
+<p>The <strong>item-specific power law wins</strong> (<span
+class="math inline">\(R^2=0.90\)</span>): the exponent <span
+class="math inline">\(p_j\)</span> has median <span
+class="math inline">\(0.45\)</span> but ranges <span
+class="math inline">\(0.26\to1.08\)</span>, genuinely heterogeneous
+rather than the universal <span class="math inline">\(\tfrac12\)</span>.
+The finite-population form fails because the SD plateaus at a nonzero
+value; the two-parameter floor <span
+class="math inline">\(\sqrt{a^2+b^2/n}\)</span> captures that plateau
+but fits less well than the free power law. The fitted law <span
+class="math inline">\(C_j\,n^{-p_j}\)</span> is the object the rest of
+this section uses — first to <em>justify</em> a self-consistency
+correction for the deepset’s large-<span
+class="math inline">\(n\)</span> marginal upturn (§14.4.6), then as a
+<em>parametric head</em> that carries the law into the network.</p>
+<p><strong>Why a self-consistency correction, and what it must
+be.</strong> The large-<span class="math inline">\(n\)</span> marginal
+error is a finite-<span class="math inline">\(m\)</span> artefact. At
+deployment the marginal <span class="math inline">\(p(\rho\mid
+x)\)</span> is the mixture <span class="math inline">\(\frac1S\sum_s
+\hat p(\rho\mid x,z^{(s)})\)</span> over posterior-predictive future
+cohorts, and its variance decomposes exactly by the law of total
+variance, <span class="math display">\[\operatorname{Var}_{\text{mix}} =
+\underbrace{\tfrac1S\textstyle\sum_s \sigma_s^2}_{W\ (\text{within})} +
+\underbrace{\tfrac1S\textstyle\sum_s (\mu_s-\bar\mu)^2}_{B\
+(\text{between})},\]</span> where <span
+class="math inline">\(\mu_s=q_{s,3}\)</span> is the conditional median
+and <span
+class="math inline">\(\sigma_s=(q_{s,5}-q_{s,1})/3.2897\)</span> its
+Gaussian-equivalent SD, both read from the deployed quantiles. As <span
+class="math inline">\(n\to N\)</span> the future cohort <span
+class="math inline">\(m=N-n\)</span> shrinks, so each <span
+class="math inline">\(z^{(s)}\)</span> is a noisy sample and <span
+class="math inline">\(B\)</span> inflates spuriously — the amortiser’s
+marginal SD turns <em>up</em> at large <span
+class="math inline">\(n\)</span> instead of contracting.</p>
+<p>The correction is <strong>pinned by the contraction law</strong>,
+with no free constant. Bernstein–von Mises states that a posterior
+variance depends, to leading order, on the sample <em>size</em>, not the
+sample <em>values</em>; so every conditional has the same BvM variance,
+given by the fitted law read at <span
+class="math inline">\(n+m\)</span>, while the target marginal is the law
+read at <span class="math inline">\(n\)</span>: <span
+class="math display">\[W_{\text{true}}=\big(C\,(n+m)^{-p}\big)^2,\qquad
+T=\big(C\,n^{-p}\big)^2,\qquad B^\ast = T-W_{\text{true}} =
+C^2\big(n^{-2p}-(n+m)^{-2p}\big).\]</span> The non-spurious between
+<span class="math inline">\(B^\ast\)</span> is what the extra <span
+class="math inline">\(m\)</span> observations are entitled to remove. By
+the law of total variance it is <span
+class="math inline">\(B^\ast=\operatorname{Var}_z\!\big(\mathbb
+E[\rho\mid x,z]\big)\)</span> — the further contraction the future
+cohort buys. At deployment <span class="math inline">\(n+m=N\)</span> is
+<em>fixed</em>, so <span
+class="math inline">\(W_{\text{true}}=(C\,N^{-p})^2\)</span> is constant
+and <span
+class="math inline">\(B^\ast=C^2\big(n^{-2p}-N^{-2p}\big)\)</span>.
+<strong>Why <span class="math inline">\(B^\ast\to0\)</span> as <span
+class="math inline">\(n\to N\)</span>:</strong> the remaining cohort
+<span class="math inline">\(m=N-n\to0\)</span>, so there is no future
+data left to collect; conditioning on the (vanishing) <span
+class="math inline">\(z\)</span> cannot sharpen the posterior, the
+conditional and marginal coincide, and <span
+class="math inline">\(\operatorname{Var}_z(\mathbb E[\rho\mid
+x,z])\to0\)</span> — algebraically <span
+class="math inline">\(n^{-2p}\to N^{-2p}\)</span>. At the other end
+<span class="math inline">\(n\to0\)</span> almost all the variance is
+still removable, and <span class="math inline">\(B^\ast\to T\)</span>.
+The empirical <span class="math inline">\(B\)</span> moves the
+<em>opposite</em> way at large <span class="math inline">\(n\)</span>:
+with <span class="math inline">\(m\)</span> tiny each simulated <span
+class="math inline">\(z^{(s)}\)</span> is a high-variance draw, so the
+<span class="math inline">\(S\)</span> conditional medians <span
+class="math inline">\(\mu_s\)</span> scatter widely — pure finite-<span
+class="math inline">\(m\)</span>/finite-<span
+class="math inline">\(S\)</span> sampling noise. That is exactly the
+spurious inflation the correction strips out, by shrinking <span
+class="math inline">\(B\)</span> down to <span
+class="math inline">\(B^\ast\)</span>. Scaling each conditional width by
+<span class="math inline">\(\alpha=\sqrt{W_{\text{true}}/W}\)</span> and
+shrinking the median spread by <span
+class="math inline">\(\beta=\sqrt{B^\ast/B}\)</span>, <span
+class="math display">\[q&#39;_{s,i}=\big[\bar\mu+\beta(\mu_s-\bar\mu)\big]+\alpha\,(q_{s,i}-\mu_s),\]</span>
+makes the mixture variance <span
+class="math inline">\(\alpha^2W+\beta^2B=W_{\text{true}}+B^\ast=T\)</span>
+by construction. It is a post-hoc pass over the deployed quantiles
+(<code>RAGD_BVM</code>) — no retraining, and no SVI beyond the <span
+class="math inline">\(\operatorname{Var}(\rho\mid x)\)</span> fit
+already in hand.</p>
+<p><strong>Implementation: parametric heads that carry the law.</strong>
+The correction is intrinsically justified when the head’s width already
+obeys the law, so the width is made parametric (<code>head_mode</code>)
+<em>without touching the encoder</em>. Everything up to the §14.4.4 head
+is unchanged: item cross-attention still yields <span
+class="math inline">\(\bar h_{j^*}\)</span>, and the shared MLP <span
+class="math inline">\(q_\psi\)</span> still consumes <span
+class="math inline">\(\operatorname{concat}(\bar
+h_{j^*},h_{j^*},a)\)</span> and emits a length-<span
+class="math inline">\(K\)</span> vector <span
+class="math inline">\(\text{raw}\)</span>. What changes is only the
+<em>interpretation</em> of that vector. In <code>plain</code> mode <span
+class="math inline">\(\text{raw}\)</span> is returned as the <span
+class="math inline">\(K\)</span> quantiles directly; in the parametric
+modes its leading entries are read as a few shape parameters, from which
+the <span class="math inline">\(K\)</span> quantiles are rebuilt
+deterministically as a <strong>fixed-shape Gaussian predictive whose
+scale follows the law</strong>, <span class="math display">\[\hat\rho_q
+= m \;+\; z_q\,s_j(n),\qquad
+z_q=\Phi^{-1}(\tau_q)\in\{-1.64,-0.67,0,0.67,1.64\},\]</span> the
+standard-normal quantile multipliers <span
+class="math inline">\(z_q\)</span> fixed, and the cohort size entering
+<strong>only</strong> through the absolute-scale aux precision <span
+class="math inline">\(\text{prec}=a_1=n^{-1/2}\)</span> (§14.4.4). The
+trunk is thus shared; only the last map from <span
+class="math inline">\(\text{raw}\)</span> to quantiles is replaced, and
+the two forms differ solely in the width <span
+class="math inline">\(s_j(n)\)</span>:</p>
+<ul>
+<li><strong>A — power law:</strong> <span
+class="math inline">\(q_\psi\)</span>’s first three outputs give <span
+class="math inline">\(m=\text{raw}_0\)</span>, <span
+class="math inline">\(C_j=\operatorname{softplus}(\text{raw}_1)&gt;0\)</span>
+and <span
+class="math inline">\(p_j=\sigma(\text{raw}_2)\in(0,1)\)</span>, so
+<span
+class="math inline">\(s_j(n)=C_j\,n^{-p_j}=C_j\,\text{prec}^{2p_j}\)</span>.
+Location, scale and exponent are all item- and query-conditioned through
+<span class="math inline">\(\bar h_{j^*}\)</span>, while the <span
+class="math inline">\(n\)</span>-dependence is hard-wired to the BvM
+power law. (Regularised variant <strong>B</strong> adds a prior <span
+class="math inline">\(\lambda\,\mathbb E[(p_j-\tfrac12)^2]\)</span>
+pulling the exponent toward <span
+class="math inline">\(\tfrac12\)</span>, since <span
+class="math inline">\(p\)</span> is only weakly identified over the
+trial’s <span class="math inline">\(\sim3\times\)</span> <span
+class="math inline">\(\sqrt n\)</span> range.)</li>
+<li><strong>C — floor:</strong> <span
+class="math inline">\(q_\psi\)</span>’s first three outputs give <span
+class="math inline">\(m\)</span> and <span
+class="math inline">\(a_j,b_j=\operatorname{softplus}(\cdot)&gt;0\)</span>,
+so <span class="math inline">\(s_j(n)=\sqrt{a_j^2+b_j^2/n}\)</span>,
+encoding the non-zero plateau directly (no exponent).</li>
+</ul>
+<p>Because the trunk is untouched, the parametric head is a drop-in: the
+expanding head fine-tune (§14.4.6) still refits <span
+class="math inline">\(q_\psi\)</span>, and the affine shift still
+corrects the emitted location <span
+class="math inline">\(m\)</span>.</p>
+<p>Trained, the heads roughly double the training-distribution
+contraction slope (probe <span
+class="math inline">\(-0.32/-0.35\)</span> vs the plain net’s <span
+class="math inline">\(-0.20\)</span>) and the power-law exponent tracks
+SVI for the strongly-contracting items (<span
+class="math inline">\(p_{\text{SVI}}/p_{\text{amo}}\)</span> of <span
+class="math inline">\(1.08/0.91\)</span>, <span
+class="math inline">\(0.99/0.78\)</span>). On their own — expanding head
+fine-tune <span class="math inline">\(+\)</span> affine shift,
+<em>without</em> the correction — they do <strong>not</strong> beat the
+plain net on aggregate calibration (A power-law PIT–KS <span
+class="math inline">\(0.112\)</span>, marg–KS <span
+class="math inline">\(0.189\)</span>; C floor <span
+class="math inline">\(0.115\)</span>/<span
+class="math inline">\(0.185\)</span>; plain <span
+class="math inline">\(0.069\)</span>/<span
+class="math inline">\(0.157\)</span>): the low-SD mental-health items
+(<span class="math inline">\(p_{\text{SVI}}\approx0.3\)</span>) remain
+under-learned, and a rigid trained width helps only the
+strongly-contracting items. Directories <code>…-A-powerlaw</code>,
+<code>…-C-floor</code> and their <code>_ftheadexpand</code>
+deployments.</p>
+<p><strong>Result of the correction.</strong> Applied to the A and C
+heads (with the affine shift), the BvM correction lowers marg–KS at
+every cohort size and makes the amortiser’s contraction curve track
+SVI’s with the large-<span class="math inline">\(n\)</span> upturn
+removed (matching fitted slopes per item, e.g. <span
+class="math inline">\(-0.005\)</span> vs <span
+class="math inline">\(-0.005\)</span>); PIT–KS is unchanged, since the
+correction acts only on the marginal:</p>
+<table>
+<colgroup>
+<col style="width: 16%" />
+<col style="width: 17%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+</colgroup>
+<thead>
+<tr>
+<th>head-ft <span class="math inline">\(+\)</span> affine</th>
+<th style="text-align: right;">marg–KS (<span
+class="math inline">\(n\le200\)</span>)</th>
+<th style="text-align: right;">(mid)</th>
+<th style="text-align: right;">(<span
+class="math inline">\(n\ge450\)</span>)</th>
+<th style="text-align: right;">(all)</th>
+<th style="text-align: right;">(<span
+class="math inline">\(n\ge498\)</span>)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A power-law</td>
+<td style="text-align: right;">0.169</td>
+<td style="text-align: right;">0.194</td>
+<td style="text-align: right;">0.193</td>
+<td style="text-align: right;">0.189</td>
+<td style="text-align: right;">0.224</td>
+</tr>
+<tr>
+<td><strong>A</strong> <span class="math inline">\(+\)</span> BvM</td>
+<td style="text-align: right;">0.161</td>
+<td style="text-align: right;">0.183</td>
+<td style="text-align: right;"><strong>0.180</strong></td>
+<td style="text-align: right;"><strong>0.177</strong></td>
+<td style="text-align: right;"><strong>0.194</strong></td>
+</tr>
+<tr>
+<td>C floor</td>
+<td style="text-align: right;">0.154</td>
+<td style="text-align: right;">0.185</td>
+<td style="text-align: right;">0.199</td>
+<td style="text-align: right;">0.185</td>
+<td style="text-align: right;">0.232</td>
+</tr>
+<tr>
+<td><strong>C</strong> <span class="math inline">\(+\)</span> BvM</td>
+<td style="text-align: right;">0.147</td>
+<td style="text-align: right;">0.171</td>
+<td style="text-align: right;"><strong>0.170</strong></td>
+<td style="text-align: right;"><strong>0.166</strong></td>
+<td style="text-align: right;">0.231</td>
+</tr>
+</tbody>
+</table>
+<p>Notably <strong>C</strong> <span class="math inline">\(+\)</span>
+BvM’s large-<span class="math inline">\(n\)</span> marg–KS (<span
+class="math inline">\(0.170\)</span>) beats the plain net <span
+class="math inline">\(+\)</span> affine (<span
+class="math inline">\(0.181\)</span>) — the correction supplies exactly
+the missing large-<span class="math inline">\(n\)</span> contraction, as
+a principled step rather than a rigid trained width. Directories
+<code>…-A-powerlaw_ftheadexpand_bvm</code>,
+<code>…-C-floor_ftheadexpand_bvm</code>. <strong>A/C</strong> <span
+class="math inline">\(+\)</span> BvM is the statistically coherent
+estimator of §14.0: its width obeys a BvM contraction law and its
+marginal is self-consistent under the law of total variance. The plain
+net <span class="math inline">\(+\)</span> affine (§14.4.6) remains
+numerically ahead on the aggregate PIT–KS and all-<span
+class="math inline">\(n\)</span> marg–KS and is the lighter alternative
+when the parametric guarantee is not required.</p>
+<h3 id="cross-architecture-summary">14.5.1 Cross-architecture
+summary</h3>
+<p>Calibration of the three encoders under the deployable remedy
+(expanding head fine-tune <span class="math inline">\(+\)</span> affine
+shift, §14.4.6), and of the two BvM-corrected deepset heads (§14.4.7);
+PIT–KS is conditional calibration, marg–KS marginal calibration:</p>
+<table>
+<colgroup>
+<col style="width: 36%" />
+<col style="width: 36%" />
+<col style="width: 13%" />
+<col style="width: 12%" />
+</colgroup>
+<thead>
+<tr>
+<th>encoder</th>
+<th>configuration</th>
+<th style="text-align: right;">PIT–KS</th>
+<th style="text-align: right;">marg–KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>itemXcompAtt</code> (§14.2)</td>
+<td>baseline (raw network)</td>
 <td style="text-align: right;">0.61</td>
 <td style="text-align: right;">0.47</td>
 </tr>
 <tr>
 <td></td>
-<td>conformal-exp</td>
-<td style="text-align: right;">0.40</td>
-<td style="text-align: right;">0.44</td>
-<td style="text-align: right;">0.56</td>
-<td style="text-align: right;">0.59</td>
-</tr>
-<tr>
-<td></td>
-<td>head-ft-expand</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.95</td>
-<td style="text-align: right;">0.16</td>
+<td>head-ft-expand <span class="math inline">\(+\)</span> affine</td>
 <td style="text-align: right;">0.14</td>
+<td style="text-align: right;">0.12</td>
 </tr>
 <tr>
-<td><code>itemScompAtt</code> (0.83/0.70)</td>
-<td>baseline</td>
-<td style="text-align: right;">0.19</td>
-<td style="text-align: right;">0.53</td>
+<td><code>itemScompAtt</code> (§14.3)</td>
+<td>baseline (raw network)</td>
 <td style="text-align: right;">0.55</td>
 <td style="text-align: right;">0.42</td>
 </tr>
 <tr>
 <td></td>
-<td>head-ft-expand</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.94</td>
-<td style="text-align: right;">0.15</td>
-<td style="text-align: right;">0.13</td>
+<td>head-ft-expand <span class="math inline">\(+\)</span> affine</td>
+<td style="text-align: right;">0.14</td>
+<td style="text-align: right;">0.11</td>
 </tr>
 <tr>
-<td><code>deepsetXcompAtt</code> (0.82/0.57)</td>
-<td>baseline</td>
-<td style="text-align: right;">0.18</td>
-<td style="text-align: right;">0.41</td>
+<td><code>deepsetXcompAtt</code> (§14.4)</td>
+<td>baseline (raw network)</td>
 <td style="text-align: right;">0.60</td>
 <td style="text-align: right;">0.47</td>
 </tr>
 <tr>
 <td></td>
-<td>conformal-exp</td>
-<td style="text-align: right;">0.39</td>
-<td style="text-align: right;">0.41</td>
-<td style="text-align: right;">0.59</td>
-<td style="text-align: right;">0.54</td>
+<td>head-ft-expand <span class="math inline">\(+\)</span> affine</td>
+<td style="text-align: right;"><strong>0.07</strong></td>
+<td style="text-align: right;">0.16</td>
 </tr>
 <tr>
 <td></td>
-<td>head-ft-expand</td>
-<td style="text-align: right;">0.50</td>
-<td style="text-align: right;">0.94</td>
+<td>A power-law <span class="math inline">\(+\)</span> BvM</td>
+<td style="text-align: right;">0.11</td>
 <td style="text-align: right;">0.18</td>
+</tr>
+<tr>
+<td></td>
+<td>C floor <span class="math inline">\(+\)</span> BvM</td>
+<td style="text-align: right;">0.12</td>
 <td style="text-align: right;">0.17</td>
 </tr>
 </tbody>
@@ -6678,29 +7486,148 @@ conclusion:</p>
 nested-DeepSets training → raw-<span class="math inline">\((x,
 z)\)</span> deployment runs end-to-end on a real IRT case study with a
 ~1 min total deployment cost for the full 8-interim schedule.</li>
-<li><strong>Architecture affects ranking, not calibration.</strong>
-Cross-attention, self-attention and nested-DeepSets share the
-<em>same</em> prior/posterior mislocation (baseline coverage @ 0.5 <span
-class="math inline">\(\approx 0.15\)</span>–<span
-class="math inline">\(0.19\)</span>, PIT–KS <span
-class="math inline">\(\approx 0.55\)</span>–<span
-class="math inline">\(0.61\)</span> across all three). The encoder
-choice only moves the correlation — the deepset’s learned pooling
-matches the hand token on out-of-7 (0.82) but trails on CG-MH (0.57 vs
-0.70–0.71) at this budget.</li>
-<li><strong>The fix is architecture-independent and it is the head, not
-a static map.</strong> The expanding head-only fine-tune (§14.2.5)
-recovers near-nominal calibration for all three encoders with
-correlation preserved, whereas post-hoc conformal is insufficient for
-all three (including the deepset, contrary to expectation) because the
-bias is interim-heteroscedastic. Refitting <span
-class="math inline">\(q_\psi\)</span> conditions on each interim’s data
-through the frozen embedding; a single monotone PIT map cannot.</li>
-<li><strong>Diagnostics</strong> (§14.1.7–14.1.9) are produced in full
-for every configuration: coverage curves, PIT histograms, marginal-CDF
-overlays and median-association scatters, plus
-<code>pcm_1_interim_pps_RGDX_svi_vs_amortiser_rho_all.pdf</code>.</li>
+<li><strong>The mislocation is shared across encoders.</strong>
+Cross-attention, self-attention and nested-DeepSets have the
+<em>same</em> baseline PIT–KS (<span
+class="math inline">\(\approx0.55\)</span>–<span
+class="math inline">\(0.61\)</span>) and marg–KS (<span
+class="math inline">\(\approx0.47\)</span>): the prior/deployment gap is
+a property of the training setup, not the encoder. Resolved by cohort
+size, the three encoders also track the SVI posterior draw equally well
+(the apparent deepset “<span class="math inline">\(z\)</span>-floor” was
+an averaging artefact, §14.10 item 14).</li>
+<li><strong>The remedy is the head fine-tune, not a static map.</strong>
+The expanding head-only fine-tune (§14.2.5, §14.4.6) recovers
+near-nominal conditional calibration for all three encoders; post-hoc
+conformal is insufficient because the bias is interim-heteroscedastic
+and one monotone map cannot absorb it. The affine median-shift (§14.4.6)
+then removes the residual location bias.</li>
+<li><strong>The conditional–marginal trade-off, and its
+resolution.</strong> With the affine shift throughout, the deepset wins
+the conditional (PIT–KS <span class="math inline">\(0.07\)</span> vs the
+hand token’s <span class="math inline">\(0.14\)</span> — the quantity
+the PPS decision consumes) and the hand token the marginal by a small
+margin. The <strong>BvM correction</strong> (§14.4.7) closes the
+deepset’s large-<span class="math inline">\(n\)</span> marginal
+shortfall from first principles, giving the coherent A/C <span
+class="math inline">\(+\)</span> BvM estimator of §14.0. (All three
+encoders are now evaluated on the same 29-interim weekly grid.)</li>
+<li><strong>Diagnostics</strong> are produced in full for every
+configuration (§14.4.5): the PIT box, marginal quantile box,
+contraction-factor and contraction-law figures from
+<code>python/amortiser_diag_plots.py</code>.</li>
 </ol>
+<h2 id="approaches-examined-and-set-aside">14.10 Approaches examined and
+set aside</h2>
+<p>Recorded for completeness; each was tested and did not improve on the
+§14.0 estimator. Detailed subsections and directories are cited.</p>
+<p><strong>Calibration (item-level encoder).</strong></p>
+<ol type="1">
+<li><em>Training-noise control</em>, <span
+class="math inline">\(S=256\)</span> draws/step (§14.2.1): confirms the
+baseline gap is distribution shift, not Monte-Carlo noise — a
+diagnostic, not a remedy.</li>
+<li><em>Prior narrowing</em>, <code>threshold_scale</code> <span
+class="math inline">\(2.0/1.0\)</span> (§14.2.2): does not move
+coverage; the mislocation is not a prior-width artefact.</li>
+<li><em>Full-network fine-tune</em>, leave-one-interim-out (§14.2.3):
+reaches the same calibration as the head-only fit while moving all
+weights <span class="math inline">\(\approx10\%\)</span> — superfluous;
+the head-only fit (§14.2.5) is retained.</li>
+<li><em>Head-only fine-tune on interim 1 alone</em> (§14.2.4):
+calibrates interim 1 but drifts elsewhere because the bias is
+interim-heteroscedastic; superseded by the expanding window
+(§14.2.5).</li>
+<li><em>Post-hoc conformal recalibration</em> (§14.2.6; also tried on
+the deepset): a single monotone PIT map cannot absorb an
+interim-heteroscedastic bias; coverage only partially corrected,
+marginal-KS worsened.</li>
+</ol>
+<p><strong>Contraction and training-law redesigns
+(deepset).</strong></p>
+<ol start="6" type="1">
+<li><em>Contraction pressure</em> — BvM aux features <span
+class="math inline">\(+\)</span> <span
+class="math inline">\(n\)</span>-stratified batches: negative. With the
+original training the two cohorts jointly identify the full-population
+endpoint (<span class="math inline">\(n+m\)</span> fixed), so there is
+no <span class="math inline">\(x\)</span>-only contraction in the target
+to learn. Dir <code>…-priorproposal-260812</code> predecessor.</li>
+<li>*Focused-proposal (interim-1 posterior) ragged build: negative. An
+interim-1 posterior proposal is pre-contracted, and subsampling a fixed
+pool is not refitting; the contraction signal is flat. Superseded by the
+wide-prior recipe (§14.4.3).</li>
+<li><em>Capacity-fix sweep</em> — schedule, MLP width, factored <span
+class="math inline">\(g(1/\sqrt n)\)</span>, precision-pool, hard-coded
+semiparametric width: only hard-coding the rate moves the
+training-distribution slope, and it over-contracts at deployment.
+Motivates the <em>learned</em> power law (§14.4.7–14.4.8) instead.</li>
+<li><em>Mixture-CRPS marginal loss term</em>: reduces marginal-KS only
+where the encoder conditions sharply on <span
+class="math inline">\(z\)</span> (hand token); inert on the deepset,
+whose <span class="math inline">\(z\)</span>-response is weaker — a
+property clarified by item 14 below.</li>
+</ol>
+<p><strong>Deepset</strong> <span
+class="math inline">\(z\)</span>-response investigation.</p>
+<ol start="10" type="1">
+<li><em>Sharper-</em><span class="math inline">\(z\)</span> encoder
+sweep, 9 variants: <code>z_contrast</code>, <code>precision_pool</code>,
+<code>raw_pool</code>, domain randomisation: the deepset marginal <span
+class="math inline">\(z\)</span>-tracking did not exceed <span
+class="math inline">\(\approx0.5\)</span> under any input-feature or
+training lever. Dirs <code>…-priorproposal-zs-{…}</code>.</li>
+<li><em>Proposal ablation on the hand token</em>: isolates
+<strong>domain randomisation</strong>, not decoupling or small <span
+class="math inline">\(m\)</span>, as the cause of <span
+class="math inline">\(z\)</span>-erosion — off by default thereafter.
+Dirs <code>…-itemXcompAtt-priorproposal-{fixed503-noDR, …}</code>.</li>
+<li><em>Nband-noDR recipe on the deepset</em>: improves the raw
+contraction slope <span class="math inline">\(3\times\)</span> but not
+deployment calibration; the wider <span
+class="math inline">\(N\)</span>-band spreads capacity. Dirs
+<code>…-priorproposal-{nband, bigM503}</code>.</li>
+<li><em>Per-participant</em> <span
+class="math inline">\(\rho\)</span>-mapping: moving the nonlinearity
+before the pool does not raise the deepset <span
+class="math inline">\(z\)</span>-tracking (0.57 unchanged); confirms the
+ceiling is downstream of pooling. Dirs
+<code>…-priorproposal-{perpart, …}</code>.</li>
+<li><strong><em>Correction</em></strong>: the apparent deepset “<span
+class="math inline">\(z\)</span>-floor at <span
+class="math inline">\(0.57\)</span>” was an averaging artefact —
+resolved per cohort size, the deepset and hand token track <span
+class="math inline">\(z\)</span> identically (<span
+class="math inline">\(0.82\)</span> at small <span
+class="math inline">\(n\)</span>, decaying to <span
+class="math inline">\(\approx0.15\)</span> at large <span
+class="math inline">\(n\)</span>). The deployed difference is a modest
+conditional-vs-marginal trade-off, not a <span
+class="math inline">\(z\)</span>-response deficit. This retracts the
+premise of items 10–13.</li>
+</ol>
+<p><strong>Law-of-total-probability marginal patches
+(deepset).</strong></p>
+<ol start="15" type="1">
+<li><em>Empty-cohort marginal</em> (Option A): a single <span
+class="math inline">\(m=0\)</span> forward removes the finite-<span
+class="math inline">\(m\)</span> upturn but is a weaker marginal
+estimator (marg-KS <span class="math inline">\(0.243\)</span>) and costs
+the conditional; the <span class="math inline">\(m=0\)</span>
+representation is off the operating regime. Dir
+<code>…-priorproposal-mempty_ftheadexpand</code>. Flags
+<code>PP_MEMPTY</code>, <code>RAGD_EMPTYZ</code>.</li>
+<li><em>Real-data split marginal</em> (Option B): partitioning <span
+class="math inline">\(x=(x_1,x_2)\)</span> avoids simulation noise but
+the balanced split is likewise off-regime (marg-KS <span
+class="math inline">\(0.275\)</span>). Dir
+<code>…-260812_ftheadexpand_splitB</code>. Flag
+<code>RAGD_SPLITB</code>.</li>
+</ol>
+<p>Both 15–16 are superseded by the in-regime <strong>BvM
+correction</strong> (§14.4.7), which removes the same finite-<span
+class="math inline">\(m\)</span> inflation without leaving the training
+regime.</p>
 <h1 id="references">15. References</h1>
 <!--
 Bibliography is in dev/amortised_decision_making.bib. Render with pandoc:
@@ -6879,33 +7806,45 @@ the posterior <span class="math inline">\(p(\theta | x,
 z^{(s)})\)</span>.</p>
 <div id="refs" class="references csl-bib-body hanging-indent"
 role="list">
-<div id="ref-chan2018likelihood" class="csl-entry" role="listitem">
-Chan, Jeffrey, Valerio Perrone, Jeffrey P Spence, Paul A Jenkins, Sara
-Mathieson, and Yun S Song. 2018. <span>“A Likelihood-Free Inference
-Framework for Population Genetic Data Using Exchangeable Neural
-Networks.”</span> <em>Advances in Neural Information Processing Systems
-(NeurIPS)</em>.
+<div id="ref-andersen2022mhpss" class="csl-entry" role="listitem">
+Andersen, Ingrid, Régis Rossi, and Ives Hubloue. 2022.
+<span>“Community-Level Mental Health and Psychosocial Support During
+Armed Conflict: A Cohort Study from the <span>D</span>emocratic
+<span>R</span>epublic of the <span>C</span>ongo, <span>M</span>ali, and
+<span>N</span>igeria.”</span> <em>Frontiers in Public Health</em> 10:
+815222. <a
+href="https://doi.org/10.3389/fpubh.2022.815222">https://doi.org/10.3389/fpubh.2022.815222</a>.
 </div>
 <div id="ref-chopin2002sequential" class="csl-entry" role="listitem">
 Chopin, Nicolas. 2002. <span>“A Sequential Particle Filter Method for
 Static Models.”</span> <em>Biometrika</em> 89 (3): 539–51.
 </div>
-<div id="ref-cranmer2020frontier" class="csl-entry" role="listitem">
-Cranmer, Kyle, Johann Brehmer, and Gilles Louppe. 2020. <span>“The
-Frontier of Simulation-Based Inference.”</span> <em>Proceedings of the
-National Academy of Sciences</em> 117 (48): 30055–62.
+<div id="ref-cicek2024chatgpt" class="csl-entry" role="listitem">
+Çiçek, Feray Ekin, Müşerref Ülker, Menekşe Özer, and Yavuz Selim Kıyak.
+2024. <em>Data from: <span>C</span>hat<span>GPT</span> Versus Expert
+Feedback on Clinical Reasoning Questions and Their Effect on Learning: A
+Randomized Controlled Trial</em>. <a
+href="https://doi.org/10.5281/zenodo.13769970">https://doi.org/10.5281/zenodo.13769970</a>.
 </div>
-<div id="ref-deistler2022truncated" class="csl-entry" role="listitem">
-Deistler, Michael, Pedro J Gonçalves, and Jakob H Macke. 2022.
-<span>“Truncated Proposals for Scalable and Hassle-Free Simulation-Based
-Inference.”</span> <em>Advances in Neural Information Processing Systems
-(NeurIPS)</em> 35.
+<div id="ref-cochran1977sampling" class="csl-entry" role="listitem">
+Cochran, William G. 1977. <em>Sampling Techniques</em>. 3rd ed. John
+Wiley &amp; Sons.
 </div>
 <div id="ref-delmoral2006smc" class="csl-entry" role="listitem">
 Del Moral, Pierre, Arnaud Doucet, and Ajay Jasra. 2006.
 <span>“Sequential <span>M</span>onte <span>C</span>arlo
 Samplers.”</span> <em>Journal of the Royal Statistical Society: Series B
 (Statistical Methodology)</em> 68 (3): 411–36.
+</div>
+<div id="ref-fieller1954some" class="csl-entry" role="listitem">
+Fieller, E. C. 1954. <span>“Some Problems in Interval
+Estimation.”</span> <em>Journal of the Royal Statistical Society: Series
+B</em> 16 (2): 175–85.
+</div>
+<div id="ref-fischer2024mycelium" class="csl-entry" role="listitem">
+Fischer, Arnout R. H., and Owen Hilboesen. 2024. <em>Consumer Acceptance
+Mycelium</em>. <a
+href="https://doi.org/10.5281/zenodo.10628634">https://doi.org/10.5281/zenodo.10628634</a>.
 </div>
 <div id="ref-gilks2001following" class="csl-entry" role="listitem">
 Gilks, Walter R., and Carlo Berzuini. 2001. <span>“Following a Moving
@@ -6914,22 +7853,12 @@ Target—<span>M</span>onte <span>C</span>arlo Inference for Dynamic
 Statistical Society: Series B (Statistical Methodology)</em> 63 (1):
 127–46.
 </div>
-<div id="ref-gneiting2007strictly" class="csl-entry" role="listitem">
-Gneiting, Tilmann, and Adrian E Raftery. 2007. <span>“Strictly Proper
-Scoring Rules, Prediction, and Estimation.”</span> <em>Journal of the
-American Statistical Association</em> 102 (477): 359–78.
-</div>
-<div id="ref-greenberg2019automatic" class="csl-entry" role="listitem">
-Greenberg, David, Marcel Nonnenmacher, and Jakob Macke. 2019.
-<span>“Automatic Posterior Transformation for Likelihood-Free
-Inference.”</span> <em>International Conference on Machine Learning
-(ICML)</em>, 2404–14.
-</div>
-<div id="ref-hermans2020likelihood" class="csl-entry" role="listitem">
-Hermans, Joeri, Volodimir Begy, and Gilles Louppe. 2020.
-<span>“Likelihood-Free <span>MCMC</span> with Amortized Approximate
-Ratio Estimators.”</span> <em>International Conference on Machine
-Learning (ICML)</em>, 4239–48.
+<div id="ref-harper2015movielens" class="csl-entry" role="listitem">
+Harper, F. Maxwell, and Joseph A. Konstan. 2015. <span>“The
+<span>M</span>ovie<span>L</span>ens Datasets: History and
+Context.”</span> <em>ACM Transactions on Interactive Intelligent
+Systems</em> 5 (4): 19. <a
+href="https://doi.org/10.1145/2827872">https://doi.org/10.1145/2827872</a>.
 </div>
 <div id="ref-jasra2011inference" class="csl-entry" role="listitem">
 Jasra, Ajay, David A. Stephens, Arnaud Doucet, and Theodoros Tsagaris.
@@ -6938,10 +7867,23 @@ Stochastic Volatility Models via Adaptive Sequential <span>M</span>onte
 <span>C</span>arlo.”</span> <em>Scandinavian Journal of Statistics</em>
 38 (1): 1–22.
 </div>
+<div id="ref-kleijn2012bernstein" class="csl-entry" role="listitem">
+Kleijn, B. J. K., and A. W. van der Vaart. 2012. <span>“The <span
+class="nocase">Bernstein–von-Mises</span> Theorem Under
+Misspecification.”</span> <em>Electronic Journal of Statistics</em> 6:
+354–81.
+</div>
 <div id="ref-kong1992note" class="csl-entry" role="listitem">
 Kong, Augustine. 1992. <em>A Note on Importance Sampling Using
 Standardized Weights</em>. No. 348. Department of Statistics, University
 of Chicago.
+</div>
+<div id="ref-lee2019set" class="csl-entry" role="listitem">
+Lee, Juho, Yoonho Lee, Jungtaek Kim, Adam R Kosiorek, Seungjin Choi, and
+Yee Whye Teh. 2019. <span>“Set Transformer: A Framework for
+Attention-Based Permutation-Invariant Neural Networks.”</span>
+<em>Proceedings of the 36th International Conference on Machine Learning
+(ICML)</em>, 3744–53.
 </div>
 <div id="ref-liu2001monte" class="csl-entry" role="listitem">
 Liu, Jun S. 2001. <em>Monte <span>C</span>arlo Strategies in Scientific
@@ -6951,23 +7893,37 @@ Computing</em>. Springer.
 Neal, Radford M. 2001. <span>“Annealed Importance Sampling.”</span>
 <em>Statistics and Computing</em> 11 (2): 125–39.
 </div>
+<div id="ref-ni2019amazon" class="csl-entry" role="listitem">
+Ni, Jianmo, Jiacheng Li, and Julian McAuley. 2019. <span>“Justifying
+Recommendations Using Distantly-Labeled Reviews and Fine-Grained
+Aspects.”</span> <em>Proceedings of the 2019 Conference on Empirical
+Methods in Natural Language Processing (EMNLP-IJCNLP)</em>, 188–97. <a
+href="https://nijianmo.github.io/amazon/">https://nijianmo.github.io/amazon/</a>.
+</div>
+<div id="ref-oecd2022pisa" class="csl-entry" role="listitem">
+OECD. 2023. <em><span>PISA</span> 2022 Database</em>. <a
+href="https://www.oecd.org/pisa/data/">https://www.oecd.org/pisa/data/</a>.
+</div>
 <div id="ref-paananen2021implicitly" class="csl-entry" role="listitem">
 Paananen, Topi, Juho Piironen, Paul-Christian Bürkner, and Aki Vehtari.
 2021. <span>“Implicitly Adaptive Importance Sampling.”</span>
 <em>Statistics and Computing</em> 31 (2): 16.
 </div>
-<div id="ref-papamakarios2019sequential" class="csl-entry"
-role="listitem">
-Papamakarios, George, David Sterratt, and Iain Murray. 2019.
-<span>“Sequential Neural Likelihood: Fast Likelihood-Free Inference with
-Autoregressive Flows.”</span> <em>AISTATS</em>, 837–48.
+<div id="ref-refugeed2024youth" class="csl-entry" role="listitem">
+REFUGE-ED Consortium. 2024. <em>Youth Baseline &amp; Endline</em>. <a
+href="https://doi.org/10.5281/zenodo.10908209">https://doi.org/10.5281/zenodo.10908209</a>.
 </div>
-<div id="ref-radev2020bayesflow" class="csl-entry" role="listitem">
-Radev, Stefan T, Ulf K Mertens, Andreas Voss, Lynton Ardizzone, and
-Ullrich Köthe. 2020. <span>“<span>BayesFlow</span>: Learning Complex
-Stochastic Models with Invertible Neural Networks.”</span> <em>IEEE
-Transactions on Neural Networks and Learning Systems</em> 33 (4):
-1452–66.
+<div id="ref-ristenpart2023coffee" class="csl-entry" role="listitem">
+Ristenpart, William, Andrew R. Cotter, and Jean-Xavier Guinard. 2023.
+<em>Consumer Preference Data for Black Coffee</em>. <a
+href="https://doi.org/10.25338/B8993H">https://doi.org/10.25338/B8993H</a>.
+</div>
+<div id="ref-riverasequeiros2026ibd" class="csl-entry" role="listitem">
+Rivera-Sequeiros, Adriana, Yolanda Torres-Dominguez, María A.
+Izquierdo-Macias, and Yusnelkis Milanes-Guisado. 2026. <em>Longitudinal
+Effects of a Nurse-Led Self-Management Intervention on Quality of Life
+and Psychosocial Outcomes in Inflammatory Bowel Disease</em>. <a
+href="https://doi.org/10.5281/zenodo.20043868">https://doi.org/10.5281/zenodo.20043868</a>.
 </div>
 <div id="ref-roberts1998optimal" class="csl-entry" role="listitem">
 Roberts, Gareth O., and Jeffrey S. Rosenthal. 1998. <span>“Optimal
@@ -6987,17 +7943,40 @@ Information from a Probabilistic Sensitivity Analysis Sample: A
 Non-Parametric Regression Approach.”</span> <em>Medical Decision
 Making</em> 34 (3): 311–26.
 </div>
+<div id="ref-su2023temporal" class="csl-entry" role="listitem">
+Su, Zhao. 2023. <em>Temporal Dynamics in Psychological Assessments: A
+Novel Dataset with Scales and Response Times</em>. <a
+href="https://doi.org/10.5281/zenodo.10423537">https://doi.org/10.5281/zenodo.10423537</a>.
+</div>
+<div id="ref-tucker2024hopeprotocol" class="csl-entry" role="listitem">
+Tucker, Sydney, Nicole Baldonado, Olha Ruina, et al. 2024.
+<span>“<span>H</span>ope <span>G</span>roups: A Protocol for a Cluster
+Randomized Controlled Trial of Psychosocial, Mental Health, and
+Parenting Support Groups for <span>U</span>krainian Caregivers During
+War and Conflict.”</span> <em>Trials</em> 25. <a
+href="https://doi.org/10.1186/s13063-024-08233-3">https://doi.org/10.1186/s13063-024-08233-3</a>.
+</div>
+<div id="ref-tucker2026hopegroups" class="csl-entry" role="listitem">
+<span class="nocase">Tucker, Sydney, Nicole Baldonado, Olha H. Ruina, et
+al.</span> 2026. <span>“Effectiveness of the <span>H</span>ope
+<span>G</span>roups Intervention on Mental Health, Parenting Practices,
+and Violence Against Children Among <span>U</span>krainian Parents and
+Caregivers Affected by War and Displacement: A Cluster Randomised
+Controlled Trial.”</span> <em>The Lancet Regional Health – Europe</em>,
+101783. <a
+href="https://doi.org/10.1016/j.lanepe.2026.101783">https://doi.org/10.1016/j.lanepe.2026.101783</a>.
+</div>
+<div id="ref-vandervaart1998asymptotic" class="csl-entry"
+role="listitem">
+Vaart, A. W. van der. 1998. <em>Asymptotic Statistics</em>. Cambridge
+Series in Statistical and Probabilistic Mathematics. Cambridge
+University Press.
+</div>
 <div id="ref-vehtari2024pareto" class="csl-entry" role="listitem">
 Vehtari, Aki, Daniel Simpson, Andrew Gelman, Yuling Yao, and Jonah
 Gabry. 2024. <span>“<span>P</span>areto Smoothed Importance
 Sampling.”</span> <em>Journal of Machine Learning Research</em> 25 (72):
 1–58.
-</div>
-<div id="ref-wildberger2023flow" class="csl-entry" role="listitem">
-Wildberger, Jonas, Maximilian Dax, Simon Buchholz, Stephen R Green,
-Jakob H Macke, and Bernhard Schölkopf. 2023. <span>“Flow Matching for
-Scalable Simulation-Based Inference.”</span> <em>Advances in Neural
-Information Processing Systems (NeurIPS)</em>.
 </div>
 <div id="ref-zhou2016toward" class="csl-entry" role="listitem">
 Zhou, Yan, Adam M. Johansen, and John A. D. Aston. 2016. <span>“Toward

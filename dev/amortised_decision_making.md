@@ -113,11 +113,11 @@ All three are scaled to unit diagonal so the per-component noise is comparable a
 
 **What we compare.**
 
-| Cell            | Knobs                                       | Notes                                   |
-| --------------- | ------------------------------------------- | --------------------------------------- |
-| Cell A (easy)   | $R = R^{(1)}$ AR(1), $J \in \{50,100,200\}$ | Banded, well-conditioned.               |
-| Cell B (medium) | $R = R^{(2)}$ block, same $J$               | Block structure; eigenvalues clustered. |
-| Cell C (hard)   | $R = R^{(3)}$ factor, same $J$              | Dense long-range; eigenvalue decay.     |
+| Cell | Knobs | Notes |
+|----------------|-----------------------------|---------------------------|
+| Cell A (easy) | $R = R^{(1)}$ AR(1), $J \in \{50,100,200\}$ | Banded, well-conditioned. |
+| Cell B (medium) | $R = R^{(2)}$ block, same $J$ | Block structure; eigenvalues clustered. |
+| Cell C (hard) | $R = R^{(3)}$ factor, same $J$ | Dense long-range; eigenvalue decay. |
 
 For each cell and each interim $t \in \{1, \ldots, 10\}$, we compare the closed-form per-component $PPS_j(x)$ (from the $\Phi$-tail above) against the four estimators of Section 6 (nested-MC, self-normalised IS, moment-matching IS, SMC resample-move, regression on $w(z)$). Aggregate diagnostics: per-component absolute error and bias against the closed form; per-cell timing; ESS / $\hat{k}$ for the IS variants; tempering steps $T$ for SMC.
 
@@ -140,7 +140,160 @@ The model thus does not follow the proportional cumulative odds assumptions, but
 &\quad = \exp\Big( \lambda_j ( \theta_i + \beta ) - \lambda_j \theta_i  \Big) = \exp( \lambda_j \beta ),
 \end{aligned}$$ so when measured in incremental risks, the effect of the intervention is proportional to $\exp\beta$, and the same regardless of the category $k$.
 
-Computationally, the PCM involves direct evaluations of category specific events ($Pr(Y=k)$ not $Pr(Y\leq k)$) and therefore tends to be much faster to evaluate and less prone to numerical issues than other IRT models. Standard priors can be attached to all free parameters.
+Computationally, the PCM involves direct evaluations of category specific events ($Pr(Y=k)$ not $Pr(Y\leq k)$) and therefore tends to be much faster to evaluate and less prone to numerical issues than other IRT models.
+
+**Priors.** Weakly-informative, standard priors are placed on all free parameters, with a deliberately wide prior on the thresholds so that a finite cohort still leaves substantial posterior uncertainty to resolve (the contraction the amortiser of §14 later exploits):
+$$\theta_i \sim N(0,1),\qquad c_{j,s}\sim N(0,3.5^2),\qquad \lambda_j \sim |t_3|,\qquad \beta_p \sim N(0,1).$$
+That is: participant skills $\theta_i$ standard normal; the $J(K-1)$ incremental category thresholds $c_{j,s}$ Gaussian with a wide standard deviation of $3.5$; the $J$ item loadings $\lambda_j$ half-Student-$t$ with $3$ degrees of freedom (constrained positive, with one loading fixed to $1$ for identification); and the participant / intervention effects $\beta_p$ standard normal. The same specification is fit in Pyro and Stan.
+
+## 3.5 Application: temporal dynamics in psychological assessments
+
+A large cross-sectional dataset of $24{,}292$ students, each answering four self-report symptom scales at the item level [@su2023temporal]. It contains no intervention and no repeat measurement, so it does not itself define an endpoint effect; its value is as a **real, large-scale polytomous item bank**: fit the PCM once, then simulate realistic cohorts from the fitted item parameters to check that the amortised predictive is calibrated against a ground truth we control.
+
+| field                  | value                                                                  |
+| ---------------------- | ---------------------------------------------------------------------- |
+| Setting                | 24,292 students, single administration (Feb–Mar 2021)                  |
+| Design                 | cross-sectional; no arms, no baseline/endline                          |
+| Items                  | PHQ-9 (9 items, 0–3), GAD-7 (7, 0–3), ISI (7, 0–4), PSS (10, 0–4) — all ordinal, PCM-ready |
+| Effect measure $\rho$  | not defined (no pre/post)                                              |
+| Interims               | not applicable                                                         |
+| **Application target** | **validate the PCM amortiser**; simulate cohorts from the real fitted item bank |
+| Data                   | [@su2023temporal]                                                      |
+
+## 3.6 Application: Hope Groups in Ukraine
+
+The primary real-time case study of this document. Hope Groups is a 12-session, peer-facilitated psychosocial, mental-health and parenting-support programme for Ukrainian parents and caregivers affected by war and displacement (externally displaced, internally displaced, and living in war-affected areas), evaluated in a pragmatic cluster-randomised controlled trial [@tucker2026hopegroups; @tucker2024hopeprotocol]. Caregivers self-report a battery of ordinal items at baseline and endline; the estimand is the item-level endpoint effect $\rho_j$, and enrolment accrues over time, so the decision of interest is whether the accumulated evidence already predicts success — the PPS — at each weekly interim.
+
+| field                  | value                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Problem                | psychosocial / mental-health / parenting support for Ukrainian caregivers in war and displacement               |
+| Arms                   | Hope Groups intervention vs waitlist control (cluster-randomised, 90 clusters)                                   |
+| Timepoints             | baseline and endline (1-week post-intervention); later follow-ups                                               |
+| Items                  | caregiver-report — mental health (depression/anxiety), violence against children, positive parenting, wellbeing; two PCM types: *out-of-7* "days in week" ($K=8$) and *categorical* caseness |
+| Effect measure $\rho$  | $r_j(\theta)=s_j(\bar w_{e,j}/\bar w_{b,j}-1)$, direction-aware endpoint effect per item                          |
+| Cohort / interims      | $N\approx510$ accrued over time; **weekly** SVI interims                                                          |
+| **Application target** | **real-time evaluation** (the deployment case study of §14)                                                       |
+| Reference              | [@tucker2026hopegroups] (effectiveness), [@tucker2024hopeprotocol] (protocol)                                     |
+
+## 3.7 Application: ChatGPT-versus-expert-feedback RCT
+
+A randomised controlled trial in medical education comparing ChatGPT feedback with expert feedback on clinical-reasoning (key-feature) questions, with item-level scores and a critical-approach-to-AI survey [@cicek2024chatgpt]. A genuine two-arm design with pre/post measurement, at modest scale.
+
+| field                  | value                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------- |
+| Problem                | effect of ChatGPT vs expert feedback on clinical-reasoning learning                                |
+| Arms                   | control (expert feedback) vs intervention (ChatGPT)                                                |
+| Timepoints             | immediate and delayed test; pre/post survey                                                        |
+| Items                  | 12 key-feature items (partial-credit scored — non-consecutive maxima, collapse per item) + 6 critical-approach-to-AI items ($1$–$7$ Likert) |
+| Effect measure $\rho$  | pre$\to$post (immediate$\to$delayed) endpoint effect per item                                       |
+| Cohort / interims      | $N=115$ test / $86$ survey (modest); interims by accrual order                                      |
+| **Application target** | **real-time evaluation** — a stress test at modest $N$                                              |
+| Data                   | [@cicek2024chatgpt]                                                                                 |
+
+## 3.8 Application: nurse-led self-management RCT in inflammatory bowel disease
+
+A single-centre longitudinal study of a nurse-led psychoeducational self-management intervention for inflammatory bowel disease, with item-level patient-reported outcomes across five waves [@riverasequeiros2026ibd]. Single-arm, but the richest timepoint structure of the set — well suited to exhibiting posterior contraction with cohort size.
+
+| field                  | value                                                                     |
+| ---------------------- | ------------------------------------------------------------------------- |
+| Problem                | nurse-led self-management for inflammatory bowel disease                   |
+| Arms                   | single-arm (no control)                                                   |
+| Timepoints             | five waves (baseline $\to$ 12 months)                                      |
+| Items                  | IBDQ-9, Family APGAR-5, PSS-14, CCVEII-9, HADS-14 — ordinal Likert         |
+| Effect measure $\rho$  | baseline$\to$endline endpoint effect per item                             |
+| Cohort / interims      | $N=60$ (modest); the five waves serve as interims                         |
+| **Application target** | **real-time evaluation** at modest $N$; showcases contraction with $n$     |
+| Data                   | [@riverasequeiros2026ibd]                                                  |
+
+## 3.9 Application: refugee and migrant youth (REFUGE-ED)
+
+Questionnaires administered to refugee and migrant children and young people across six countries under the EC Horizon 2020 REFUGE-ED project, at baseline and endline, at the item level [@refugeed2024youth]. A second humanitarian cohort — the largest linked pre/post sample of the set — with no treatment arm, so the estimand is the within-cohort endpoint effect.
+
+| field                  | value                                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| Problem                | education / psychosocial support and integration of refugee and migrant youth (6 countries)            |
+| Arms                   | none (multi-site practices pilot)                                                                       |
+| Timepoints             | baseline and endline (326 linked participants)                                                          |
+| Items                  | MSPSS perceived social support (12 items, $1$–$7$), PSSM school belonging (Likert), wellbeing — ordinal, PCM-ready |
+| Effect measure $\rho$  | baseline$\to$endline endpoint effect (e.g. perceived-support gain)                                       |
+| Cohort / interims      | $N=994$ baseline / $705$ endline; accrual ordered by site/date                                          |
+| **Application target** | **real-time evaluation** in a humanitarian setting, and a cross-cohort **generalisation test** of the deepset amortiser (deployable beyond $N=503$) |
+| Data                   | [@refugeed2024youth]                                                                                    |
+
+## 3.10 Application: ICRC community-level MHPSS in armed conflict
+
+A large International Committee of the Red Cross (ICRC) cohort of victims of violence, assessed before and after community-level mental-health and psychosocial support across armed-conflict settings in the Democratic Republic of the Congo, Mali and Nigeria [@andersen2022mhpss]. Item-level ordinal symptom scales, pre/post, at humanitarian scale — but individual-level data is **controlled-access**, released on request to the ICRC corresponding author rather than openly deposited.
+
+| field                  | value                                                                                           |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| Problem                | community-level MHPSS for victims of violence in armed conflict                                  |
+| Setting                | ICRC, 32 projects — DR Congo (81%), Nigeria (16%), Mali (3%)                                     |
+| Arms                   | single cohort (pre/post; no randomised control)                                                 |
+| Timepoints             | baseline and post-support (median $\approx$ 30–60 days apart; range $<8$ to $>150$)              |
+| Items                  | DASS-21 (21 items, ordinal), IES-R, ICRC functioning scale — item-level ordinal, PCM-ready       |
+| Effect measure $\rho$  | baseline$\to$endline endpoint effect per item (distress lower-is-better; functioning higher)     |
+| Cohort / interims      | $N=6{,}413$; accrual ordered by assessment date                                                  |
+| Data access            | **controlled-access** — request to corresponding author, `iandersen@icrc.org`                    |
+| **Application target** | **real-time humanitarian evaluation** at scale (subject to data access)                          |
+| Reference              | [@andersen2022mhpss]                                                                             |
+
+## 3.11 Application: PISA international assessment
+
+The OECD Programme for International Student Assessment, a triennial cross-national assessment whose constructed-response cognitive items are scored with **partial credit** and calibrated with the generalized partial credit model — the PCM's own family [@oecd2022pisa]. No intervention or repeat measurement, but the largest open, genuinely polytomous item bank available.
+
+| field                  | value                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------- |
+| Setting                | OECD PISA, $\approx$ 80 countries, $\approx$ 600,000 students per cycle (triennial)        |
+| Design                 | cross-sectional per cycle; no arms, no baseline/endline                                    |
+| Items                  | cognitive constructed-response items scored 0–1 / 0–2 (partial credit, GPCM) + Likert questionnaire items |
+| Effect measure $\rho$  | not a pre/post effect; country / group / cycle contrasts if a comparison is wanted         |
+| Interims               | not applicable (accrual = students)                                                        |
+| **Application target** | **validate the PCM amortiser** on a real, purpose-built partial-credit item bank at scale  |
+| Data                   | public microdata, [@oecd2022pisa]                                                          |
+
+## 3.12 Application: product-launch rating experiments
+
+The setting of interest is not the public review corpus at scale but the **small internal experiments a retailer runs before launching a new product** — a concept test or limited release in which a modest panel of customers rate the product on ordered scales, ratings accruing over days. This is a genuine real-time-decision regime: ordinal ratings fit the PCM directly (raters carry the latent trait $\theta$, product variants or attributes are the items, the hedonic/star/Likert score is the ordered response), the cohort is small and accrues over time, and the decision is a PPS — *given the ratings so far, will the product clear its launch threshold once the test completes?* The closest open match is a **consumer acceptance test**: the black-coffee preference dataset [@ristenpart2023coffee] has 118 consumers each rating 27 coffees on a **9-point hedonic scale** ($K=9$) plus four 5-point just-about-right attributes — exactly the per-consumer, per-product ordinal structure of a pre-launch panel. The public Amazon Review Data corpus [@ni2019amazon] provides the same rating structure at scale for validation.
+
+| field                  | value                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| Setting                | internal pre-launch product / concept tests (modest consumer panel); open example: black-coffee acceptance test [@ristenpart2023coffee] |
+| Design                 | small accruing cohort; ordinal ratings, optionally comparing product variants                       |
+| Items                  | product variants / attributes; response $=$ 9-point hedonic liking ($K=9$) or $1$–$5$ JAR / star     |
+| Effect measure $\rho$  | liking of a variant vs a launch benchmark, or a contrast between variants                            |
+| Cohort / interims      | small $N$ ($\sim$100 consumers), accruing over the test — the real-time interim regime               |
+| **Application target** | **real-time launch decision** (PPS the product clears its liking threshold); amortiser validated at scale on [@ni2019amazon] |
+| Data                   | open, [@ristenpart2023coffee] (small panel) and [@ni2019amazon] (at scale)                           |
+
+## 3.13 Application: MovieLens ratings
+
+The MovieLens rating datasets — up to 25M timestamped $0.5$–$5$ star movie ratings from GroupLens [@harper2015movielens]. A clean, classic ordinal (user $\times$ item) benchmark, smaller and tidier than the Amazon corpus.
+
+| field                  | value                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| Setting                | GroupLens MovieLens (ml-25m and smaller releases)                            |
+| Design                 | observational; timestamped                                                   |
+| Items                  | movies; response $=0.5$–$5$ star rating (10 ordered categories)               |
+| Effect measure $\rho$  | temporal rating shift, if an effect is wanted                                |
+| Cohort / interims      | up to 25M ratings; interims accrue by timestamp                              |
+| **Application target** | **validate the amortiser** on ordinal ratings; tidy benchmark for the accrual/PPS framing |
+| Data                   | open download, [@harper2015movielens]                                        |
+
+## 3.14 Application: mycelium novel-food acceptance
+
+A new-product acceptance study for mycelium as a human food protein — the launch-decision setting of §3.12 with an explicit experimental design [@fischer2024mycelium]. A UK Prolific panel rates the product under a $3\times3$ manipulation, on item-level ordinal scales.
+
+| field                  | value                                                                                              |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| Problem                | consumer acceptance of mycelium as a novel food (protein) source                                    |
+| Setting                | UK Prolific panel, $N=449$                                                                           |
+| Arms                   | $3\times3$ factorial — processing (unprocessed / protein powder / burger) $\times$ substrate (manure / wood log / glucose syrup) |
+| Timepoints             | single survey (cross-sectional; no pre/post)                                                        |
+| Items                  | 36 ordinal $1$–$7$ Likert items — intention, attitude, social norms, disgust, health/environmental benefit ($K=7$) |
+| Effect measure $\rho$  | between-condition contrast (processing / substrate effect on acceptance)                             |
+| Cohort / interims      | $N=449$; accrual order for interims                                                                  |
+| **Application target** | **real-time launch/acceptance evaluation** of a novel product, with a genuine condition contrast     |
+| Data                   | open, [@fischer2024mycelium]                                                                         |
 
 ------------------------------------------------------------------------
 
@@ -179,7 +332,7 @@ and two partitions on the unknown true treatment effect, parameterised by the re
 We can define the loss matrix:
 
 | Action                  | $H_1$ true | $H_0$ true |
-| ----------------------- | ---------- | ---------- |
+|-------------------------|------------|------------|
 | Declare success ($a_1$) | 0          | $L_{FP}$   |
 | Declare failure ($a_0$) | $L_{FN}$   | 0          |
 
@@ -416,7 +569,7 @@ Because the encoder sums are linear in the observations, $\sum_i q_\tau(x^{\text
 **Correctness against the closed-form Beta-Binomial PPS.** Across the 11 valid monthly interims of the deployment cohort ($N = 500$, true $p = 0.4$, $\eta_0 = 0.25$, $\eta_H = 0.89$, $S = 200$):
 
 | Interim  | Analytic | Amortised |       |
-| -------- | -------: | --------: | ----: |
+|----------|---------:|----------:|------:|
 | 1 (Jan)  |    0.069 |     0.070 | 0.001 |
 | 2 (Feb)  |    0.476 |     0.510 | 0.034 |
 | 3 (Mar)  |    0.316 |     0.275 | 0.041 |
@@ -448,7 +601,7 @@ Because the encoder sums are linear in the observations, $\sum_i q_\tau(x^{\text
 **Correctness against the closed-form Beta-Binomial PPS.** Same 11 monthly interims, same $\eta_0 / \eta_H / S$ as §12.1:
 
 | Interim  | Analytic | Amortised (features-MLP) |       |
-| -------- | -------: | -----------------------: | ----: |
+|----------|---------:|-------------------------:|------:|
 | 1 (Jan)  |    0.069 |                    0.065 | 0.004 |
 | 2 (Feb)  |    0.476 |                    0.555 | 0.079 |
 | 3 (Mar)  |    0.316 |                    0.370 | 0.054 |
@@ -467,17 +620,17 @@ Because the encoder sums are linear in the observations, $\sum_i q_\tau(x^{\text
 
 All Binomial deployment scripts (regression, IS, both amortised variants; nested-MC left as-is per its "HMC-in-HMC" contract) now build `zi` from `BinomialModel.fit_closed_form_posterior` + the `BinomialModel`-specific `get_interim_z_from_ypredi` override that draws fresh $m$ Bernoulli$(p_s)$ per posterior draw. This uses the **same** analytic $p(\theta, z \mid x)$ joint across all methods, so per-method MSE cleanly reflects estimator quality rather than divergent `z`-samplers. MSE against the closed-form Beta-Binomial PPS across the 11 monthly interims:
 
-| Method                                                   |         MSE | $\sqrt{\text{MSE}}$ | Mean per-interim inference (min) | One-off training (min) |
-| -------------------------------------------------------- | ----------: | ------------------: | -------------------------------: | ---------------------: |
-| **Amortised (features-fixed, `hidden_dims = (64, 64)`)** | **0.00119** |           **0.035** |                        **0.001** |               **1.94** |
-| Regression endpt-x (Gaussian approx)                     |     0.00160 |               0.040 |                            0.001 |                      — |
-| Nested-MC using HMC for each (x, z)                      |     0.00244 |               0.049 |                             6.04 |                      — |
-| IS reweighting of $\theta \mid x$                        |     0.00277 |               0.053 |                            0.004 |                      — |
-| Amortised (features-MLP)                                 |     0.00277 |               0.053 |                            0.002 |                   8.59 |
-| Regression endpt-x (mquantile)                           |     0.00355 |               0.060 |                            0.001 |                      — |
-| Regression endpt-x (quantile)                            |     0.00357 |               0.060 |                            0.001 |                      — |
-| Nested-MC using SVI for each (x, z)                      |     0.00401 |               0.063 |                             1.10 |                      — |
-| Regression H1-x on w(z)                                  |     0.01033 |               0.102 |                            0.001 |                      — |
+| Method | MSE | $\sqrt{\text{MSE}}$ | Mean per-interim inference (min) | One-off training (min) |
+|-----------------------|------------:|------------:|------------:|------------:|
+| **Amortised (features-fixed, `hidden_dims = (64, 64)`)** | **0.00119** | **0.035** | **0.001** | **1.94** |
+| Regression endpt-x (Gaussian approx) | 0.00160 | 0.040 | 0.001 | — |
+| Nested-MC using HMC for each (x, z) | 0.00244 | 0.049 | 6.04 | — |
+| IS reweighting of $\theta \mid x$ | 0.00277 | 0.053 | 0.004 | — |
+| Amortised (features-MLP) | 0.00277 | 0.053 | 0.002 | 8.59 |
+| Regression endpt-x (mquantile) | 0.00355 | 0.060 | 0.001 | — |
+| Regression endpt-x (quantile) | 0.00357 | 0.060 | 0.001 | — |
+| Nested-MC using SVI for each (x, z) | 0.00401 | 0.063 | 1.10 | — |
+| Regression H1-x on w(z) | 0.01033 | 0.102 | 0.001 | — |
 
 *Amortised features-fixed shown after the §12.4 default swap to `hidden_dims = (64, 64)` — halves MSE vs the old `(256, 256, 128)` default at* $3\times$-faster training. Training cost is amortised across all future deployments — pay once, deploy in milliseconds thereafter. Nested-MC HMC costs 6 min **per interim per x**, so on a 12-interim schedule with $S = 200$ Monte-Carlo draws the total nested-MC cost is $\sim 72$ min per new patient cohort $x$; the amortised features-fixed variant recovers a lower MSE for a 1.9 min one-off training + 0.001 min per interim, breaking even before the first fresh $x$. All timings measured with $\le 4$ CPU threads on a single machine.
 
@@ -489,14 +642,14 @@ All Binomial deployment scripts (regression, IS, both amortised variants; nested
 
 Five variants of the features-fixed amortiser exercised to probe whether the default `hidden_dims = (256, 256, 128)` config from §12.1 was over-parameterised and whether other training knobs move the MSE floor. Each variant differs from the default in one dimension; all use the same analytic joint `zi` path of §12.3 and the same deployment cohort. Selectable at run time via the `AMORTISER_VARIANT` environment variable on the deployment script:
 
-| Variant                   | Change vs default                                                  |         MSE | $\sqrt{\text{MSE}}$ | Training (min) |
-| ------------------------- | ------------------------------------------------------------------ | ----------: | ------------------: | -------------: |
-| default `(256, 256, 128)` | —                                                                  |     0.00277 |               0.053 |           5.90 |
-| **`64x64`**               | `hidden_dims = (64, 64)`                                           | **0.00119** |           **0.035** |       **1.94** |
-| `num_quantile_levels_5`   | `taus = (0.05, 0.25, 0.5, 0.75, 0.95)`                             |     0.00019 |               0.014 |           5.26 |
-| `num_quantile_levels_21`  | 21 equally-spaced taus in $(0.025, 0.975)$                         |     0.00119 |               0.035 |          46.20 |
-| `S_2000`                  | Deployment $S = 2000$ instead of $200$                             |     0.00029 |               0.017 |          38.13 |
-| `log_uniform_n`           | Training $n \sim$ log-uniform on $[1, N-1]$ (oversample small $n$) |     0.00119 |               0.035 |          22.23 |
+| Variant | Change vs default | MSE | $\sqrt{\text{MSE}}$ | Training (min) |
+|------------|---------------------------|-----------:|-----------:|-----------:|
+| default `(256, 256, 128)` | — | 0.00277 | 0.053 | 5.90 |
+| **`64x64`** | `hidden_dims = (64, 64)` | **0.00119** | **0.035** | **1.94** |
+| `num_quantile_levels_5` | `taus = (0.05, 0.25, 0.5, 0.75, 0.95)` | 0.00019 | 0.014 | 5.26 |
+| `num_quantile_levels_21` | 21 equally-spaced taus in $(0.025, 0.975)$ | 0.00119 | 0.035 | 46.20 |
+| `S_2000` | Deployment $S = 2000$ instead of $200$ | 0.00029 | 0.017 | 38.13 |
+| `log_uniform_n` | Training $n \sim$ log-uniform on $[1, N-1]$ (oversample small $n$) | 0.00119 | 0.035 | 22.23 |
 
 **Findings.**
 
@@ -515,21 +668,21 @@ Same evaluation setup as §12.4 (analytic joint `zi` from `BinomialModel.fit_clo
 
 **Combined table (fixed + MLP, sorted by MSE):**
 
-| Variant                                        | Encoder     |         MSE | $\sqrt{\text{MSE}}$ | Training (min) |
-| ---------------------------------------------- | ----------- | ----------: | ------------------: | -------------: |
-| `combo_64x64_qlv5_S2000`                       | **MLP**     | **0.00013** |           **0.011** |       **8.05** |
-| `num_quantile_levels_5`                        | fixed       |     0.00019 |               0.014 |           5.26 |
-| `S_2000`                                       | fixed       |     0.00029 |               0.017 |          38.13 |
-| `S_2000`                                       | **MLP**     |     0.00029 |               0.017 |           7.88 |
-| `combo_64x64_qlv5_S2000`                       | fixed       |     0.00046 |               0.022 |           1.85 |
-| `num_quantile_levels_5`                        | **MLP**     |     0.00119 |               0.035 |          12.70 |
-| `64x64` (default)                              | fixed       |     0.00119 |               0.035 |           1.94 |
-| `num_quantile_levels_21`                       | fixed       |     0.00119 |               0.035 |          46.20 |
-| `log_uniform_n`                                | fixed       |     0.00119 |               0.035 |          22.23 |
-| `log_uniform_n`                                | **MLP**     |     0.00192 |               0.044 |          29.60 |
-| `64x64`                                        | **MLP**     |     0.00243 |               0.049 |           7.86 |
-| default (`(256, 256, 128)` / `(128, 128, 64)`) | fixed / MLP |     0.00277 |               0.053 |    5.90 / 8.59 |
-| `num_quantile_levels_21`                       | **MLP**     |     0.00277 |               0.053 |          52.16 |
+| Variant | Encoder | MSE | $\sqrt{\text{MSE}}$ | Training (min) |
+|-------------------------|------------|-----------:|-----------:|-----------:|
+| `combo_64x64_qlv5_S2000` | **MLP** | **0.00013** | **0.011** | **8.05** |
+| `num_quantile_levels_5` | fixed | 0.00019 | 0.014 | 5.26 |
+| `S_2000` | fixed | 0.00029 | 0.017 | 38.13 |
+| `S_2000` | **MLP** | 0.00029 | 0.017 | 7.88 |
+| `combo_64x64_qlv5_S2000` | fixed | 0.00046 | 0.022 | 1.85 |
+| `num_quantile_levels_5` | **MLP** | 0.00119 | 0.035 | 12.70 |
+| `64x64` (default) | fixed | 0.00119 | 0.035 | 1.94 |
+| `num_quantile_levels_21` | fixed | 0.00119 | 0.035 | 46.20 |
+| `log_uniform_n` | fixed | 0.00119 | 0.035 | 22.23 |
+| `log_uniform_n` | **MLP** | 0.00192 | 0.044 | 29.60 |
+| `64x64` | **MLP** | 0.00243 | 0.049 | 7.86 |
+| default (`(256, 256, 128)` / `(128, 128, 64)`) | fixed / MLP | 0.00277 | 0.053 | 5.90 / 8.59 |
+| `num_quantile_levels_21` | **MLP** | 0.00277 | 0.053 | 52.16 |
 
 **Findings.**
 
@@ -538,7 +691,7 @@ Same evaluation setup as §12.4 (analytic joint `zi` from `BinomialModel.fit_clo
 2.  **Robustness of the ablation findings.** Each of the four single-knob ablations moves both encoders in the same direction:
 
     | Knob                     |  Fixed $\Delta$MSE |    MLP $\Delta$MSE |
-    | ------------------------ | -----------------: | -----------------: |
+    |--------------------------|-------------------:|-------------------:|
     | `64x64`                  | $\mathbf{-0.0016}$ |          $-0.0003$ |
     | `num_quantile_levels_5`  | $\mathbf{-0.0026}$ | $\mathbf{-0.0016}$ |
     | `num_quantile_levels_21` |          $-0.0016$ |            $\pm 0$ |
@@ -558,7 +711,7 @@ Setup. `pixi run -e mps-experimental install-jax-mps` provisions the Metal backe
 **Direct comparison (features-MLP amortiser, combo config).**
 
 | Backend          | Training (min) |  Speedup |         MSE | $\sqrt{\text{MSE}}$ |
-| ---------------- | -------------: | -------: | ----------: | ------------------: |
+|--------------|-------------:|-------------:|-------------:|---------------:|
 | CPU (6-thread)   |           8.05 |     1.0× |     0.00013 |              0.0113 |
 | **MPS (M4 Max)** |       **2.71** | **3.0×** | **0.00009** |          **0.0095** |
 
@@ -588,11 +741,11 @@ Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `s
 
 **Correctness against the analytic** $\Phi$-tail PPS per $(J, \text{interim}, j)$. MSE and $\sqrt{\text{MSE}}$ across all $J$ components at each of the 7 interims per $J$ grid cell (deployment $S = 4000$):
 
-| $J$ | \# $(j, \text{interim})$ |     MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
-| --- | -----------------------: | ------: | ------------------: | ----------: | -----------: |
-| 20  |                      140 | 0.00091 |               0.030 |       0.085 |        0.018 |
-| 60  |                      420 | 0.00130 |               0.036 |       0.109 |        0.020 |
-| 100 |                      700 | 0.00106 |               0.033 |       0.100 |        0.021 |
+| $J$ | \# $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
+|------------|---------------:|-----------:|-----------:|-----------:|-----------:|
+| 20 | 140 | 0.00091 | 0.030 | 0.085 | 0.018 |
+| 60 | 420 | 0.00130 | 0.036 | 0.109 | 0.020 |
+| 100 | 700 | 0.00106 | 0.033 | 0.100 | 0.021 |
 
 **Findings.**
 
@@ -613,11 +766,11 @@ Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `s
 
 **Correctness against the analytic** $\Phi$-tail PPS per $(J, \text{interim}, j)$ (deployment $S = 500$; the MLP forward pass on `(S, N_max, 1)` tensor per $(j, \text{interim})$ is the deployment bottleneck, so we drop $S$ from RGEA's $4000$ to $500$ to cap wall-clock):
 
-| $J$ | \# $(j, \text{interim})$ |   MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
-| --- | -----------------------: | ----: | ------------------: | ----------: | -----------: |
-| 20  |                      140 | 0.265 |               0.514 |        1.00 |         0.34 |
-| 60  |                      420 | 0.284 |               0.533 |        1.00 |         0.36 |
-| 100 |                      700 | 0.182 |               0.427 |        1.00 |         0.26 |
+| $J$ | \# $(j, \text{interim})$ | MSE | $\sqrt{\text{MSE}}$ | Max abs err | Mean abs err |
+|-----------|---------------:|----------:|-----------:|----------:|----------:|
+| 20 | 140 | 0.265 | 0.514 | 1.00 | 0.34 |
+| 60 | 420 | 0.284 | 0.533 | 1.00 | 0.36 |
+| 100 | 700 | 0.182 | 0.427 | 1.00 | 0.26 |
 
 **Findings — MLP variant is undertrained for the MVN target scale.**
 
@@ -631,17 +784,17 @@ Same amortiser class + shared `train` / `predict_amortised_p_h1_for_one_xz` / `s
 
 **MVN extension of §12.3.** [`scripts-py/MVN_interim_analyses_compare_methods.py`](../scripts-py/MVN_interim_analyses_compare_methods.py) extended with `DIR_RGEA` + `DIR_RGEB` and two new method rows (`amortised`, `amortised MLP`), piped through the existing per-J MSE + timing plot machinery. MSE is per $(J, \text{interim})$ averaged over all $J$ response components, computed against the closed-form $\Phi$-tail PPS `pps_cf` from `mvn_pps_closed_form.pkl`. Aggregate mean MSE per method per $J$ (averaged over the 7 interims):
 
-| Method                                                         |    $J = 20$ |    $J = 60$ |   $J = 100$ | Deployment cost / interim |
-| -------------------------------------------------------------- | ----------: | ----------: | ----------: | ------------------------: |
-| **Amortised idcomp (features-fixed)**                          | **0.00091** | **0.00130** | **0.00106** |             0.14–0.78 min |
-| nested-MC using HMC for each $(x, z)$                          |     0.00153 |     0.00242 |     0.00204 |             18.7–39.7 min |
-| Regression endpt-x (Gaussian approx)                           |     0.00348 |     0.00370 |     0.00336 |             0.12–0.76 min |
-| Regression endpt-x (quantile)                                  |     0.00349 |     0.00374 |     0.00349 |             0.12–0.76 min |
-| Regression endpt-x (mquantile)                                 |     0.00358 |     0.00389 |     0.00368 |             0.12–0.76 min |
-| IS reweighting of $\theta \mid x$                              |     0.00453 |     0.00664 |     0.04605 |             0.09–0.51 min |
-| Amortised MLP idcomp (undertrained)                            |     0.26469 |     0.28351 |     0.18170 |             0.02–0.10 min |
-| Amortised MLP xcomp (undertrained; §13.4)                      |     0.48307 |     0.53525 |     0.59112 |             0.44–19.4 min |
-| **Amortised MLP xcompAtt** (K-mixture train, 15k steps; §13.5) |     0.00099 | **0.00087** |     0.00118 |             0.61–0.64 min |
+| Method | $J = 20$ | $J = 60$ | $J = 100$ | Deployment cost / interim |
+|-----------------------------|----------:|----------:|----------:|----------:|
+| **Amortised idcomp (features-fixed)** | **0.00091** | **0.00130** | **0.00106** | 0.14–0.78 min |
+| nested-MC using HMC for each $(x, z)$ | 0.00153 | 0.00242 | 0.00204 | 18.7–39.7 min |
+| Regression endpt-x (Gaussian approx) | 0.00348 | 0.00370 | 0.00336 | 0.12–0.76 min |
+| Regression endpt-x (quantile) | 0.00349 | 0.00374 | 0.00349 | 0.12–0.76 min |
+| Regression endpt-x (mquantile) | 0.00358 | 0.00389 | 0.00368 | 0.12–0.76 min |
+| IS reweighting of $\theta \mid x$ | 0.00453 | 0.00664 | 0.04605 | 0.09–0.51 min |
+| Amortised MLP idcomp (undertrained) | 0.26469 | 0.28351 | 0.18170 | 0.02–0.10 min |
+| Amortised MLP xcomp (undertrained; §13.4) | 0.48307 | 0.53525 | 0.59112 | 0.44–19.4 min |
+| **Amortised MLP xcompAtt** (K-mixture train, 15k steps; §13.5) | 0.00099 | **0.00087** | 0.00118 | 0.61–0.64 min |
 
 **Cross-**$J$ reading.
 
@@ -672,7 +825,7 @@ Full per-J boxplots + timing bars + MSE plots live under `py-mvn-interim-compare
 **Results.**
 
 | $J$ |   MSE | Mean abs err | Deployment min/interim |
-| --- | ----: | -----------: | ---------------------: |
+|-----|------:|-------------:|-----------------------:|
 | 20  | 0.483 |         0.52 |                   0.44 |
 | 60  | 0.535 |         0.57 |                   4–11 |
 | 100 | 0.591 |         0.64 |              18.9–19.9 |
@@ -727,10 +880,10 @@ Total code: 60 lines including docstring. `Amortiser_PPS_features_MLP_xcompAtt_q
 MSE against the analytic $\Phi$-tail PPS, averaged across the 7 interims per $J$ (block-equicorr deployment K; K-mixture training):
 
 | $J$ | xcompAtt (K-mixture train) | idcomp fixed (§13.1 baseline) | nested-MC HMC | Regression Gauss |
-| --- | -------------------------: | ----------------------------: | ------------: | ---------------: |
-| 20  |                    0.00099 |                   **0.00091** |       0.00153 |          0.00348 |
-| 60  |                **0.00087** |                       0.00130 |       0.00242 |          0.00370 |
-| 100 |                    0.00118 |                   **0.00106** |       0.00204 |          0.00336 |
+|-------------|---------------:|-----------------:|------------:|------------:|
+| 20 | 0.00099 | **0.00091** | 0.00153 | 0.00348 |
+| 60 | **0.00087** | 0.00130 | 0.00242 | 0.00370 |
+| 100 | 0.00118 | **0.00106** | 0.00204 | 0.00336 |
 
 - **Matches idcomp fixed at** $J = 20$ and $J = 100$ ($\pm 10\%$). Beats it at $J = 60$. And this is despite xcompAtt being trained on a MIXTURE of K families (identity / AR(1) / block / factor) rather than the specific deployment K.
 - **\~500× improvement over `xcomp`** (§13.4 was 0.483 / 0.535 / 0.591 undertrained). Combined effect of (a) attention over j + component-summary tokens, (b) 4× more training steps at the same wall-clock, (c) K-family-invariant training.
@@ -835,24 +988,24 @@ $$\hat\rho^{(j^*, s)}_{\tau_k} \;=\; \Big[q_\psi\!\big(\operatorname{concat}\big
 
 Every symbol carries an explicit $(j^*, s)$ superscript above; the table below drops it for brevity.
 
-| item                                  | `itemXcompAtt` (cross-attn)                                                                                       | `itemScompAtt` (self-attn + gather + B)                                                   |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| \# attention scores per batch element | $J$                                                                                                               | $J^2$                                                                                     |
-| query built from                      | $q_{\text{query}}(t_{j^*}) \in \mathbb{R}^E$                                                                      | gather position $j^*$ + $\alpha \cdot \mathbf{1}\{b = j^*\}$                              |
-| attention output                      | $\bar h = \sum_{j=1}^J w_j h_j$ (weighted sum)                                                                    | $\bar h = h'_{j^*}$ (gather)                                                              |
-| head input                            | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$                                        | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$                |
-| extra learnable module vs the other   | `q_query` MLP $\mathbb{R}^F \to \mathbb{R}^E$                                                                     | scalar $\alpha \in \mathbb{R}$                                                            |
-| K-row consumption                     | attention softmax on $\langle q, h_j\rangle$; high-K tokens land near $q$ in embedding space, attract high weight | K-row baked into every token; self-attention has to learn to route information through it |
+| item | `itemXcompAtt` (cross-attn) | `itemScompAtt` (self-attn + gather + B) |
+|----------------|-------------------------------|-------------------------|
+| \# attention scores per batch element | $J$ | $J^2$ |
+| query built from | $q_{\text{query}}(t_{j^*}) \in \mathbb{R}^E$ | gather position $j^*$ + $\alpha \cdot \mathbf{1}\{b = j^*\}$ |
+| attention output | $\bar h = \sum_{j=1}^J w_j h_j$ (weighted sum) | $\bar h = h'_{j^*}$ (gather) |
+| head input | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ | $\operatorname{concat}(\bar h,\, t_{j^*},\, a) \in \mathbb{R}^{E + F + A}$ |
+| extra learnable module vs the other | `q_query` MLP $\mathbb{R}^F \to \mathbb{R}^E$ | scalar $\alpha \in \mathbb{R}$ |
+| K-row consumption | attention softmax on $\langle q, h_j\rangle$; high-K tokens land near $q$ in embedding space, attract high weight | K-row baked into every token; self-attention has to learn to route information through it |
 
 ### Empirical impact on MVN (15k steps, K-mixture training)
 
 MSE against analytic PPS, averaged over the 7-interim schedule:
 
 | $J$ | `itemXcompAtt` cross-attn (new) | `itemScompAtt` self-attn + B (previous best) | old case-study-specific cross-attn baseline |
-| --- | ------------------------------: | -------------------------------------------: | ------------------------------------------: |
-| 20  |                         0.00141 |                                      0.00196 |                                     0.00099 |
-| 60  |                         0.00114 |                                      0.00153 |                                     0.00087 |
-| 100 |                         0.00240 |                                      0.00218 |                                     0.00118 |
+|--------------|--------------:|---------------------:|---------------------:|
+| 20 | 0.00141 | 0.00196 | 0.00099 |
+| 60 | 0.00114 | 0.00153 | 0.00087 |
+| 100 | 0.00240 | 0.00218 | 0.00118 |
 
 **Read:**
 
@@ -878,15 +1031,15 @@ MSE against analytic PPS, averaged over the 7-interim schedule:
 
 Batch schema (data-agnostic; supports arbitrary response feature dim $R$):
 
-| tensor          | shape            | content                                                      |
-| --------------- | ---------------- | ------------------------------------------------------------ |
-| `x_responses`   | $(B, N_x, J, R)$ | raw per-(participant, item) response of the $x$-cohort       |
-| `mask_x`        | $(B, N_x)$       | 1 real / 0 padded participant                                |
-| `z_responses`   | $(B, N_z, J, R)$ | raw per-(participant, item) response of the $z$-cohort       |
-| `mask_z`        | $(B, N_z)$       | 1 real / 0 padded participant                                |
-| `item_metadata` | $(B, J, M)$      | fixed per-item scalar features (item type, K-row entry, …)   |
-| `query_idx`     | $(B,)$ int       | queried item $j^*$                                           |
-| `aux`           | $(B, A)$         | scalar extras for the head (cohort sizes, $K_{j^*, j^*}$, …) |
+| tensor | shape | content |
+|---------------|---------------|-------------------------------------------|
+| `x_responses` | $(B, N_x, J, R)$ | raw per-(participant, item) response of the $x$-cohort |
+| `mask_x` | $(B, N_x)$ | 1 real / 0 padded participant |
+| `z_responses` | $(B, N_z, J, R)$ | raw per-(participant, item) response of the $z$-cohort |
+| `mask_z` | $(B, N_z)$ | 1 real / 0 padded participant |
+| `item_metadata` | $(B, J, M)$ | fixed per-item scalar features (item type, K-row entry, …) |
+| `query_idx` | $(B,)$ int | queried item $j^*$ |
+| `aux` | $(B, A)$ | scalar extras for the head (cohort sizes, $K_{j^*, j^*}$, …) |
 
 Forward pass, per batch element:
 
@@ -908,8 +1061,8 @@ Per-(participant, item) response is a single continuous scalar ($R = 1$). Per-it
 MSE against analytic PPS, averaged over 7-interim schedule at $J = 20$; both deepset variants trained 8k steps (\~71 min each on CPU) with mean-pool over participants (see "Mean-pool vs sum-pool" below):
 
 | $J$ | `deepsetScompAtt` | `deepsetXcompAtt` | best of `itemScompAtt` / `itemXcompAtt` (§13.6) |
-| --- | ----------------: | ----------------: | ----------------------------------------------: |
-| 20  |           0.02136 |           0.00573 |                        0.00141 (`itemXcompAtt`) |
+|-------------|------------:|------------:|---------------------------------:|
+| 20 | 0.02136 | 0.00573 | 0.00141 (`itemXcompAtt`) |
 
 **Read:**
 
@@ -936,6 +1089,30 @@ Deferred: a PCM prior-predictive sampler analogous to `make_training_data_with_p
 
 # 14. Results for the partial credit model on Ukraine data
 
+## 14.0 Roadmap: estimand, estimator, and result
+
+**Estimand.** For each item $j$ the target is the direction-aware endpoint effect size $\rho_j = s_j\big(\bar w_{e,j}/\bar w_{b,j}-1\big)$, where $\bar w_{b,j},\bar w_{e,j}$ are the population mean baseline/endline levels under the fitted partial-credit model and $s_j=\pm1$ the item direction; the interim decision quantity is the predictive probability of success $\Pr\!\big(\rho_j \ge \delta \mid x\big)$ for a threshold $\delta$. The reference posterior is SVI applied per interim; the amortiser is trained to reproduce, at deployment, the SVI predictive $p(\rho_j\mid x)$ and — for the decision — the conditional $p(\rho_j\mid x, z^{(s)})$ over posterior-predictive future cohorts $z^{(s)}\sim p(z\mid x)$.
+
+**The two statistical problems.** (i) *Calibration*: the network is fitted purely on the prior predictive (§8), so at deployment its predictive is **mislocated** relative to the operational region — the coverage and PIT diagnostics of §14.1.7 quantify this. (ii) *Contraction*: the posterior SD of $\rho_j$ must fall with the observed cohort size $n$ at the Bernstein–von Mises rate; a fixed-scale head does not reproduce it.
+
+**The estimator this section builds to (A/C** $+$ BvM). Read in sequence:
+
+1.  **Encoder.** Nested DeepSets over the raw cohort response tensors with cross-attention over items, on a ragged participant axis (no padding/mask), so the $1/n$ pooling delivers the posterior precision — `deepsetXcompAtt`, §14.4.1–14.4.4. (Hand-computed item-summary encoders, `itemXcompAtt` §14.1 and `itemScompAtt` §14.3, are the alternatives used for comparison in §14.5.)
+2.  **Training law.** Wide **prior** proposal over item parameters, a $\theta$-level target functional (endpoint over a large reference ability population), decoupled cohort sizes $(n,m)$, and the interval-score loss — §14.4.3. Net directory `…-deepsetXcompAtt-ragged-priorproposal-{260812 (plain), A-powerlaw, C-floor}`.
+3.  **Deployment calibration.** Expanding-window head-only fine-tune of the quantile head on the SVI of interims $1..k$ (§14.4.6), followed by the per-item **affine median-shift** $\Delta_j(k)=\operatorname{mean}_{i\le k}[\operatorname{med}p_{\mathrm{SVI}}(\rho\mid x_i)-\operatorname{med}\hat p(\rho\mid x_i)]$ that removes the residual location bias (§14.4.6). Output directories carry the suffix `_ftheadexpand`.
+4.  **Parametric contraction.** The posterior SD follows an item-specific power law $\mathrm{SD}(\rho_j\mid x)=C_j\,n^{-p_j}$ (Bernstein–von Mises $+$ delta method, §14.4.7), realised as the power-law head **A** ($m+z_\tau C\,n^{-p}$) and the floor head **C** ($\sqrt{a^2+b^2/n}$) — §14.4.7, directories `…-A-powerlaw`, `…-C-floor`.
+5.  **BvM self-consistency correction.** A post-hoc correction of the deployed quantiles (§14.4.7): with the law of total variance $\operatorname{Var}_{\text{mix}}=W+B$, the non-spurious between term is pinned by the same power law read at $n$ and $n+m$, $B^\ast=C^2\big(n^{-2p}-(n+m)^{-2p}\big)$; scaling within by $\alpha=\sqrt{W_{\text{true}}/W}$ and shrinking the median spread by $\beta=\sqrt{B^\ast/B}$ makes the mixture variance equal the target exactly and removes the finite-$m$ contraction upturn. Directories `…-A-powerlaw_ftheadexpand_bvm`, `…-C-floor_ftheadexpand_bvm`.
+
+**Result (weekly grid, `py-ukraine-interim-weekly-svi-260811`, 29 interims; excluding the degenerate item `CG-VIO_ph-punish`).** With the affine shift applied throughout, the correction lowers the marginal KS at every cohort size, most in the large-$n$ tail, and makes the amortiser's contraction curve track SVI's (§14.4.7):
+
+| pipeline | PIT-KS (conditional) | marg-KS (all $n$) | marg-KS ($n\ge450$) |
+|-------------------------------|-------------:|-------------:|-------------:|
+| plain $+$ affine (`…-260812_ftheadexpand`) | **0.069** | **0.157** | 0.181 |
+| **A power-law** $+$ BvM (`…-A-powerlaw_ftheadexpand_bvm`) | 0.112 | 0.177 | 0.180 |
+| **C floor** $+$ BvM (`…-C-floor_ftheadexpand_bvm`) | 0.115 | 0.166 | **0.170** |
+
+The **A/C** $+$ BvM estimator is the statistically coherent recommendation: its width obeys a BvM contraction law and its marginal is self-consistent under the law of total variance. The plain net $+$ affine remains numerically ahead on the aggregate conditional PIT-KS and on all-$n$ marg-KS, and is the lighter alternative when the parametric contraction guarantee is not required. Comparison figures — conditional-calibration PIT box, marginal quantile box, contraction-factor, contraction-law — are produced for every configuration from `python/amortiser_diag_plots.py`. Approaches examined during the development and set aside are catalogued in §14.10.
+
 ## 14.1 Cross-component attention to learn item-specific summaries (`itemXcompAtt`)
 
 **Task.** Adapt the data-agnostic cross-attention amortiser of §13.6 (`itemXcompAtt`) to the Ukraine partial-credit (PCM) interim analysis. The network class is reused **unchanged**; everything Ukraine-specific lives in the token construction, the target, and the training pool. Diagnostics: §14.1.7–14.1.11. Calibration remedies: §14.2. Self-attention sibling: §14.3. Fully-amortised deepset variant: §14.4.
@@ -946,29 +1123,29 @@ Each participant contributes **two** responses per item — baseline ($t = 0$) a
 
 Two axes must not be conflated: the **cohort axis** ($x^{\text{obs}}$ vs $z^{(s)}$ — the §10 deployment passes both through the network) and the **time axis** (baseline vs endline within a participant, present in both cohorts). The current $F = 8$ token (§14.1.3) carries both cohorts and both time-points. The remaining §10 gap at the item level is that the per-item pooling over participants is hand-computed (group-means), not learned; the learned version is the nested-DeepSets variant (§13.7, results §14.4).
 
-| symbol   | value            | description                                                                                                                                                            |
-| -------- | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| $J$      | 20               | **real** items presented to the amortiser (one token per real item); internally the PCM likelihood fits $2 J = 40$ per-`item_time_id` fake items                       |
-| $n$      | interim-specific | observed participants at the interim, **each with both baseline and endline responses** (contributes $2 J n$ observations to the PCM likelihood)                       |
-| $m$      | interim-specific | shadow future participants used per posterior draw $s$, **each also carrying both baseline and endline** (contributes $2 J m$ posterior-predictive responses per draw) |
-| $S$      | 4000             | posterior-predictive draws of $z^{(s)}$ per interim at deploy time (item amortisers, §14.1/§14.3); the deepset variant (§14.4) uses $S = 200$                          |
-| $C$      | 8                | interims analysed (`INTERIM_IDS = 1..8`)                                                                                                                               |
-| $F$      | 8                | per-real-item token dim: x-side + z-side cohort summaries, change ratio, metadata, empirical $\hat K$-row (see §14.1)                                                  |
-| $A$      | 2                | aux scalars $(n/N, m/N)$, $N = 503$                                                                                                                                    |
-| $E$      | 32               | embedding dim (`embed_dim`)                                                                                                                                            |
-| $K_\tau$ | 5                | quantile levels $\tau = (0.05, 0.25, 0.5, 0.75, 0.95)$                                                                                                                 |
+| symbol | value | description |
+|----------|----------|----------------------------------------------------|
+| $J$ | 20 | **real** items presented to the amortiser (one token per real item); internally the PCM likelihood fits $2 J = 40$ per-`item_time_id` fake items |
+| $n$ | interim-specific | observed participants at the interim, **each with both baseline and endline responses** (contributes $2 J n$ observations to the PCM likelihood) |
+| $m$ | interim-specific | shadow future participants used per posterior draw $s$, **each also carrying both baseline and endline** (contributes $2 J m$ posterior-predictive responses per draw) |
+| $S$ | 4000 | posterior-predictive draws of $z^{(s)}$ per interim at deploy time (item amortisers, §14.1/§14.3); the deepset variant (§14.4) uses $S = 200$ |
+| $C$ | 8 | interims analysed (`INTERIM_IDS = 1..8`) |
+| $F$ | 8 | per-real-item token dim: x-side + z-side cohort summaries, change ratio, metadata, empirical $\hat K$-row (see §14.1) |
+| $A$ | 2 | aux scalars $(n/N, m/N)$, $N = 503$ |
+| $E$ | 32 | embedding dim (`embed_dim`) |
+| $K_\tau$ | 5 | quantile levels $\tau = (0.05, 0.25, 0.5, 0.75, 0.95)$ |
 
 What is reused, what is trained, what is adapted:
 
-| piece                                                                      | status                   | detail                                                                                                                                                                                                      |
-| -------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| network classes ($q_{\text{tok}}, q_{\text{query}}$ or $\alpha$, $q_\psi$) | **reused** from §13.6    | identical Flax modules, identical attention math                                                                                                                                                            |
-| network weights                                                            | **trained from scratch** | \~12k parameters, multi-quantile pinball loss                                                                                                                                                               |
-| per-item token $t^{(j^*, s)}_j$                                            | **adapted**              | $F = 8$: x-side + z-side summaries, empirical $\hat K$-row, item metadata (see below)                                                                                                                       |
-| aux $a$                                                                    | **adapted**              | $A = 2$: cohort sizes $(n/N, m/N)$ with $N = 503$                                                                                                                                                           |
-| input scale                                                                | **adapted**              | raw responses rescaled $(y)/(K_j - 1) \in [0, 1]$ with the per-item level count $K_j$ from `dit[cat_length]` (8 for out-of-7, 4 for categorical); all summaries are group-means of these rescaled responses |
-| target scale                                                               | **adapted**              | per-item standardisation $\rho / \hat\sigma_j$ (see loss below)                                                                                                                                             |
-| training pool                                                              | **§8 prior-predictive**  | fresh PCM prior draws per training step; no SVI fits or cached posterior draws enter training                                                                                                               |
+| piece | status | detail |
+|---------------|---------------|-------------------------------------------|
+| network classes ($q_{\text{tok}}, q_{\text{query}}$ or $\alpha$, $q_\psi$) | **reused** from §13.6 | identical Flax modules, identical attention math |
+| network weights | **trained from scratch** | \~12k parameters, multi-quantile pinball loss |
+| per-item token $t^{(j^*, s)}_j$ | **adapted** | $F = 8$: x-side + z-side summaries, empirical $\hat K$-row, item metadata (see below) |
+| aux $a$ | **adapted** | $A = 2$: cohort sizes $(n/N, m/N)$ with $N = 503$ |
+| input scale | **adapted** | raw responses rescaled $(y)/(K_j - 1) \in [0, 1]$ with the per-item level count $K_j$ from `dit[cat_length]` (8 for out-of-7, 4 for categorical); all summaries are group-means of these rescaled responses |
+| target scale | **adapted** | per-item standardisation $\rho / \hat\sigma_j$ (see loss below) |
+| training pool | **§8 prior-predictive** | fresh PCM prior draws per training step; no SVI fits or cached posterior draws enter training |
 
 ### 14.1.2 Training data and target
 
@@ -1024,7 +1201,7 @@ with head-input dimension $E + F + A = 32 + 8 + 2 = 42$ and head output dimensio
 The learned parameters are $\tau = (\tau_{\text{tok}},\, \tau_{\text{query}})$ — the weights of the two encoder MLPs — and $\psi$, the weights of the head MLP $q_\psi$ (the notation of §8-10). The attention weights $\omega^{(j^*, s)}$ are **not** free parameters: they are deterministic functions of the embeddings (softmax of scaled dot products) and carry no trainable degrees of freedom of their own in this variant (contrast the learned scalar bias $\alpha$ of `itemScompAtt`, §14.3). The same $(\tau, \psi)$ apply to **every item** $j^*$ and every interim — one network serves all queries — in contrast to the regression baseline (§6.2, RGE/RGEM), where the learned regression function is item-specific *and* interim-specific (one fit per (item, interim) pair; $20 \times 8 = 160$ separate fits over the schedule). Sizes at the Ukraine configuration ($F = 8$, $E = 32$, hidden $(32, 32)$ for the encoders and $(64, 64)$ for the head, $K = 5$):
 
 | block                 | architecture             | \# parameters |
-| --------------------- | ------------------------ | ------------: |
+|-----------------------|--------------------------|--------------:|
 | $\tau_{\text{tok}}$   | $8 \to 32 \to 32 \to 32$ |         2,400 |
 | $\tau_{\text{query}}$ | $8 \to 32 \to 32 \to 32$ |         2,400 |
 | $\psi$                | $42 \to 64 \to 64 \to 5$ |         7,237 |
@@ -1062,7 +1239,7 @@ which is what the CDF interpolation of §14.1.6 consumes. Without the standardis
 
 ### 14.1.6 Deployment
 
-Per interim, the current data are held **fixed at the observed** $x^{\text{obs}}$ — they enter every token through the x-side summaries, the empirical $\hat K$-row and the size aux. The future data $z^{(s)}$ are simulated from the **posterior predictive** at $x^{\text{obs}}$ (§10 step 1) — SVI is run **once per interim** on $x^{\text{obs}}$ (the only inference cost at deployment; training never touches it), then $\theta^{(s)} \sim p(\theta \mid x^{\text{obs}})$, then simulate the $m = N - n$ missing participants' responses at both time-points under $\theta^{(s)}$ (`get_interim_z_from_ypredi`: shadow participants resampled with replacement from the observed cohort's covariate rows, responses taken from the model's `ypred` at draw $s$). We use **all** $S = 4000$ cached posterior draws per interim, so one interim costs $J \cdot S = 80{,}000$ head evaluations (one JIT-compiled batch). Each $(j^*, s)$ pair is forward-passed, the quantile grid converted to a conditional success probability by CDF interpolation at the effect threshold $\eta_0$, and aggregated over draws (§10 step 3). The hypothesis is **item-specific**, $H_1^{(j^*)} = \big\{\rho^{(j^*)} > \eta_0\big\}$ — item $j^*$'s improvement ratio exceeds the effect threshold ($\eta_0 = 0.5$; decision threshold $\eta_H = 0.89$):
+Per interim, the current data are held **fixed at the observed** $x^{\text{obs}}$ — they enter every token through the x-side summaries, the empirical $\hat K$-row and the size aux. The future data $z^{(s)}$ are simulated from the **posterior predictive** at $x^{\text{obs}}$ (§10 step 1) — SVI is run **once per interim** on $x^{\text{obs}}$ (the only inference cost at deployment; training never touches it), then $\theta^{(s)} \sim p(\theta \mid x^{\text{obs}})$, then simulate the $m = N - n$ missing participants' responses at both time-points under $\theta^{(s)}$ (`get_interim_z_from_ypredi`: shadow participants resampled with replacement from the observed cohort's covariate rows, responses taken from the model's `ypred` at draw $s$). We use **all** $S = 4000$ cached posterior draws per interim, so one interim costs $J \cdot S = 80{,}000$ head evaluations (one JIT-compiled batch). Each $(j^*, s)$ pair is forward-passed, the quantile grid converted to a conditional success probability by CDF interpolation at the effect threshold $\eta_0$, and aggregated over draws (§10 step 3). The hypothesis is **item-specific**, $H_1^{(j^*)} = \big\{\rho^{(j^*)} > \eta_0\big\}$ — item $j^*$'s improvement ratio exceeds the effect threshold ($\eta_0 = 0.5$, the `pps_H1_min_effect_size_thresh` of the code; decision threshold $\eta_H = 0.89$, the `pps_ProbH1_target_lwr_quantile`):
 
 $$\hat P\big(H_1^{(j^*)} \mid x, z^{(s)}\big) \;=\; 1 - \operatorname{interp}\big(\eta_0;\; \hat\rho^{(j^*, s)},\; \eta^{\text{inpol}}\big),$$
 
@@ -1080,7 +1257,7 @@ Deployment time is dominated by rebuilding the posterior-predictive $z^{(s)}$ bl
 
 Ukraine has no analytic PPS, so we use several diagnostics to evaluate estimation accuracy.
 
-For each SVI posterior draw $s$, take $\theta^{(s)} \sim p(\theta \mid x^{\text{obs}})$ (SVI fit to the current data only). Compute $\rho^{(j^*, s)}_{\text{SVI}} = r_{j^*}(\theta^{(s)})$ — a draw from the current posterior $p(\rho \mid x)$ and generate the future block $z^{(s)} \sim p(z \mid \theta^{(s)})$ that the amortiser conditions on. Because $(\theta^{(s)}, z^{(s)})$ is a joint draw given $x$, Bayes gives $\theta^{(s)} \mid z^{(s)} \sim p(\theta \mid x, z^{(s)})$, so $\rho^{(j^*, s)}_{\text{SVI}} | z^{(s)}$ is an exact single draw from the conditional $p(\rho \mid x, z^{(s)})$ that the amortiser aims to target. Marginally, $\rho^{(j^*, s)}_{\text{SVI}}$ is a draw from $p(\rho \mid x)$. Exactly as for any joint \$(A,B)\$ a realised \$a\$ is simultaneously a draw from \$p(A)\$ and, paired with its own \$b\$, from \$p(A\\mid B{=}b)\$. The output of the amortiser $\hat\rho^{(j^*, s)}_{1:Q}$ approximates the conditional $p(\rho \mid x, z^{(s)})$.
+For each SVI posterior draw $s$, take $\theta^{(s)} \sim p(\theta \mid x^{\text{obs}})$ (SVI fit to the current data only). Compute $\rho^{(j^*, s)}_{\text{SVI}} = r_{j^*}(\theta^{(s)})$ — a draw from the current posterior $p(\rho \mid x)$ and generate the future block $z^{(s)} \sim p(z \mid \theta^{(s)})$ that the amortiser conditions on. Because $(\theta^{(s)}, z^{(s)})$ is a joint draw given $x$, Bayes gives $\theta^{(s)} \mid z^{(s)} \sim p(\theta \mid x, z^{(s)})$, so $\rho^{(j^*, s)}_{\text{SVI}} | z^{(s)}$ is an exact single draw from the conditional $p(\rho \mid x, z^{(s)})$ that the amortiser aims to target. Marginally, $\rho^{(j^*, s)}_{\text{SVI}}$ is a draw from $p(\rho \mid x)$. Exactly as for any joint $(A,B)$ a realised $a$ is simultaneously a draw from $p(A)$ and, paired with its own $b$, from $p(A\mid B{=}b)$. The output of the amortiser $\hat\rho^{(j^*, s)}_{1:Q}$ approximates the conditional $p(\rho \mid x, z^{(s)})$.
 
 1.  **Quantile coverage.** For each level $\eta^{\text{inpol}}_q$, compute for the same index $s$:
 
@@ -1095,7 +1272,7 @@ should be $\text{Uniform}(0, 1)$ over $s$; deviations are summarised per (interi
 Implemented in the separate script [`..._itemXcompAtt_..._tests.py`](../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead_tests.py) (kept apart from train/deploy). Outputs: `..._tests_coverage.csv/.pdf` (empirical-vs-nominal coverage curves, diagonal = calibrated) and `..._tests_pit.pdf` + `..._tests_pit_ks.csv` (PIT histograms + KS). Result:
 
 | nominal $\eta^{\text{inpol}}_q$                 | 0.05 | 0.25 | 0.50 | 0.75 | 0.95 |
-| ----------------------------------------------- | ---: | ---: | ---: | ---: | ---: |
+|-------------------------------------|------:|------:|------:|------:|------:|
 | empirical coverage (mean over items × interims) | 0.05 | 0.10 | 0.15 | 0.23 | 0.44 |
 
 Coverage falls far below nominal above the 0.05 level; mean PIT-KS $\approx 0.61$, improving monotonically across the schedule (0.75 at interim 1 $\to$ 0.47 at interim 8). Interpretation in §14.1.12.
@@ -1112,7 +1289,7 @@ Two distributions of $\rho \mid x$ are compared:
 Outputs (same tests script as §14.1.7): `..._tests_marginal_ks.csv` and per-interim `pcm_1_interim_i{k}_svi_vs_amortiser_marginal_cdf.pdf` (facet per item, the two CDFs overlaid). Two-sample KS $\max_\rho |\hat F - \widehat{\text{ecdf}}_{\text{SVI}}|$ (`CG-VIO_ph-punish` excluded):
 
 | marginal KS  | out-of-7 | CG-MH |
-| ------------ | -------: | ----: |
+|--------------|---------:|------:|
 | interim 1    |     0.51 |  0.53 |
 | all interims |     0.42 |  0.62 |
 
@@ -1131,7 +1308,7 @@ the median head output after $q_\psi$ for same $s$. **D**eployment thresholds an
 Per-item Pearson $\rho$ between $\hat\rho^{(j^*, s)}_3$ and $\rho^{(j^*, s)}_{\text{SVI-}x}$ for the prior-predictive-trained amortiser (`CG-VIO_ph-punish` blow-up item excluded):
 
 | correlation  | out-of-7 | CG-MH |
-| ------------ | -------: | ----: |
+|--------------|---------:|------:|
 | interim 1    |     0.82 |  0.71 |
 | all interims |     0.53 |  0.42 |
 
@@ -1143,11 +1320,11 @@ Synthesis in §14.1.12.
 
 No analytic ground-truth PPS exists for Ukraine, so the deployed $\widehat{\text{PPS}}^{(j^*)}$ is compared to the two closest Strong-Oakley baselines — Gaussian-approximation regression (RGE) and multi-quantile regression (RGEM) — over the $J \cdot C = 160$ (item, interim) cells:
 
-| comparison                               | Pearson $\rho$ | median \$ | \Delta\text{PPS} |    \$ |
-| ---------------------------------------- | -------------: | --------: | ---------------: | ----: |
-| `itemXcompAtt` vs RGE (Gauss)            |          0.905 |     0.001 |            0.223 | 0.880 |
-| `itemXcompAtt` vs RGEM (mquantile)       |          0.916 |     0.002 |            0.241 | 0.830 |
-| `itemXcompAtt` vs `itemScompAtt` (§14.3) |          0.997 |     0.000 |            0.041 |     — |
+| comparison | Pearson $\rho$ | median \$ | \Delta\text{PPS} | \$ |
+|---------------------------|-----------:|-----------:|-----------:|-----------:|
+| `itemXcompAtt` vs RGE (Gauss) | 0.905 | 0.001 | 0.223 | 0.880 |
+| `itemXcompAtt` vs RGEM (mquantile) | 0.916 | 0.002 | 0.241 | 0.830 |
+| `itemXcompAtt` vs `itemScompAtt` (§14.3) | 0.997 | 0.000 | 0.041 | — |
 
 Median difference to the regression baselines is $\le 0.002$; the disagreeing tail (p90 $\approx 0.22$-$0.24$) is where cross-item information and the calibration gap move the prediction. The two attention variants agree almost perfectly. Reading in §14.1.12.
 
@@ -1171,17 +1348,17 @@ Synthesising the diagnostics (§14.1.7 conditional calibration, §14.1.8 margina
 
 The diagnostics of §14.1.7–14.1.8 leave one defect: the prior-trained amortiser is well-calibrated on the prior-predictive (held-out-prior coverage nominal, §14.1.7) but its deployment predictive is **mis-located** on the posterior-predictive slice — coverage far below nominal, PIT-KS $\approx 0.61$, marginal-KS $\approx 0.47$ — while ranking stays strong (correlation $\approx 0.8/0.7$, §14.1.10). This section reports a remedy sweep. Goal: near-nominal calibration **without** losing correlation or the §8 generality. Decision metrics: coverage at $\eta^{\text{inpol}} = 0.5, 0.95$, PIT-KS, marginal-KS, and correlation (out-of-7 / CG-MH; `CG-VIO_ph-punish` blow-up item excluded). Guardrail: held-out-prior coverage must stay nominal. Every configuration writes the full diagnostic PDFs (coverage curves, PIT histograms, marginal-CDF overlays) into its own `…_260808`/`_260809` sandbox dir.
 
-| config                           | corr (o7/cat) |  cov\@.5 | cov\@.95 |   PIT-KS |  marg-KS |
-| -------------------------------- | ------------- | -------: | -------: | -------: | -------: |
-| baseline (§14.1)                 | 0.53/0.42     |     0.15 |     0.44 |     0.61 |     0.47 |
-| S=256/step (§14.2.1)             | 0.52/0.41     |     0.14 |     0.48 |     0.60 |     0.47 |
-| thresh=2.0 (§14.2.2)             | 0.53/0.42     |     0.14 |     0.40 |     0.64 |     0.50 |
-| thresh=1.0 (§14.2.2)             | 0.53/0.41     |     0.14 |     0.45 |     0.62 |     0.50 |
-| full-ft LOIO (§14.2.3)           | 0.51/0.41     |     0.53 |     0.94 |     0.17 |     0.14 |
-| head-ft(i1) (§14.2.4)            | 0.52/0.13     |     0.53 |     0.94 |     0.40 |     0.40 |
+| config | corr (o7/cat) | cov\@.5 | cov\@.95 | PIT-KS | marg-KS |
+|---------------------|----------|---------:|---------:|---------:|---------:|
+| baseline (§14.1) | 0.53/0.42 | 0.15 | 0.44 | 0.61 | 0.47 |
+| S=256/step (§14.2.1) | 0.52/0.41 | 0.14 | 0.48 | 0.60 | 0.47 |
+| thresh=2.0 (§14.2.2) | 0.53/0.42 | 0.14 | 0.40 | 0.64 | 0.50 |
+| thresh=1.0 (§14.2.2) | 0.53/0.41 | 0.14 | 0.45 | 0.62 | 0.50 |
+| full-ft LOIO (§14.2.3) | 0.51/0.41 | 0.53 | 0.94 | 0.17 | 0.14 |
+| head-ft(i1) (§14.2.4) | 0.52/0.13 | 0.53 | 0.94 | 0.40 | 0.40 |
 | **head-ft expand 1:k (§14.2.5)** | **0.52/0.39** | **0.50** | **0.95** | **0.16** | **0.14** |
-| conformal i1 (§14.2.6)           | 0.53/0.41     |     0.38 |     0.44 |     0.58 |     0.66 |
-| conformal expand 1:k (§14.2.6)   | 0.53/0.41     |     0.40 |     0.44 |     0.56 |     0.59 |
+| conformal i1 (§14.2.6) | 0.53/0.41 | 0.38 | 0.44 | 0.58 | 0.66 |
+| conformal expand 1:k (§14.2.6) | 0.53/0.41 | 0.40 | 0.44 | 0.56 | 0.59 |
 
 (nominal cov\@.5 = 0.50, cov\@.95 = 0.95; lower KS is better.)
 
@@ -1209,7 +1386,18 @@ The realistic sequential version: at interim $k$ the SVI fits for interims $1..k
 
 No fine-tuning: fit a per-item monotone PIT map $\hat g = \text{ecdf}(u_{\text{cal}})$ (distribution calibration, Kuleshov et al. 2018) and recalibrate the predictive CDF. Two protocols — interim-1 map applied to all interims, and expanding (map from $1..k$ applied to interim $k$). Both only **partly** help: cov\@.5 0.15 → 0.38–0.40 (not 0.50), PIT-KS 0.61 → 0.56–0.58, marginal-KS *worse* (0.59–0.66). Cause: the miscalibration **varies across interims** (the location bias shrinks as $n$ grows, §14.1.8), so a single static monotone map cannot correct all interims at once — a *conditional* re-scale (fine-tune) can. Dirs `…_conformal-i1/conformal-expand_260809`.
 
-### 14.2.7 Reading
+### 14.2.7 Per-item affine median-shift (ports the deepset §14.4.6 default)
+
+The head-only fine-tune fixes the quantile *spread* but leaves a per-item *location* residual — the prior-trained encoder under-predicts every item (the global shrinkage-to-prior bias diagnosed on the deepset in §14.4.6). We port the same fix here: one scalar per item, fit on the *same* SVI of interims $1..k$ the head fine-tune already uses, $\Delta_j(k)=\operatorname{mean}_{i\le k}\big[\operatorname{med}\,p_{\text{SVI}}(\rho\mid x_i)-\operatorname{med}\,\hat p(\rho\mid x_i)\big]$, applied as a pure location shift to all quantiles (`RX_MEDSHIFT`, on by default). It improves both objectives on the hand token:
+
+| itemXcompAtt, head-ft expand (weekly-29) |    PIT-KS |   marg-KS |
+|------------------------------------------|----------:|----------:|
+| no shift                                 |     0.154 |     0.135 |
+| $+$ affine shift                         | **0.139** | **0.119** |
+
+**Use as the fair baseline against the deepset.** With the affine now applied uniformly to *every* encoder and both evaluated on the same weekly-29 grid ($n=48\to500$), the §14.5.1 conditional-vs-marginal trade-off is the honest comparison: the **deepset wins the conditional** (PIT-KS $\approx0.07$ vs the hand token's $0.14$ — the object the PPS decision consumes), while the **hand token wins the marginal** (marg-KS $\approx0.12$ vs the deepset's $\approx0.16$; marg-KS is secondary since $p(\rho\mid x)$ is available from SVI directly). So for the interim decision the deepset remains preferred; the hand token is the better *effect-size* estimator by a small margin. All four comparison figures (§14.4.5: coloured PIT-box, marginal quantile-box, contraction-factor, contraction-law) are now produced for both encoders from the shared `amortiser_diag_plots` module for a like-for-like read.
+
+### 14.2.8 Reading
 
 1.  **Diagnosis holds.** The $S=256$ null (§14.2.1) reconfirms the gap is distribution shift, curable only by moving the predictive toward the operational region.
 2.  **Cheap, data-agnostic fixes fail.** Prior narrowing (§14.2.2) and static conformal recalibration (§14.2.6) both fall short — the latter because the bias is interim-heteroscedastic, which a single monotone map cannot absorb.
@@ -1228,10 +1416,10 @@ and the per-query summary is the gather $\bar h^{(j^*, s)} = h'^{\,(j^*, s)}_{j^
 
 Same protocol and token as §14.1.9 (per-item Pearson $\rho$ between the amortiser median $\hat\rho^{(j^*, s)}_3$ and $\rho^{(j^*, s)}_{\text{SVI-}x}$, blow-up item excluded):
 
-| variant                | interim 1: out-of-7 / CG-MH | all interims: out-of-7 / CG-MH |
-| ---------------------- | --------------------------- | ------------------------------ |
-| `itemXcompAtt` (§14.1) | 0.82 / 0.71                 | 0.53 / 0.42                    |
-| `itemScompAtt`         | 0.83 / 0.70                 | 0.53 / 0.41                    |
+| variant | interim 1: out-of-7 / CG-MH | all interims: out-of-7 / CG-MH |
+|--------------------|-------------------------|---------------------------|
+| `itemXcompAtt` (§14.1) | 0.82 / 0.71 | 0.53 / 0.42 |
+| `itemScompAtt` | 0.83 / 0.70 | 0.53 / 0.41 |
 
 (Both rows: §8 prior-predictive training, identical protocol.) On MVN, cross-attention beat self-attention by 20-35 % at $J \le 60$ (§13.6) — the advantage came from K-row alignment through the query. On Ukraine at $J = 20$ the two variants are within noise: the empirical $\hat K$-row is weaker and shrunk (mean off-diagonal $\approx 0.3$), so the query-side routing advantage largely disappears. Association plots: `pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf`.
 
@@ -1240,11 +1428,11 @@ Same protocol and token as §14.1.9 (per-item Pearson $\rho$ between the amortis
 The full SBC suite (`..._tests.py`, net-agnostic) on the prior-trained self-attention net gives the identical picture as `itemXcompAtt`: strong ranking, badly mislocated intervals.
 
 | metric (mean over items/interims) | nominal | `itemXcompAtt` baseline | `itemScompAtt` baseline |
-| --------------------------------- | ------: | ----------------------: | ----------------------: |
-| coverage \@ $\eta = 0.5$          |    0.50 |                    0.15 |                    0.19 |
-| coverage \@ $\eta = 0.95$         |    0.95 |                    0.44 |                    0.53 |
-| PIT–KS                            |    0.00 |                    0.61 |                    0.55 |
-| marginal–KS                       |    0.00 |                    0.47 |                    0.42 |
+|------------------------|--------------:|----------------:|----------------:|
+| coverage \@ $\eta = 0.5$ | 0.50 | 0.15 | 0.19 |
+| coverage \@ $\eta = 0.95$ | 0.95 | 0.44 | 0.53 |
+| PIT–KS | 0.00 | 0.61 | 0.55 |
+| marginal–KS | 0.00 | 0.47 | 0.42 |
 
 Diagnostics in the baseline dir: `pcm_1_interim_pps_RGEG_tests_coverage.pdf`, `..._tests_pit.pdf`, `..._i{k}_svi_vs_amortiser_marginal_cdf.pdf`. The mechanism is §8.1's prior-coverage gap, architecture-independent: the diffuse PCM prior is wider than the concentrated deployment posterior slice, so the predicted quantiles are correctly *ordered* but too wide and off-centre.
 
@@ -1253,7 +1441,7 @@ Diagnostics in the baseline dir: `pcm_1_interim_pps_RGEG_tests_coverage.pdf`, `.
 Applying the §14.2.5 recipe — freeze the encoder, refit only the head $q_\psi$ on interims $1..k$ SVI, evaluate at $k$ — to the self-attention net (universal freeze: train `q_psi`, freeze `q_tok` and the self-attention bias $\alpha$):
 
 | metric           | nominal |  baseline | head-ft-expand |
-| ---------------- | ------: | --------: | -------------: |
+|------------------|--------:|----------:|---------------:|
 | coverage \@ 0.5  |    0.50 |      0.19 |           0.50 |
 | coverage \@ 0.95 |    0.95 |      0.53 |           0.94 |
 | PIT–KS           |    0.00 |      0.55 |           0.15 |
@@ -1262,253 +1450,229 @@ Applying the §14.2.5 recipe — freeze the encoder, refit only the head $q_\psi
 
 Same outcome as `itemXcompAtt` (§14.2.5): near-nominal calibration, correlation preserved (encoders frozen). Diagnostics in `..._itemScompAtt_..._ftheadexpand_260809/`. `itemXcompAtt` remains the default — the two variants are within noise on this $J = 20$ case and share the same remedy.
 
-## 14.4 Deep-set variant  (`deepsetXcompAtt` )
+### 14.3.4 Per-item affine median-shift (ports §14.2.7)
+
+The self-attention encoder inherits the same per-item location residual, and the same affine shift (§14.2.7 / §14.4.6) fixes it, on by default (`RX_MEDSHIFT`):
+
+| itemScompAtt, head-ft expand (weekly-29) |    PIT-KS |   marg-KS |
+|------------------------------------------|----------:|----------:|
+| $+$ affine shift                         | **0.136** | **0.108** |
+
+The numbers track `itemXcompAtt` (§14.2.7) to within noise — PIT-KS $0.14$, marg-KS $0.11$ on the same weekly-29 grid — confirming the two hand-token encoders are interchangeable under the full remedy stack, and both sit at the same point of the §14.5.1 conditional-vs-marginal trade-off relative to the deepset (worse conditional, better marginal). The four §14.4.5 comparison figures are produced here too via the shared `amortiser_diag_plots` module.
+
+## 14.4 Deep-set variant (`deepsetXcompAtt` )
 
 The nested-DeepSets variant of the §8-10 workflow on the Ukraine PCM. Training is prior-predictive as in §14.1; the difference is architectural: instead of the hand-computed $F = 8$ item summaries, the network consumes the RAW cohorts — `x_responses` and `z_responses` per (participant, item, time) — and **learns** the per-item pooling through $q_\tau$ (§9.2).
 
+**Why the raw-cohort encoder is the strategic choice, not just a refinement.** The hand-token amortisers of §14.1–14.3 are bound to *this* trial. Their only cohort-size input is the enrolment fractions $(n/N,m/N)$ under a fixed total $N=503$, with the future cohort pinned to $m=N-n$; carrying no absolute-scale input, they cannot price a cohort from a trial of any other size and would need retraining per trial. The deepset removes that ceiling. By pooling over the raw per-participant responses and taking absolute-scale aux $(1/\sqrt n,1/\sqrt m)$ — with $(n,m)$ trained *independently* over $\{2,\dots,503\}$ rather than tied to $n+m=N$ — it is a **general amortised posterior over PCM cohorts**: one trained network reusable across datasets and cohort sizes, an asset rather than a single-trial artefact. That portability is the reason to pay for the architectural machinery below, and it holds even though the deepset trades a little marginal calibration for its decisive edge on the conditional PIT the decision consumes (§14.4.6). (The $n/N$ fraction feature stays $503$-normalised, so a markedly different total $N$ would want it re-normalised; the absolute $1/\sqrt n$ carries the leading contraction regardless.)
+
 The subsections below mirror §14.1.1–14.1.4 and state only what **changes** under the nested-DeepSets construction; everything not mentioned is inherited verbatim from the item-level amortiser.
 
-### 14.4.1 Structure of learning task 
+### 14.4.1 Structure of learning task
 
 The trial structure is unchanged: two cohorts ($x^{\text{obs}}$ vs $z^{(s)}$), two time-points per participant, and the same PCM internals ($2J = 40$ per-`item_time_id` fake items, shared ability $\theta_i$). What changes is the **§10 gap flagged at the end of §14.1.1**: the item-level amortiser collapses the time and participant axes into a hand-computed $F = 8$ token *before* the network sees anything; here the network consumes the **raw** per-(participant, item, time) responses and **learns** the per-item pooling over participants through $q_\tau$ + mean-pool (§9.2). The cohort axis (x vs z) and the time axis ($R = 2$ response features, baseline + endline) are kept apart as separate tensor axes rather than as separate token slots.
 
 Symbol deltas from the §14.1.1 table:
 
-| symbol       | item-level (§14.1) | deepset (§14.4)                                                                         | note                                                                                        |
-| ------------ | ------------------ | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| inputs       | $F = 8$ hand token | raw tensors `x_responses`, `z_responses` $\in \mathbb{R}^{N \times J \times 2}$ + masks | pooling now learned                                                                         |
-| $R$          | —                  | 2                                                                                       | response features per (participant, item): baseline, endline                                |
-| $M$          | (in token)         | 2                                                                                       | item metadata (type, direction) appended to every participant token                         |
-| $q_\tau$     | —                  | shared participant encoder                                                              | the §9.2 inner DeepSet; no item-level counterpart                                           |
-| $\hat K$-row | in token           | **dropped**                                                                             | cross-item borrowing is now done by attention over learned embeddings, not a hand statistic |
-| $S$          | 4000               | 200                                                                                     | draws per interim at deploy (heavier per-draw forward pass)                                 |
-| $E$          | 32                 | 32                                                                                      | embedding dim, unchanged                                                                    |
+| symbol | item-level (§14.1) | deepset (§14.4) | note |
+|------------|------------|------------------------|-------------------------|
+| inputs | $F = 8$ hand token | raw tensors `x_responses`, `z_responses` $\in \mathbb{R}^{N \times J \times 2}$ + masks | pooling now learned |
+| $R$ | — | 2 | response features per (participant, item): baseline, endline |
+| $M$ | (in token) | 2 | item metadata (type, direction) appended to every participant token |
+| $q_\tau$ | — | shared participant encoder | the §9.2 inner DeepSet; no item-level counterpart |
+| $\hat K$-row | in token | **dropped** | cross-item borrowing is now done by attention over learned embeddings, not a hand statistic |
+| $S$ | 4000 | 200 | draws per interim at deploy (heavier per-draw forward pass) |
+| $E$ | 32 | 32 | embedding dim, unchanged |
 
 Reused / trained / adapted (cf. §14.1.1):
 
-| piece                                                                | status                   | detail                                                                                                     |
-| -------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| network classes ($q_\tau, q_{\text{tok}}, q_{\text{query}}, q_\psi$) | **reused** from §13.7    | nested DeepSets + cross-attention                                                                          |
-| network weights                                                      | **trained from scratch** | \~18k parameters, multi-quantile pinball loss                                                              |
-| per-item token                                                       | **removed**              | replaced by learned pool of raw responses (§14.4.3–14.4.4)                                                 |
-| aux $a$                                                              | **same as §14.1**        | $(n/N, m/N)$, $N = 503$                                                                                    |
-| input scale                                                          | **same rule**            | raw $(y - 1)/(K_j - 1) \in [0, 1]$, $K_j$ from `dit[cat_length]`                                           |
-| target                                                               | **same**                 | $\rho^{(j^*, s)} = r_{j^*}(\theta^{(s)})$, clipped $\pm 20$                                                |
-| target scale                                                         | **changed**              | **no** per-item standardisation $\hat\sigma_j$ — the learned pooling normalises scale internally (§14.4.4) |
+| piece | status | detail |
+|----------------------|----------------|-----------------------------------|
+| network classes ($q_\tau, q_{\text{tok}}, q_{\text{query}}, q_\psi$) | **reused** from §13.7 | nested DeepSets + cross-attention |
+| network weights | **trained from scratch** | \~18k parameters, multi-quantile pinball loss |
+| per-item token | **removed** | replaced by learned pool of raw responses (§14.4.3–14.4.4) |
+| aux $a$ | **same as §14.1** | $(n/N, m/N)$, $N = 503$ |
+| input scale | **same rule** | raw $(y - 1)/(K_j - 1) \in [0, 1]$, $K_j$ from `dit[cat_length]` |
+| target | **same** | $\rho^{(j^*, s)} = r_{j^*}(\theta^{(s)})$, clipped $\pm 20$ |
+| target scale | **changed** | **no** per-item standardisation $\hat\sigma_j$ — the learned pooling normalises scale internally (§14.4.4) |
 
-### 14.4.2 Training data and target 
+### 14.4.2 Training data and target
 
-The target and the prior-predictive generation are **identical** to §14.1.2 — same prior draws, same $r_j(\theta)$ endpoint ratio, same $\pm 20$ clip. Steps 1–3 of the §14.1.2 generation algorithm (draw sizes, draw PCM parameters, simulate ordered-categorical responses for both cohorts at both times) are literally the shared code path. The **only** change is that §14.1.2's **step 4 (pool the raw cohorts to the item token) is skipped**: the raw simulated cohorts $x^{(s)}, z^{(s)}$ are handed to the network as tensors and the pooling is learned. Implemented by `PartialCreditModel.make_training_data_with_participant_tokens_prior` ([`python/model_pcm.py`](../python/model_pcm.py)); each prior draw is fanned out to $Q = 4$ queried items. Training is still fresh prior draws every step — no SVI fits enter training.
+The network is trained on the prior predictive of the partial-credit model (§8): every training example is a fresh draw from the model prior, so no SVI fit enters training (6000 steps, batch $B=24$, fresh draws each step).
 
-### 14.4.3 Inputs: raw cohort response tensors (Δ from §14.1.3)
+**Prior.** Each draw uses the standard partial-credit-model priors — the same specification fit in Pyro/Stan — with the ordered-category thresholds given a deliberately wide variance: item time-effects $\beta_t\sim N(0,1)$ for $t\in\{\text{baseline},\text{endline}\}$; thresholds $\tau_{j,t,k}\sim N(0,3.5^2)$; discriminations $\lambda_{j,t}=\lvert T_3\rvert$ (half-Student-$t$, 3 df, the first item-time fixed to $1$ for identification); and participant abilities $\theta_i\sim N(0,1)$. The wide threshold prior is deliberate, for two reasons. First, the training prior must **envelope** any posterior that can arise at deployment: because the amortiser is only ever fitted where the prior predictive puts mass, the prior predictive has to cover the region the real data's posterior occupies, or the network is evaluated out of distribution — the prior/deployment mislocation of §14.4.5 is precisely this distribution shift, and a proposal that fails to envelope it cannot be repaired by the head fine-tune. Second, a broad proposal leaves posterior uncertainty for a finite cohort to resolve, which is what makes contraction with cohort size learnable.
 
-The $F = 8$ per-item token of §14.1.3 is removed entirely. The network's inputs per $(j^*, s)$ are:
+**Cohort sampling.** For each parameter draw, two cohort sizes are chosen **independently** — the observed size $n$ and the future size $m$ — spread log-uniformly over $\{2,\dots,N\}$ with $N=503$, so all cohort sizes are represented across a batch. A cohort of $n_{\text{ab}}$ participants is then simulated: draw $n_{\text{ab}}$ abilities $\theta_i\sim N(0,1)$, and at the drawn $(\beta,\tau,\lambda)$ sample each participant's ordered-categorical response at baseline and at endline from the PCM (inverse-CDF from the cumulative category probabilities), rescaled to $[0,1]$ as $y/(K_j-1)$. This yields the observed cohort $x^{(s)}$ and the future cohort $z^{(s)}$ as raw per-participant response tensors.
 
-$$\big(\underbrace{X^{\text{obs}} \in \mathbb{R}^{N \times J \times 2}}_{\text{x cohort}},\; \underbrace{Z^{(s)} \in \mathbb{R}^{N \times J \times 2}}_{\text{z cohort}},\; \underbrace{\text{mask}_x, \text{mask}_z \in \{0,1\}^{N}}_{\text{which rows are real}},\; \underbrace{c_j, d_j}_{\text{metadata }M=2},\; \underbrace{a = (n/N, m/N)}_{\text{aux}},\; j^*\big),$$
+**Target.** The estimand the amortiser fits is the **conditional posterior** $p(\rho_j\mid x,z)$ — the posterior over the population effect size given the observed and future cohorts. It is fitted by the standard simulation-based-inference argument (§14.1.7): for a joint draw $(\theta^{(s)},x^{(s)},z^{(s)})$ — parameters from the prior, cohorts simulated from them — the value $\rho_j^{(s)}=r_j(\theta^{(s)})$ is a *single valid draw* from $p(\rho_j\mid x^{(s)},z^{(s)})$, so training the amortiser's quantiles against $\rho_j^{(s)}$ (interval score) fits that conditional. Concretely: every amortiser output $\hat\rho_j^{(s)}$ is scored against the $\rho_j^{(s)}$ from which its own inputs $x^{(s)},z^{(s)}$ were generated.
 
-with responses padded to $N = 503$ rows and rescaled $(y - 1)/(K_j - 1) \in [0, 1]$ per item type ($K_j$ from `dit[cat_length]`, as §14.1.3). Three §14.1.3 token channels have **no explicit input here** — they are subsumed by the learned encoder: the x-side / z-side group-means become the learned mean-pool (§14.4.4), and the empirical $\hat K$-row's cross-item channel becomes attention over the learned per-item embeddings. The **categorical threshold** $c$ is treated exactly as §14.1.3: raw responses enter unthresholded, and $c$ lives only in the target $\rho$ (it changes Ukraine → Colombia, so it must not be baked into the inputs).
+The functional $r_j(\theta)$ of the drawn parameters $\theta=(\beta,\tau,\lambda)$ is the direction-aware relative change in the mean item response level between baseline and endline, $$r_j(\theta)=s_j\Big(\bar w_{e,j}/\bar w_{b,j}-1\Big),\qquad \bar w_{t,j}=\mathbb E_{\theta_i\sim N(0,1)}\!\big[\,g_j(\text{response}_{i,j,t}\mid\theta)\,\big],$$ where $g_j$ is the expected score $\sum_k k\,p_{jk}$ for out-of-7 items and the caseness probability $\Pr(y_j\ge c)$ for categorical items, $s_j=\pm1$ the item direction; clipped to $\pm20$. **There is no closed-form expression for** $r_j(\theta)$: the mean response level $\bar w_{t,j}$ is the expectation *over the ability distribution* $\theta_i\sim N(0,1)$ of a nonlinear category probability (a softmax of cumulative threshold sums), and this Gaussian integral has no analytic solution under the partial-credit likelihood. We therefore estimate $\bar w_{t,j}$ by a **reference simulation** of $N_{\text{ref}}=2000$ abilities drawn from $N(0,1)$. This keeps the construction model-general — it needs only the ability to *simulate* the model, never to integrate it — under the assumption that $N_{\text{ref}}$ is large enough that the Monte-Carlo error in $\bar w_{t,j}$ is negligible against the posterior width, i.e. $r_j(\theta)$ is treated as the exact target.
 
-### 14.4.4 Encoder (nested DeepSets), pooling, cross-attention, head, loss 
+Because the target is this population functional while the network sees only finite cohorts, the predictive $\hat p(\rho_j\mid x,z)$ must **contract** toward $r_j(\theta)$ as the cohorts grow — the signal quantified in §14.4.7 and exploited in §14.4.7. The sampler (`draw_params`, `theta_level_rho`, `sim_cohort` in the explore script; [`python/model_pcm.py`](../python/model_pcm.py)) fans each draw out to $Q=4$ queried items.
 
-The §14.1.4 cross-attention → head → loss stack is **prepended** with the §9.2 participant encoder — this is the whole architectural difference. A shared SiLU MLP $q_\tau$ embeds every (participant, item, time) feature vector (the $R = 2$ responses augmented with the $M = 2$ item metadata), then a mask-aware **mean-pool over participants** gives one embedding per cohort per item:
+### 14.4.3 Ragged per-participant data structure
 
-$$\text{pool}^{x, (j^*, s)}_j \;=\; \frac{1}{n}\sum_{i \le n} q_\tau\big(X^{\text{obs}}_{i, j, \cdot},\, c_j, d_j;\, \tau_\tau\big), \qquad \text{pool}^{z, (s)}_j \;=\; \frac{1}{m}\sum_{i \le m} q_\tau\big(Z^{(s)}_{i, j, \cdot},\, c_j, d_j;\, \tau_\tau\big) \;\in\; \mathbb{R}^{E}.$$
+The two cohorts enter the network as raw per-participant response tensors, not pooled summaries; because the cohort sizes vary from one training example to the next, they are stored **ragged** — no padding to a common size, and no participant mask.
 
-This learned sum-then-pool is the amortised replacement for §14.1.3's hand group-means. The per-item embedding is then formed by mixing the two cohort pools,
+**Structure.** Across a batch of $B$ examples, all observed-cohort participants are concatenated along a single flat axis, $x_{\text{flat}}\in\mathbb R^{T\times J\times 2}$, where $T=\sum_b n_b$ is the total participant count over the batch, $J$ the items, and the last axis the (baseline, endline) responses; a companion segment vector $x_{\text{seg}}\in\{0,\dots,B-1\}^{T}$ records which example each participant belongs to. The future cohorts are stored identically as $(z_{\text{flat}}, z_{\text{seg}})$. The arrays therefore hold exactly the real participants — there is no $N$-padding and no $0/1$ mask.
 
-$$h^{(j^*, s)}_j \;=\; q_{\text{tok}}\big(\operatorname{concat}(\text{pool}^{x, (j^*, s)}_j,\; \text{pool}^{z, (s)}_j);\, \tau_{\text{tok}}\big) \;\in\; \mathbb{R}^{E},$$
+### 14.4.4 Encoder: pooling, item cross-attention, quantile head, loss
 
-and **from here the pipeline is exactly §14.1.4**: the query is built from the queried item's own embedding, $q^{(j^*, s)} = q_{\text{query}}(h^{(j^*, s)}_{j^*})$; cross-attention over the $J$ learned $h_j$ gives $\bar h^{(j^*, s)}$; the multi-quantile head consumes the attention output, the queried item's own embedding (the skip connection — now a *learned* embedding rather than the raw token), and the aux:
+**Pooling.** The per-item cohort summary is a **segmented mean** over participants. A shared MLP $q_\tau$ embeds each (participant, item, time) response vector, and `jax.ops.segment_sum` sums the embeddings within each example's segment, divided by the segment count: $$\text{pool}^{x}_{b,j} \;=\; \frac{1}{n_b}\sum_{i:\,x_{\text{seg}}(i)=b} q_\tau\big(x_{\text{flat}}[i,j,\cdot],\,c_j,d_j\big) \;\in\;\mathbb R^{E}, \qquad \text{pool}^{z}_{b,j}\ \text{from}\ m_b\ \text{likewise}.$$ Dividing by the true $n_b$ (resp. $m_b$) makes each summary the sample mean of the learned per-participant embedding at the actual cohort size — the amortised replacement for the hand-computed group-means of §14.1.3, and the standard exchangeable-set summary used by simulation-based inference for variable dataset sizes (Radev et al. 2020; Chan et al. 2018).
 
-$$\hat\rho^{(j^*, s)} \;=\; q_\psi\big(\operatorname{concat}(\bar h^{(j^*, s)},\; h^{(j^*, s)}_{j^*},\; a);\, \psi\big) \in \mathbb{R}^K, \qquad \text{head-input dim } E + E + A = 32 + 32 + 2 = 66.$$
+**Cross-attention and head.** The per-item embedding mixes the two cohort pools, $h_j = q_{\text{tok}}(\operatorname{concat}(\text{pool}^x_j,\text{pool}^z_j))$; from here the pipeline is exactly §14.1.4 — the query is built from the queried item's embedding, cross-attention over the $J$ embeddings gives $\bar h_{j^*}$, and the multi-quantile head consumes $(\bar h_{j^*}, h_{j^*}, a)$ with aux $a=(1/\sqrt n,1/\sqrt m,n/N,m/N)$: $$\hat\rho^{(j^*,s)} = q_\psi\big(\operatorname{concat}(\bar h_{j^*}, h_{j^*}, a)\big)\in\mathbb R^K.$$ The learned parameters are $(q_\tau,q_{\text{tok}},q_{\text{query}},q_\psi)$, $\approx18{,}400$ in total.
 
-The learned parameters are $(\tau_\tau, \tau_{\text{tok}}, \tau_{\text{query}}, \psi)$. Sizes:
+**Loss.** The head outputs $K$ monotone quantiles at fixed levels $0<\tau_1<\dots<\tau_K<1$. Training minimises the **pinball (quantile) score**, summed over prior draws $s$, queried items $j^*$ and levels $\tau_k$: $$\mathcal L=\sum_{s}\sum_{j^*}\sum_{k}\ell_{\tau_k}\!\big(\rho^{(s)}_{j^*}-\hat\rho^{(j^*,s)}_{\tau_k}\big),\qquad \ell_\tau(u)=\big(\tau-\mathbf 1\{u<0\}\big)\,u,$$ equivalently the interval score summed over the symmetric quantile pairs $(\tau_k,1-\tau_k)$. The pinball score at level $\tau$ is minimised exactly at the $\tau$-quantile of the target's conditional law; since $\rho^{(s)}_{j^*}$ is a draw from $p(\rho\mid x^{(s)},z^{(s)})$ (§14.4.2), the fitted head recovers the quantiles of that conditional posterior.
 
-| block                             | architecture                       | \# parameters |
-| --------------------------------- | ---------------------------------- | ------------: |
-| $\tau_\tau$ (participant encoder) | $(R{+}M){=}4 \to 32 \to 32 \to 32$ |         2,272 |
-| $\tau_{\text{tok}}$               | $2E{=}64 \to 32 \to 32 \to 32$     |         4,192 |
-| $\tau_{\text{query}}$             | $E{=}32 \to 32 \to 32 \to 32$      |         3,168 |
-| $\psi$                            | $66 \to 64 \to 64 \to 5$           |         8,773 |
-| **total**                         |                                    |    **18,405** |
+**Alternatives considered.** A head that instead fits the **marginal** $p(\rho\mid x)$ directly — or an architecture that guarantees the law of total probability $p(\rho\mid x)=\int p(\rho\mid x,z)\,p(z\mid x)\,dz$ by construction (a normalising-flow or diffusion posterior head) — was considered and dropped. At deployment $p(\rho\mid x)$ is obtained directly from the SVI fit of the observed cohort because we need this to generate future cohorts; the piece SVI cannot supply is the future cohort $z$, so the amortiser is needed only for the **conditional** $p(\rho\mid x,z)$.
 
-The loss is the **identical** multi-quantile pinball of §14.1.4, summed over prior samples $s$, queried items $j^*$ and quantile levels $q$. The one change: **no per-item standardisation** $\hat\sigma_j$ — the learned mean-pool already carries the per-item scale, so the head regresses $\rho$ directly (this is why the deepset diagnostics read the predictions in $\rho$ units without an unstandardisation step). Aux $a$ still carries the cohort sizes for the reason given in §14.1.4 (the pooled means do not reveal $n, m$).
+Net module `python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py`; trained network directory `…-deepsetXcompAtt-ragged-priorproposal-260812`. The evaluation grid is the 29 weekly SVI fits (`py-ukraine-interim-weekly-svi-260811`, $n=48\to500$), reused with no recomputation. (The fixed-$N$ padded predecessor and the focused interim-1 proposal are catalogued in §14.10.)
 
-**Training and deployment.** 8000 steps at batch $S = 32$ fresh prior draws/step $\Rightarrow$ **256,000 prior-predictive data sets** ($\times Q = 4$ queries $=$ 1,024,000 rows), \~74 min CPU. §10 deployment per interim: raw observed cohort from the cached xi frame, raw $z^{(s)}$ rebuilt from the cached SVI `draws.zarr` (draw-aligned with the wa targets), one forward pass per $(j^*, s)$; 0.11 min/interim at $S = 200$. **Size coverage:** training $n \sim U\{2, \ldots, 502\}$; the 8 deployment interims use $n \in \{48, 174, 329, 416, 473, 484, 491, 501\}$ — only $\approx 0.2\%$ of training data sets match any individual interim's $n$, so the amortiser interpolates across cohort sizes rather than memorising them; the mean-pool plus the $(n/N, m/N)$ aux carry the size dependence.
+### 14.4.5 Diagnostics
 
-### 14.4.5 Results: evaluation against the SVI posterior targets
+Four diagnostics probe the raw (pre-calibration) network, forward-passing every SVI draw; all quantities exclude the degenerate item `CG-VIO_ph-punish`. Each is defined here as a statistic on the amortiser output, with the figure that illustrates it; the numbers themselves appear from §14.4.6 on.
 
-Per-item Pearson $\rho$ between the amortiser median $\hat\rho^{(j^*, s)}_{3}$ and the SVI target $\rho^{(j^*, s)}_{\text{SVI-}x}$ across the $S$ draws (excluding the `CG-VIO_ph-punish` blow-up item):
+**Association with the SVI target.** For a joint draw, the SVI posterior draw $\rho^{(s)}_{\text{SVI-}x}$ from the observed cohort is passed through the amortiser to obtain the conditional median $\operatorname{med}\hat p(\rho\mid x^{(s)},z^{(s)})$. The diagnostic is the Pearson correlation between the two as a function of cohort size $n$ — whether the encoder's set-summary retains the cohort's signal. It necessarily decays with $n$: as the SVI posterior tightens onto $r_j(\theta)$ the spread of targets to track collapses, so a falling correlation is expected, and this diagnostic needs to condition on a particular n band.
 
-| item type                     | interim 1 mean $\rho$ | all-interim mean $\rho$ |
-| ----------------------------- | --------------------: | ----------------------: |
-| `out-of-7` (15 items)         |                  0.82 |                    0.53 |
-| `categorical` CG-MH (4 items) |                  0.57 |                    0.32 |
+**Conditional calibration (PIT / SBC).** Under the §14.1.7 joint-draw construction $\rho^{(s)}_{\text{SVI-}x}$ is a valid draw from the conditional $p(\rho_j\mid x,z^{(s)})$ the amortiser targets, so its probability-integral transform under the amortiser's predictive, $$u^{(s)}_j \;=\; \hat F_j\big(\rho^{(s)}_{\text{SVI-}x}\mid x,z^{(s)}\big)\ \in[0,1]$$ — the rank of the target among the predicted quantiles, linearly interpolated — must be **uniform** if that conditional predictive is calibrated. The scalar summary is the KS distance of the empirical PIT CDF from uniform, $\text{PIT–KS}_j=\sup_t\lvert \hat G_j(t)-t\rvert$. Illustrated by the **PIT box** (`…_pit_box_by_item.pdf`): per item, precomputed whiskers (10/90% quantiles), box (25/75%) and median line of $\{u^{(s)}_j\}$ across draws, coloured by the signed deviation of the PIT median from $\tfrac12$; a calibrated item sits at median $\tfrac12$ with box edges near $0.25/0.75$.
 
-Both the deepset and the item-level amortiser (§14.1.9) are now trained purely prior-predictively, so the comparison isolates the **architecture**: learned pooling matches the hand-computed $F = 8$ token on the out-of-7 items (0.82 vs 0.82 at interim 1) but trails it on CG-MH (0.57 vs 0.71) — the item token's mean-response summaries have no learned counterpart yet in $q_\tau$ at this training budget. $R^2$ is mostly negative — the amortiser tracks the *ranking* of the posterior draws well but its location/scale calibration under the diffuse PCM prior does not match the concentrated deployment posterior (the §8.1 prior-coverage caveat in action: thresholds $\sim N(0, 3.5)$ generate far more extreme cohorts than the Ukraine data region). Association plots: `pcm_1_interim_i{k}_svi_rho_vs_amortiser_median.pdf`.
+**Marginal calibration.** The marginal predictive is built by the law of total probability over the future cohort: draw $z^{(s)}\sim p(z\mid x)$ — posterior-predictive future cohorts simulated from the SVI fit of the observed cohort $x$ — run the amortiser on each to get the conditional $\hat p(\rho_j\mid x,z^{(s)})$, and pool them, $\hat p(\rho_j\mid x)=\frac1S\sum_{s=1}^S \hat p(\rho_j\mid x,z^{(s)})$. At a fixed interim this should match the SVI posterior $p_{\text{SVI}}(\rho_j\mid x)$. The scalar summary is the KS distance between the two CDFs, $\text{marg–KS}_j=\sup_t\lvert \hat F^{\text{marg}}_j(t)-F^{\text{SVI}}_j(t)\rvert$, pooled over interims. Illustrated by the **marginal quantile box** (`…_contraction_cdf_by_item.pdf`, with a `…RAGDbase…` raw-network companion): $x$-axis interim, $y$-axis $\rho$-quantiles, one box per interim for SVI and one for the amortiser (whiskers 10/90%, box 25/75%, median line), so a systematic location or spread mismatch is read off directly.
 
-**Per-item detail at interim 1** (Pearson $\rho$ / $R^2$ vs the SVI target over $S = 200$ draws):
+**Posterior contraction.** The predictive should sharpen with cohort size at the SVI rate. The **contraction law** plot (`…_contraction-law_trained-vs-svi.pdf`) shows, per item, $\log\mathrm{SD}(\rho_j\mid x)$ against $\log n$ for the SVI posterior and for the amortiser, with a fitted power law $\mathrm{SD}=C_j\,n^{-p_j}$ overlaid. The fit takes $(C_j,p_j)$ by least squares of $\log\mathrm{SD}$ on $\log n$ across the weekly SVI grid; on log–log axes $\log\mathrm{SD}=\log C_j-p_j\log n$ is a **straight line of slope** $-p_j$, so the constant relative contraction rate $\mathrm{d}\log\mathrm{SD}/\mathrm{d}\log n=-p_j$ is exactly that slope. The SVI SDs fall along this line; a well-matched amortiser tracks the same slope, an under-contracting one is shallower. The companion **contraction factor** plot (`…_posterior-contraction-factor.pdf`) shows the ratio of amortiser to SVI predictive SD against $n$ — flat at one when the rates agree, drifting above one and growing with $n$ when the amortiser under-contracts. This rate is the second target, modelled in §14.4.7.
 
-| item                        | type        | $\rho$ | $R^2$ |
-| --------------------------- | ----------- | -----: | ----: |
-| `CG-MH_effort`              | categorical |   0.65 | -2.50 |
-| `CG-MH_hopeless`            | categorical |   0.49 | -0.71 |
-| `CG-MH_nervous`             | categorical |   0.50 | -3.65 |
-| `CG-MH_sad`                 | categorical |   0.64 | -3.97 |
-| `CG-DEPRESSION`             | out-of-7    |   0.84 | -0.08 |
-| `CG-INVOLVE_child-problems` | out-of-7    |   0.77 |  0.17 |
-| `CG-INVOLVE_help-learn`     | out-of-7    |   0.84 | -1.09 |
-| `CG-MONITOR-CHI_child-safe` | out-of-7    |   0.87 |  0.17 |
-| `CG-MONITOR-CHI_safe-time`  | out-of-7    |   0.86 | -0.15 |
-| `CG-NONVIOLENT-DISCIPLINE`  | out-of-7    |   0.83 | -1.35 |
-| `CG-POS_play`               | out-of-7    |   0.82 | -1.08 |
-| `CG-POS_praise`             | out-of-7    |   0.78 | -0.17 |
-| `CG-RESILIENCE`             | out-of-7    |   0.84 | -0.89 |
-| `CG-SELFCARE`               | out-of-7    |   0.79 | -3.28 |
-| `CG-VIO_ph-punish`          | out-of-7    |   0.29 | -0.47 |
-| `CG-VIO_scream`             | out-of-7    |   0.79 | -0.47 |
-| `CHI-BEHAVIOUR_angry`       | out-of-7    |   0.78 |  0.50 |
-| `CHI-BEHAVIOUR_no-interest` | out-of-7    |   0.83 |  0.45 |
-| `CHI-BEHAVIOUR_unhappy`     | out-of-7    |   0.85 |  0.50 |
-| `grieve`                    | out-of-7    |   0.81 | -1.06 |
+All figures are produced by `python/amortiser_diag_plots.py`.
 
-High $\rho$ with mostly negative $R^2$ across the board — the ranking of posterior draws is tracked well, the location/scale calibration is not (see Reading). `CG-VIO_ph-punish` is the §14.1 numerical blow-up item.
+### 14.4.6 Head fine-tune: expanding window and affine shift
 
-**PPS agreement** with the item-level amortiser (§14.1, RGEG): high on the bulk of cells, with the disagreeing tail at early interims where the calibration gap is largest.
+The mislocation is corrected by refitting only the quantile head $q_\psi$ on the operational SVI, with the encoder frozen, followed by a per-item affine location shift. Two fine-tune schedules are compared against the raw network on the weekly grid (conditional PIT–KS; marginal KS):
 
-### 14.4.6 Baseline calibration diagnostics (`..._diag.py`)
+| head fine-tune ($+$ affine shift)       |    PIT–KS |   marg–KS |
+|-----------------------------------------|----------:|----------:|
+| none (raw network)                      |     0.465 |     0.441 |
+| interim-1 only (`…_ftheadi1`)           |     0.144 |     0.238 |
+| **expanding** $1..k$ (`…_ftheadexpand`) | **0.069** | **0.157** |
 
-The same SBC suite as §14.1.7, run on the deepset by forward-passing every draw and capturing the full multi-quantile prediction (and the frozen-encoder head input `head_in`, sown for §14.4.8). It reproduces the item-level picture exactly — strong ranking, mislocated intervals:
+**Interim-1 fitting is not pursued further.** A head fitted at interim 1 alone calibrates the anchor but drifts (PIT–KS $0.144$, marg–KS $0.238$ over the 29 interims), because the location bias is *interim-heteroscedastic* — its magnitude shrinks as $n$ grows, so one fit cannot serve all cohort sizes. The **expanding-window** fit — refit $q_\psi$ on interims $1..k$ at each $k$ (cost $\approx0.5$ s/refit, negligible) — conditions on each interim through the frozen embedding and reaches near-nominal calibration (PIT–KS $0.069$).
 
-| metric (mean over items/interims) | nominal | `itemXcompAtt` §14.1 | `deepsetXcompAtt` |
-| --------------------------------- | ------: | -------------------: | ----------------: |
-| coverage \@ 0.5                   |    0.50 |                 0.15 |              0.18 |
-| coverage \@ 0.95                  |    0.95 |                 0.44 |              0.41 |
-| PIT–KS                            |    0.00 |                 0.61 |              0.60 |
-| marginal–KS                       |    0.00 |                 0.47 |              0.47 |
+**Post-hoc conformal recalibration fails for the same reason.** A static per-item monotone PIT map (distribution calibration, Kuleshov et al. 2018), fitted on interim-1 or on the expanding pool, only partly corrects coverage (PIT–KS $\approx0.56$–$0.59$) and *worsens* the marginal KS: a single monotone map cannot absorb an interim-heteroscedastic bias, whereas refitting the head can. Set aside (§14.10).
 
-Diagnostics in the baseline dir: `pcm_1_interim_pps_RGDX_tests_coverage.pdf`, `..._tests_pit.pdf`, `..._i{k}_svi_vs_amortiser_marginal_cdf.pdf`, `..._i{k}_svi_rho_vs_amortiser_median.pdf`. The mislocation is the §8.1 prior/posterior gap again — architecture makes no difference to it.
+**Affine median-shift (on by default).** The head fine-tune fixes the quantile spread but leaves a per-item *location* residual — the prior-trained encoder systematically under-predicts every item. One scalar per item, fitted on the same SVI of interims $1..k$, corrects it, $\Delta_j(k)=\operatorname{mean}_{i\le k}\big[\operatorname{med}p_{\mathrm{SVI}}(\rho\mid x_i)-\operatorname{med}\hat p(\rho\mid x_i)\big]$, applied as a pure location shift to all quantiles (`RAGD_MEDSHIFT`, default on). It lowers PIT–KS $0.075\to0.069$ and marg–KS $0.180\to0.157$, and removes the systematic under-prediction visible in the marginal quantile box.
 
-### 14.4.7 Workstream A: post-hoc conformal recalibration (insufficient here too)
+**Direct comparison against the hand-token encoders.** The *same* expanding head-ft $+$ affine remedy is applied to the two §14.1 hand-token encoders — `itemXcompAtt` (cross-attention, §14.2.7) and `itemScompAtt` (self-attention, §14.3.4) — as fair baselines for the deepset, all on the **same weekly-29 grid** (ids 2..30, $n=48\to500$); all four §14.4.5 figures are produced for each from the shared `amortiser_diag_plots` module for a like-for-like read:
 
-We expected the nested-DeepSets amortiser to be *more* amenable to a static distribution-calibration map (Kuleshov et al. 2018) than the item-level net — it is not. Per-item monotone PIT maps fitted on interim-1 SVI (A1) and on the expanding pool $1..k$ (A2):
+| encoder (expand head-ft $+$ affine, weekly-29) |    PIT–KS |   marg–KS |
+|------------------------------------------------|----------:|----------:|
+| **`deepsetXcompAtt`** (learned pooling)        | **0.069** |     0.157 |
+| `itemXcompAtt` (hand token, §14.2.7)           |     0.139 |     0.119 |
+| `itemScompAtt` (hand token, §14.3.4)           |     0.136 | **0.108** |
 
-| metric           | nominal | baseline | A1 conformal-i1 | A2 conformal-expand |
-| ---------------- | ------: | -------: | --------------: | ------------------: |
-| coverage \@ 0.5  |    0.50 |     0.18 |            0.38 |                0.39 |
-| coverage \@ 0.95 |    0.95 |     0.41 |            0.41 |                0.41 |
-| PIT–KS           |    0.00 |     0.60 |            0.60 |                0.59 |
-| marginal–KS      |    0.00 |     0.47 |            0.62 |                0.54 |
+The split is consistent across the two hand-token encoders (interchangeable to within noise, §14.3.4): the **deepset wins the conditional PIT–KS by** $\approx2\times$ — the object the PPS decision consumes — while the **hand tokens win the marginal KS** by a smaller margin. marg–KS is secondary, since $p(\rho\mid x)$ is available from SVI directly (§14.4.5); so for the interim decision the deepset stays preferred, with the hand token the marginally better pure effect-size estimator. The trade-off is taken up in §14.5.1.
 
-Exactly as for `itemXcompAtt` (§14.2.6): the map nudges the median coverage (0.18 → 0.38) but leaves the upper tail pinned (coverage \@ 0.95 stuck at 0.41), barely moves the PIT–KS, and makes the marginal *worse*. **Why the deepset intuition fails:** conformal can only fix miscalibration that is a single, interim-invariant monotone warp of the PIT. Here the bias is *interim-heteroscedastic* — its magnitude shrinks as the cohort $n$ grows — so one static per-item map cannot serve all 8 interims at once. This is a property of the prior/posterior gap, not of the encoder, which is why the deepset behaves like the item net.
+**Both KS metrics vary with cohort size; the all-interim means above hide an** $n$-gradient. Splitting the weekly grid into small ($n\le150$; interims 2–5), mid ($150<n\le400$; 6–13) and large ($n>400$; 14–30):
 
-### 14.4.8 Head-only expanding fine-tune (§14.2.5) — the architecture-independent fix
+| encoder      |     PIT–KS s/m/l      |       marg–KS s/m/l       |
+|--------------|:---------------------:|:-------------------------:|
+| deepset      | 0.072 / 0.085 / 0.060 | 0.111 / 0.144 / **0.172** |
+| itemXcompAtt | 0.150 / 0.168 / 0.122 |   0.070 / 0.101 / 0.138   |
+| itemScompAtt | 0.139 / 0.166 / 0.121 |   0.065 / 0.092 / 0.126   |
 
-Because `head_in` (the frozen-encoder input to $q_\psi$) is sown by the net, the §14.2.5 recipe runs *without re-running the encoder*: cache `head_in` for every $(k, s, j^*)$ in the Phase-0 pass, then refit only $q_\psi$ on the pooled embeddings of interims $1..k$ and evaluate at $k$.
+**marg–KS worsens monotonically with** $n$ for every encoder (deepset $0.111\to0.172$), and the deepset is the worst of the three at large $n$. The cause is under-contraction: the deepset's marginal 5–95% width *relative to the SVI width* runs $0.61\to0.80\to1.58$ across the three bands — narrower than SVI at small $n$, but $58\%$ too wide at large $n$. That is, the amortiser's marginal SD sits *above* the SVI best-fit power law (§14.4.7) at large $n$ and stops contracting where SVI keeps sharpening; this upward departure from the law is precisely the residual the Bernstein–von Mises correction of §14.4.7 removes. Conditional PIT–KS, by contrast, has no strong $n$-trend and the deepset leads in every band.
 
-| metric           | nominal |  baseline | head-ft-expand |
-| ---------------- | ------: | --------: | -------------: |
-| coverage \@ 0.5  |    0.50 |      0.18 |           0.50 |
-| coverage \@ 0.95 |    0.95 |      0.41 |           0.94 |
-| PIT–KS           |    0.00 |      0.60 |           0.18 |
-| marginal–KS      |    0.00 |      0.47 |           0.17 |
-| corr o7/cat (i1) |       — | 0.82/0.57 |      0.82/0.54 |
+### 14.4.7 Bernstein–von Mises best-fit contraction law
 
-Near-nominal calibration, correlation preserved — identical outcome to `itemXcompAtt` (§14.2.5) and `itemScompAtt` (§14.3.3). Diagnostics in `..._deepsetXcompAtt_..._ftheadexpand_260809/`.
+**The best-fit law.** Bernstein–von Mises gives the leading order: the posterior SD of a smooth functional contracts as $\mathrm{SD}(\rho_j\mid x)\approx \sqrt{V_{\rho_j}}\,n^{-1/2}$ with $V_{\rho_j}=\nabla r^\top \mathcal I^{-1}\nabla r$ the delta-method (sandwich) variance at the semiparametric efficiency bound [@vandervaart1998asymptotic; @kleijn2012bernstein]. Over the finite $n$-range of a trial the effective exponent departs from $\tfrac12$ for item-specific reasons: $\rho$ is a **ratio** $\bar w_e/\bar w_b$, whose delta-method variance is inflated by denominator uncertainty at small $n$ (Fieller [@fieller1954some]); finite-$n$ higher-order terms add curvature; the endpoint integrates over the ability distribution; items near a response boundary identify faster; and the finite-population correction $(1-n/N)$ [@cochran1977sampling] speeds contraction as $n\to N$. These corrections do not overturn the leading $n^{-1/2}$; they bend it, and over a finite window that bend reads as a shifted exponent. Formally, define the **effective exponent** as the local log–log slope $$p_j(n):=-\,\frac{\mathrm d\log\mathrm{SD}(\rho_j\mid x)}{\mathrm d\log n},$$ which is identically $\tfrac12$ under pure BvM. Collecting the corrections into a sub-leading factor $g_j(n)$, $\mathrm{SD}^2(\rho_j\mid x)=V_{\rho_j}\,n^{-1}\,g_j(n)$, gives $p_j(n)=\tfrac12-\tfrac12\,\mathrm d\log g_j/\mathrm d\log n$ — generally $\neq\tfrac12$, and drifting only slowly with $n$. Over the trial's narrow window ($n:48\to500$ spans only $\Delta\log n\approx2.3$, a $3.2\times$ range in $\sqrt n$) this slope is nearly constant, so $\log\mathrm{SD}$ is nearly **linear** in $\log n$: a single-exponent power law $\mathrm{SD}=C_j\,n^{-p_j}$ with $p_j$ the window-averaged slope. The exponent is item-specific because $g_j$ — hence its slope — depends on the item's $\mathcal I^{-1}$, $\nabla r$, boundary proximity and floor. Fitting candidate laws to the weekly SVI SD ($n=48\to500$, 25 points/item):
 
-### 14.4.9 Diagnostic: posterior contraction — does the amortiser learn the $n$-scaling?
+| form                               | median $R^2$ |
+|------------------------------------|-------------:|
+| power law $\mathrm{SD}=C\,n^{-p}$  |     **0.90** |
+| floor $\sqrt{a^2+b^2/n}$           |         0.68 |
+| BvM (fixed $p=\tfrac12$)           |         0.65 |
+| finite-population $\sqrt{1/n-1/N}$ |         $<0$ |
 
-The expanding-window head fine-tune (§14.4.8) works but must be re-fit at every interim, because a single interim-1 head fit fails to transfer (§14.2.4): the calibration bias is *interim-heteroscedastic*. This diagnostic asks **why**, and whether it could be removed at source. The nested-DeepSets encoder consumes the raw cohorts + aux $(n/N, m/N)$ and mean-pools over participants, so it *has the inputs* to represent how the posterior $p(\rho \mid x)$ narrows as the observed cohort $n$ grows (Bernstein–von Mises: posterior SD $\sim n^{-1/2}$). **If** it encoded that contraction faithfully, the head's job would be a fixed map (embedding, $n$) $\to$ calibrated quantiles, and one calibration point would pin every interim.
+The **item-specific power law wins** ($R^2=0.90$): the exponent $p_j$ has median $0.45$ but ranges $0.26\to1.08$, genuinely heterogeneous rather than the universal $\tfrac12$. The finite-population form fails because the SD plateaus at a nonzero value; the two-parameter floor $\sqrt{a^2+b^2/n}$ captures that plateau but fits less well than the free power law. The fitted law $C_j\,n^{-p_j}$ is the object the rest of this section uses — first to *justify* a self-consistency correction for the deepset's large-$n$ marginal upturn (§14.4.6), then as a *parametric head* that carries the law into the network.
 
-**Method.** To get many $(n, \text{width})$ points we re-slice the same trial at **weekly** cutoffs (`Ukraine_interim_weekly_svi_for_contraction.py`, `freq='W'` in place of the monthly `'MS'`): 29 usable interims spanning $n = 48 \to 500$, each with its own SVI fit. Per (interim, item) we compare three 90 %-interval widths (`..._contraction.py`):
+**Why a self-consistency correction, and what it must be.** The large-$n$ marginal error is a finite-$m$ artefact. At deployment the marginal $p(\rho\mid x)$ is the mixture $\frac1S\sum_s \hat p(\rho\mid x,z^{(s)})$ over posterior-predictive future cohorts, and its variance decomposes exactly by the law of total variance, $$\operatorname{Var}_{\text{mix}} = \underbrace{\tfrac1S\textstyle\sum_s \sigma_s^2}_{W\ (\text{within})} + \underbrace{\tfrac1S\textstyle\sum_s (\mu_s-\bar\mu)^2}_{B\ (\text{between})},$$ where $\mu_s=q_{s,3}$ is the conditional median and $\sigma_s=(q_{s,5}-q_{s,1})/3.2897$ its Gaussian-equivalent SD, both read from the deployed quantiles. As $n\to N$ the future cohort $m=N-n$ shrinks, so each $z^{(s)}$ is a noisy sample and $B$ inflates spuriously — the amortiser's marginal SD turns *up* at large $n$ instead of contracting.
 
-- $W_{\text{SVI}}$ — 5–95 % spread of the SVI draws $\rho_{\text{SVI-}x}$ = the true $p(\rho \mid x)$ width;
-- $W_{\text{marg}}$ — 5–95 % width of the amortiser's **marginal** $\hat p(\rho \mid x)$ (mixture over draws of the per-draw conditionals);
-- $W_{\text{cond}}$ — mean per-draw width $\overline{q_{95}^{s} - q_{05}^{s}}$ (the amortiser's claimed per-slice uncertainty).
+The correction is **pinned by the contraction law**, with no free constant. Bernstein–von Mises states that a posterior variance depends, to leading order, on the sample *size*, not the sample *values*; so every conditional has the same BvM variance, given by the fitted law read at $n+m$, while the target marginal is the law read at $n$: $$W_{\text{true}}=\big(C\,(n+m)^{-p}\big)^2,\qquad T=\big(C\,n^{-p}\big)^2,\qquad B^\ast = T-W_{\text{true}} = C^2\big(n^{-2p}-(n+m)^{-2p}\big).$$ The non-spurious between $B^\ast$ is what the extra $m$ observations are entitled to remove. By the law of total variance it is $B^\ast=\operatorname{Var}_z\!\big(\mathbb E[\rho\mid x,z]\big)$ — the further contraction the future cohort buys. At deployment $n+m=N$ is *fixed*, so $W_{\text{true}}=(C\,N^{-p})^2$ is constant and $B^\ast=C^2\big(n^{-2p}-N^{-2p}\big)$. **Why $B^\ast\to0$ as $n\to N$:** the remaining cohort $m=N-n\to0$, so there is no future data left to collect; conditioning on the (vanishing) $z$ cannot sharpen the posterior, the conditional and marginal coincide, and $\operatorname{Var}_z(\mathbb E[\rho\mid x,z])\to0$ — algebraically $n^{-2p}\to N^{-2p}$. At the other end $n\to0$ almost all the variance is still removable, and $B^\ast\to T$. The empirical $B$ moves the *opposite* way at large $n$: with $m$ tiny each simulated $z^{(s)}$ is a high-variance draw, so the $S$ conditional medians $\mu_s$ scatter widely — pure finite-$m$/finite-$S$ sampling noise. That is exactly the spurious inflation the correction strips out, by shrinking $B$ down to $B^\ast$. Scaling each conditional width by $\alpha=\sqrt{W_{\text{true}}/W}$ and shrinking the median spread by $\beta=\sqrt{B^\ast/B}$, $$q'_{s,i}=\big[\bar\mu+\beta(\mu_s-\bar\mu)\big]+\alpha\,(q_{s,i}-\mu_s),$$ makes the mixture variance $\alpha^2W+\beta^2B=W_{\text{true}}+B^\ast=T$ by construction. It is a post-hoc pass over the deployed quantiles (`RAGD_BVM`) — no retraining, and no SVI beyond the $\operatorname{Var}(\rho\mid x)$ fit already in hand.
 
-**Result.** Log–log slope of width vs $n$ (contraction rate; BvM $\approx -0.5$), and the median width shrinkage across the enrolment (blow-up item excluded):
+**Implementation: parametric heads that carry the law.** The correction is intrinsically justified when the head's width already obeys the law, so the width is made parametric (`head_mode`) *without touching the encoder*. Everything up to the §14.4.4 head is unchanged: item cross-attention still yields $\bar h_{j^*}$, and the shared MLP $q_\psi$ still consumes $\operatorname{concat}(\bar h_{j^*},h_{j^*},a)$ and emits a length-$K$ vector $\text{raw}$. What changes is only the *interpretation* of that vector. In `plain` mode $\text{raw}$ is returned as the $K$ quantiles directly; in the parametric modes its leading entries are read as a few shape parameters, from which the $K$ quantiles are rebuilt deterministically as a **fixed-shape Gaussian predictive whose scale follows the law**,
+$$\hat\rho_q = m \;+\; z_q\,s_j(n),\qquad z_q=\Phi^{-1}(\tau_q)\in\{-1.64,-0.67,0,0.67,1.64\},$$
+the standard-normal quantile multipliers $z_q$ fixed, and the cohort size entering **only** through the absolute-scale aux precision $\text{prec}=a_1=n^{-1/2}$ (§14.4.4). The trunk is thus shared; only the last map from $\text{raw}$ to quantiles is replaced, and the two forms differ solely in the width $s_j(n)$:
 
-| quantity | log–log slope | median $W$ at $n{=}48$ | at $n{=}500$ | ratio |
-| -------- | ------------: | ---------------------: | -----------: | ----: |
-| $W_{\text{SVI}}$ (truth)            | **−0.59** | 0.99 | 0.25 | **0.25** (≈4× narrower) |
-| $W_{\text{marg}}$ (amortiser marg.) | −0.11 | 0.51 | 0.70 | 1.37 (*widens*) |
-| $W_{\text{cond}}$ (amortiser slice) | −0.16 | 0.39 | 0.19 | 0.49 |
+- **A — power law:** $q_\psi$'s first three outputs give $m=\text{raw}_0$, $C_j=\operatorname{softplus}(\text{raw}_1)>0$ and $p_j=\sigma(\text{raw}_2)\in(0,1)$, so $s_j(n)=C_j\,n^{-p_j}=C_j\,\text{prec}^{2p_j}$. Location, scale and exponent are all item- and query-conditioned through $\bar h_{j^*}$, while the $n$-dependence is hard-wired to the BvM power law. (Regularised variant **B** adds a prior $\lambda\,\mathbb E[(p_j-\tfrac12)^2]$ pulling the exponent toward $\tfrac12$, since $p$ is only weakly identified over the trial's $\sim3\times$ $\sqrt n$ range.)
+- **C — floor:** $q_\psi$'s first three outputs give $m$ and $a_j,b_j=\operatorname{softplus}(\cdot)>0$, so $s_j(n)=\sqrt{a_j^2+b_j^2/n}$, encoding the non-zero plateau directly (no exponent).
 
-The verdict is clear: **the amortiser does not learn posterior contraction.** The true posterior narrows almost fourfold from the first to the last interim (slope −0.59, close to the BvM $-\tfrac12$), but the amortiser's marginal predicted width is essentially flat in $n$ — it even *widens* slightly (slope −0.11) — and its per-draw width contracts only weakly (slope −0.16, roughly halving where the truth quarters). By item type the gap is worst on the categorical CG-MH items ($W_{\text{SVI}}$ slope −0.29 vs $W_{\text{marg}}$ +0.05). Plots: `pcm_1_interim_pps_RGDX_contraction_by_item.pdf` (per item, log–log) and `..._contraction_pooled.pdf` (median over items).
+Because the trunk is untouched, the parametric head is a drop-in: the expanding head fine-tune (§14.4.6) still refits $q_\psi$, and the affine shift still corrects the emitted location $m$.
 
-**Consequences.**
+Trained, the heads roughly double the training-distribution contraction slope (probe $-0.32/-0.35$ vs the plain net's $-0.20$) and the power-law exponent tracks SVI for the strongly-contracting items ($p_{\text{SVI}}/p_{\text{amo}}$ of $1.08/0.91$, $0.99/0.78$). On their own — expanding head fine-tune $+$ affine shift, *without* the correction — they do **not** beat the plain net on aggregate calibration (A power-law PIT–KS $0.112$, marg–KS $0.189$; C floor $0.115$/$0.185$; plain $0.069$/$0.157$): the low-SD mental-health items ($p_{\text{SVI}}\approx0.3$) remain under-learned, and a rigid trained width helps only the strongly-contracting items. Directories `…-A-powerlaw`, `…-C-floor` and their `_ftheadexpand` deployments.
 
-1.  This is the **mechanism** behind the interim-heteroscedastic bias of §14.2.6 / §14.4.7: because the predicted spread barely moves with $n$ while the truth contracts, the miscalibration required to correct it *must* change with the interim — which is exactly why a static conformal map (one warp for all interims) cannot work and why the head must be re-fit per interim.
-2.  It answers the standing question — *"if the deepset learned contraction, would an interim-1-only head fine-tune suffice?"* — with **not as trained**: the prerequisite fails, so the expanding window (§14.4.8) remains necessary. Confirms the §14.2.4 failure was not a fluke.
-3.  **Contraction pressure was implemented and tested — it does not make interim-1 calibration sufficient (§14.4.10).**
+**Result of the correction.** Applied to the A and C heads (with the affine shift), the BvM correction lowers marg–KS at every cohort size and makes the amortiser's contraction curve track SVI's with the large-$n$ upturn removed (matching fitted slopes per item, e.g. $-0.005$ vs $-0.005$); PIT–KS is unchanged, since the correction acts only on the marginal:
 
-### 14.4.10 Next step tested: contraction pressure (negative — the target, not the encoder, is the ceiling)
+| head-ft $+$ affine | marg–KS ($n\le200$) | (mid) | ($n\ge450$) | (all) | ($n\ge498$) |
+|------------|------------:|-----------:|-----------:|-----------:|-----------:|
+| A power-law | 0.169 | 0.194 | 0.193 | 0.189 | 0.224 |
+| **A** $+$ BvM | 0.161 | 0.183 | **0.180** | **0.177** | **0.194** |
+| C floor | 0.154 | 0.185 | 0.199 | 0.185 | 0.232 |
+| **C** $+$ BvM | 0.147 | 0.171 | **0.170** | **0.166** | 0.231 |
 
-Following the memory note `deepset-contraction-calibration`, we injected the two cheap contraction mechanisms and retrained (`..._contraction_retrain.py`, 106 min): (1) **BvM aux features** $a = (n/N, m/N, 1/\sqrt n, 1/\sqrt m)$ giving the head the exact posterior-SD rate, and (3) **$n$-stratified mini-batches** (log-spaced strata of $[2, N)$). Two probes decide it before the deployment test.
-
-**Probe A — is there an $n$-signal to learn?** On the *base* net's own prior-predictive training distribution the predicted width is already flat (slope $-0.02$), and — the diagnostic that matters — the **prediction error saturates**: median $|\rho - \hat\rho_3|$ is $0.035$ at $n < 80$ and $0.033$ at $n > 400$ (slope $-0.14$, all of it below $n \approx 15$). The reason is structural: **training conditions on both cohorts, and $n + m = N = 503$ always**, so $(x, z)$ jointly identify the full-population endpoint regardless of the split — there is almost no $n$-contraction in the training target to learn. The SVI posterior contracts ($-0.59$) because it is the $x$-only posterior, an uncertainty source the prior-predictive target never exposes.
-
-**Probe B — did the retrain help?** On the training distribution the retrained net's width now *does* scale (slope $-0.02 \to -0.15$) and, tellingly, its width slope now **equals its error slope** ($-0.153$ vs $-0.154$) — it correctly scales spread to its own accuracy. But that accuracy ceiling is the mild $-0.15$, not the SVI $-0.59$. And at **deployment** the improvement vanishes: the retrained net's marginal width slope is $-0.05$ (it *widens*, $0.50 \to 0.86$ over $n = 48 \to 500$), no better than the base net's $-0.11$ — because the posterior-predictive $z^{(s)}$ shift is not what the BvM aux was fit against.
-
-**The interim-1-only test (the actual objective).** On the retrained net, refit $q_\psi$ on interim-1 SVI only and apply to all 8 interims:
-
-| config (mean over interims) | cov \@ 0.5 | cov \@ 0.95 | PIT–KS |
-| --------------------------- | ---------: | ----------: | -----: |
-| baseline (retrained net)    |       0.17 |        0.49 |   0.54 |
-| head-ft **interim-1 only**  |       0.58 |        0.89 |   0.37 |
-| head-ft **expanding** (§14.4.8) |   0.50 |        0.94 |   0.18 |
-
-The interim-1 fit nails interim 1 itself (cov $0.51/0.95$, PIT–KS $0.07$) but **drifts at interims 2–8** (cov\@0.5 $\approx 0.6$, PIT–KS $\approx 0.45$) — no better transfer than on the base net. **Verdict: contraction pressure via aux + stratification does not work, and the expanding-window head fine-tune (§14.4.8) remains the operating point.** The ceiling is the *training target*, not the encoder: a scalar full-population endpoint conditioned on both cohorts has no $x$-only contraction to represent. Making interim-1 calibration sufficient would require changing the **target construction** so training exposes the $x$-only posterior contraction — e.g. labelling each draw with an endpoint under a $\theta$ resampled from $p(\theta \mid x_n)$ rather than the generating population $\theta$ — which reintroduces a nested posterior step at training time. Left as future work; memory updated. Artifacts: `..._contraction-260811/` (net, `..._prior_contraction_probe.csv`, `..._headft_i1_coverage.csv`, deployment contraction PDFs).
-
-### 14.4.11 Planned redesign: focused-proposal amortised posterior inference
-
-§14.4.10 localised the ceiling to the **estimand's $n$-scaling**, not the encoder: training used the finite-cohort endpoint with both cohorts $= N$ (no $n$-contraction), whereas the deployment target $\rho_{\text{SVI-}x}$ — the existing `get_endpoints_per_draw` functional of a posterior draw — contracts at the BvM rate. This redesign keeps that diagnosis but drops the super-population construction of the previous draft (which needed an ability law $G$ and a reference-MC estimator — a departure from the SVI workflow). Instead it stays inside a **standard Bayesian workflow, ML-enhanced**: amortised posterior inference with a *focused proposal*, the mainstream simulation-based-inference (SBI) recipe [@cranmer2020frontier; @radev2020bayesflow].
-
-**Reframing (dissolves the super-population objection).** Anchor once at the first interim:
-
-- **proposal** $\theta^{(s)} \sim p(\theta \mid x_1)$ — the interim-1 SVI posterior, in place of the diffuse prior. This is the sequential/focused-proposal step of SBI [@greenberg2019automatic; @papamakarios2019sequential; @hermans2020likelihood], done once rather than iterated;
-- **target** $\rho^{(s)} = r(\theta^{(s)})$ — the *exact* endpoint code the workflow already runs for $\rho_{\text{SVI-}x}$. No new estimator, no ability law to choose;
-- **contraction source** — feed the network a simulated cohort of size $n$ drawn from $\theta^{(s)}$; a size-$n$ sample identifies $\theta^{(s)}$ to $O(n^{-1/2})$, so $\operatorname{SD}(\rho^{(s)}\mid \text{size-}n\text{ summary}) \asymp n^{-1/2}$ (delta method through the smooth $\theta \mapsto r(\theta)$). The contraction the amortiser must learn is now *present in the training target*, because $\rho^{(s)}$ is a parameter-level functional the finite cohort only estimates — exactly as SVI's $\rho_{\text{SVI-}x}$ is.
-
-Components:
-
-**A. Focused proposal with a drift guard (median-shift augmentation).** A single interim-1 posterior can fail to *envelope* later interims if enrolment drifts (the displacement-status composition changes over the trial). Rather than trust $p(\theta \mid x_1)$ to cover every later location, **widen the proposal in effect-size location**: per draw, translate the endline-vs-baseline contrast by $\delta^{(s)} \sim \pi_{\text{shift}}$ (e.g. $\delta \sim U[-\Delta, \Delta]$ on the standardised effect-size scale) so the proposal brackets a range of *median* $\rho$ around the interim-1 estimate. This is a defensive/robustified proposal in the spirit of truncated-support schemes [@deistler2022truncated]: a little efficiency traded for coverage of a shifting target, with $\Delta$ set from the between-interim drift measured in the weekly SVI fits.
-
-**B. Decoupled varies-$N$ schedule.** Draw the two cohort sizes independently, $n, m \sim \lfloor \text{LogUniform}[2, N_{\max}] \rfloor$ (not $m = N - n$ — the coupling is what caused §14.4.10's saturation); simulate $x_n, z_m$ from $\theta^{(s)}$; aux $= (1/\sqrt n, 1/\sqrt m, \dots)$. Because we simulate cohorts of *any* size from the interim-1 posterior draws, training covers all later interim sizes even though interim 1 holds only $n_1$ real participants.
-
-**C. Interval-score loss.** Score width directly with the strictly proper interval score [@gneiting2007strictly]: for a central $1-\alpha$ interval with bounds $\ell = \hat\rho_{\alpha/2}, u = \hat\rho_{1-\alpha/2}$,
-$$\text{IS}_\alpha(\ell, u; y) = (u - \ell) + \tfrac{2}{\alpha}(\ell - y)_+ + \tfrac{2}{\alpha}(y - u)_+,$$
-summed over the symmetric $\eta^{\text{inpol}}$ pairs ($\alpha \in \{0.10, 0.50\}$) plus the median pinball, with the per-item $\hat\sigma_j$ standardisation and a monotone head.
-
-**D. Ragged variable-$n$ encoder (no fixed-$N$ padding).** Replace the fixed $(J, N_{\max}{=}503, J, 2)$ padded tensor + masks with a **ragged participant axis**: participants are concatenated across the batch and pooled with a segmented mean (`jax.ops.segment_sum` over per-participant segment ids), so the encoder consumes exactly the real $n$ participants and the $1/n$ pooling delivers the correct BvM precision to the head. This is the exchangeable/permutation-invariant summary network SBI uses to *learn* contraction across dataset size [@radev2020bayesflow; @chan2018likelihood]; cross-attention and head are unchanged. Implemented in [`python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py`](../python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py).
-
-**E. Anchor at ~15%, evaluate on existing weekly SVI fits.** Set interim 1 to $\approx 15\%$ of the final $N = 503$ ($\approx 75$), rounded to the nearest existing weekly SVI simulation: $n_1 = 57$ (weekly interim 4, $\approx 11\%$; the alternative $n_1 = 104 \approx 21\%$ gives a safer BvM margin). **Reuse the 29 weekly SVI fits** (`py-ukraine-interim-weekly-svi-260811`, $n = 48 \to 500$) as the posterior-contraction evaluation grid — no recompute. Adequacy criterion (verify, don't assume): the interim-1 posterior-predictive must cover $\ge 90\%$ of every later weekly interim's summary statistics; if drift breaks this, re-anchor later or widen $\pi_{\text{shift}}$ (A).
-
-**What established SBI does for contraction (context).** The mainstream tools learn $n$-contraction through B+D: exchangeable summary networks over the *actual* variable-$n$ data (BayesFlow [@radev2020bayesflow], exchangeable neural nets [@chan2018likelihood]), optionally conditioning the estimator on $n$, verified calibrated across $n$ by SBC; and they focus the proposal with sequential/truncated schemes (APT/SNPE-C [@greenberg2019automatic], SNL [@papamakarios2019sequential], SNRE [@hermans2020likelihood], TSNPE [@deistler2022truncated], FMPE [@wildberger2023flow]). We have been hampered on all three fronts — fixed-$N$ padding, prior proposal, finite-$N$ target — which this redesign flips.
-
-**Success criterion.** On the retrained net: the deployment marginal width slope $W_{\text{marg}} \to \approx W_{\text{SVI}}\,(-0.59)$ across the weekly grid, **and** an interim-1-only head fine-tune reaches near-nominal coverage at all interims (PIT–KS $\lesssim 0.2$), collapsing the expanding window (§14.4.8) to a single calibration.
+Notably **C** $+$ BvM's large-$n$ marg–KS ($0.170$) beats the plain net $+$ affine ($0.181$) — the correction supplies exactly the missing large-$n$ contraction, as a principled step rather than a rigid trained width. Directories `…-A-powerlaw_ftheadexpand_bvm`, `…-C-floor_ftheadexpand_bvm`. **A/C** $+$ BvM is the statistically coherent estimator of §14.0: its width obeys a BvM contraction law and its marginal is self-consistent under the law of total variance. The plain net $+$ affine (§14.4.6) remains numerically ahead on the aggregate PIT–KS and all-$n$ marg–KS and is the lighter alternative when the parametric guarantee is not required.
 
 ### 14.5.1 Cross-architecture summary
 
-The remedy sweep run on all three encoders gives one consistent conclusion:
+Calibration of the three encoders under the deployable remedy (expanding head fine-tune $+$ affine shift, §14.4.6), and of the two BvM-corrected deepset heads (§14.4.7); PIT–KS is conditional calibration, marg–KS marginal calibration:
 
-| architecture (interim-1 corr o7/cat) | remedy         | cov\@.5 | cov\@.95 | PIT–KS | marg–KS |
-| ------------------------------------ | -------------- | ------: | -------: | -----: | ------: |
-| `itemXcompAtt` (0.82/0.71)           | baseline       |    0.15 |     0.44 |   0.61 |    0.47 |
-|                                      | conformal-exp  |    0.40 |     0.44 |   0.56 |    0.59 |
-|                                      | head-ft-expand |    0.50 |     0.95 |   0.16 |    0.14 |
-| `itemScompAtt` (0.83/0.70)           | baseline       |    0.19 |     0.53 |   0.55 |    0.42 |
-|                                      | head-ft-expand |    0.50 |     0.94 |   0.15 |    0.13 |
-| `deepsetXcompAtt` (0.82/0.57)        | baseline       |    0.18 |     0.41 |   0.60 |    0.47 |
-|                                      | conformal-exp  |    0.39 |     0.41 |   0.59 |    0.54 |
-|                                      | head-ft-expand |    0.50 |     0.94 |   0.18 |    0.17 |
+| encoder                   | configuration             |   PIT–KS | marg–KS |
+|---------------------------|---------------------------|---------:|--------:|
+| `itemXcompAtt` (§14.2)    | baseline (raw network)    |     0.61 |    0.47 |
+|                           | head-ft-expand $+$ affine |     0.14 |    0.12 |
+| `itemScompAtt` (§14.3)    | baseline (raw network)    |     0.55 |    0.42 |
+|                           | head-ft-expand $+$ affine |     0.14 |    0.11 |
+| `deepsetXcompAtt` (§14.4) | baseline (raw network)    |     0.60 |    0.47 |
+|                           | head-ft-expand $+$ affine | **0.07** |    0.16 |
+|                           | A power-law $+$ BvM       |     0.11 |    0.18 |
+|                           | C floor $+$ BvM           |     0.12 |    0.17 |
 
 ### 14.5.2 Reading
 
 1.  **The §8-10 loop closes.** Prior sampling → nested-DeepSets training → raw-$(x, z)$ deployment runs end-to-end on a real IRT case study with a \~1 min total deployment cost for the full 8-interim schedule.
-2.  **Architecture affects ranking, not calibration.** Cross-attention, self-attention and nested-DeepSets share the *same* prior/posterior mislocation (baseline coverage \@ 0.5 $\approx 0.15$–$0.19$, PIT–KS $\approx 0.55$–$0.61$ across all three). The encoder choice only moves the correlation — the deepset's learned pooling matches the hand token on out-of-7 (0.82) but trails on CG-MH (0.57 vs 0.70–0.71) at this budget.
-3.  **The fix is architecture-independent and it is the head, not a static map.** The expanding head-only fine-tune (§14.2.5) recovers near-nominal calibration for all three encoders with correlation preserved, whereas post-hoc conformal is insufficient for all three (including the deepset, contrary to expectation) because the bias is interim-heteroscedastic. Refitting $q_\psi$ conditions on each interim's data through the frozen embedding; a single monotone PIT map cannot.
-4.  **Diagnostics** (§14.1.7–14.1.9) are produced in full for every configuration: coverage curves, PIT histograms, marginal-CDF overlays and median-association scatters, plus `pcm_1_interim_pps_RGDX_svi_vs_amortiser_rho_all.pdf`.
+2.  **The mislocation is shared across encoders.** Cross-attention, self-attention and nested-DeepSets have the *same* baseline PIT–KS ($\approx0.55$–$0.61$) and marg–KS ($\approx0.47$): the prior/deployment gap is a property of the training setup, not the encoder. Resolved by cohort size, the three encoders also track the SVI posterior draw equally well (the apparent deepset "$z$-floor" was an averaging artefact, §14.10 item 14).
+3.  **The remedy is the head fine-tune, not a static map.** The expanding head-only fine-tune (§14.2.5, §14.4.6) recovers near-nominal conditional calibration for all three encoders; post-hoc conformal is insufficient because the bias is interim-heteroscedastic and one monotone map cannot absorb it. The affine median-shift (§14.4.6) then removes the residual location bias.
+4.  **The conditional–marginal trade-off, and its resolution.** With the affine shift throughout, the deepset wins the conditional (PIT–KS $0.07$ vs the hand token's $0.14$ — the quantity the PPS decision consumes) and the hand token the marginal by a small margin. The **BvM correction** (§14.4.7) closes the deepset's large-$n$ marginal shortfall from first principles, giving the coherent A/C $+$ BvM estimator of §14.0. (All three encoders are now evaluated on the same 29-interim weekly grid.)
+5.  **Diagnostics** are produced in full for every configuration (§14.4.5): the PIT box, marginal quantile box, contraction-factor and contraction-law figures from `python/amortiser_diag_plots.py`.
+
+## 14.10 Approaches examined and set aside
+
+Recorded for completeness; each was tested and did not improve on the §14.0 estimator. Detailed subsections and directories are cited.
+
+**Calibration (item-level encoder).**
+
+1.  *Training-noise control*, $S=256$ draws/step (§14.2.1): confirms the baseline gap is distribution shift, not Monte-Carlo noise — a diagnostic, not a remedy.
+2.  *Prior narrowing*, `threshold_scale` $2.0/1.0$ (§14.2.2): does not move coverage; the mislocation is not a prior-width artefact.
+3.  *Full-network fine-tune*, leave-one-interim-out (§14.2.3): reaches the same calibration as the head-only fit while moving all weights $\approx10\%$ — superfluous; the head-only fit (§14.2.5) is retained.
+4.  *Head-only fine-tune on interim 1 alone* (§14.2.4): calibrates interim 1 but drifts elsewhere because the bias is interim-heteroscedastic; superseded by the expanding window (§14.2.5).
+5.  *Post-hoc conformal recalibration* (§14.2.6; also tried on the deepset): a single monotone PIT map cannot absorb an interim-heteroscedastic bias; coverage only partially corrected, marginal-KS worsened.
+
+**Contraction and training-law redesigns (deepset).**
+
+6.  *Contraction pressure* — BvM aux features $+$ $n$-stratified batches: negative. With the original training the two cohorts jointly identify the full-population endpoint ($n+m$ fixed), so there is no $x$-only contraction in the target to learn. Dir `…-priorproposal-260812` predecessor.
+7.  \*Focused-proposal (interim-1 posterior) ragged build: negative. An interim-1 posterior proposal is pre-contracted, and subsampling a fixed pool is not refitting; the contraction signal is flat. Superseded by the wide-prior recipe (§14.4.3).
+8.  *Capacity-fix sweep* — schedule, MLP width, factored $g(1/\sqrt n)$, precision-pool, hard-coded semiparametric width: only hard-coding the rate moves the training-distribution slope, and it over-contracts at deployment. Motivates the *learned* power law (§14.4.7–14.4.8) instead.
+9.  *Mixture-CRPS marginal loss term*: reduces marginal-KS only where the encoder conditions sharply on $z$ (hand token); inert on the deepset, whose $z$-response is weaker — a property clarified by item 14 below.
+
+**Deepset** $z$-response investigation.
+
+10. *Sharper-*$z$ encoder sweep, 9 variants: `z_contrast`, `precision_pool`, `raw_pool`, domain randomisation: the deepset marginal $z$-tracking did not exceed $\approx0.5$ under any input-feature or training lever. Dirs `…-priorproposal-zs-{…}`.
+11. *Proposal ablation on the hand token*: isolates **domain randomisation**, not decoupling or small $m$, as the cause of $z$-erosion — off by default thereafter. Dirs `…-itemXcompAtt-priorproposal-{fixed503-noDR, …}`.
+12. *Nband-noDR recipe on the deepset*: improves the raw contraction slope $3\times$ but not deployment calibration; the wider $N$-band spreads capacity. Dirs `…-priorproposal-{nband, bigM503}`.
+13. *Per-participant* $\rho$-mapping: moving the nonlinearity before the pool does not raise the deepset $z$-tracking (0.57 unchanged); confirms the ceiling is downstream of pooling. Dirs `…-priorproposal-{perpart, …}`.
+14. ***Correction***: the apparent deepset "$z$-floor at $0.57$" was an averaging artefact — resolved per cohort size, the deepset and hand token track $z$ identically ($0.82$ at small $n$, decaying to $\approx0.15$ at large $n$). The deployed difference is a modest conditional-vs-marginal trade-off, not a $z$-response deficit. This retracts the premise of items 10–13.
+
+**Law-of-total-probability marginal patches (deepset).**
+
+15. *Empty-cohort marginal* (Option A): a single $m=0$ forward removes the finite-$m$ upturn but is a weaker marginal estimator (marg-KS $0.243$) and costs the conditional; the $m=0$ representation is off the operating regime. Dir `…-priorproposal-mempty_ftheadexpand`. Flags `PP_MEMPTY`, `RAGD_EMPTYZ`.
+16. *Real-data split marginal* (Option B): partitioning $x=(x_1,x_2)$ avoids simulation noise but the balanced split is likewise off-regime (marg-KS $0.275$). Dir `…-260812_ftheadexpand_splitB`. Flag `RAGD_SPLITB`.
+
+Both 15–16 are superseded by the in-regime **BvM correction** (§14.4.7), which removes the same finite-$m$ inflation without leaving the training regime.
 
 # 15. References
 

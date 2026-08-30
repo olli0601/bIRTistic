@@ -57,36 +57,98 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
     embed_dim: int = 32
     hidden_dims: tuple = (64, 64)
     num_quantiles: int = 5
+    # §14.4.14 capacity fixes (defaults preserve the plain build):
+    #   head_mode: 'plain' | 'factored' | 'semiparam'
+    #   precision_pool: append per-item pooled variance to the token
+    head_mode: str = 'plain'
+    precision_pool: bool = False
+    # §14.4.18 sharper-z options:
+    #   z_contrast: append (pool_z - pool_x) and (pool_z * pool_x) in EMBED space
+    #   raw_pool: append the per-item RAW pooled response means (wb,we) for x and
+    #     z plus the plug-in ratio we/wb — the exact statistic the oracle uses.
+    #     Learned embed-then-pool does not preserve this ratio; hand it directly.
+    z_contrast: bool = False
+    raw_pool: bool = False
+    # §14.4.21: per-participant rho-mapping channels. Every participant has BOTH
+    #   baseline and endline, so the effect proxy can be formed PER PARTICIPANT
+    #   (a nonlinear map) BEFORE pooling. Mean-pooling these recovers an effect
+    #   statistic the raw [y_b, y_e] mean cannot -- notably the caseness/ratio
+    #   shape the plain mean throws away. Fixes the reason-1/2 laundering at the
+    #   participant level rather than patching pooled ratios (cf. raw_pool).
+    perpart_map: bool = False
+    # §14.4.21 diagnostic: force q_tau to a single LINEAR layer (no SiLU), so the
+    #   pooled embedding is an affine image of the exact per-item means
+    #   (w_b, w_e) -- i.e. q_tau can be the identity. Tests whether the deepset's
+    #   weak z is the nonlinear-pool (Jensen) gap or a downstream one.
+    linear_tau: bool = False
+    # §14.4.21 diagnostic: inject the raw per-item (wb, we, ratio) of the QUERIED
+    #   item straight into the head input, bypassing q_tok + cross-attention.
+    #   Tests whether the z-signal dies in the token->attention path or at the
+    #   head itself (raw_pool routes it through the token; this routes it direct).
+    head_raw: bool = False
     default_pps_ProbH1_lwr_quantiles_mesh: tuple = (0.05, 0.25, 0.5, 0.75, 0.95)
 
     def setup(self):
-        self.q_tau = _MLP(dims=(*self.q_tau_hidden, self.embed_dim))
+        self.q_tau = (_MLP(dims=(self.embed_dim,)) if self.linear_tau
+                      else _MLP(dims=(*self.q_tau_hidden, self.embed_dim)))
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
         self.q_query = _MLP(dims=(*self.q_query_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
+        if self.head_mode == 'factored':          # width-scaling head g(1/sqrt n)
+            self.g_head = _MLP(dims=(16, 1))
 
     def _segment_mean_pool(self, flat, seg, meta, B):
-        """flat (T, J, R), seg (T,), meta (B, J, M) -> (B, J, E) ragged mean.
+        """flat (T, J, R), seg (T,), meta (B, J, M) -> (B, J, E) [or (B,J,2E)
+        with precision_pool] ragged mean (+ variance).
 
         No padding, no mask: T is the true total participant count. Each
         participant is augmented with its batch element's item metadata,
         embedded by the shared q_tau, then averaged within its segment.
+        precision_pool also appends the per-item pooled VARIANCE, giving
+        the head the pooled mean AND its uncertainty.
         """
         meta_t = meta[seg]                                   # (T, J, M)
-        feats = jnp.concatenate([flat, meta_t], axis=-1)     # (T, J, R+M)
+        parts = [flat, meta_t]
+        if self.perpart_map:                                 # per-participant effect proxy
+            yb = flat[..., 0:1]; ye = flat[..., 1:2]         # baseline, endline in [0,1]
+            sgn = 2.0 * meta_t[..., 1:2] - 1.0               # +1 higher-better, -1 lower
+            d = sgn * (ye - yb)                              # dir-aware per-part change
+            rr = sgn * (ye - yb) / (yb + 0.1)                # dir-aware per-part rel. effect
+            parts += [d, rr]                                 # mean pools -> effect statistic
+        feats = jnp.concatenate(parts, axis=-1)              # (T, J, R+M[+2])
         e = self.q_tau(feats)                                # (T, J, E)
-        summ = jax.ops.segment_sum(e, seg, num_segments=B)   # (B, J, E)
         cnt = jax.ops.segment_sum(
-            jnp.ones((flat.shape[0], 1, 1), e.dtype), seg, num_segments=B,
-        )                                                    # (B, 1, 1)
-        return summ / jnp.maximum(cnt, 1.0)
+            jnp.ones((flat.shape[0], 1, 1), e.dtype), seg, num_segments=B)
+        cnt = jnp.maximum(cnt, 1.0)                          # (B, 1, 1)
+        mean = jax.ops.segment_sum(e, seg, num_segments=B) / cnt
+        if self.precision_pool:
+            sq = jax.ops.segment_sum(e ** 2, seg, num_segments=B) / cnt
+            var = jnp.maximum(sq - mean ** 2, 0.0)           # (B, J, E)
+            return jnp.concatenate([mean, var], axis=-1)     # (B, J, 2E)
+        return mean
+
+    def _raw_mean(self, flat, seg, B):
+        """Segment mean of the RAW responses (no embedding): (B, J, R)."""
+        cnt = jax.ops.segment_sum(
+            jnp.ones((flat.shape[0], 1, 1), flat.dtype), seg, num_segments=B)
+        cnt = jnp.maximum(cnt, 1.0)
+        return jax.ops.segment_sum(flat, seg, num_segments=B) / cnt
 
     def __call__(self, batch):
         meta = batch['item_metadata']                        # (B, J, M)
         B, J = meta.shape[0], meta.shape[1]
         pool_x = self._segment_mean_pool(batch['x_flat'], batch['x_seg'], meta, B)
         pool_z = self._segment_mean_pool(batch['z_flat'], batch['z_seg'], meta, B)
-        tok = jnp.concatenate([pool_x, pool_z], axis=-1)     # (B, J, 2E)
+        parts_tok = [pool_x, pool_z]
+        if self.z_contrast:                                  # explicit z-vs-x contrast
+            parts_tok += [pool_z - pool_x, pool_z * pool_x]
+        if self.raw_pool:                                    # explicit plug-in ratio channel
+            rx = self._raw_mean(batch['x_flat'], batch['x_seg'], B)   # (B,J,2)=(wb,we)
+            rz = self._raw_mean(batch['z_flat'], batch['z_seg'], B)
+            ratio_x = rx[..., 1:2] / (rx[..., 0:1] + 0.1)    # we/wb, x-cohort
+            ratio_z = rz[..., 1:2] / (rz[..., 0:1] + 0.1)
+            parts_tok += [rx, rz, ratio_x, ratio_z, ratio_z - ratio_x]
+        tok = jnp.concatenate(parts_tok, axis=-1)            # (B, J, 2E) or wider
         h = self.q_tok(tok)                                  # (B, J, E)
 
         qidx = batch['query_idx'].astype(jnp.int32)          # (B, Q)
@@ -104,9 +166,43 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
 
         parts = [attn_out, h_query]
         aux = batch.get('aux', None)
-        if aux is not None:
-            parts.append(jnp.broadcast_to(aux[:, None, :], (B, Q, aux.shape[-1])))
-        head_in = jnp.concatenate(parts, axis=-1)            # (B, Q, E+E+A)
+        aux_b = (jnp.broadcast_to(aux[:, None, :], (B, Q, aux.shape[-1]))
+                 if aux is not None else None)
+        if aux_b is not None:
+            parts.append(aux_b)
+        if self.head_raw:                                    # inject raw (wb,we,ratio) AT THE HEAD
+            rx = self._raw_mean(batch['x_flat'], batch['x_seg'], B)   # (B,J,2)
+            rz = self._raw_mean(batch['z_flat'], batch['z_seg'], B)
+            ratx = rx[..., 1:2] / (rx[..., 0:1] + 0.1)
+            ratz = rz[..., 1:2] / (rz[..., 0:1] + 0.1)
+            rawf = jnp.concatenate([rx, rz, ratx, ratz, ratz - ratx], axis=-1)  # (B,J,7)
+            gidx = jnp.broadcast_to(qidx[:, :, None], (B, Q, rawf.shape[-1]))
+            parts.append(jnp.take_along_axis(rawf, gidx, axis=1))              # (B,Q,7)
+        head_in = jnp.concatenate(parts, axis=-1)            # (B, Q, E+E+A[+7])
         # expose for head-only recalibration (§14.2.5)
         self.sow('intermediates', 'head_in', head_in)
-        return self.q_psi(head_in)                           # (B, Q, num_quantiles)
+        raw = self.q_psi(head_in)                            # (B, Q, num_quantiles)
+
+        if self.head_mode == 'plain':
+            return raw
+        # precision feature = 1/sqrt(n) (aux[...,0]); requires aux present
+        prec = aux_b[..., 0:1]                               # (B, Q, 1) = n^{-1/2}
+        zq = jnp.asarray([-1.6449, -0.6745, 0.0, 0.6745, 1.6449])[:self.num_quantiles]
+        zq = zq[None, None, :]
+        if self.head_mode == 'factored':
+            # median from q_psi; offsets scaled by a learned g(1/sqrt n).
+            med = raw[..., self.num_quantiles // 2:self.num_quantiles // 2 + 1]
+            g = jax.nn.softplus(self.g_head(aux_b))          # (B, Q, 1) > 0
+            return med + (raw - med) * g
+        if self.head_mode == 'semiparam':                    # width ~ 1/sqrt(n)
+            m = raw[..., 0:1]; s = jax.nn.softplus(raw[..., 1:2])
+            return m + zq * s * prec
+        if self.head_mode == 'powerlaw':                     # width = C * n^{-p}, learn C,p per item
+            m = raw[..., 0:1]; C = jax.nn.softplus(raw[..., 1:2])
+            p = jax.nn.sigmoid(raw[..., 2:3])                # p in (0,1)
+            self.sow('intermediates', 'p_exp', p)            # for the toward-1/2 regulariser
+            return m + zq * (C * prec ** (2.0 * p))          # prec^{2p} = n^{-p}
+        if self.head_mode == 'floor':                        # width = sqrt(a^2 + b^2/n), no exponent
+            m = raw[..., 0:1]; a = jax.nn.softplus(raw[..., 1:2]); b = jax.nn.softplus(raw[..., 2:3])
+            return m + zq * jnp.sqrt(a ** 2 + (b * prec) ** 2)
+        return raw
