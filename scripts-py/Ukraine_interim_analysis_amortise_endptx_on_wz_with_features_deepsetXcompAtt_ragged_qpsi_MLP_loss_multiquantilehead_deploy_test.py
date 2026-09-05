@@ -36,7 +36,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 # monthly RGE dir for the 8-interim diagnostics that match the Xcomp/Scomp PDFs.
 WK = os.environ.get('RAGD_RGE', f"{SB}/py-ukraine-interim-weekly-svi-260811")
 BASE = os.environ.get('RAGD_BASE',
-    f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-ragged-qpsi-MLP-loss-multiquantilehead-260812")
+    f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-net-260812")
 file_prefix = "pcm_1_interim"
 ANCHOR = int(os.environ.get('RAGD_ANCHOR', 4))   # interim used for i1-only head-ft
 MAKE_PDFS = os.environ.get('RAGD_PDFS', '0') == '1'
@@ -44,7 +44,7 @@ OUT = os.environ.get('RAGD_OUT', BASE)           # write outputs here (BASE load
 HEADFT = os.environ.get('RAGD_HEADFT', 'i1')     # i1 | expand (as §14.4.8)
 os.makedirs(OUT, exist_ok=True)
 SUF = os.environ.get('RAGD_SUF', 'RAGD')
-N_REF, CLIP = 503, 20.0
+N_REF = int(os.environ.get('RAGD_NREF', 503)); CLIP = 20.0   # trial total N (per application)
 S = int(os.environ.get('RAG_S', 200))
 TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32)
 CACHE = f"/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad/ragged_deploy_cells_{os.environ.get('RAGD_CTAG', 'focused')}"
@@ -65,6 +65,14 @@ META = np.stack([itype, ihigh], -1).astype(np.float32)
 fit = load_fitted_model(f"{BASE}/{file_prefix}_amortised_pps_net.pkl")
 sig = np.load(f"{BASE}/{file_prefix}_item_std.npy").astype(np.float32)
 net = Net(**dict(fit['net_kwargs']))             # respect head_mode / precision_pool
+_mdf = f"{BASE}/{file_prefix}_meta_dim.npy"       # §14.4.9 item-amortised-family net
+if os.path.exists(_mdf) or sig.size != J:
+    _KM = 10; _Md = int(np.load(_mdf)[0]) if os.path.exists(_mdf) else 3
+    sig = np.full(J, float(np.reshape(sig, -1)[0]), np.float32)   # scalar global sigma -> per-item
+    _c = np.where(itype > .5, 2., 0.)             # caseness threshold: 2 categorical, 0 out-of-7
+    _cols = [itype, ihigh, kmax / _KM, _c / _KM]  # canonical metadata order (type,dir,K/Kmax,c/Kmax)
+    META = np.stack(_cols[:_Md], -1).astype(np.float32)
+    print(f"  item-amortised net: global sigma={sig[0]:.3f}, META M={_Md}")
 
 
 def _pivot_pids(df, col, pids):
@@ -481,6 +489,33 @@ for k in INTERIMS:
 pd.DataFrame(_ppsrows).to_csv(f"{OUT}/{file_prefix}_pps_RAGD_pps_by_item.csv", index=False)
 print(f"  wrote PPS by item ({len(INTERIMS)} interims x {J} items), eta0={ETA0} etaH={ETAH} -> {HLABEL}")
 
+# --- p(H1|x,z) boxplot pkl (for cross-method comparison, §14.5): per (interim,item),
+#     quantiles of p(H1|x,z^s)=P(rho>eta0|x,z^s) over the future draws s. Keyed on
+#     item_label + interim_month_year so the compare script can dodge it beside SVI/HMC/IS. ---
+_MONTHYR = {}
+for k in INTERIMS:
+    try:
+        _dt = pd.to_datetime(pd.read_csv(f"{WK}/{file_prefix}_{k}_data_dp1.csv",
+                                         usecols=['submission_date'])['submission_date'],
+                             errors='coerce', utc=True).max()
+        _MONTHYR[k] = _dt.strftime('%Y-%b') if pd.notna(_dt) else f"interim {k}"
+    except Exception:
+        _MONTHYR[k] = f"interim {k}"
+_boxrows = []
+for k in INTERIMS:
+    for j in range(J):
+        q = PPSSRC[k][:, j, :]
+        ph1 = 1.0 - np.array([np.interp(ETA0, q[s], TAUS, 0.0, 1.0) for s in range(q.shape[0])])
+        ph1 = ph1[np.isfinite(ph1)]
+        if ph1.size < 5:
+            continue
+        qq = np.percentile(ph1, [2.5, 25, 50, 75, 97.5])
+        _boxrows.append(dict(item_label=labels[j], interim_id=k, interim_month_year=_MONTHYR[k],
+                             n=NOBS[k], q025=qq[0], q25=qq[1], q50=qq[2], q75=qq[3], q975=qq[4],
+                             eta0=ETA0, method=HLABEL))
+pd.DataFrame(_boxrows).to_pickle(f"{OUT}/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl")
+print(f"  wrote p(H1|x,z) boxplot pkl ({len(_boxrows)} rows, eta0={ETA0})")
+
 
 def cov_pit(getq, margq=None):
     out = []
@@ -610,6 +645,7 @@ def save_contraction_cdf(getq, suf):
                                  ymin=float(q[0]), lower=float(q[1]), middle=float(q[2]),
                                  upper=float(q[3]), ymax=float(q[4])))
     df = pd.DataFrame(rows)
+    df.to_csv(f"{OUT}/{file_prefix}_pps_{suf}_contraction_cdf_by_item.csv", index=False)  # box data (calibrated marginal)
     df['interim_id'] = pd.Categorical(df.interim_id, categories=sorted(df.interim_id.unique()), ordered=True)
     (ggplot(df, aes('interim_id', ymin='ymin', lower='lower', middle='middle',
                     upper='upper', ymax='ymax', fill='source'))
@@ -795,4 +831,10 @@ if MAKE_PDFS:
         save_pit_box(lambda k: HK[k], SUF)           # CONDITIONAL calibration (PIT-KS) quantile-box
     save_contraction_factor(_mplot, SUF)             # SD-vs-n: empty-z marginal has no MC inflation
     save_contraction_law(_mplot, SUF)
+if os.environ.get('RAGD_ETA0GRID', '0') == '1':      # eta_0 deployment sweep (§14.4.8 toolkit)
+    from amortiser_diag_plots import eta0_sweep
+    _eg = [float(x) for x in os.environ.get('RAGD_ETA0GRID_VALS', '0,0.25,0.5,0.75,1.0').split(',')]
+    eta0_sweep(lambda k: PPSSRC[k], lambda k: TGT[k], lambda k: NOBS[k],
+               labels, INTERIMS, np.asarray(TAUS), OUT, file_prefix, SUF, _eg,
+               etaH=ETAH, date_of=lambda k: _MONTHYR.get(k, k))
 print(f"\n-> {OUT}")

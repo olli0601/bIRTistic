@@ -555,6 +555,11 @@ fine-tune: expanding window and affine shift</a></li>
 <li><a href="#bernsteinvon-mises-best-fit-contraction-law"
 id="toc-bernsteinvon-mises-best-fit-contraction-law">14.4.7
 Bernstein–von Mises best-fit contraction law</a></li>
+<li><a href="#amortising-the-decision-thresholds"
+id="toc-amortising-the-decision-thresholds">14.4.8 Amortising the
+decision thresholds</a></li>
+<li><a href="#amortising-over-items"
+id="toc-amortising-over-items">14.4.9 Amortising over items</a></li>
 <li><a href="#cross-architecture-summary"
 id="toc-cross-architecture-summary">14.5.1 Cross-architecture
 summary</a></li>
@@ -1053,9 +1058,9 @@ across the 10 interims.</p>
 <p><strong>What we compare.</strong></p>
 <table>
 <colgroup>
-<col style="width: 22%" />
-<col style="width: 40%" />
-<col style="width: 37%" />
+<col style="width: 25%" />
+<col style="width: 38%" />
+<col style="width: 36%" />
 </colgroup>
 <thead>
 <tr>
@@ -1196,8 +1201,8 @@ from the fitted item parameters to check that the amortised predictive
 is calibrated against a ground truth we control.</p>
 <table>
 <colgroup>
-<col style="width: 23%" />
-<col style="width: 76%" />
+<col style="width: 25%" />
+<col style="width: 75%" />
 </colgroup>
 <thead>
 <tr>
@@ -1256,8 +1261,8 @@ so the decision of interest is whether the accumulated evidence already
 predicts success — the PPS — at each weekly interim.</p>
 <table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 83%" />
+<col style="width: 23%" />
+<col style="width: 76%" />
 </colgroup>
 <thead>
 <tr>
@@ -1296,13 +1301,20 @@ w_{b,j}-1)\)</span>, direction-aware endpoint effect per item</td>
 </tr>
 <tr>
 <td>Cohort / interims</td>
-<td><span class="math inline">\(N\approx510\)</span> accrued over time;
-<strong>weekly</strong> SVI interims</td>
+<td><span class="math inline">\(N\approx503\)</span>, <span
+class="math inline">\(J=20\)</span> items; the <strong>weekly-29 SVI
+grid</strong> (<span class="math inline">\(n=48\to503\)</span>,
+<code>py-ukraine-interim-weekly-svi-260811</code>) — the reference <span
+class="math inline">\(p(\rho\mid x)\)</span> every amortiser is scored
+against</td>
 </tr>
 <tr>
 <td><strong>Application target</strong></td>
-<td><strong>real-time evaluation</strong> (the deployment case study of
-§14)</td>
+<td><strong>the §14 deployment case study</strong>: the deepset
+amortiser (bespoke PIT–KS <span class="math inline">\(0.069\)</span>;
+item-general J64 <span class="math inline">\(0.119\)</span>, §14.4.9)
+and the cross-method comparison
+(<code>py-ukraine-interim-compare-methods-260526</code>, §14.5)</td>
 </tr>
 <tr>
 <td>Reference</td>
@@ -1323,8 +1335,8 @@ questions, with item-level scores and a critical-approach-to-AI survey
 modest scale.</p>
 <table>
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 81%" />
+<col style="width: 23%" />
+<col style="width: 76%" />
 </colgroup>
 <thead>
 <tr>
@@ -1389,8 +1401,8 @@ the set — well suited to exhibiting posterior contraction with cohort
 size.</p>
 <table>
 <colgroup>
-<col style="width: 23%" />
-<col style="width: 76%" />
+<col style="width: 26%" />
+<col style="width: 73%" />
 </colgroup>
 <thead>
 <tr>
@@ -1434,6 +1446,12 @@ class="math inline">\(N\)</span>; showcases contraction with <span
 class="math inline">\(n\)</span></td>
 </tr>
 <tr>
+<td>Status</td>
+<td><em>planned</em> — the dataset
+(<code>Rivera-Sequeiros_et_al_2025_IBD_PsychosocialDataset.xlsx</code>)
+is on hand; loader/interim grid not yet built</td>
+</tr>
+<tr>
 <td>Data</td>
 <td><span class="citation"
 data-cites="riverasequeiros2026ibd">(Rivera-Sequeiros et al.
@@ -1452,8 +1470,8 @@ set — with no treatment arm, so the estimand is the within-cohort
 endpoint effect.</p>
 <table>
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 82%" />
+<col style="width: 23%" />
+<col style="width: 76%" />
 </colgroup>
 <thead>
 <tr>
@@ -1469,41 +1487,50 @@ migrant youth (6 countries)</td>
 </tr>
 <tr>
 <td>Arms</td>
-<td>none (multi-site practices pilot)</td>
+<td>none (multi-site practices pilot); <strong>paired</strong>
+pre/post</td>
 </tr>
 <tr>
-<td>Timepoints</td>
-<td>baseline and endline (326 linked participants)</td>
-</tr>
-<tr>
-<td>Items</td>
-<td>MSPSS perceived social support (12 items, <span
-class="math inline">\(1\)</span>–<span
-class="math inline">\(7\)</span>), PSSM school belonging (Likert),
-wellbeing — ordinal, PCM-ready</td>
+<td>Items (built)</td>
+<td><strong>MSPSS perceived social support</strong>, its <strong>12
+items grouped into the three subscales</strong> — Family / Friends /
+Significant Other (<span class="math inline">\(1\)</span>–<span
+class="math inline">\(7\)</span>, <code>out-of-7</code> expected-score
+endpoint)</td>
 </tr>
 <tr>
 <td>Effect measure <span class="math inline">\(\rho\)</span></td>
-<td>baseline<span class="math inline">\(\to\)</span>endline endpoint
-effect (e.g. perceived-support gain)</td>
+<td>baseline<span class="math inline">\(\to\)</span>endline
+<strong>perceived-support gain</strong> per item
+(<code>higher_is_better</code>)</td>
 </tr>
 <tr>
 <td>Cohort / interims</td>
-<td><span class="math inline">\(N=994\)</span> baseline / <span
-class="math inline">\(705\)</span> endline; accrual ordered by
-site/date</td>
+<td><strong>324 linked</strong> participants (present at both times);
+<strong>8</strong> participant-count interims (<span
+class="math inline">\(n=40\to324\)</span>)</td>
+</tr>
+<tr>
+<td>Amortiser</td>
+<td>the item-general <strong>J64</strong> net (§14.4.9) deployed as a
+<strong>per-family asset</strong>: <strong>PIT–KS <span
+class="math inline">\(0.126\)</span>, marg–KS <span
+class="math inline">\(0.145\)</span></strong> — the cross-cohort
+generalisation test (calibrates as well as on Ukraine, and beyond <span
+class="math inline">\(N=503\)</span>). SVI-vs-amortiser <span
+class="math inline">\(p(\rho\mid x)\)</span> comparison in
+<code>py-refugee_interim_compare_methods_260902</code> (§14.5)</td>
 </tr>
 <tr>
 <td><strong>Application target</strong></td>
-<td><strong>real-time evaluation</strong> in a humanitarian setting, and
-a cross-cohort <strong>generalisation test</strong> of the deepset
-amortiser (deployable beyond <span
-class="math inline">\(N=503\)</span>)</td>
+<td><strong>real-time humanitarian evaluation</strong> + the deepset
+<strong>generalisation test</strong> across item sets and cohort
+size</td>
 </tr>
 <tr>
 <td>Data</td>
 <td><span class="citation" data-cites="refugeed2024youth">(REFUGE-ED
-Consortium 2024)</span></td>
+Consortium 2024)</span>; Zenodo 10908209</td>
 </tr>
 </tbody>
 </table>
@@ -1514,14 +1541,22 @@ victims of violence, assessed before and after community-level
 mental-health and psychosocial support across armed-conflict settings in
 the Democratic Republic of the Congo, Mali and Nigeria <span
 class="citation" data-cites="andersen2022mhpss">(Andersen et al.
-2022)</span>. Item-level ordinal symptom scales, pre/post, at
-humanitarian scale — but individual-level data is
-<strong>controlled-access</strong>, released on request to the ICRC
-corresponding author rather than openly deposited.</p>
+2022)</span>. The paper reports <strong>validated total scores</strong>
+(DASS-21 subscales, IES-R, an ICRC functioning scale); rather than model
+raw item responses we <strong>keep those totals and bin them into the
+five clinical severity levels</strong> (Normal / Mild / Moderate /
+Severe / Extremely severe) using the paper’s own <strong>Figure-2
+cut-offs</strong>, turning each instrument into one ordinal (<span
+class="math inline">\(K=5\)</span>) endpoint on a clinically grounded
+scale. The <strong>beneficiary-level data (</strong><span
+class="math inline">\(N=6{,}413\)</span>) with a codebook is in the
+published Frontiers/PMC Supplementary Material
+(<code>Data_Sheet_1.xlsx</code>); the fuller ICRC monitoring dataset
+remains request-only.</p>
 <table>
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 81%" />
+<col style="width: 25%" />
+<col style="width: 75%" />
 </colgroup>
 <thead>
 <tr>
@@ -1536,43 +1571,57 @@ corresponding author rather than openly deposited.</p>
 </tr>
 <tr>
 <td>Setting</td>
-<td>ICRC, 32 projects — DR Congo (81%), Nigeria (16%), Mali (3%)</td>
+<td>ICRC, 32 projects — DR Congo (81%), Nigeria (16%), Mali (3%); <span
+class="math inline">\(N=6{,}413\)</span></td>
 </tr>
 <tr>
 <td>Arms</td>
-<td>single cohort (pre/post; no randomised control)</td>
+<td>single cohort (<strong>paired</strong> pre/post; no randomised
+control)</td>
 </tr>
 <tr>
-<td>Timepoints</td>
-<td>baseline and post-support (median <span
-class="math inline">\(\approx\)</span> 30–60 days apart; range <span
-class="math inline">\(&lt;8\)</span> to <span
-class="math inline">\(&gt;150\)</span>)</td>
-</tr>
-<tr>
-<td>Items</td>
-<td>DASS-21 (21 items, ordinal), IES-R, ICRC functioning scale —
-item-level ordinal, PCM-ready</td>
+<td>Items (built)</td>
+<td><strong>DASS-21</strong> Depression / Anxiety / Stress, each
+subscale total binned to <span class="math inline">\(K=5\)</span>
+severity per Figure 2 <span class="math inline">\(\to\)</span> 3 ordinal
+items (<strong>DRC arm</strong>, complete pre&amp;post <span
+class="math inline">\(n=1{,}669\)</span>). IES-R is single-scale in
+<strong>Nigeria</strong> (<span class="math inline">\(n\approx
+986\)</span>, secondary); the <strong>ICRC functioning scale is
+excluded</strong> — its orientation and 0–14 range are not defined in
+the supplement codebook, and its post values overrun the scale</td>
 </tr>
 <tr>
 <td>Effect measure <span class="math inline">\(\rho\)</span></td>
-<td>baseline<span class="math inline">\(\to\)</span>endline endpoint
-effect per item (distress lower-is-better; functioning higher)</td>
+<td>baseline<span class="math inline">\(\to\)</span>endline
+<strong>severity reduction</strong> per subscale (distress higher<span
+class="math inline">\(=\)</span>worse, so
+<code>lower_is_better</code>)</td>
 </tr>
 <tr>
 <td>Cohort / interims</td>
-<td><span class="math inline">\(N=6{,}413\)</span>; accrual ordered by
-assessment date</td>
+<td>DASS/DRC <span class="math inline">\(n=1{,}669\)</span>; interims
+<strong>every 100 accruing beneficiaries</strong> (with a fine early
+grid <span class="math inline">\(20/40/60/80\)</span>)</td>
 </tr>
 <tr>
-<td>Data access</td>
-<td><strong>controlled-access</strong> — request to corresponding
-author, <code>iandersen@icrc.org</code></td>
+<td>Amortiser</td>
+<td>the item-general <strong>J64</strong> net (§14.4.9) deployed on the
+DASS/DRC grid: <strong>PIT–KS</strong> <span
+class="math inline">\(0.118\)</span>, marg–KS <span
+class="math inline">\(0.116\)</span> — as well-calibrated here as on
+Ukraine/REFUGE</td>
+</tr>
+<tr>
+<td>Data</td>
+<td>beneficiary-level <code>Data_Sheet_1.xlsx</code> +
+<code>Coding</code> codebook (Frontiers/PMC supplement, via Wayback);
+fuller data on request to <code>iandersen@icrc.org</code></td>
 </tr>
 <tr>
 <td><strong>Application target</strong></td>
-<td><strong>real-time humanitarian evaluation</strong> at scale (subject
-to data access)</td>
+<td><strong>real-time humanitarian interim evaluation</strong> at
+scale</td>
 </tr>
 <tr>
 <td>Reference</td>
@@ -1581,19 +1630,43 @@ al. 2022)</span></td>
 </tr>
 </tbody>
 </table>
+<p><strong>Notes.</strong> (i) <em>Very large effect.</em> Community
+MHPSS produces enormous pre<span class="math inline">\(\to\)</span>post
+severity drops (<span class="math inline">\(\rho\approx
+0.80\)</span>–<span class="math inline">\(0.95\)</span> severity
+reduction; matching the paper’s <span
+class="math inline">\(96.6\%\)</span> improved on DASS-21), so the PPS
+is essentially <span class="math inline">\(1\)</span> from the first
+interim and only becomes <em>discriminating</em> at a high threshold
+<span class="math inline">\(\eta_0\approx 85\%\)</span> — the
+operational lesson is that the interim rule must be set on that scale.
+(ii) <em>Data checks.</em> The supplement was verified against the paper
+before use — IES-R improvement <span
+class="math inline">\(92.70\%\)</span> (exact), and country / gender /
+mean-age match Table 1 — confirming the columns are correctly
+identified. (iii) <em>Scale</em><span
+class="math inline">\(\times\)</span>country split (IES-R in Nigeria,
+DASS-21 in DRC/Mali) mirrors the study design. Fits in
+<code>py-icrc-dass-drc_260902</code>, amortiser deploy in
+<code>…-icrc-dass-drc-…-J64-scale-feat-ftheadexpand_260903</code>;
+producer <code>scripts-py/ICRC_interim_svi.py</code>, loader/extract in
+<code>python/data_web_extracting.py</code>.</p>
 <h2 id="application-pisa-international-assessment">3.11 Application:
 PISA international assessment</h2>
 <p>The OECD Programme for International Student Assessment, a triennial
 cross-national assessment whose constructed-response cognitive items are
 scored with <strong>partial credit</strong> and calibrated with the
 generalized partial credit model — the PCM’s own family <span
-class="citation" data-cites="oecd2022pisa">(OECD 2023)</span>. No
-intervention or repeat measurement, but the largest open, genuinely
-polytomous item bank available.</p>
+class="citation" data-cites="oecd2022pisa">(OECD 2023)</span>. No trial,
+but by treating <strong>each subsequent cycle as an interim evaluation
+point</strong> the achievement trend becomes a <strong>baseline-anchored
+interim analysis</strong>: baseline = 2012, and 2015 / 2018 / 2022 are
+the interims, with <span class="math inline">\(\rho\)</span> the change
+from the 2012 baseline.</p>
 <table>
 <colgroup>
-<col style="width: 19%" />
-<col style="width: 80%" />
+<col style="width: 25%" />
+<col style="width: 75%" />
 </colgroup>
 <thead>
 <tr>
@@ -1604,40 +1677,80 @@ polytomous item bank available.</p>
 <tbody>
 <tr>
 <td>Setting</td>
-<td>OECD PISA, <span class="math inline">\(\approx\)</span> 80
-countries, <span class="math inline">\(\approx\)</span> 600,000 students
-per cycle (triennial)</td>
+<td>OECD PISA Mathematics, the <strong>54 countries present in all four
+cycles</strong> 2012–2022; <span class="math inline">\(\approx\)</span>
+2{,}000 students per cycle per country</td>
 </tr>
 <tr>
 <td>Design</td>
-<td>cross-sectional per cycle; no arms, no baseline/endline</td>
+<td>cross-sectional per cycle (<strong>unpaired</strong> cohorts,
+different students each cycle); baseline-anchored across cycles</td>
 </tr>
 <tr>
 <td>Items</td>
-<td>cognitive constructed-response items scored 0–1 / 0–2 (partial
-credit, GPCM) + Likert questionnaire items</td>
+<td><strong>dichotomous</strong> Math cognitive items (<span
+class="math inline">\(K=2\)</span>); <strong>79 common trend
+items</strong> matched across cycles by <strong>content id</strong>
+(<span
+class="math inline">\(\texttt{PM033Q01}\equiv\texttt{CM033Q01}\equiv\texttt{M033Q01}\)</span>,
+stripping the paper/computer mode prefix)</td>
 </tr>
 <tr>
 <td>Effect measure <span class="math inline">\(\rho\)</span></td>
-<td>not a pre/post effect; country / group / cycle contrasts if a
-comparison is wanted</td>
+<td><span class="math inline">\(\rho_j=\)</span> 2012<span
+class="math inline">\(\to\)</span>cycle expected-score change per item,
+from a PCM with a <strong>cycle covariate</strong> — shared (anchored)
+item difficulties, cohort ability shift = the PISA trend model</td>
 </tr>
 <tr>
 <td>Interims</td>
-<td>not applicable (accrual = students)</td>
+<td>the subsequent cycles <strong>2015, 2018, 2022</strong> (per
+country); <strong>156</strong> SVI fits over 54 countries <span
+class="math inline">\(\times\)</span> $$3 cycles (a few dropped for
+mode-switch / thin item overlap)</td>
 </tr>
 <tr>
 <td><strong>Application target</strong></td>
-<td><strong>validate the PCM amortiser</strong> on a real, purpose-built
-partial-credit item bank at scale</td>
+<td>cross-cycle achievement <strong>trend as an interim
+analysis</strong>; per-country SVI <span
+class="math inline">\(\rho\)</span> trajectories, validated against the
+raw per-item change (<strong>corr</strong> <span
+class="math inline">\(0.90\)</span>, <span
+class="math inline">\(94\%&gt;0.8\)</span>)</td>
 </tr>
 <tr>
 <td>Data</td>
-<td>public microdata, <span class="citation"
-data-cites="oecd2022pisa">(OECD 2023)</span></td>
+<td>public OECD microdata: 2015/18/22 student cognitive
+<code>.sav</code> (webfs.oecd.org), 2012 scored-cognitive fixed-width
+TXT + SPSS control via the Wayback mirror; download + content-id extract
+in <code>python/data_web_extracting.py</code>, loader
+<code>read_data_pisa</code></td>
 </tr>
 </tbody>
 </table>
+<p><strong>Notes.</strong> (i) <em>Anchoring.</em> Unpaired cohorts are
+linked into one ability scale by sharing item difficulties across cycles
+(the <code>~ time - 1</code> cycle covariate); without this the cycles
+float independently and the trend is unidentified. (ii) <em>Dichotomous
+only.</em> Mixing <span class="math inline">\(K=2\)</span> and <span
+class="math inline">\(K=3\)</span> items under one item type forces
+<span class="math inline">\(K=3\)</span> on all, giving the binary items
+a phantom threshold that mean-field SVI collapses — so partial-credit
+items are dropped here. (iii) <em>Mode confound.</em> 2012 was paper,
+2015+ computer, so the 2012$<span class="math inline">\(2015 step
+carries a paper\)</span><span class="math inline">\(computer mode effect
+on top of the real trend (the OECD applies a mode adjustment we do not);
+the *shape* of the 2015\)</span><span
+class="math inline">\(2018\)</span>$2022 trajectory is the cleaner
+signal — e.g. United States Math falls <span
+class="math inline">\(-0.04/-0.04/-0.10\)</span> (2015/18/22 vs 2012),
+steepest at the 2022 (COVID) cycle. (iv) <em>Amortiser deferred.</em>
+The §14 amortiser’s core statistic is a <strong>per-participant</strong>
+baseline<span class="math inline">\(\to\)</span>endline change; PISA is
+unpaired, so the marginal-<span class="math inline">\(p(\rho\mid
+x)\)</span> validation against SVI awaits a between-cohort variant of
+the network (§14). Fits in <code>py-pisa-math_260904</code>; producer
+<code>scripts-py/PISA_interim_svi.py</code>.</p>
 <h2 id="application-product-launch-rating-experiments">3.12 Application:
 product-launch rating experiments</h2>
 <p>The setting of interest is not the public review corpus at scale but
@@ -1663,8 +1776,8 @@ et al. 2019)</span> provides the same rating structure at scale for
 validation.</p>
 <table>
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 81%" />
+<col style="width: 23%" />
+<col style="width: 76%" />
 </colgroup>
 <thead>
 <tr>
@@ -1728,8 +1841,8 @@ class="math inline">\(\times\)</span> item) benchmark, smaller and
 tidier than the Amazon corpus.</p>
 <table>
 <colgroup>
-<col style="width: 22%" />
-<col style="width: 77%" />
+<col style="width: 25%" />
+<col style="width: 75%" />
 </colgroup>
 <thead>
 <tr>
@@ -1779,11 +1892,14 @@ the launch-decision setting of §3.12 with an explicit experimental
 design <span class="citation" data-cites="fischer2024mycelium">(Fischer
 and Hilboesen 2024)</span>. A UK Prolific panel rates the product under
 a <span class="math inline">\(3\times3\)</span> manipulation, on
-item-level ordinal scales.</p>
+item-level ordinal scales. Built as a <strong>between-arm</strong>
+analysis (<strong>Option A</strong>): <strong>product powder vs burger,
+pooling all three substrates</strong>, treating the burger arm as the
+baseline and the powder arm as the endline.</p>
 <table>
 <colgroup>
-<col style="width: 18%" />
-<col style="width: 81%" />
+<col style="width: 23%" />
+<col style="width: 76%" />
 </colgroup>
 <thead>
 <tr>
@@ -1799,46 +1915,54 @@ source</td>
 </tr>
 <tr>
 <td>Setting</td>
-<td>UK Prolific panel, <span class="math inline">\(N=449\)</span></td>
+<td>UK Prolific panel, <span class="math inline">\(N=449\)</span> (<span
+class="math inline">\(3\times3\)</span>: processing <span
+class="math inline">\(\times\)</span> substrate)</td>
 </tr>
 <tr>
-<td>Arms</td>
-<td><span class="math inline">\(3\times3\)</span> factorial — processing
-(unprocessed / protein powder / burger) <span
-class="math inline">\(\times\)</span> substrate (manure / wood log /
-glucose syrup)</td>
+<td>Arms (built)</td>
+<td><strong>powder vs burger</strong>, substrates pooled —
+<strong>unpaired</strong> between-arm (<span
+class="math inline">\(n=149+149=298\)</span>; Baseline<span
+class="math inline">\(=\)</span>burger, Endline<span
+class="math inline">\(=\)</span>powder)</td>
 </tr>
 <tr>
-<td>Timepoints</td>
-<td>single survey (cross-sectional; no pre/post)</td>
-</tr>
-<tr>
-<td>Items</td>
-<td>36 ordinal <span class="math inline">\(1\)</span>–<span
-class="math inline">\(7\)</span> Likert items — intention, attitude,
-social norms, disgust, health/environmental benefit (<span
-class="math inline">\(K=7\)</span>)</td>
+<td>Items (built)</td>
+<td><strong>9</strong> items, <span
+class="math inline">\(1\)</span>–<span class="math inline">\(7\)</span>
+(<span class="math inline">\(K=7\)</span>): <strong>Acceptance</strong>
+(A1–A4), <strong>Disgust</strong> (D1–D4), <strong>Perceived
+naturalness</strong> (PN)</td>
 </tr>
 <tr>
 <td>Effect measure <span class="math inline">\(\rho\)</span></td>
-<td>between-condition contrast (processing / substrate effect on
-acceptance)</td>
+<td>between-arm powder-vs-burger contrast per item — Acceptance <span
+class="math inline">\(+0.08\)</span>–<span
+class="math inline">\(0.15\)</span>, Disgust (severity down) <span
+class="math inline">\(+0.13\)</span>–<span
+class="math inline">\(0.27\)</span>, Naturalness <span
+class="math inline">\(+0.11\)</span>: powder beats burger on every
+construct</td>
 </tr>
 <tr>
 <td>Cohort / interims</td>
-<td><span class="math inline">\(N=449\)</span>; accrual order for
-interims</td>
+<td><span class="math inline">\(n=298\)</span>; <strong>8</strong>
+participant-accrual interims (shuffled to mix arms)</td>
 </tr>
 <tr>
 <td><strong>Application target</strong></td>
-<td><strong>real-time launch/acceptance evaluation</strong> of a novel
-product, with a genuine condition contrast</td>
+<td><strong>real-time launch/acceptance evaluation</strong> with a
+genuine condition contrast. <em>Amortiser deferred</em> — like PISA the
+design is <strong>unpaired between-arm</strong>, so the §14
+(per-participant) amortiser awaits a between-cohort variant; SVI fits
+done in <code>py-mycelium-powdervsburger_260902</code></td>
 </tr>
 <tr>
 <td>Data</td>
 <td>open, <span class="citation"
-data-cites="fischer2024mycelium">(Fischer and Hilboesen
-2024)</span></td>
+data-cites="fischer2024mycelium">(Fischer and Hilboesen 2024)</span>;
+OSF <code>e3gxa</code> / Zenodo 10628634</td>
 </tr>
 </tbody>
 </table>
@@ -2987,13 +3111,13 @@ class="math inline">\((p_s)\)</span> per posterior draw. This uses the
 reflects estimator quality rather than divergent
 <code>z</code>-samplers. MSE against the closed-form Beta-Binomial PPS
 across the 11 monthly interims:</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 30%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 24%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
 </colgroup>
 <thead>
 <tr>
@@ -3126,11 +3250,11 @@ same deployment cohort. Selectable at run time via the
 script:</p>
 <table>
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 36%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 18%" />
+<col style="width: 27%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
 </colgroup>
 <thead>
 <tr>
@@ -3250,11 +3374,11 @@ deployment script.</p>
 <p><strong>Combined table (fixed + MLP, sorted by MSE):</strong></p>
 <table>
 <colgroup>
-<col style="width: 34%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 27%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
 </colgroup>
 <thead>
 <tr>
@@ -3472,11 +3596,11 @@ keeps CPU and MPS checkpoints separate so both remain reproducible.</p>
 config).</strong></p>
 <table>
 <colgroup>
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 22%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
 </colgroup>
 <thead>
 <tr>
@@ -3621,14 +3745,14 @@ class="math inline">\(\sqrt{\text{MSE}}\)</span> across all <span
 class="math inline">\(J\)</span> components at each of the 7 interims
 per <span class="math inline">\(J\)</span> grid cell (deployment <span
 class="math inline">\(S = 4000\)</span>):</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 21%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -3761,14 +3885,14 @@ class="math inline">\(S = 500\)</span>; the MLP forward pass on
 class="math inline">\(S\)</span> from RGEA’s <span
 class="math inline">\(4000\)</span> to <span
 class="math inline">\(500\)</span> to cap wall-clock):</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 15%" />
-<col style="width: 22%" />
-<col style="width: 15%" />
 <col style="width: 16%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -3863,13 +3987,13 @@ against the closed-form <span class="math inline">\(\Phi\)</span>-tail
 PPS <code>pps_cf</code> from <code>mvn_pps_closed_form.pkl</code>.
 Aggregate mean MSE per method per <span class="math inline">\(J\)</span>
 (averaged over the 7 interims):</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 39%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
-<col style="width: 15%" />
+<col style="width: 29%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
+<col style="width: 17%" />
 </colgroup>
 <thead>
 <tr>
@@ -4242,11 +4366,11 @@ interims per <span class="math inline">\(J\)</span> (block-equicorr
 deployment K; K-mixture training):</p>
 <table>
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 21%" />
-<col style="width: 24%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
 </colgroup>
 <thead>
 <tr>
@@ -4514,9 +4638,9 @@ the ONLY new learnable parameter compared to the cross-attn variant with
 s)\)</span> superscript above; the table below drops it for brevity.</p>
 <table>
 <colgroup>
-<col style="width: 22%" />
-<col style="width: 43%" />
-<col style="width: 34%" />
+<col style="width: 25%" />
+<col style="width: 41%" />
+<col style="width: 33%" />
 </colgroup>
 <thead>
 <tr>
@@ -4573,12 +4697,12 @@ information through it</td>
 <h3 id="empirical-impact-on-mvn-15k-steps-k-mixture-training">Empirical
 impact on MVN (15k steps, K-mixture training)</h3>
 <p>MSE against analytic PPS, averaged over the 7-interim schedule:</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 19%" />
-<col style="width: 20%" />
-<col style="width: 30%" />
-<col style="width: 30%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+<col style="width: 27%" />
+<col style="width: 27%" />
 </colgroup>
 <thead>
 <tr>
@@ -4672,9 +4796,9 @@ raw per-(participant, item) responses</strong>, chaining nested DeepSets
 <span class="math inline">\(R\)</span>):</p>
 <table>
 <colgroup>
-<col style="width: 20%" />
-<col style="width: 20%" />
-<col style="width: 58%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+<col style="width: 54%" />
 </colgroup>
 <thead>
 <tr>
@@ -4779,12 +4903,12 @@ random K per prior draw (K-family-invariant training, families
 class="math inline">\(J = 20\)</span>; both deepset variants trained 8k
 steps (~71 min each on CPU) with mean-pool over participants (see
 “Mean-pool vs sum-pool” below):</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 17%" />
-<col style="width: 46%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 39%" />
 </colgroup>
 <thead>
 <tr>
@@ -4932,7 +5056,7 @@ class="math inline">\(\theta\)</span>-level target functional (endpoint
 over a large reference ability population), decoupled cohort sizes <span
 class="math inline">\((n,m)\)</span>, and the interval-score loss —
 §14.4.3. Net directory
-<code>…-deepsetXcompAtt-ragged-priorproposal-{260812 (plain), A-powerlaw, C-floor}</code>.</li>
+<code>…-deepsetXcompAtt-ragged-priorproposal-{260812 (plain), powerlaw, floor}</code>.</li>
 <li><strong>Deployment calibration.</strong> Expanding-window head-only
 fine-tune of the quantile head on the SVI of interims <span
 class="math inline">\(1..k\)</span> (§14.4.6), followed by the per-item
@@ -4950,7 +5074,7 @@ method, §14.4.7), realised as the power-law head <strong>A</strong>
 (<span class="math inline">\(m+z_\tau C\,n^{-p}\)</span>) and the floor
 head <strong>C</strong> (<span
 class="math inline">\(\sqrt{a^2+b^2/n}\)</span>) — §14.4.7, directories
-<code>…-A-powerlaw</code>, <code>…-C-floor</code>.</li>
+<code>…-powerlaw</code>, <code>…-floor</code>.</li>
 <li><strong>BvM self-consistency correction.</strong> A post-hoc
 correction of the deployed quantiles (§14.4.7): with the law of total
 variance <span
@@ -4965,8 +5089,8 @@ shrinking the median spread by <span
 class="math inline">\(\beta=\sqrt{B^\ast/B}\)</span> makes the mixture
 variance equal the target exactly and removes the finite-<span
 class="math inline">\(m\)</span> contraction upturn. Directories
-<code>…-A-powerlaw_ftheadexpand_bvm</code>,
-<code>…-C-floor_ftheadexpand_bvm</code>.</li>
+<code>…-powerlaw-ftheadexpand-bvm-260828</code>,
+<code>…-floor-ftheadexpand-bvm-260828</code>.</li>
 </ol>
 <p><strong>Result (weekly grid,
 <code>py-ukraine-interim-weekly-svi-260811</code>, 29 interims;
@@ -4977,10 +5101,10 @@ class="math inline">\(n\)</span> tail, and makes the amortiser’s
 contraction curve track SVI’s (§14.4.7):</p>
 <table>
 <colgroup>
-<col style="width: 42%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
-<col style="width: 19%" />
+<col style="width: 37%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
 </colgroup>
 <thead>
 <tr>
@@ -4995,21 +5119,21 @@ class="math inline">\(n\ge450\)</span>)</th>
 <tbody>
 <tr>
 <td>plain <span class="math inline">\(+\)</span> affine
-(<code>…-260812_ftheadexpand</code>)</td>
+(<code>…-plain-ftheadexpand-260822</code>)</td>
 <td style="text-align: right;"><strong>0.069</strong></td>
 <td style="text-align: right;"><strong>0.157</strong></td>
 <td style="text-align: right;">0.181</td>
 </tr>
 <tr>
 <td><strong>A power-law</strong> <span class="math inline">\(+\)</span>
-BvM (<code>…-A-powerlaw_ftheadexpand_bvm</code>)</td>
+BvM (<code>…-powerlaw-ftheadexpand-bvm-260828</code>)</td>
 <td style="text-align: right;">0.112</td>
 <td style="text-align: right;">0.177</td>
 <td style="text-align: right;">0.180</td>
 </tr>
 <tr>
 <td><strong>C floor</strong> <span class="math inline">\(+\)</span> BvM
-(<code>…-C-floor_ftheadexpand_bvm</code>)</td>
+(<code>…-floor-ftheadexpand-bvm-260828</code>)</td>
 <td style="text-align: right;">0.115</td>
 <td style="text-align: right;">0.166</td>
 <td style="text-align: right;"><strong>0.170</strong></td>
@@ -5068,9 +5192,9 @@ that the per-item pooling over participants is hand-computed
 variant (§13.7, results §14.4).</p>
 <table>
 <colgroup>
-<col style="width: 13%" />
-<col style="width: 13%" />
-<col style="width: 72%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 63%" />
 </colgroup>
 <thead>
 <tr>
@@ -5146,9 +5270,9 @@ class="math inline">\(N = 503\)</span></td>
 <p>What is reused, what is trained, what is adapted:</p>
 <table>
 <colgroup>
-<col style="width: 20%" />
-<col style="width: 20%" />
-<col style="width: 58%" />
+<col style="width: 22%" />
+<col style="width: 22%" />
+<col style="width: 54%" />
 </colgroup>
 <thead>
 <tr>
@@ -5655,14 +5779,14 @@ href="../scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features
 <code>..._tests_coverage.csv/.pdf</code> (empirical-vs-nominal coverage
 curves, diagonal = calibrated) and <code>..._tests_pit.pdf</code> +
 <code>..._tests_pit_ks.csv</code> (PIT histograms + KS). Result:</p>
-<table style="width:100%;">
+<table>
 <colgroup>
-<col style="width: 51%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
-<col style="width: 9%" />
+<col style="width: 37%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
+<col style="width: 12%" />
 </colgroup>
 <thead>
 <tr>
@@ -5852,11 +5976,11 @@ Gaussian-approximation regression (RGE) and multi-quantile regression
 (item, interim) cells:</p>
 <table>
 <colgroup>
-<col style="width: 36%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 16%" />
+<col style="width: 27%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
+<col style="width: 18%" />
 </colgroup>
 <thead>
 <tr>
@@ -5979,12 +6103,12 @@ overlays) into its own <code>…_260808</code>/<code>_260809</code>
 sandbox dir.</p>
 <table>
 <colgroup>
-<col style="width: 29%" />
-<col style="width: 14%" />
-<col style="width: 14%" />
-<col style="width: 14%" />
-<col style="width: 14%" />
-<col style="width: 14%" />
+<col style="width: 20%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
+<col style="width: 16%" />
 </colgroup>
 <thead>
 <tr>
@@ -6131,7 +6255,7 @@ expanding window supplies enough data). It <strong>matches the full-net
 upper bound (§14.2.3) while keeping the encoders universal</strong>, and
 uses only SVI already computed at interims <span
 class="math inline">\(\le k\)</span>. Recommended operating point. Dir
-<code>…_ftheadexpand_260809</code>.</p>
+<code>…-ftheadexpand-260809</code>.</p>
 <h3 id="post-hoc-conformal-recalibration-partial">14.2.6 Post-hoc
 conformal recalibration (partial)</h3>
 <p>No fine-tuning: fit a per-item monotone PIT map <span
@@ -6295,8 +6419,8 @@ prior-trained self-attention net gives the identical picture as
 intervals.</p>
 <table>
 <colgroup>
-<col style="width: 32%" />
-<col style="width: 20%" />
+<col style="width: 30%" />
+<col style="width: 23%" />
 <col style="width: 23%" />
 <col style="width: 23%" />
 </colgroup>
@@ -6395,7 +6519,7 @@ self-attention bias <span class="math inline">\(\alpha\)</span>):</p>
 </table>
 <p>Same outcome as <code>itemXcompAtt</code> (§14.2.5): near-nominal
 calibration, correlation preserved (encoders frozen). Diagnostics in
-<code>..._itemScompAtt_..._ftheadexpand_260809/</code>.
+<code>..._itemScompAtt_...-ftheadexpand-260809/</code>.
 <code>itemXcompAtt</code> remains the default — the two variants are
 within noise on this <span class="math inline">\(J = 20\)</span> case
 and share the same remedy.</p>
@@ -6487,12 +6611,12 @@ cohort axis (x vs z) and the time axis (<span class="math inline">\(R =
 2\)</span> response features, baseline + endline) are kept apart as
 separate tensor axes rather than as separate token slots.</p>
 <p>Symbol deltas from the §14.1.1 table:</p>
-<table>
+<table style="width:100%;">
 <colgroup>
-<col style="width: 16%" />
-<col style="width: 16%" />
-<col style="width: 32%" />
-<col style="width: 34%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 28%" />
+<col style="width: 30%" />
 </colgroup>
 <thead>
 <tr>
@@ -6554,9 +6678,9 @@ embeddings, not a hand statistic</td>
 <p>Reused / trained / adapted (cf. §14.1.1):</p>
 <table>
 <colgroup>
-<col style="width: 30%" />
-<col style="width: 21%" />
-<col style="width: 47%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+<col style="width: 58%" />
 </colgroup>
 <thead>
 <tr>
@@ -6584,9 +6708,11 @@ q_{\text{query}}, q_\psi\)</span>)</td>
 </tr>
 <tr>
 <td>aux <span class="math inline">\(a\)</span></td>
-<td><strong>same as §14.1</strong></td>
-<td><span class="math inline">\((n/N, m/N)\)</span>, <span
-class="math inline">\(N = 503\)</span></td>
+<td><strong>extended</strong></td>
+<td><span class="math inline">\((1/\sqrt n, 1/\sqrt m, n/N,
+m/N)\)</span>, <span class="math inline">\(N = 503\)</span> —
+absolute-scale precision added so contraction is representable at any
+cohort size (§14.4)</td>
 </tr>
 <tr>
 <td>input scale</td>
@@ -6604,10 +6730,16 @@ r_{j^*}(\theta^{(s)})\)</span>, clipped <span class="math inline">\(\pm
 </tr>
 <tr>
 <td>target scale</td>
-<td><strong>changed</strong></td>
-<td><strong>no</strong> per-item standardisation <span
-class="math inline">\(\hat\sigma_j\)</span> — the learned pooling
-normalises scale internally (§14.4.4)</td>
+<td><strong>same as §14.1</strong></td>
+<td>per-item standardisation <span
+class="math inline">\(\rho_{j^*}/\hat\sigma_{j^*}\)</span>; <span
+class="math inline">\(\hat\sigma_j=\operatorname{sd}_s\!\big[r_j(\theta^{(s)})\big]\)</span>
+is the <strong>prior-predictive standard deviation</strong> of the
+effect, estimated once on a <span
+class="math inline">\(2{,}000\)</span>-sample prior pilot — one fixed
+constant per item, <strong>constant across interims</strong> (stored as
+<code>item_std</code>); the head quantiles are rescaled by <span
+class="math inline">\(\hat\sigma_j\)</span> at deployment</td>
 </tr>
 </tbody>
 </table>
@@ -6804,9 +6936,8 @@ the amortiser is needed only for the <strong>conditional</strong> <span
 class="math inline">\(p(\rho\mid x,z)\)</span>.</p>
 <p>Net module
 <code>python/amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead.py</code>;
-trained network directory
-<code>…-deepsetXcompAtt-ragged-priorproposal-260812</code>. The
-evaluation grid is the 29 weekly SVI fits
+trained network directory <code>…-deepsetXcompAtt-plain-260812</code>.
+The evaluation grid is the 29 weekly SVI fits
 (<code>py-ukraine-interim-weekly-svi-260811</code>, <span
 class="math inline">\(n=48\to500\)</span>), reused with no
 recomputation. (The fixed-<span class="math inline">\(N\)</span> padded
@@ -7214,10 +7345,10 @@ cohort buys. At deployment <span class="math inline">\(n+m=N\)</span> is
 class="math inline">\(W_{\text{true}}=(C\,N^{-p})^2\)</span> is constant
 and <span
 class="math inline">\(B^\ast=C^2\big(n^{-2p}-N^{-2p}\big)\)</span>.
-<strong>Why <span class="math inline">\(B^\ast\to0\)</span> as <span
-class="math inline">\(n\to N\)</span>:</strong> the remaining cohort
-<span class="math inline">\(m=N-n\to0\)</span>, so there is no future
-data left to collect; conditioning on the (vanishing) <span
+<strong>Why</strong> <span class="math inline">\(B^\ast\to0\)</span> as
+<span class="math inline">\(n\to N\)</span>: the remaining cohort <span
+class="math inline">\(m=N-n\to0\)</span>, so there is no future data
+left to collect; conditioning on the (vanishing) <span
 class="math inline">\(z\)</span> cannot sharpen the posterior, the
 conditional and marginal coincide, and <span
 class="math inline">\(\operatorname{Var}_z(\mathbb E[\rho\mid
@@ -7324,8 +7455,8 @@ class="math inline">\(0.069\)</span>/<span
 class="math inline">\(0.157\)</span>): the low-SD mental-health items
 (<span class="math inline">\(p_{\text{SVI}}\approx0.3\)</span>) remain
 under-learned, and a rigid trained width helps only the
-strongly-contracting items. Directories <code>…-A-powerlaw</code>,
-<code>…-C-floor</code> and their <code>_ftheadexpand</code>
+strongly-contracting items. Directories <code>…-powerlaw</code>,
+<code>…-floor</code> and their <code>_ftheadexpand</code>
 deployments.</p>
 <p><strong>Result of the correction.</strong> Applied to the A and C
 heads (with the affine shift), the BvM correction lowers marg–KS at
@@ -7335,10 +7466,10 @@ removed (matching fitted slopes per item, e.g. <span
 class="math inline">\(-0.005\)</span> vs <span
 class="math inline">\(-0.005\)</span>); PIT–KS is unchanged, since the
 correction acts only on the marginal:</p>
-<table>
+<table style="width:100%;">
 <colgroup>
 <col style="width: 16%" />
-<col style="width: 17%" />
+<col style="width: 16%" />
 <col style="width: 16%" />
 <col style="width: 16%" />
 <col style="width: 16%" />
@@ -7399,8 +7530,8 @@ class="math inline">\(+\)</span> affine (<span
 class="math inline">\(0.181\)</span>) — the correction supplies exactly
 the missing large-<span class="math inline">\(n\)</span> contraction, as
 a principled step rather than a rigid trained width. Directories
-<code>…-A-powerlaw_ftheadexpand_bvm</code>,
-<code>…-C-floor_ftheadexpand_bvm</code>. <strong>A/C</strong> <span
+<code>…-powerlaw-ftheadexpand-bvm-260828</code>,
+<code>…-floor-ftheadexpand-bvm-260828</code>. <strong>A/C</strong> <span
 class="math inline">\(+\)</span> BvM is the statistically coherent
 estimator of §14.0: its width obeys a BvM contraction law and its
 marginal is self-consistent under the law of total variance. The plain
@@ -7408,6 +7539,363 @@ net <span class="math inline">\(+\)</span> affine (§14.4.6) remains
 numerically ahead on the aggregate PIT–KS and all-<span
 class="math inline">\(n\)</span> marg–KS and is the lighter alternative
 when the parametric guarantee is not required.</p>
+<h3 id="amortising-the-decision-thresholds">14.4.8 Amortising the
+decision thresholds</h3>
+<p>The interim decision (§4) carries two thresholds: the <strong>effect
+threshold</strong> <span class="math inline">\(\eta_0\)</span> in <span
+class="math inline">\(H_1^{(j)}=\{\rho_j&gt;\eta_0\}\)</span>, and the
+<strong>decision threshold</strong> <span
+class="math inline">\(\eta_H\)</span> in <span
+class="math inline">\(\widehat{\text{PPS}}^{(j)}=\frac1S\sum_s\mathbf
+1\{\hat P(H_1^{(j)}\mid x,z^{(s)})&gt;\eta_H\}\)</span>. Both should be
+free at deployment, without retraining.</p>
+<p><span class="math inline">\(\eta_H\)</span> is free by construction —
+it is only a cutoff applied to the already-computed per-draw success
+probabilities, so any value is a pure post-processing choice.</p>
+<p><span class="math inline">\(\eta_0\)</span> enters through the
+conditional CDF, <span class="math inline">\(\hat P(H_1\mid
+x,z^{(s)})=1-\hat F(\eta_0\mid x,z^{(s)})\)</span>, so it is free
+wherever the predictive is accurately resolved at <span
+class="math inline">\(\eta_0\)</span> — the question is which predictive
+representation resolves an <em>arbitrary</em> <span
+class="math inline">\(\eta_0\)</span> best, especially in the tails
+where the <span class="math inline">\(K=5\)</span> quantile grid
+interpolates crudely. Four routes (net directories
+<code>…-deepsetXcompAtt-{plain,powerlaw,dense19,eta0amortise}-…</code>):</p>
+<ol type="1">
+<li><strong>5-quantile interpolation</strong> (the deployable §14.4.6
+head): <span
+class="math inline">\(1-\operatorname{interp}(\eta_0)\)</span> on the
+five deployed quantiles.</li>
+<li><strong>Parametric Gaussian</strong> (the power-law / floor head of
+§14.4.7): the head emits <span class="math inline">\((m,s)\)</span>, so
+<span class="math inline">\(\hat P(H_1\mid
+x,z)=\Phi\big((m-\eta_0)/s\big)\)</span> is <strong>analytic for
+any</strong> <span class="math inline">\(\eta_0\)</span>, smooth in the
+tails.</li>
+<li><strong>Dense quantiles</strong>: retrain the head with <span
+class="math inline">\(K=19\)</span> levels and a pinball loss, for finer
+CDF interpolation.</li>
+<li><span class="math inline">\(\eta_0\)</span>-conditioned head:
+retrain with <span class="math inline">\(\eta_0\)</span> appended to the
+aux and sampled per example, and replace the quantile head with a
+<strong>success-probability head</strong> <span
+class="math inline">\(\hat P(H_1\mid
+x,z,\eta_0)=\sigma\big(q_\psi(\cdot)\big)\)</span> (one output,
+<code>head_mode='successprob'</code>) trained by binary cross-entropy
+against <span class="math inline">\(\mathbf 1\{\rho&gt;\eta_0\}\)</span>
+— a direct amortisation of the decision over <span
+class="math inline">\(\eta_0\)</span>.</li>
+</ol>
+<p>Scoring each route by the calibration error of the marginal success
+probability against SVI, <span class="math inline">\(\big\lvert \hat
+P(\rho&gt;\eta_0\mid x)-P_{\text{SVI}}(\rho&gt;\eta_0\mid
+x)\big\rvert\)</span>, averaged over items and interims across a
+standardised-threshold sweep (body <span
+class="math inline">\(|\eta_0/\hat\sigma_j|\le\tfrac12\)</span>, tail
+<span class="math inline">\(\ge\tfrac32\)</span>):</p>
+<table>
+<thead>
+<tr>
+<th>route</th>
+<th style="text-align: right;">body</th>
+<th style="text-align: right;">tail</th>
+<th style="text-align: right;">all</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1 — 5-quantile interp</td>
+<td style="text-align: right;">0.041</td>
+<td style="text-align: right;">0.030</td>
+<td style="text-align: right;">0.034</td>
+</tr>
+<tr>
+<td><strong>2 — parametric Gaussian</strong></td>
+<td style="text-align: right;"><strong>0.033</strong></td>
+<td style="text-align: right;">0.030</td>
+<td style="text-align: right;"><strong>0.031</strong></td>
+</tr>
+<tr>
+<td>3 — dense-19 quantiles</td>
+<td style="text-align: right;">0.047</td>
+<td style="text-align: right;">0.029</td>
+<td style="text-align: right;">0.035</td>
+</tr>
+<tr>
+<td>4 — <span class="math inline">\(\eta_0\)</span>-conditioned</td>
+<td style="text-align: right;">0.053</td>
+<td style="text-align: right;">0.029</td>
+<td style="text-align: right;">0.038</td>
+</tr>
+</tbody>
+</table>
+<p><strong>The parametric Gaussian wins</strong>: lowest overall error,
+decisively best at the centre (near the median, <span
+class="math inline">\(0.012\)</span> vs <span
+class="math inline">\(0.03\)</span>–<span
+class="math inline">\(0.08\)</span>), tied elsewhere, and <strong>zero
+retraining</strong> — its analytic <span
+class="math inline">\(\Phi\)</span> resolves any <span
+class="math inline">\(\eta_0\)</span>. Denser quantiles do
+<strong>not</strong> beat the five-quantile baseline (the predictive is
+close to Gaussian, so five knots already capture the tails), and the
+<span class="math inline">\(\eta_0\)</span>-conditioned head helps only
+in the far tail while being worst at the centre — its BCE head is
+sharpest where the success probability saturates and weakest near <span
+class="math inline">\(p=\tfrac12\)</span>. A full retrain for <span
+class="math inline">\(\eta_0\)</span>-conditioning is therefore not
+justified.</p>
+<p><strong>Choosing</strong> <span class="math inline">\(\eta_0\)</span>
+on a scientific scale. The effect <span
+class="math inline">\(\rho_j\)</span> is a per-item ratio whose
+prior-predictive spread <span
+class="math inline">\(\hat\sigma_j\)</span> ranges widely (<span
+class="math inline">\(0.86\)</span> to <span
+class="math inline">\(5.6\)</span>). A threshold expressed in
+<em>standardised</em> units — a fixed <span
+class="math inline">\(\eta_0/\hat\sigma_j\)</span> across items — is not
+comparable across items: at <span
+class="math inline">\(\eta_0/\hat\sigma_j=1\)</span> a wide item sits at
+a <span class="math inline">\(560\%\)</span> change and a narrow one at
+<span class="math inline">\(86\%\)</span>, so its PPS is degenerate
+(<span class="math inline">\(0\)</span> or <span
+class="math inline">\(1\)</span>). The remedy is to fix <span
+class="math inline">\(\eta_0\)</span> on the <strong>raw endpoint-change
+scale</strong>, <span
+class="math inline">\(\eta_0\in\{0,25,50,75,100\}\%\)</span>, and query
+each item at its own <span
+class="math inline">\(\eta_0/\hat\sigma_j\)</span>. This is exact for
+either representation: for the <span
+class="math inline">\(\eta_0\)</span>-conditioned head the
+standardisation <strong>cancels</strong>, <span
+class="math inline">\(\hat
+P(\rho_{\text{std}}&gt;\eta_0/\hat\sigma_j\mid x,z)=\hat
+P(\rho&gt;\eta_0\mid x,z)\)</span>, so the raw success probability is
+recovered whatever fixed <span
+class="math inline">\(\hat\sigma_j\)</span> is used. Deployed on the
+weekly grid the raw-percentage PPS stays interior (not saturated): the
+mean over items and interims is <span
+class="math inline">\(0.75,0.26,0.12,0.06,0.03\)</span> at <span
+class="math inline">\(\eta_0=0,25,50,75,100\%\)</span>, and the share of
+(item, interim) cells with a non-degenerate PPS peaks at <span
+class="math inline">\(46\%\)</span> at <span
+class="math inline">\(\eta_0=25\%\)</span>. Diagnostics in
+<code>…-eta0amortise-260830/</code>:
+<code>…_pps_by_item_eta0_grid.pdf</code> (PPS by item <span
+class="math inline">\(\times\)</span> <span
+class="math inline">\(\eta_0\%\)</span>) and
+<code>…_rho_vs_eta0_lines_by_item.pdf</code> (the SVI <span
+class="math inline">\(\rho\)</span>-predictive with the raw-percentage
+<span class="math inline">\(\eta_0\)</span> thresholds overlaid).</p>
+<p><strong>Summary.</strong> <span class="math inline">\(\eta_H\)</span>
+is free post-hoc; <span class="math inline">\(\eta_0\)</span> is free
+through the predictive CDF, best served by the <strong>parametric
+Gaussian head</strong> (analytic, no retraining), with the operational
+<span class="math inline">\(\eta_0\)</span> fixed on the raw
+percentage-change scale.</p>
+<h3 id="amortising-over-items">14.4.9 Amortising over items</h3>
+<p><strong>Motivation.</strong> The §14.4 amortiser is trained for one
+fixed item set (Ukraine’s <span class="math inline">\(J=20\)</span>). A
+single network over a <em>variable</em> item set — <span
+class="math inline">\(J=2,\dots,J_{\max}\)</span> items — turns it from
+a per-trial artefact into a <strong>per-family</strong> asset,
+deployable on any partial-credit application (§3). Those applications
+span <span class="math inline">\(J\)</span> from <span
+class="math inline">\(6\)</span> (the ChatGPT survey) to <span
+class="math inline">\(\approx51\)</span> (the IBD PROM battery), with
+category counts <span class="math inline">\(K\in\{2,\dots,10\}\)</span>
+(most <span class="math inline">\(\{4,5,7\}\)</span>); rounding up we
+set <span class="math inline">\(J_{\max}=64\)</span>.</p>
+<p><strong>Design (no padding on any axis).</strong> Items enter
+<strong>fixed-</strong><span class="math inline">\(J\)</span>-per-batch,
+<span class="math inline">\(J\)</span> varied across batches: each step
+draws one <span class="math inline">\(J_b\sim U\{2,J_{\max}\}\)</span>
+and builds dense <span class="math inline">\((B,J_b,\cdot)\)</span>
+tensors, so there is no item padding and no mask (JAX recompiles once
+per distinct <span class="math inline">\(J_b\)</span>). Participants
+stay ragged (segment vectors, §14.4.3), and each (participant, item,
+time) cell holds a single scalar response <span
+class="math inline">\(k/(K_j-1)\)</span>, so heterogeneous <span
+class="math inline">\(K\)</span> never introduces zeros either. Each
+<strong>synthetic item</strong> draws a category count <span
+class="math inline">\(K\sim\)</span> weighted <span
+class="math inline">\(\{2,4,5,7,8,9,10\}\)</span>, an endpoint type
+(expected score or caseness), a direction, and PCM parameters from the
+§14.4.2 priors, so the network learns to price an item from its
+<strong>features, not its identity</strong>. The
+<strong>metadata</strong> is <span
+class="math inline">\((\text{type},\text{direction},K/K_{\max},c/K_{\max})\)</span>
+— the caseness threshold <span class="math inline">\(c\)</span> is the
+fourth feature; the encoder already reads <span
+class="math inline">\(J\)</span> from the metadata shape and a generic
+<span class="math inline">\(M\)</span>, so <strong>no architecture
+change</strong> is needed. The per-item <span
+class="math inline">\(\hat\sigma_j\)</span> of §14.4.1 is replaced by a
+single <strong>global</strong> <span
+class="math inline">\(\hat\sigma\)</span> (pilot <span
+class="math inline">\(\approx4.8\)</span>); the power-law head’s <span
+class="math inline">\(C_j\)</span> (§14.4.7) learns the residual
+per-item scale. Two cheap calibration add-ons recover most of what the
+global <span class="math inline">\(\hat\sigma\)</span> gives up: a
+<strong>data-driven scale channel</strong> — the per-item SD of the
+endpoint change across the observed cohort, injected at the head via
+<code>segment_sum</code> — and a <strong>raw level/ratio
+fingerprint</strong> (<code>head_raw</code>: baseline and endline means
+and their ratio at the head). Net directory
+<code>…-itemamortise-J64-scale-feat-260831</code> (trained <span
+class="math inline">\(\sim1.5\)</span> h).</p>
+<p><strong>Item-count invariance holds.</strong> Deployed on Ukraine’s
+<span class="math inline">\(20\)</span> items <em>without
+retraining</em> — items the network never saw — its median tracks the
+SVI target as well as the item-specific net: the association (Pearson
+<span class="math inline">\(\rho\)</span> of the amortiser median
+against the SVI draw) is <span class="math inline">\(0.91\)</span>–<span
+class="math inline">\(0.95\)</span> on the out-of-7 items and <span
+class="math inline">\(0.73\)</span>–<span
+class="math inline">\(0.76\)</span> on the categorical items at
+small–mid <span class="math inline">\(n\)</span>, against the
+item-specific baseline’s <span
+class="math inline">\(\approx0.82/0.57\)</span> (§14.4.5); the raw
+(uncalibrated) PIT–KS is <span class="math inline">\(0.31\)</span>–<span
+class="math inline">\(0.46\)</span>, already below the item-specific
+net’s <span class="math inline">\(\approx0.60\)</span>. Both decay with
+<span class="math inline">\(n\)</span> as the SVI posterior tightens,
+exactly as in §14.4.5.</p>
+<p><strong>End-to-end on Ukraine.</strong> With the standard expanding
+head fine-tune <span class="math inline">\(+\)</span> affine shift
+(§14.4.6), the item-amortised net reaches <strong>PIT–KS</strong> <span
+class="math inline">\(0.119\)</span> and <strong>marg–KS</strong> <span
+class="math inline">\(0.159\)</span>. Against the reference points: the
+marginal now <strong>matches the item-specific plain deepset</strong>
+(<span class="math inline">\(0.157\)</span>), and the conditional PIT–KS
+<strong>beats the hand-token encoders</strong> (<span
+class="math inline">\(0.139\)</span>, §14.4.6); the item-specific PPS
+(<span class="math inline">\(\eta_0=0.5\)</span>) is well defined. The
+two add-ons each contribute one axis: the scale channel lifts the
+conditional (PIT–KS <span class="math inline">\(0.134\to0.119\)</span>),
+the fingerprints lift the marginal (marg–KS <span
+class="math inline">\(0.177\to0.159\)</span>).</p>
+<p>Deployed on Ukraine’s 20 items (never seen in training), expanding
+head-ft <span class="math inline">\(+\)</span> affine (§14.4.6):</p>
+<p>All directories below sit under
+<code>py-ukraine-interim-amortise-</code>; the suffix column gives the
+end of each name (results in the <code>_ftheadexpand</code> deploy
+dir).</p>
+<table>
+<colgroup>
+<col style="width: 31%" />
+<col style="width: 26%" />
+<col style="width: 20%" />
+<col style="width: 20%" />
+</colgroup>
+<thead>
+<tr>
+<th>Configuration</th>
+<th>Directory suffix</th>
+<th style="text-align: right;">PIT–KS</th>
+<th style="text-align: right;">marg–KS</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Item-amortised (global <span
+class="math inline">\(\hat\sigma\)</span>, power-law head) — base</td>
+<td><code>deepsetXcompAtt-itemamortise-J64-260831</code></td>
+<td style="text-align: right;">0.134</td>
+<td style="text-align: right;">0.177</td>
+</tr>
+<tr>
+<td><span class="math inline">\(+\)</span> data-driven scale
+channel</td>
+<td><code>deepsetXcompAtt-itemamortise-J64-scale-260831</code></td>
+<td style="text-align: right;">0.119</td>
+<td style="text-align: right;">0.177</td>
+</tr>
+<tr>
+<td><span class="math inline">\(+\)</span> raw level/ratio fingerprints
+(<strong>scale-feat, deployed</strong>)</td>
+<td><code>deepsetXcompAtt-itemamortise-J64-scale-feat-260831</code></td>
+<td style="text-align: right;"><strong>0.119</strong></td>
+<td style="text-align: right;"><strong>0.159</strong></td>
+</tr>
+<tr>
+<td><em>ref:</em> item-specific plain deepset (bespoke, §14.4.6)</td>
+<td><code>deepsetXcompAtt-plain-ftheadexpand-medshift-260827</code></td>
+<td style="text-align: right;">0.069</td>
+<td style="text-align: right;">0.157</td>
+</tr>
+<tr>
+<td><em>ref:</em> hand-token <code>itemXcompAtt</code> (§14.2)</td>
+<td><code>itemXcompAtt-ftheadexpand-260809</code></td>
+<td style="text-align: right;">0.139</td>
+<td style="text-align: right;">0.119</td>
+</tr>
+<tr>
+<td><em>ref:</em> pretrained encoder <span
+class="math inline">\(+\)</span> Ukraine head fine-tune</td>
+<td><code>deepsetXcompAtt-itemamortise-J64-ukraineft-260831</code></td>
+<td style="text-align: right;">0.133</td>
+<td style="text-align: right;">—</td>
+</tr>
+</tbody>
+</table>
+<p>Association with the SVI target (Pearson <span
+class="math inline">\(\rho\)</span> of the amortiser median against the
+SVI draw, small–mid <span class="math inline">\(n\)</span>): <span
+class="math inline">\(0.91\)</span>–<span
+class="math inline">\(0.95\)</span> on the out-of-7 items and <span
+class="math inline">\(0.73\)</span>–<span
+class="math inline">\(0.76\)</span> on the categorical items, against
+the item-specific baseline’s <span
+class="math inline">\(\approx0.82/0.57\)</span>. The
+<strong>scale-feat</strong> row is the deployable per-family network;
+the two references above and below it bracket the recipe-bound floor
+discussed next.</p>
+<p><strong>A recipe-bound floor.</strong> The residual conditional gap
+to the item-specific <span class="math inline">\(0.069\)</span> is set
+by the <em>recipe</em>, not by item generality: a plain quantile head
+deploys at <span class="math inline">\(\approx0.112\)</span> and
+per-item <span class="math inline">\(\hat\sigma_j\)</span> reaches <span
+class="math inline">\(0.069\)</span> (§14.4.8), both of which the
+item-amortised net gives up (a global <span
+class="math inline">\(\hat\sigma\)</span>, a power-law head).
+Transferring the pretrained encoder to Ukraine and fine-tuning does
+<strong>not</strong> move the deployed PIT–KS (<span
+class="math inline">\(0.133\)</span>) while that recipe is fixed — the
+head type and scale, not the encoder, are binding. Closing the last of
+the gap therefore means reverting to a per-item-set network.</p>
+<p><strong>Deployment scope — idiosyncratic items.</strong> Because the
+network prices an item from its <em>features, not its identity</em>, an
+item whose behaviour those features do not capture is priced from the
+wrong prior. Ukraine’s degenerate <code>CG-VIO_ph-punish</code> — the
+<code>blow</code> item excluded from every contraction fit (§14.4.5) —
+is the clear case: in the cross-method <span
+class="math inline">\(p(H_1\mid x,z)\)</span> comparison (§14.5) the
+item-general net <strong>saturates at</strong> <span
+class="math inline">\(p(H_1)\approx1\)</span> from interim 3 on (<span
+class="math inline">\(\eta_0=0.5\)</span>; medians <span
+class="math inline">\(0.87,1.0,1.0,\dots\)</span>), while the two
+Ukraine-<em>bespoke</em> encoders — <code>itemXcompAtt</code> and the
+plain deepset, which saw this item in training — track the HMC gold
+standard (<span class="math inline">\(\approx0.2\)</span>–<span
+class="math inline">\(0.5\)</span>). This is the deployment-scope
+trade-off made concrete: the per-family net generalises across item
+<em>sets</em> but is weaker on an individual idiosyncratic or boundary
+item than a net trained on the specific instrument. Expected behaviour,
+not a defect.</p>
+<p><strong>Conclusion.</strong> One network prices any partial-credit
+item set of size <span class="math inline">\(2\)</span>–<span
+class="math inline">\(64\)</span> from item features alone, deploying at
+PIT–KS <span class="math inline">\(0.119\)</span> / marg–KS <span
+class="math inline">\(0.159\)</span> on Ukraine — conditionally sharper
+than the hand-token encoders and marginally on par with the bespoke
+deepset. Deploying on a new application is then: feed its items,
+metadata and cohorts, and run the head fine-tune <span
+class="math inline">\(+\)</span> affine (and BvM) against that
+application’s own SVI. The §14.4 amortiser becomes a <strong>per-family
+asset</strong> across the §3 datasets, at a small, recipe-bound
+calibration cost relative to a bespoke network.</p>
 <h3 id="cross-architecture-summary">14.5.1 Cross-architecture
 summary</h3>
 <p>Calibration of the three encoders under the deployable remedy
@@ -7552,7 +8040,8 @@ class="math inline">\(n\)</span>-stratified batches: negative. With the
 original training the two cohorts jointly identify the full-population
 endpoint (<span class="math inline">\(n+m\)</span> fixed), so there is
 no <span class="math inline">\(x\)</span>-only contraction in the target
-to learn. Dir <code>…-priorproposal-260812</code> predecessor.</li>
+to learn. Dir <code>…-deepsetXcompAtt-plain-260812</code>
+predecessor.</li>
 <li>*Focused-proposal (interim-1 posterior) ragged build: negative. An
 interim-1 posterior proposal is pre-contracted, and subsampling a fixed
 pool is not refitting; the contraction signal is flat. Superseded by the
@@ -7621,8 +8110,7 @@ representation is off the operating regime. Dir
 class="math inline">\(x=(x_1,x_2)\)</span> avoids simulation noise but
 the balanced split is likewise off-regime (marg-KS <span
 class="math inline">\(0.275\)</span>). Dir
-<code>…-260812_ftheadexpand_splitB</code>. Flag
-<code>RAGD_SPLITB</code>.</li>
+<code>…-plain-splitB-260828</code>. Flag <code>RAGD_SPLITB</code>.</li>
 </ol>
 <p>Both 15–16 are superseded by the in-regime <strong>BvM
 correction</strong> (§14.4.7), which removes the same finite-<span

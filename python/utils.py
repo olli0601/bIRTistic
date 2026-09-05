@@ -434,6 +434,7 @@ def _plot_prob_barplots(
         Output file path without extension (e.g. ``".../prefix_prob_by_question"``).
     """
     vprint = print if verbose else (lambda *args, **kwargs: None)
+    import os
     import numpy as np
     import pandas as pd
     import ggsci
@@ -484,7 +485,7 @@ def _plot_prob_barplots(
 
     pos = pos.merge(dit, on=['item_type_id', 'item_label'])
     pos['item_label_long'] = pos['group_label_long'] + np.where(
-        pos['item_label_short'].notna(), '\n' + pos['item_label_short'], ''
+        pos['item_label_short'].notna(), ': ' + pos['item_label_short'], ''
     )
 
     csv_out = f"{output_file_stem}.csv"
@@ -512,7 +513,8 @@ def _plot_prob_barplots(
         items_i = list(pd.unique(pos_i['item_label_long']))
         color_dict_i = {k: color_dict[k] for k in items_i}
         n_time = max(1, pos_i['time_label'].nunique())
-        subplot_width = max(8, 4 * n_time)
+        _wmult = float(os.environ.get('PROB_FIT_WIDTH_MULT', '1.0'))   # widen crowded panels (e.g. many items)
+        subplot_width = max(8, 4 * n_time) * _wmult
         subplot_height = 15
         y_label_i = str(pos_i['endpoint_measure'].dropna().iloc[0])
         p_i = (

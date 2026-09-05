@@ -6,6 +6,7 @@ ported from the original R implementations.
 """
 
 from typing import Dict
+import re
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -685,13 +686,16 @@ def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
         'y_label': long['y'].astype(int).astype(str).to_numpy(),
     })
 
+    # MSPSS has three subscales (Family/Friends/Significant Other); group by subscale
+    def _subscale(i):                                          # 'MSPSS_Fam5' -> 'Fam'
+        return re.sub(r'\d+$', '', i.replace('MSPSS_', ''))
     dit = _common_dit(
         items, 'likert-7',
         high_low=lambda i: 'higher_is_better',                 # more perceived support = better
-        group_of=lambda i: 'MSPSS',
-        group_long={'MSPSS': 'Multidimensional Scale of Perceived Social Support'},
+        group_of=lambda i: f'Perceived social support: {_subscale(i)}',
+        group_long={},                                         # identity: group_label_long == group_label
         endpoint='mean 7-point perceived-support rating', cat_length=7)
-    dit['item_label_short'] = [c.replace('MSPSS_', '') for c in dit['item_label']]
+    dit['item_label_short'] = [re.sub(r'^MSPSS_(Fam|Fri|SO)', '', c) for c in dit['item_label']]  # subscale in group; keep item number
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
 
 
@@ -819,3 +823,52 @@ def read_data_chatgpt_rct(file_data: str) -> Dict[str, pd.DataFrame]:
         endpoint='mean 7-point attitude rating', cat_length=7)
     dmeta = alld[['ID', 'treat']].drop_duplicates().rename(columns={'ID': 'pid'}).reset_index(drop=True)
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta}
+
+
+def read_data_pisa(pisa_dir: str, country: str,
+                   cycles=(2012, 2015, 2018, 2022)) -> Dict[str, pd.DataFrame]:
+    """Read the PISA Math extract (doc §3.11) for one country into common format.
+
+    Cross-sectional international assessment; content-id-matched Math items across
+    cycles (see ``data_web_extracting.build_pisa_math_extract``). Baseline-anchored:
+    ``cycles[0]`` (2012) is the baseline, each later cycle a subsequent interim.
+
+    Parameters
+    ----------
+    pisa_dir : str
+        Directory holding ``pisa_math_{cycle}.parquet`` (+ ``common_math.json``).
+    country : str
+        PISA CNT code (e.g. ``'USA'``).
+
+    Returns
+    -------
+    dict with 'dp' (long: cycle, pid, item_label, y) and 'dit' (item metadata,
+    per-item ``cat_length`` = max category + 1 across the country's cycles).
+    """
+    frames = []
+    for yr in cycles:
+        fp = Path(pisa_dir) / f"pisa_math_{yr}.parquet"
+        if not fp.exists():
+            raise FileNotFoundError(f"missing PISA extract: {fp}")
+        d = pd.read_parquet(fp)
+        d = d[d['CNT'] == country]
+        frames.append(d)
+    long = pd.concat(frames, ignore_index=True)
+    idc = next(c for c in long.columns if 'STU' in c.upper())
+    dp = pd.DataFrame({
+        'cycle': long['cycle'].to_numpy(),
+        'pid_label': (long['cycle'].astype(str) + '_' + long[idc].astype(str)).to_numpy(),
+        'item_label': long['item'].to_numpy(),
+        'y': long['y'].astype(int).to_numpy(),
+    })
+    dp['pid'] = pd.factorize(dp['pid_label'])[0] + 1
+    kmax = dp.groupby('item_label')['y'].max()
+    items = sorted(dp['item_label'].unique())
+    dit = _common_dit(
+        items, 'out-of-7',
+        high_low=lambda i: 'higher_is_better',            # higher score = better performance
+        group_of=lambda i: 'PISA Math',
+        group_long={'PISA Math': 'PISA Math'},
+        endpoint='mean item score (baseline vs cycle)', cat_length=1)
+    dit['cat_length'] = dit['item_label'].map(lambda i: int(kmax[i]) + 1).astype('Int64')
+    return {'dp': dp.reset_index(drop=True), 'dit': dit}

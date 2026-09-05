@@ -47,6 +47,7 @@ def contraction_cdf(qs_of, tgt_of, labels, interims, taus, out, prefix, suf):
                                  ymin=float(q[0]), lower=float(q[1]), middle=float(q[2]),
                                  upper=float(q[3]), ymax=float(q[4])))
     df = pd.DataFrame(rows)
+    df.to_csv(f"{out}/{prefix}_pps_{suf}_contraction_cdf_by_item.csv", index=False)  # box data (SVI vs amortiser marginal)
     df['interim_id'] = pd.Categorical(df.interim_id, categories=sorted(df.interim_id.unique()), ordered=True)
     (ggplot(df, aes('interim_id', ymin='ymin', lower='lower', middle='middle',
                     upper='upper', ymax='ymax', fill='source'))
@@ -176,6 +177,65 @@ def contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blo
      + labs(x='sqrt(number of participants)  sqrt(n)', y='posterior SD of rho', colour='',
        title=f'Trained (amortiser) vs actual (SVI) contraction — {suf}  (power-law SD=C n^-p)')).save(
         f"{out}/{prefix}_pps_{suf}_contraction-law_trained-vs-svi.pdf", verbose=False, limitsize=False)
+
+
+def eta0_sweep(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, eta_raw,
+               etaH=0.89, date_of=None, blow=None):
+    """eta_0 deployment sweep over a raw endpoint-change grid ``eta_raw`` (fractions).
+    Post-hoc from the calibrated per-cohort quantiles ``qs_of(k)`` (S,J,5):
+      PPS(eta0) = mean_s 1{ P(rho>eta0 | x,z^s) > etaH },  P(rho>eta0|x,z^s)=1-F_qs[s](eta0).
+    Emits #6 PPS-by-item x eta0 grid, #7 SVI rho predictive with eta0 threshold lines, and a
+    PPS-vs-eta0 decay curve. ``date_of(k)`` optionally labels the x-axis (else interim id)."""
+    from plotnine import (geom_col, geom_boxplot, geom_hline, geom_line, geom_point,
+                          facet_grid, scale_x_discrete, scale_colour_brewer, labeller)
+    G = len(eta_raw); dlab = (lambda k: str(date_of(k))) if date_of is not None else (lambda k: str(k))
+    pps_rows, rho_rows = [], []
+    for k in interims:
+        for j, lab in enumerate(labels):
+            if lab == blow:
+                continue
+            q = qs_of(k)[:, j, :]; q = q[np.isfinite(q).all(1)]
+            for e in eta_raw:
+                ph1 = 1.0 - np.array([np.interp(e, q[s], taus, 0., 1.) for s in range(q.shape[0])])
+                pps_rows.append(dict(interim=k, date=dlab(k), item=lab, eta0_pct=int(round(e * 100)),
+                                     pps=float(np.mean(ph1 > etaH))))
+            y = tgt_of(k)[:, j]; y = y[np.isfinite(y)]
+            for r in y:
+                rho_rows.append(dict(interim=k, date=dlab(k), item=lab, rho_pct=float(r) * 100.0))
+    pdf = pd.DataFrame(pps_rows); rdf = pd.DataFrame(rho_rows)
+    pdf.to_csv(f"{out}/{prefix}_pps_{suf}_eta0_pps.csv", index=False)
+    rdf.to_csv(f"{out}/{prefix}_pps_{suf}_eta0_rho.csv", index=False)
+    order_k = [f"{k:02d}" for k in interims]; date_lab = [dlab(k) for k in interims]
+    for _d in (pdf, rdf):
+        _d['xkey'] = pd.Categorical(_d['interim'].map(lambda k: f"{int(k):02d}"), categories=order_k, ordered=True)
+    ldf = pd.DataFrame([dict(item=l, eta0_pct=int(round(e * 100)), rho_pct=float(e) * 100.0)
+                        for l in rdf['item'].unique() for e in eta_raw])
+    nit = pdf.item.nunique()
+    (ggplot(pdf, aes('xkey', 'pps')) + geom_col(fill=CBLUE, width=.8)
+     + facet_grid('item ~ eta0_pct', labeller=labeller(cols=lambda v: f'eta0={v}%'))
+     + scale_x_discrete(breaks=order_k, labels=date_lab)
+     + theme_bw() + theme(figure_size=(2 + 1.6 * G, 1.0 * nit), axis_text_x=element_text(rotation=90, size=4),
+                          strip_text_y=element_text(angle=0, size=6), strip_text_x=element_text(size=7))
+     + labs(x='interim', y='PPS', title=f'PPS by item x eta_0 (% endpoint change) — {suf}')).save(
+        f"{out}/{prefix}_pps_{suf}_pps_by_item_eta0_grid.pdf", verbose=False, limitsize=False)
+    (ggplot(rdf, aes('xkey', 'rho_pct')) + geom_boxplot(outlier_size=.2, fill='#d9d9d9', size=.3)
+     + geom_hline(ldf, aes(yintercept='rho_pct', colour='factor(eta0_pct)'), size=.5)
+     + facet_wrap('~ item', ncol=4, scales='free_y') + scale_x_discrete(breaks=order_k, labels=date_lab)
+     + scale_colour_brewer(type='seq', palette='YlOrRd', name='eta_0 (%)')
+     + theme_bw() + theme(figure_size=(16, 2.2 * ((nit + 3) // 4)), axis_text_x=element_text(rotation=90, size=4),
+                          strip_text=element_text(size=6), legend_position='top')
+     + labs(x='interim', y='rho = endpoint % change',
+            title=f'SVI rho predictive vs eta_0 thresholds — {suf}')).save(
+        f"{out}/{prefix}_pps_{suf}_rho_vs_eta0_lines_by_item.pdf", verbose=False, limitsize=False)
+    sw = pdf.groupby(['eta0_pct', 'xkey'], observed=True)['pps'].mean().reset_index()
+    (ggplot(sw, aes('eta0_pct', 'pps', colour='xkey', group='xkey'))
+     + geom_line(size=.6) + geom_point(size=1.2)
+     + scale_colour_brewer(type='seq', palette='Blues', name='interim')
+     + theme_bw() + theme(figure_size=(8, 5), legend_position='right')
+     + labs(x='eta_0 (% endpoint change)', y='mean PPS over items',
+            title=f'PPS decay vs eta_0 — {suf}')).save(
+        f"{out}/{prefix}_pps_{suf}_eta0_sweep_compare.pdf", verbose=False, limitsize=False)
+    print(f"  saved eta0-sweep (3 plots, grid={[int(round(e*100)) for e in eta_raw]}%) ({suf}) -> {out}")
 
 
 def all_plots(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, blow):

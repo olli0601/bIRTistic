@@ -66,8 +66,8 @@ dir_rg = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-H1x-wz-26
 dir_rge  = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-260601")
 dir_rgeq = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-quantile-regr-260702")
 dir_rgem = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
-dir_rgee = os.path.join(_sandbox, "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead-260716")
-dir_rgef = os.path.join(_sandbox, "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead-260716")
+dir_rgee = os.path.join(_sandbox, "py-ukraine-interim-amortise-itemScompAtt-net-260716")
+dir_rgef = os.path.join(_sandbox, "py-ukraine-interim-amortise-itemXcompAtt-net-260716")
 dir_out = os.path.join(_sandbox, "py-ukraine-interim-compare-methods-260526")
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
@@ -250,9 +250,33 @@ for m, bp in box_paths.items():
     bs = pd.read_pickle(bp).copy()
     bs['method'] = m
     tmp.append(bs)
+
+# --- amortiser leads (monthly-8 redeploy): p(H1|x,z) boxes keyed on item_label; map to
+#     item_label_long via the weekly-SVI grid so they dodge beside the classical methods. ---
+import glob as _glob
+_wk = _glob.glob(f"{_sandbox}/py-ukraine-interim-weekly-svi-260811/{file_prefix}_*_prob_by_question_fit.csv")
+_lab_map = (pd.read_csv(_wk[0])[['item_label', 'item_label_long']].drop_duplicates()
+            .set_index('item_label')['item_label_long'].to_dict()) if _wk else {}
+amortiser_box_paths = {
+    'Amortiser hand-token (itemXcompAtt)':
+        f"{_sandbox}/py-ukraine-interim-amortise-itemXcompAtt-monthly-260902-ftheadexpand-260809/{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pkl",
+    'Amortiser deepset (plain, Ukraine)':
+        f"{_sandbox}/py-ukraine-interim-amortise-deepsetXcompAtt-plain-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
+    'Amortiser deepset item-general (J64)':
+        f"{_sandbox}/py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
+}
+amortiser_methods = []
+for m, bp in amortiser_box_paths.items():
+    if not os.path.exists(bp):
+        print("MISSING amortiser box:", bp); continue
+    bs = pd.read_pickle(bp).copy()
+    bs['item_label_long'] = bs['item_label'].map(_lab_map)
+    bs['method'] = m
+    tmp.append(bs[['item_label_long', 'interim_month_year', 'q025', 'q25', 'q50', 'q75', 'q975', 'method']])
+    amortiser_methods.append(m)
 box_all = pd.concat(tmp, ignore_index=True)
 
-box_method_order = list(box_paths.keys())
+box_method_order = list(box_paths.keys()) + amortiser_methods
 box_all['method'] = pd.Categorical(box_all['method'], categories=box_method_order, ordered=True)
 box_all['interim_month_year'] = pd.Categorical(
     box_all['interim_month_year'], categories=interim_order, ordered=True)
@@ -265,6 +289,11 @@ def _boxplot_subset(methods, suffix):
     tmp['method'] = pd.Categorical(
         tmp['method'].astype(str), categories=methods, ordered=True,
     )
+    # dodge order follows the group-string sort, so prefix the method rank -> HMC (rank 0) leftmost
+    _mrank = {m: i for i, m in enumerate(methods)}
+    tmp['grp'] = (tmp['interim_month_year'].astype(str) + '|'
+                  + tmp['method'].map(_mrank).astype(int).astype(str).str.zfill(2) + '|'
+                  + tmp['method'].astype(str))
     sub_colors = {m: box_method_colors[m] for m in methods}
     p = (
         ggplot(tmp, aes(x='interim_month_year', fill='method'))
@@ -304,5 +333,7 @@ _boxplot_subset(
      'Regression endpt(x) on w(z) - mquantile'],
     'regression_methods',
 )
+if amortiser_methods:                                        # HMC gold-standard vs the amortiser leads
+    _boxplot_subset(['HMC'] + amortiser_methods, 'amortiser_methods')
 
 print("\n✓ method comparison complete")

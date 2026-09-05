@@ -37,7 +37,7 @@ from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehe
 SB = "/Users/or105/sandbox/bIRTistic"
 WK = f"{SB}/py-ukraine-interim-weekly-svi-260811"
 OUT_TAG = os.environ.get('PP_TAG', '260812')
-dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-ragged-priorproposal-{OUT_TAG}"
+dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-{OUT_TAG}"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 K_O7, K_CAT, C_CAT = 8, 4, 2
@@ -65,14 +65,28 @@ RAWPOOL = os.environ.get('PP_RAWPOOL', '0') == '1'       # explicit raw plug-in 
 PERPART = os.environ.get('PP_PERPART', '0') == '1'       # per-participant rho-mapping channels
 LINTAU = os.environ.get('PP_LINTAU', '0') == '1'         # linear (identity-capable) q_tau
 HEADRAW = os.environ.get('PP_HEADRAW', '0') == '1'       # inject raw (wb,we,ratio) at the head
-NET_KW = dict(num_quantiles=5, embed_dim=EMBED_DIM,
+# arbitrary decision-threshold experiments:
+#   PP_NQ    : number of quantile levels (Option 3: dense quantiles; default 5 = baseline)
+#   PP_ETA0  : 1 => Option 4, amortise eta_0 with a success-prob head P(rho>eta0|x,z),
+#              eta_0 (standardised) appended to aux, binary target, BCE loss.
+NQ = int(os.environ.get('PP_NQ', '5'))
+ETA0AM = os.environ.get('PP_ETA0', '0') == '1'
+# §14.4.9 transfer fine-tune knobs: warm-start from a checkpoint, M=3 metadata (add K/K_max),
+# single global sigma (so the deploy treats the net as item-amortised).
+INIT = os.environ.get('PP_INIT', '')
+META3 = os.environ.get('PP_META3', '0') == '1'
+GLOBSIG = os.environ.get('PP_GLOBSIG', '0') == '1'
+_num_q = 1 if ETA0AM else NQ
+_head_mode = 'successprob' if ETA0AM else HEAD_MODE
+NET_KW = dict(num_quantiles=_num_q, embed_dim=EMBED_DIM,
               q_tau_hidden=(EMBED_DIM, EMBED_DIM), q_tok_hidden=(EMBED_DIM, EMBED_DIM),
               q_query_hidden=(EMBED_DIM, EMBED_DIM), hidden_dims=HEAD_HIDDEN,
-              head_mode=HEAD_MODE, precision_pool=PREC_POOL, z_contrast=ZCON,
+              head_mode=_head_mode, precision_pool=PREC_POOL, z_contrast=ZCON,
               raw_pool=RAWPOOL, perpart_map=PERPART, linear_tau=LINTAU, head_raw=HEADRAW)
 print(f"CONFIG tag={OUT_TAG} sched={SCHEDULE} E={EMBED_DIM} head={HEAD_HIDDEN} "
       f"mode={HEAD_MODE} prec_pool={PREC_POOL} zcon={ZCON} dr={DR}")
-TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32)
+TAUS = (np.linspace(0.05, 0.95, NQ).astype(np.float32) if (NQ != 5 and not ETA0AM)
+        else np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32))
 
 # item metadata / directions (shared ordering)
 dit = pd.read_csv(f"{WK}/{file_prefix}_1_data_dit.csv")
@@ -82,7 +96,11 @@ items = (wa[['item_label', 'item_type', 'item_high_label']].drop_duplicates()
 J = len(items); labels = items.item_label.tolist()
 itype = items.item_type.map({'out-of-7': 0., 'categorical': 1.}).to_numpy(np.float32)
 ihigh = items.item_high_label.map({'higher_is_better': 1., 'lower_is_better': 0.}).to_numpy(np.float32)
-META = np.stack([itype, ihigh], -1).astype(np.float32)
+if META3:                                        # M=3: add K/K_max (K=8 out-of-7, 4 categorical)
+    _Karr = np.where(itype < .5, K_O7, K_CAT).astype(np.float32)
+    META = np.stack([itype, ihigh, _Karr / 10.0], -1).astype(np.float32)
+else:
+    META = np.stack([itype, ihigh], -1).astype(np.float32)
 o7 = np.flatnonzero(itype == 0.); ca = np.flatnonzero(itype == 1.)
 GROUPS = [(o7, K_O7), (ca, K_CAT)]
 
@@ -147,7 +165,11 @@ rng = np.random.default_rng(1)
 params_list = [draw_params(rng) for _ in range(400)]
 rhos = np.array([theta_level_rho(b, P) for b, P in params_list])   # (NP, J)
 sig = np.maximum(np.std(rhos, 0), 1e-3).astype(np.float32)
-np.save(f"{dir_out}/{file_prefix}_item_std.npy", sig)
+if GLOBSIG:                                      # single global sigma (item-amortised-style)
+    _sg = float(np.maximum(np.std(rhos), 1e-3)); sig = np.full(J, _sg, np.float32)
+    np.save(f"{dir_out}/{file_prefix}_item_std.npy", np.array([_sg], np.float32))
+else:
+    np.save(f"{dir_out}/{file_prefix}_item_std.npy", sig)
 os_slope = float('nan')
 if RUN_ORACLE:
     print("ORACLE: plug-in endpoint error vs n (prior params, theta-level target)")
@@ -226,7 +248,11 @@ def sample_batch(rng):
     qidx = rng.integers(0, J, size=(B, Q)).astype(np.int32)
     inv_m = np.where(mb > 0, 1 / np.sqrt(np.maximum(mb, 1)), 0.0)  # 0 flags "no future data"
     aux = np.stack([1/np.sqrt(nb), inv_m, nb/N_REF, mb/N_REF], -1).astype(np.float32)  # (B,4)
-    y = rho_b[np.arange(B)[:, None], qidx] / sig[qidx]
+    y = rho_b[np.arange(B)[:, None], qidx] / sig[qidx]            # standardised rho (B,Q)
+    if ETA0AM:                                                   # Option 4: amortise eta_0
+        eta0 = rng.uniform(-2.0, 2.0, B).astype(np.float32)      # standardised threshold, per example
+        aux = np.concatenate([aux, eta0[:, None]], -1)           # (B,5): eta_0 as last aux feature
+        y = (y > eta0[:, None]).astype(np.float32)               # binary success target (B,Q)
     return (dict(x_flat=jnp.asarray(x_flat), x_seg=jnp.asarray(x_seg),
                  z_flat=jnp.asarray(z_flat), z_seg=jnp.asarray(z_seg),
                  item_metadata=jnp.asarray(np.tile(META[None], (B, 1, 1))),
@@ -236,6 +262,9 @@ def sample_batch(rng):
 
 b0, y0 = sample_batch(rng)
 params = net.init(jax.random.PRNGKey(0), b0)
+if INIT:                                         # warm-start (transfer fine-tune from a pretrained net)
+    from amortiser_common import load_fitted_model as _lfm
+    params = _lfm(INIT)['params']; print(f"warm-started params from {INIT}")
 
 
 def interval_score(preds, y):
@@ -250,8 +279,26 @@ sched = optax.warmup_cosine_decay_schedule(1e-4, 1e-3, NET_STEPS // 10, NET_STEP
 opt = optax.adam(sched); ost = opt.init(params)
 
 
+_TAUS_J = jnp.asarray(TAUS)
+
+
+def pinball(preds, y):                             # general quantile loss over the TAUS grid
+    pr = jnp.maximum.accumulate(preds, -1)
+    d = y[..., None] - pr
+    return jnp.mean(jnp.maximum(_TAUS_J * d, (_TAUS_J - 1.0) * d))
+
+
+def bce(preds, y):                                 # binary cross-entropy for the success-prob head
+    p = jnp.clip(preds[..., 0], 1e-6, 1.0 - 1e-6)
+    return -jnp.mean(y * jnp.log(p) + (1.0 - y) * jnp.log(1.0 - p))
+
+
 def _loss(params, batch, y):
-    if PREG > 0:                                  # powerlaw exponent -> 1/2 (BvM) prior
+    if ETA0AM:                                     # Option 4: success-prob head
+        return bce(net.apply(params, batch), y)
+    if NQ != 5:                                    # Option 3: dense quantiles
+        return pinball(net.apply(params, batch), y)
+    if PREG > 0:                                   # powerlaw exponent -> 1/2 (BvM) prior
         out, st = net.apply(params, batch, mutable=['intermediates'])
         pe = st['intermediates']['p_exp'][0]
         return interval_score(out, y) + PREG * jnp.mean((pe - 0.5) ** 2)
@@ -278,6 +325,9 @@ fit = {'params': params, 'apply_fn': net.apply, 'net_class_name': type(net).__na
        'training_mins': mins, 'pps_ProbH1_lwr_quantiles_mesh': tuple(TAUS.tolist())}
 save_trained_model(fit, f"{dir_out}/{file_prefix}_amortised_pps_net.pkl")
 print(f"saved ({mins:.1f} min) -> {dir_out}")
+
+if ETA0AM:                     # success-prob head: the quantile-width probe below does not apply
+    raise SystemExit(0)
 
 
 # ---------- proposal-probe: width vs n (fresh prior draws, m fixed) ----------

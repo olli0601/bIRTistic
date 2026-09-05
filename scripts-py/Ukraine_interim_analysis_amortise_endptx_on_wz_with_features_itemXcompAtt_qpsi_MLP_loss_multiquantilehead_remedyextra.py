@@ -34,9 +34,9 @@ SB = "/Users/or105/sandbox/bIRTistic"
 # B = xcomp default; OUTB names the output dirs, RX_BASE the net to load.
 # Both parameterised so this script serves itemXcompAtt AND itemScompAtt
 # (same F=8 token schema; only the trained net differs).
-B = "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead"
+B = "py-ukraine-interim-amortise-itemXcompAtt"
 OUTB = os.environ.get('RX_OUTB', B)
-BASE = os.environ.get('RX_BASE', f"{SB}/{B}-260716")
+BASE = os.environ.get('RX_BASE', f"{SB}/{B}-net-260716")
 DO = set(os.environ.get('RX_DO', 'C1,C2,H').split(','))
 # net-specific pred cache tag (tokens are net-independent, preds are not)
 CTAG = os.environ.get('RX_CTAG', 'xcomp')
@@ -407,15 +407,42 @@ for k in INTERIMS:
         _ppsrows.append(dict(interim_id=k, n=_n, item_label=labels[j],
                              pps=float(np.mean(ph1 > _ETAH)), eta0=_ETA0, etaH=_ETAH,
                              method=f"handtoken-{CTAG}"))
-os.makedirs(f"{SB}/{OUTB}_ftheadexpand_260809", exist_ok=True)
-pd.DataFrame(_ppsrows).to_csv(f"{SB}/{OUTB}_ftheadexpand_260809/{file_prefix}_pps_RGEG_pps_by_item.csv", index=False)
+os.makedirs(f"{SB}/{OUTB}-ftheadexpand-260809", exist_ok=True)
+pd.DataFrame(_ppsrows).to_csv(f"{SB}/{OUTB}-ftheadexpand-260809/{file_prefix}_pps_RGEG_pps_by_item.csv", index=False)
 print(f"  wrote PPS by item, eta0={_ETA0} etaH={_ETAH} -> handtoken-{CTAG}")
-save(f"{OUTB}_ftheadexpand_260809", *diag_H(), "head-ft expanding 1..k")
+
+# p(H1|x,z) boxplot pkl (cross-method comparison, §14.5): quantiles of p(H1|x,z^s) over
+# future draws s, keyed on item_label + interim_month_year (dodge beside SVI/HMC/IS).
+_MONTHYR = {}
+for k in INTERIMS:
+    try:
+        _dt = pd.to_datetime(pd.read_csv(f"{DIR_RGE}/{file_prefix}_{k}_data_dp1.csv",
+                                         usecols=['submission_date'])['submission_date'],
+                             errors='coerce', utc=True).max()
+        _MONTHYR[k] = _dt.strftime('%Y-%b') if pd.notna(_dt) else f"interim {k}"
+    except Exception:
+        _MONTHYR[k] = f"interim {k}"
+_boxrows = []
+for k in INTERIMS:
+    _n = int(round(float(np.asarray(CELL[k]['aux'])[0, 0]) * N_FULL))
+    for j in range(J):
+        q = HK[k][:, j, :]
+        ph1 = 1.0 - np.array([np.interp(_ETA0, q[s], TAUS, 0.0, 1.0) for s in range(q.shape[0])])
+        ph1 = ph1[np.isfinite(ph1)]
+        if ph1.size < 5:
+            continue
+        qq = np.percentile(ph1, [2.5, 25, 50, 75, 97.5])
+        _boxrows.append(dict(item_label=labels[j], interim_id=k, interim_month_year=_MONTHYR[k],
+                             n=_n, q025=qq[0], q25=qq[1], q50=qq[2], q75=qq[3], q975=qq[4],
+                             eta0=_ETA0, method=f"handtoken-{CTAG}"))
+pd.DataFrame(_boxrows).to_pickle(f"{SB}/{OUTB}-ftheadexpand-260809/{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pkl")
+print(f"  wrote p(H1|x,z) boxplot pkl ({len(_boxrows)} rows, eta0={_ETA0})")
+save(f"{OUTB}-ftheadexpand-260809", *diag_H(), "head-ft expanding 1..k")
 
 # §14.4.25 comparison plots (shared module -> same figures as the deepset deploy)
 from amortiser_diag_plots import all_plots
 NOBS = {k: int(round(float(np.asarray(CELL[k]['aux'])[0, 0]) * N_FULL)) for k in INTERIMS}
 all_plots(lambda k: HK[k], lambda k: CELL[k]['tgt'], lambda k: NOBS[k],
-          labels, INTERIMS, np.asarray(TAUS), f"{SB}/{OUTB}_ftheadexpand_260809", file_prefix,
+          labels, INTERIMS, np.asarray(TAUS), f"{SB}/{OUTB}-ftheadexpand-260809", file_prefix,
           "RGEG", "CG-VIO_ph-punish")
 print("Remedy-extra complete.")

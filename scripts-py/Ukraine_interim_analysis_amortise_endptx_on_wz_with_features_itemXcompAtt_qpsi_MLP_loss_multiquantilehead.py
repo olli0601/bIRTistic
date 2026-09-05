@@ -92,7 +92,7 @@ DIR_RGE = os.path.join(
 )
 dir_out = os.environ.get('UKR_DIR', os.path.join(
     "/Users/or105/sandbox/bIRTistic",
-    "py-ukraine-interim-amortise-endptx-on-wz-with-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead-260716",
+    "py-ukraine-interim-amortise-itemXcompAtt-net-260716",
 ))
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")

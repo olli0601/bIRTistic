@@ -86,6 +86,7 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
     #   Tests whether the z-signal dies in the token->attention path or at the
     #   head itself (raw_pool routes it through the token; this routes it direct).
     head_raw: bool = False
+    head_scale: bool = False   # §14.4.9: inject a data-driven per-item scale (endpoint-change SD) at the head
     default_pps_ProbH1_lwr_quantiles_mesh: tuple = (0.05, 0.25, 0.5, 0.75, 0.95)
 
     def setup(self):
@@ -134,6 +135,15 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
         cnt = jnp.maximum(cnt, 1.0)
         return jax.ops.segment_sum(flat, seg, num_segments=B) / cnt
 
+    def _change_std(self, flat, seg, B):
+        """Per-item SD of the per-participant endpoint change (endline-baseline): (B, J, 1).
+        A data-driven per-item scale signal (proxy for the effect sigma)."""
+        ch = (flat[..., 1] - flat[..., 0])[..., None]               # (T, J, 1)
+        cnt = jnp.maximum(jax.ops.segment_sum(jnp.ones_like(ch), seg, num_segments=B), 1.0)
+        m = jax.ops.segment_sum(ch, seg, num_segments=B) / cnt
+        m2 = jax.ops.segment_sum(ch ** 2, seg, num_segments=B) / cnt
+        return jnp.sqrt(jnp.maximum(m2 - m ** 2, 0.0))              # (B, J, 1)
+
     def __call__(self, batch):
         meta = batch['item_metadata']                        # (B, J, M)
         B, J = meta.shape[0], meta.shape[1]
@@ -178,13 +188,18 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
             rawf = jnp.concatenate([rx, rz, ratx, ratz, ratz - ratx], axis=-1)  # (B,J,7)
             gidx = jnp.broadcast_to(qidx[:, :, None], (B, Q, rawf.shape[-1]))
             parts.append(jnp.take_along_axis(rawf, gidx, axis=1))              # (B,Q,7)
-        head_in = jnp.concatenate(parts, axis=-1)            # (B, Q, E+E+A[+7])
+        if self.head_scale:                                  # data-driven per-item scale at the head
+            sc = self._change_std(batch['x_flat'], batch['x_seg'], B)          # (B,J,1)
+            parts.append(jnp.take_along_axis(sc, jnp.broadcast_to(qidx[:, :, None], (B, Q, 1)), axis=1))
+        head_in = jnp.concatenate(parts, axis=-1)            # (B, Q, E+E+A[+7][+1])
         # expose for head-only recalibration (§14.2.5)
         self.sow('intermediates', 'head_in', head_in)
         raw = self.q_psi(head_in)                            # (B, Q, num_quantiles)
 
         if self.head_mode == 'plain':
             return raw
+        if self.head_mode == 'successprob':                  # P(rho > eta0 | x, z); eta0 is the
+            return jax.nn.sigmoid(raw)                        # last aux feature (num_quantiles=1)
         # precision feature = 1/sqrt(n) (aux[...,0]); requires aux present
         prec = aux_b[..., 0:1]                               # (B, Q, 1) = n^{-1/2}
         zq = jnp.asarray([-1.6449, -0.6745, 0.0, 0.6745, 1.6449])[:self.num_quantiles]

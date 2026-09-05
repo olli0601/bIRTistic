@@ -41,7 +41,7 @@ from model_pcm import PartialCreditModel
 
 SB = "/Users/or105/sandbox/bIRTistic"
 WK = f"{SB}/py-ukraine-interim-weekly-svi-260811"
-dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-ragged-qpsi-MLP-loss-multiquantilehead-260812"
+dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-net-260812"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 ANCHOR = 4                 # weekly interim, n=57 (~11%, nearest existing to 15%)
