@@ -1,0 +1,23 @@
+{
+  "name": "run-block-to-marker",
+  "displayName": "Run Block To Marker",
+  "description": "Run the code block bounded by '# ----' (or '# %%') markers in the Python terminal.",
+  "publisher": "local",
+  "version": "0.0.1",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      { "command": "runBlockToMarker.run", "title": "Run Block To Marker In Terminal" }
+    ],
+    "keybindings": [
+      {
+        "command": "runBlockToMarker.run",
+        "key": "cmd+shift+enter",
+        "when": "editorTextFocus && editorLangId == python"
+      }
+    ]
+  }
+}

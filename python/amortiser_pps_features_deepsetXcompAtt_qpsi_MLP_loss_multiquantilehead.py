@@ -65,6 +65,15 @@ class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.
     embed_dim: int = 32
     hidden_dims: tuple = (64, 64)
     num_quantiles: int = 5
+    # §14.4.7 parametric contraction heads carried into the MVN sanity case
+    # (§13.8). 'plain' returns raw quantiles; 'powerlaw' (A) rebuilds them as a
+    # fixed-shape Gaussian predictive of width C*n^{-p}; 'floor' (C) uses
+    # sqrt(a^2 + b^2/n). n is recovered from aux[...,0] = n / n_max, so the
+    # learned (C, p) live on the TRUE n-scale and compare directly with the
+    # closed-form contraction law. BvM here is exact (Gaussian), so A should
+    # recover p ~ 1/2 and C the plateau-free floor a ~ 0.
+    head_mode: str = 'plain'                    # 'plain' | 'powerlaw' | 'floor'
+    n_max: float = 1050.0                        # aux[...,0] == n / n_max
     default_pps_ProbH1_lwr_quantiles_mesh: tuple = (
         0.05, 0.25, 0.5, 0.75, 0.95,
     )
@@ -129,4 +138,24 @@ class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         # (§14.2.5) can fine-tune q_psi on cached embeddings without
         # re-running the encoder. Params are unchanged by sow.
         self.sow('intermediates', 'head_in', head_in)
-        return self.q_psi(head_in)                              # (B, num_quantiles)
+        raw = self.q_psi(head_in)                               # (B, num_quantiles)
+
+        if self.head_mode == 'plain':
+            return raw
+        # §14.4.7 parametric contraction heads. aux[...,0] == n / n_max, so
+        # recover n and form prec = n^{-1/2}; the fixed z-quantile multipliers
+        # rebuild a Gaussian predictive whose width follows the BvM law. The
+        # learned (C, p) / (a, b) then live on the TRUE n-scale.
+        n = jnp.maximum(aux[..., 0:1] * self.n_max, 1.0)        # (B, 1)
+        prec = n ** -0.5                                        # (B, 1) = n^{-1/2}
+        zq = jnp.asarray([-1.6449, -0.6745, 0.0, 0.6745, 1.6449])[:self.num_quantiles]
+        zq = zq[None, :]
+        if self.head_mode == 'powerlaw':                       # width = C * n^{-p}
+            m = raw[..., 0:1]; C = jax.nn.softplus(raw[..., 1:2])
+            p = jax.nn.sigmoid(raw[..., 2:3])                  # p in (0,1)
+            self.sow('intermediates', 'p_exp', p)              # toward-1/2 regulariser hook
+            return m + zq * (C * prec ** (2.0 * p))            # prec^{2p} = n^{-p}
+        if self.head_mode == 'floor':                          # width = sqrt(a^2 + b^2/n)
+            m = raw[..., 0:1]; a = jax.nn.softplus(raw[..., 1:2]); b = jax.nn.softplus(raw[..., 2:3])
+            return m + zq * jnp.sqrt(a ** 2 + (b * prec) ** 2)
+        return raw

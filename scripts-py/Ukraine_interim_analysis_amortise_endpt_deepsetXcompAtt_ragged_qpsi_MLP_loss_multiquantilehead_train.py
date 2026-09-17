@@ -20,6 +20,8 @@ Then a proposal-probe: does predicted 90% width now contract with n on
 held-out proposal draws (slope -> -0.5)? That is the checkpoint before
 the deployment test.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import time

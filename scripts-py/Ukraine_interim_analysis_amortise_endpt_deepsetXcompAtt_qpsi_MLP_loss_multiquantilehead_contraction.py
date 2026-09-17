@@ -23,6 +23,8 @@ Log-log slope of W vs n estimates the contraction rate (Bernstein-von
 Mises: ~ -1/2). Matching slopes (W_marg vs W_svi) => encoder learned
 contraction. Outputs into the deepset baseline dir.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import glob

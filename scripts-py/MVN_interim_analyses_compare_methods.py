@@ -128,6 +128,10 @@ DIR_RGDX = os.path.join(
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
     "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803",
 )
+# §13.8: deepsetXcompAtt with the §14.4.6/§14.4.7 deployment calibration stack
+# (expanding head-ft + affine shift; parametric A power-law / C floor heads +
+# BvM self-consistency correction). Deepset J=20 only.
+DIR_BVM = os.path.join(_sandbox, "py-mvn-interim-amortise-deepsetXcompAtt-bvm-260914")
 DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
@@ -146,15 +150,26 @@ LBL_RGED  = 'Amortiser-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead'
 LBL_RGEF  = 'Amortiser-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead'
 LBL_RGDS  = 'Amortiser-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead'
 LBL_RGDX  = 'Amortiser-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead'
+# §13.8 deployment-calibrated deepsetXcompAtt (J=20 only).
+LBL_RGXP  = 'deepsetXcompAtt plain + affine (§14.4.6)'
+LBL_RGXA  = 'deepsetXcompAtt A power-law + BvM (§14.4.7)'
+LBL_RGXC  = 'deepsetXcompAtt C floor + BvM (§14.4.7)'
 
 non_amort_methods = [LBL_HMC, LBL_IS, LBL_RGE, LBL_RGEQ, LBL_RGEM]
 # RGEB (features-MLP idcomp) dropped: undertrained on MVN scale (§13.2).
 amort_focus_methods = [LBL_RGE, LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+# §13.8 dedicated deepset deployment-calibration comparison (J=20 only): the
+# ground-truth reference (analytic added inside the plot helpers) + HMC + the
+# raw deepset + the three calibrated variants.
+bvm_focus_methods = [LBL_HMC, LBL_RGDX, LBL_RGXP, LBL_RGXA, LBL_RGXC]
+_bvm_methods = [LBL_RGXP, LBL_RGXA, LBL_RGXC]
 timing_methods = non_amort_methods + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
 
 # Ordered union used to derive the global palette so the same method reuses
 # the same colour on every plot.
-_all_methods = non_amort_methods + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+_all_methods = (non_amort_methods
+                + [LBL_RGEA, LBL_RGEC, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX]
+                + _bvm_methods)
 method_colours = dict(zip(_all_methods, _futurama_palette(len(_all_methods))))
 # Analytic drawn as white fill + black outline so it reads as ground-truth
 # reference, not a competing estimate.
@@ -195,6 +210,15 @@ training_mins_by_method = {
     ),
     LBL_RGDX: _load_training_mins(
         os.path.join(DIR_RGDX, 'mvn_interim_amortised_pps_net.pkl')
+    ),
+    LBL_RGXP: _load_training_mins(
+        os.path.join(DIR_RGDX, 'mvn_interim_amortised_pps_net.pkl')   # plain reuses 260803 net
+    ),
+    LBL_RGXA: _load_training_mins(
+        os.path.join(DIR_BVM, 'mvn_interim_amortised_pps_net_powerlaw.pkl')
+    ),
+    LBL_RGXC: _load_training_mins(
+        os.path.join(DIR_BVM, 'mvn_interim_amortised_pps_net_floor.pkl')
     ),
 }
 for lbl in non_amort_methods:
@@ -554,6 +578,9 @@ for J in J_GRID:
 
     rgds_p, rgds_pps, rgds_timing = _read_slice_optional(DIR_RGDS, 'RGDS')
     rgdx_p, rgdx_pps, rgdx_timing = _read_slice_optional(DIR_RGDX, 'RGDX')
+    rgxp_p, rgxp_pps, rgxp_timing = _read_slice_optional(DIR_BVM, 'RGXP')
+    rgxa_p, rgxa_pps, rgxa_timing = _read_slice_optional(DIR_BVM, 'RGXA')
+    rgxc_p, rgxc_pps, rgxc_timing = _read_slice_optional(DIR_BVM, 'RGXC')
 
     p_h1_xz = pd.concat(
         [
@@ -570,6 +597,9 @@ for J in J_GRID:
             rgef_p.assign(method=LBL_RGEF),
             *([rgds_p.assign(method=LBL_RGDS)] if rgds_p is not None else []),
             *([rgdx_p.assign(method=LBL_RGDX)] if rgdx_p is not None else []),
+            *([rgxp_p.assign(method=LBL_RGXP)] if rgxp_p is not None else []),
+            *([rgxa_p.assign(method=LBL_RGXA)] if rgxa_p is not None else []),
+            *([rgxc_p.assign(method=LBL_RGXC)] if rgxc_p is not None else []),
         ],
         ignore_index=True,
     )
@@ -590,6 +620,9 @@ for J in J_GRID:
             rgef_pps.assign(method=LBL_RGEF),
             *([rgds_pps.assign(method=LBL_RGDS)] if rgds_pps is not None else []),
             *([rgdx_pps.assign(method=LBL_RGDX)] if rgdx_pps is not None else []),
+            *([rgxp_pps.assign(method=LBL_RGXP)] if rgxp_pps is not None else []),
+            *([rgxa_pps.assign(method=LBL_RGXA)] if rgxa_pps is not None else []),
+            *([rgxc_pps.assign(method=LBL_RGXC)] if rgxc_pps is not None else []),
         ],
         ignore_index=True,
     )
@@ -607,6 +640,9 @@ for J in J_GRID:
             rgef_timing.assign(method=LBL_RGEF),
             *([rgds_timing.assign(method=LBL_RGDS)] if rgds_timing is not None else []),
             *([rgdx_timing.assign(method=LBL_RGDX)] if rgdx_timing is not None else []),
+            *([rgxp_timing.assign(method=LBL_RGXP)] if rgxp_timing is not None else []),
+            *([rgxa_timing.assign(method=LBL_RGXA)] if rgxa_timing is not None else []),
+            *([rgxc_timing.assign(method=LBL_RGXC)] if rgxc_timing is not None else []),
         ],
         ignore_index=True,
     )
@@ -726,6 +762,19 @@ for J in J_GRID:
         ),
         width_scale=1.4,
     )
+
+    # ---- §13.8 deepset deployment-calibration focus (J=20 only): raw deepset
+    # ---- vs plain+affine / A power-law+BvM / C floor+BvM, against analytic+HMC ----
+    if rgxa_p is not None:
+        _boxplot_p_h1_xz(
+            box_stats, bvm_focus_methods, response_label_cats, n_per_level,
+            os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_bvm.pdf'),
+        )
+        _pps_bars(
+            pps_g_ci, bvm_focus_methods, n_per_level,
+            os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_pps_bvm.pdf'),
+            width_scale=1.4,
+        )
 
     # ---- Timing: leftmost training slot + per-interim deploy only ----
     _timing_bars(

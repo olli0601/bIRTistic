@@ -28,6 +28,7 @@ it, x is held fixed); forward the net; corr(median_s, rho^(s)) per item-type.
 Because x is fixed, the median varies only through the encoder's z-response, so
 the correlation is exactly the z-tracking measured in §14.4.18.
 """
+# ---- boilerplate ----
 
 import os
 import sys

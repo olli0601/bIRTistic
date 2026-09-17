@@ -34,7 +34,7 @@ Outputs (``_RGDX_`` suffix):
 Usage:
     cd /Users/or105/git/bIRTistic
     PYTHONUNBUFFERED=1 pixi run python -u \
-      scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead.py
+      scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead.py
 """
 
 # %%

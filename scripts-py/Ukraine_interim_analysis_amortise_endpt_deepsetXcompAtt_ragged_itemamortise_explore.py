@@ -10,6 +10,8 @@ a single GLOBAL sigma, and the power-law head learns per-item scale C_j. head_mo
 Deploy the trained net on any application's items (2..JMAX) via the §14.4.6 head-ft + affine
 and §14.4.7 BvM correction re-fit to that application's SVI.
 """
+# ---- boilerplate ----
+
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 import numpy as np, jax, jax.numpy as jnp, optax

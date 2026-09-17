@@ -6,6 +6,8 @@ the cycle enters as the `time` covariate with shared (anchored) item difficultie
 PISA trend model. Dichotomous Math items only (mixing K collapses mean-field SVI).
 NOTE: 2012 is paper, 2015+ computer -> the 2012->cycle step carries a mode effect.
 Per interim writes dp1.csv, draws.zarr, i{k}_regression_training.pkl, {k}_data_dit.csv."""
+# ---- boilerplate ----
+
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 import numpy as np, pandas as pd

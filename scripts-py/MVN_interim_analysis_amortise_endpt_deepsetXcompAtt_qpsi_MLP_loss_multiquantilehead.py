@@ -24,7 +24,7 @@ loader alongside the idcomp + xcomp variants):
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/MVN_interim_analysis_amortise_endptx_on_wz_with_features_MLP_xcompAtt_qpsi_MLP_loss_multiquantilehead.py
+    pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_MLP_xcompAtt_qpsi_MLP_loss_multiquantilehead.py
 """
 
 # %%

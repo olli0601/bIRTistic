@@ -4,6 +4,8 @@ burger = baseline (time 0), powder = endline (time 1); each respondent in one ar
 Endpoint rho_j = relative shift powder-vs-burger. Items: Acceptance (A1-A4),
 Disgust (D1-D4), Perceived naturalness (PN); all 7-point -> 'out-of-7' expected score.
 Per interim writes dp1.csv, draws.zarr, i{k}_regression_training.pkl, 1_data_dit.csv."""
+# ---- boilerplate ----
+
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 import numpy as np, pandas as pd

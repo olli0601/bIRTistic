@@ -20,6 +20,8 @@ because training conditions on BOTH cohorts (n + m = N always identifies
 the full-population endpoint). So this run also tells us whether the
 n-signal exists to be learned at all.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import time

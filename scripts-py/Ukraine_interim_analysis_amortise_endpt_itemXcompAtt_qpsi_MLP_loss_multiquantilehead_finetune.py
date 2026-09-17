@@ -25,6 +25,7 @@ Usage (B2-alt, head-only, fit interim 1):
     FT_BASE_DIR=<prior_dir> FT_DIR=<out_dir> FT_FREEZE=encoders FT_FIT=1 \
     pixi run python -u scripts-py/..._finetune.py
 """
+# ---- boilerplate ----
 
 import os
 import sys

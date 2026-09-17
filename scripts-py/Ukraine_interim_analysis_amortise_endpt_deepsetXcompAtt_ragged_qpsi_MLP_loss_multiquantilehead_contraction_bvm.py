@@ -6,6 +6,8 @@ width vs n, against the SVI truth), and (b) interim-1-only head fine-tune
 coverage at all interims. Success = W_marg slope -> ~ -0.59 and i1-only
 head-ft near-nominal everywhere.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import glob
@@ -27,6 +29,7 @@ from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point, geom_smoo
                       scale_color_cmap, scale_linetype_manual, scale_color_manual,
                       scale_fill_manual, scale_fill_gradient2)
 from amortiser_common import load_fitted_model
+import amortiser_calibration as cal          # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
 from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
     Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net, _MLP)
 from model_pcm import PartialCreditModel
@@ -221,21 +224,10 @@ print(f"head-ft mode={HEAD_MODE}  aux_dim={A_AUX}")
 
 
 def _transform(raw, hd, prec):
-    """standardised quantiles from q_psi raw output, per head_mode. hd is the
-    head_in (its aux tail feeds the factored width-scaler)."""
-    if HEAD_MODE == 'semiparam':                 # m + zq*softplus(s)*(1/sqrt n)
-        return raw[..., 0:1] + ZQ[None, :] * jax.nn.softplus(raw[..., 1:2]) * prec
-    if HEAD_MODE == 'factored':                  # med + (raw-med)*g(aux), g frozen
-        med = raw[..., len(TAUS) // 2:len(TAUS) // 2 + 1]
-        g = jax.nn.softplus(g_head.apply(g_params, hd[..., -A_AUX:]))
-        return med + (raw - med) * g
-    if HEAD_MODE == 'powerlaw':                  # m + zq*C*n^{-p}, learned C,p
-        m = raw[..., 0:1]; C = jax.nn.softplus(raw[..., 1:2]); p = jax.nn.sigmoid(raw[..., 2:3])
-        return m + ZQ[None, :] * (C * prec ** (2.0 * p))
-    if HEAD_MODE == 'floor':                     # m + zq*sqrt(a^2 + b^2/n)
-        m = raw[..., 0:1]; a = jax.nn.softplus(raw[..., 1:2]); b = jax.nn.softplus(raw[..., 2:3])
-        return m + ZQ[None, :] * jnp.sqrt(a ** 2 + (b * prec) ** 2)
-    return jnp.maximum.accumulate(raw, -1)       # plain: monotone cummax
+    """Deploy-side head map (shared `amortiser_calibration.head_transform`); `hd`
+    feeds the factored width-scaler's aux tail."""
+    return cal.head_transform(raw, prec, HEAD_MODE, zq=ZQ, hd=hd,
+                              g_head=g_head, g_params=g_params, a_aux=A_AUX)
 
 
 def pinball(params, hd, y, prec):                # prec: (N,1) per-row 1/sqrt(n)
@@ -358,28 +350,7 @@ else:                                            # interim-1(anchor)-only, reuse
 # quantiles by Delta_j is a pure location move -> removes the offset without touching the
 # (already-good) spread. On by default; RAGD_MEDSHIFT=0 disables it (ablation).
 if os.environ.get('RAGD_MEDSHIFT', '1') == '1':
-    def _margmed(qs):                            # marginal (mixture) median, real scale
-        lo, hi = float(qs.min()), float(qs.max())
-        if hi <= lo:
-            return float(np.median(qs))
-        gr = np.linspace(lo, hi, 200); F = np.zeros_like(gr)
-        for s in range(qs.shape[0]):
-            F += np.interp(gr, qs[s], TAUS, 0., 1.)
-        return float(np.interp(0.5, F / qs.shape[0], gr))
-    resid = {}                                   # residual per (interim, item), unshifted HK
-    for k in INTERIMS:
-        rj = np.full(J, np.nan)
-        for j in range(J):
-            y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
-            if yv.size >= 10:
-                rj[j] = np.median(yv) - _margmed(HK[k][ok, j, :])
-        resid[k] = rj
-    ks_sorted = sorted(INTERIMS)
-    HK0 = {k: HK[k] for k in INTERIMS}           # freeze the unshifted preds for residuals
-    for k in ks_sorted:
-        dj = np.nan_to_num(np.nanmean(
-            np.stack([resid[i] for i in ks_sorted if i <= k]), axis=0))   # (J,)
-        HK[k] = HK0[k] + dj[None, :, None]
+    HK = cal.affine_median_shift(HK, TGT, INTERIMS, taus=TAUS)   # shared §14.4.6 shift
     print("  applied per-item expanding median-shift (default; RAGD_MEDSHIFT=0 to disable)")
 else:
     HLABEL = HLABEL.replace('(ragged)', '-noshift(ragged)')
@@ -443,32 +414,7 @@ if os.environ.get('RAGD_SPLITB', '0') == '1':
 # W_true + B* = T exactly. Intrinsically justified for the power-law/floor heads. RAGD_BVM=1.
 if os.environ.get('RAGD_BVM', '0') == '1':
     print("  §14.4.26 BvM between-first correction (per-item SVI power-law targets) ...")
-    Cj = np.full(J, np.nan); pj = np.full(J, np.nan)          # per-item marginal power law
-    for j in range(J):
-        ns, sds = [], []
-        for k in INTERIMS:
-            yv = TGT[k][:, j]; yv = yv[np.isfinite(yv)]
-            if yv.size >= 10 and np.std(yv) > 1e-9:
-                ns.append(NOBS[k]); sds.append(np.std(yv))
-        if len(ns) >= 3:
-            b = np.polyfit(np.log(ns), np.log(sds), 1); pj[j] = -b[0]; Cj[j] = float(np.exp(b[1]))
-    HKV = {}
-    for k in INTERIMS:
-        n = NOBS[k]; Hk = HK[k].copy()
-        for j in range(J):
-            if not np.isfinite(Cj[j]):
-                continue
-            C, p = Cj[j], pj[j]
-            T = (C * n ** (-p)) ** 2                          # marginal var target
-            Wt = (C * N_REF ** (-p)) ** 2                     # conditional var (n+m = N_REF)
-            Bs = max(T - Wt, 0.0)                             # non-spurious between (>=0)
-            qs = HK[k][:, j, :]; mu = qs[:, 2]; mub = float(mu.mean())
-            sg = (qs[:, 4] - qs[:, 0]) / 3.2897
-            W = float(np.mean(sg ** 2)); B = float(np.var(mu))
-            a = np.sqrt(Wt / W) if W > 1e-12 else 1.0
-            be = np.sqrt(Bs / B) if B > 1e-12 else 0.0
-            Hk[:, j, :] = (mub + be * (mu - mub))[:, None] + a * (qs - mu[:, None])
-        HKV[k] = Hk
+    HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_REF)   # shared §14.4.7 correction
     MARGSRC = HKV
     HLABEL = HLABEL.replace('(ragged)', '+bvm(ragged)')
 

@@ -11,6 +11,8 @@ Run on the contraction-retrained net (aux-dim-4, AUX_SQRT=1). Success =
 near-nominal coverage at ALL interims from the single interim-1 fit
 (previously, on the base net, i1-only fixed i1 but drifted elsewhere).
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import warnings

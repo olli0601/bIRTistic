@@ -33,7 +33,7 @@ Outputs (in the main script's output dir):
 Usage:
     cd /Users/or105/git/bIRTistic
     PYTHONUNBUFFERED=1 pixi run python -u \
-      scripts-py/Ukraine_interim_analysis_amortise_endptx_on_wz_with_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead_tests.py
+      scripts-py/Ukraine_interim_analysis_amortise_endpt_itemXcompAtt_qpsi_MLP_loss_multiquantilehead_tests.py
 """
 
 # %%

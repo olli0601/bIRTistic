@@ -104,6 +104,88 @@ def make_factor_chol(J: int, r: int = 5, psi: float = 0.1,
     return np.linalg.cholesky(K).astype(np.float64)
 
 
+def make_block_equicorr_chol_anyJ(J: int, block_size: int = 10,
+                                  rho_w: float = 0.8, rho_b: float = 0.1) -> np.ndarray:
+    """Divisor-safe block-equicorrelation Cholesky for ANY J >= 1 (§3.3.1 Cell B,
+    generalised for the amortise-over-J experiment). Blocks of ``block_size`` with a
+    ragged final block; for J < block_size a single equicorrelation block. Unit
+    diagonal, intra-block ``rho_w``, inter-block ``rho_b``; PSD for 0 <= rho_b <=
+    rho_w <= 1 regardless of block sizes."""
+    bs = min(block_size, J)
+    K = np.full((J, J), rho_b, dtype=np.float64)
+    i = 0
+    while i < J:
+        j = min(i + bs, J)
+        K[i:j, i:j] = rho_w
+        i = j
+    np.fill_diagonal(K, 1.0)
+    return np.linalg.cholesky(K).astype(np.float64)
+
+
+def sample_ragged_block_equicorr(rng, S, J, *, n_max, prior_tau, sigma,
+                                 mu_0_baseline=1.0, rho_w=0.8, rho_b=0.1,
+                                 block_size=10, n_min=1, fixed_total=True,
+                                 m_min=0, m_max=None, n_dist='uniform',
+                                 queries_per_sample=4):
+    """Standalone ragged prior-predictive sampler at a GIVEN J with a FIXED
+    block-equicorrelation K (§3.3.1 Cell B), for the amortise-over-J training loop
+    (§3.3.1 goal: one net over J in [2, 100], K structure fixed, only J varies).
+
+    Same ragged batch schema as
+    :meth:`MVNModel.make_training_data_ragged_random_K` (flat segmented participant
+    axis, B = S cohorts x Q queries, aux = (n^-1/2, m^-1/2, n/N, m/N), constant item
+    metadata). K is deterministic given (J, rho_w, rho_b); mu is drawn from the
+    g-prior MVN(mu_0, prior_tau^2 K) per cohort. Not bound to a fixed-J MVNModel so
+    it can be called per gradient step at a fresh J without model re-instantiation.
+    """
+    Q = int(queries_per_sample)
+    K_chol = make_block_equicorr_chol_anyJ(J, block_size, rho_w, rho_b)
+    prior_mu = np.full(J, mu_0_baseline, dtype=np.float64)
+    if n_dist == 'uniform':
+        n = rng.integers(n_min, n_max, size=S)
+    elif n_dist == 'log_uniform':
+        n = np.exp(rng.uniform(np.log(max(n_min, 1)), np.log(n_max), size=S)).astype(np.int64)
+        n = np.clip(n, n_min, n_max - 1)
+    else:
+        raise ValueError(f"unknown n_dist={n_dist!r}")
+    if fixed_total:
+        m = (n_max - n).astype(np.int64)
+    else:
+        m = rng.integers(m_min, (m_max or n_max) + 1, size=S).astype(np.int64)
+    n = n.astype(np.int64)
+
+    x_parts, x_seg, z_parts, z_seg = [], [], [], []
+    qidx = np.empty((S, Q), np.int32); aux = np.empty((S, 4), np.float32)
+    rho = np.empty((S, Q), np.float32)
+    for s in range(S):
+        mu_s = prior_mu + prior_tau * (K_chol @ rng.standard_normal(J))
+        ns, ms = int(n[s]), int(m[s])
+        Yx = mu_s[None, :] + sigma * (rng.standard_normal((ns, J)) @ K_chol.T)
+        x_parts.append(Yx.astype(np.float32)); x_seg.append(np.full(ns, s, np.int32))
+        if ms > 0:
+            Yz = mu_s[None, :] + sigma * (rng.standard_normal((ms, J)) @ K_chol.T)
+            z_parts.append(Yz.astype(np.float32)); z_seg.append(np.full(ms, s, np.int32))
+        js = rng.integers(0, J, size=Q); qidx[s] = js
+        aux[s] = [1.0 / np.sqrt(ns), 1.0 / np.sqrt(max(ms, 1)), ns / n_max, ms / n_max]
+        rho[s] = (mu_s[js] - mu_0_baseline).astype(np.float32)
+    x_flat = np.concatenate(x_parts, 0)[..., None]
+    z_flat = (np.concatenate(z_parts, 0)[..., None] if z_parts
+              else np.zeros((0, J, 1), np.float32))
+    return (
+        {
+            'x_flat':        x_flat.astype(np.float32),
+            'x_seg':         np.concatenate(x_seg).astype(np.int32),
+            'z_flat':        z_flat.astype(np.float32),
+            'z_seg':         (np.concatenate(z_seg).astype(np.int32) if z_seg
+                              else np.zeros((0,), np.int32)),
+            'item_metadata': np.ones((S, J, 1), np.float32),
+            'query_idx':     qidx,
+            'aux':           aux,
+        },
+        rho,
+    )
+
+
 def sample_random_K_chol(rng, J, families=None):
     """Draw a random K_chol from a mixture of standard families.
 
@@ -1235,6 +1317,98 @@ class MVNModel(Model):
                     [sizes, k_diag.reshape(B, 1).astype(np.float32)],
                     axis=-1,
                 ).astype(np.float32),
+            },
+            rho,
+        )
+
+    def make_training_data_ragged_random_K(
+        self,
+        rng: np.random.Generator,
+        S: int,
+        *,
+        n_max: int,
+        n_min: int = 1,
+        fixed_total: bool = True,
+        m_min: int = 0,
+        m_max: int = None,
+        n_dist: str = 'uniform',
+        queries_per_sample: int = 4,
+        K_families=None,
+    ):
+        """RAGGED-participant-axis prior-predictive sampler for the
+        ``deepsetXcompAtt_ragged`` amortiser (§14.4.3). Same prior draws and
+        target as :meth:`make_training_data_with_participant_tokens_random_K`,
+        but participants are concatenated into a flat segmented axis (no
+        padding / no mask), and each prior draw contributes ONE batch element
+        that carries ``Q`` queried components.
+
+        Item metadata is left non-informative (constant): correlations are
+        learned from the raw pooled per-item responses + item cross-attention,
+        as in the Ukraine deepset (§14.4.3) -- the K-row hand feature of the
+        padded variant is intentionally dropped. Aux carries the two cohort
+        precisions and relative sizes (n^{-1/2} in slot 0 for the parametric
+        heads, §14.4.7).
+
+        Returns
+        -------
+        (batch, rho) : ``(dict, np.ndarray)`` with
+            ``batch['x_flat']``:        ``(T, J, 1)`` float32 (T = sum_s n_s).
+            ``batch['x_seg']``:         ``(T,)`` int32 in ``[0, S)``.
+            ``batch['z_flat']``:        ``(U, J, 1)`` float32 (U = sum_s m_s).
+            ``batch['z_seg']``:         ``(U,)`` int32 in ``[0, S)``.
+            ``batch['item_metadata']``: ``(S, J, 1)`` float32 (ones).
+            ``batch['query_idx']``:     ``(S, Q)`` int32.
+            ``batch['aux']``:           ``(S, 4)`` float32,
+                                        ``(n^{-1/2}, m^{-1/2}, n/N, m/N)``.
+            ``rho``:                    ``(S, Q)`` float32.
+        """
+        Q = int(queries_per_sample)
+        if n_dist == 'uniform':
+            n = rng.integers(n_min, n_max, size=S)
+        elif n_dist == 'log_uniform':
+            log_lo = float(np.log(max(n_min, 1))); log_hi = float(np.log(n_max))
+            n = np.exp(rng.uniform(log_lo, log_hi, size=S)).astype(np.int64)
+            n = np.clip(n, n_min, n_max - 1)
+        else:
+            raise ValueError(f"unknown n_dist={n_dist!r}")
+        if fixed_total:
+            m = (n_max - n).astype(np.int64)
+        else:
+            if m_max is None:
+                m_max = n_max
+            m = rng.integers(m_min, m_max + 1, size=S).astype(np.int64)
+        n = n.astype(np.int64)
+
+        x_parts, x_seg, z_parts, z_seg = [], [], [], []
+        qidx = np.empty((S, Q), np.int32)
+        aux = np.empty((S, 4), np.float32)
+        rho = np.empty((S, Q), np.float32)
+        for s in range(S):
+            K_chol_s, _fam = sample_random_K_chol(rng, self.J, K_families)
+            mu_s = self.prior_mu + self.prior_tau * (K_chol_s @ rng.standard_normal(self.J))
+            ns, ms = int(n[s]), int(m[s])
+            Yx = mu_s[None, :] + self.sigma * (rng.standard_normal((ns, self.J)) @ K_chol_s.T)
+            x_parts.append(Yx.astype(np.float32)); x_seg.append(np.full(ns, s, np.int32))
+            if ms > 0:
+                Yz = mu_s[None, :] + self.sigma * (rng.standard_normal((ms, self.J)) @ K_chol_s.T)
+                z_parts.append(Yz.astype(np.float32)); z_seg.append(np.full(ms, s, np.int32))
+            js = rng.integers(0, self.J, size=Q)
+            qidx[s] = js
+            aux[s] = [1.0 / np.sqrt(ns), 1.0 / np.sqrt(max(ms, 1)), ns / n_max, ms / n_max]
+            rho[s] = (mu_s[js] - self.mu_0_baseline).astype(np.float32)
+        x_flat = np.concatenate(x_parts, 0)[..., None]
+        z_flat = (np.concatenate(z_parts, 0)[..., None] if z_parts
+                  else np.zeros((0, self.J, 1), np.float32))
+        return (
+            {
+                'x_flat':        x_flat.astype(np.float32),
+                'x_seg':         np.concatenate(x_seg).astype(np.int32),
+                'z_flat':        z_flat.astype(np.float32),
+                'z_seg':         (np.concatenate(z_seg).astype(np.int32) if z_seg
+                                  else np.zeros((0,), np.int32)),
+                'item_metadata': np.ones((S, self.J, 1), np.float32),
+                'query_idx':     qidx,
+                'aux':           aux,
             },
             rho,
         )

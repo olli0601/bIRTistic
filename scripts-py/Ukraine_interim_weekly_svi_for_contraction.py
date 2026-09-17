@@ -16,6 +16,8 @@ per weekly interim, exactly the artifacts the deepset amortiser needs:
 Same SVI config as the monthly regression run (AutoLowRankMVN, 10k steps,
 4000 draws). No regression baselines, no plots.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import time

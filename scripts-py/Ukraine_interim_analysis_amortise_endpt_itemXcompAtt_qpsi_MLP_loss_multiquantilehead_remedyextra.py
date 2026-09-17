@@ -17,6 +17,8 @@ ecdf_u(eta)); a per-item monotone map g = ecdf(u_cal) recalibrates to
 u' = g(u); recalibrated coverage/PIT/marginal follow from u' and the
 per-s quantile CDFs.
 """
+# ---- boilerplate ----
+
 import os, sys, importlib, glob
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'python'))

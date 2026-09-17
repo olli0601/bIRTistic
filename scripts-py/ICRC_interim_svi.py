@@ -4,6 +4,8 @@ into the Figure-2 severity levels (Normal..Extremely severe, K=5), giving 3 ordi
 PAIRED pre/post (Baseline=pre, Endline=post). Endpoint rho_j = severity reduction
 (lower_is_better). Interims accrue every 100 beneficiaries. No calendar time in the data.
 Per interim: dp1.csv, draws.zarr, i{k}_regression_training.pkl, 1_data_dit.csv."""
+# ---- boilerplate ----
+
 import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 import numpy as np, pandas as pd

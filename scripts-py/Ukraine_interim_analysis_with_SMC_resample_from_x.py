@@ -20,6 +20,7 @@ Usage:
     cd /Users/or105/git/bIRTistic
     pixi run python scripts-py/Ukraine_interim_analysis_with_SMC_resample.py
 """
+# ---- boilerplate ----
 
 import os
 import sys

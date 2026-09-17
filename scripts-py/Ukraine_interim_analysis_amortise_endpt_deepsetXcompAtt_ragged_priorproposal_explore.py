@@ -16,6 +16,8 @@ Prints an ORACLE slope first (plug-in endpoint error vs n on the theta-
 level target): decisive + cheap. If it contracts (~ -0.5) the recipe has
 the signal; then trains the ragged net + interval score + proposal-probe.
 """
+# ---- boilerplate ----
+
 import os
 import sys
 import time
