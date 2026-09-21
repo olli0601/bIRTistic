@@ -146,9 +146,9 @@ class CreditModel(IRTModel):
 
         category_stats = dcati.groupby('item_type_id').agg({
             'oid': 'count',
-            'item_time_id': 'max',
+            'item_group_id': 'max',
             'y_stan': lambda x: len(x.unique()),
-        }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
+        }).rename(columns={'oid': 'N', 'item_group_id': 'Q', 'y_stan': 'K'})
 
         stan_data['N'] = category_stats['N'].astype(int).tolist()
         stan_data['Q'] = category_stats['Q'].astype(int).tolist()
@@ -159,7 +159,7 @@ class CreditModel(IRTModel):
 
         stan_data['y'] = dcati['y_stan'].astype(int).tolist()
         stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
-        stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
+        stan_data['question_of_obs'] = dcati['item_group_id'].astype(int).tolist()
         stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
 
         design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')

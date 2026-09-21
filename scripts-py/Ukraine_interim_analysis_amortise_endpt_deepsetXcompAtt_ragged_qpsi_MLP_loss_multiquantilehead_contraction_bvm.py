@@ -40,7 +40,8 @@ SB = "/Users/or105/sandbox/bIRTistic"
 WK = os.environ.get('RAGD_RGE', f"{SB}/py-ukraine-interim-weekly-svi-260811")
 BASE = os.environ.get('RAGD_BASE',
     f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-net-260812")
-file_prefix = "pcm_1_interim"
+file_prefix = os.environ.get('RAGD_FILEPREFIX', 'pcm_1_interim')   # e.g. pcm_spr_interim to co-locate endpoints in one dir
+BASE_PREFIX = 'pcm_1_interim'                     # the trained net's fixed prefix in BASE (independent of the endpoint prefix)
 ANCHOR = int(os.environ.get('RAGD_ANCHOR', 4))   # interim used for i1-only head-ft
 MAKE_PDFS = os.environ.get('RAGD_PDFS', '0') == '1'
 OUT = os.environ.get('RAGD_OUT', BASE)           # write outputs here (BASE loads the net)
@@ -49,6 +50,13 @@ os.makedirs(OUT, exist_ok=True)
 SUF = os.environ.get('RAGD_SUF', 'RAGD')
 N_REF = int(os.environ.get('RAGD_NREF', 503)); CLIP = 20.0   # trial total N (per application)
 S = int(os.environ.get('RAG_S', 200))
+# §14.4.18 rho_SPR extension: when deploying the wide-token (cumulative-exceedance) net, the
+# per-token feature is the caseness-sufficient vector [1{k>=c}] c=1..KMAX-1 instead of the
+# scalar normalized mean. CASE_C is the caseness threshold fed as item metadata (0-indexed
+# category cut; 3 == titre>=1:40 on the HAI ladder). Both default OFF -> legacy behaviour.
+WIDETOK = os.environ.get('RAGD_WIDETOK', '0') == '1'
+KMAX_D = int(os.environ.get('RAGD_KMAX', '10'))
+CASE_C = float(os.environ.get('RAGD_CASE_C', '2'))
 TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32)
 CACHE = f"/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad/ragged_deploy_cells_{os.environ.get('RAGD_CTAG', 'focused')}"
 os.makedirs(CACHE, exist_ok=True)
@@ -65,26 +73,30 @@ ihigh = items.item_high_label.map({'higher_is_better': 1., 'lower_is_better': 0.
 items = items.merge(dit[['item_label', 'cat_length']].drop_duplicates(), on='item_label', how='left')
 kmax = items.cat_length.to_numpy(np.float32)
 META = np.stack([itype, ihigh], -1).astype(np.float32)
-fit = load_fitted_model(f"{BASE}/{file_prefix}_amortised_pps_net.pkl")
-sig = np.load(f"{BASE}/{file_prefix}_item_std.npy").astype(np.float32)
+fit = load_fitted_model(f"{BASE}/{BASE_PREFIX}_amortised_pps_net.pkl")
+sig = np.load(f"{BASE}/{BASE_PREFIX}_item_std.npy").astype(np.float32)
 net = Net(**dict(fit['net_kwargs']))             # respect head_mode / precision_pool
-_mdf = f"{BASE}/{file_prefix}_meta_dim.npy"       # §14.4.9 item-amortised-family net
+_mdf = f"{BASE}/{BASE_PREFIX}_meta_dim.npy"       # §14.4.9 item-amortised-family net
 if os.path.exists(_mdf) or sig.size != J:
     _KM = 10; _Md = int(np.load(_mdf)[0]) if os.path.exists(_mdf) else 3
     sig = np.full(J, float(np.reshape(sig, -1)[0]), np.float32)   # scalar global sigma -> per-item
-    _c = np.where(itype > .5, 2., 0.)             # caseness threshold: 2 categorical, 0 out-of-7
+    _c = np.where(itype > .5, CASE_C, 0.)          # caseness threshold (RAGD_CASE_C; 0 out-of-7)
     _cols = [itype, ihigh, kmax / _KM, _c / _KM]  # canonical metadata order (type,dir,K/Kmax,c/Kmax)
     META = np.stack(_cols[:_Md], -1).astype(np.float32)
     print(f"  item-amortised net: global sigma={sig[0]:.3f}, META M={_Md}")
 
 
 def _pivot_pids(df, col, pids):
-    piv = df.pivot_table(index='pid', columns=['item_label', 'time'], values=col).reindex(pids)
+    piv = df.pivot_table(index='pid', columns=['item_label', 'group'], values=col).reindex(pids)
     out = np.zeros((len(pids), J, 2), np.float32)
     for j, l in enumerate(labels):
         for t in (0, 1):
             if (l, t) in piv.columns:
                 out[:, j, t] = piv[(l, t)].to_numpy(np.float32)
+    if WIDETOK:                                          # cumulative-exceedance token (R=2*(KMAX-1))
+        kc = np.clip(np.nan_to_num(out) - 1.0, 0, None)  # y_stan -> category 0..K-1 (missing -> 0)
+        cvec = (kc[..., None] >= np.arange(1, KMAX_D)[None, None, None, :]).astype(np.float32)
+        return cvec.reshape(len(pids), J, 2 * (KMAX_D - 1))
     return np.nan_to_num((out - 1.) / (kmax[None, :, None] - 1.))
 
 
@@ -99,7 +111,7 @@ def build(k):
     xpids = np.sort(xi.pid.unique()); n = len(xpids)
     x_raw = _pivot_pids(xi, 'y_stan', xpids)                # (n, J, 2)
     m = N_REF - n
-    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ time - 1", seed=123)
+    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ group - 1", seed=123)
     zi = model.get_interim_z_from_ypredi(f"{WK}/{file_prefix}_{k}_draws.zarr",
                                          m, pps_z_total=S, seed=123, keep_order=True)
     zpids = np.sort(zi.pid.unique()); mm = len(zpids)
@@ -119,7 +131,7 @@ def build(k):
         hd[s] = np.asarray(head)[0]
     # §14.4.25 Option A: empty future cohort -> p(rho|x) directly (single forward, no z^s mixing)
     aux_e = jnp.asarray(np.array([[1/np.sqrt(n), 0.0, n/N_REF, 0.0]], np.float32))
-    be = dict(x_flat=xb, x_seg=xseg, z_flat=jnp.zeros((0, J, 2), np.float32),
+    be = dict(x_flat=xb, x_seg=xseg, z_flat=jnp.zeros((0, J, 2 * (KMAX_D - 1) if WIDETOK else 2), np.float32),
               z_seg=jnp.zeros(0, jnp.int32), item_metadata=metab, query_idx=qidb, aux=aux_e)
     oute, heade = _fwd(fit['params'], be)
     qse = (np.maximum.accumulate(np.asarray(oute)[0], 1) * sig[:, None]).astype(np.float32)  # (J,5)
@@ -172,6 +184,29 @@ for k in INTERIMS:
         np.savez(cf, qs=QS[k], hd=HD[k], tgt=TGT[k], n=NOBS[k], qse=QSE[k], hde=HDE[k])
     print(f"  interim {k} (n={NOBS[k]}) done")
 
+# §16.3 endpoint warp (target-space symmetriser): fit the symmetric head to a monotone-warped
+# endpoint (log2 for a fold, logit for a rate) so the deployed quantiles, mapped back, can be
+# skewed. The head-ft is done in warped space; HK is then UNWARPED so affine/BvM, PPS, eta0 and
+# all plots run in natural units (PPS is warp-invariant; KS unchanged by the monotone map).
+WARP = os.environ.get('RAGD_WARP', 'none')
+def _warp(v):
+    if WARP == 'log2':
+        return np.log2(np.clip(v, 1e-6, None))
+    if WARP == 'logit':
+        c = np.clip(v, 1e-3, 1 - 1e-3); return np.log(c / (1 - c))
+    return v
+def _unwarp(v):
+    if WARP == 'log2':
+        return 2.0 ** v
+    if WARP == 'logit':
+        return 1.0 / (1.0 + np.exp(-v))
+    return v
+TGT_NAT = {}
+if WARP != 'none':
+    for k in INTERIMS:
+        TGT_NAT[k] = TGT[k].copy(); TGT[k] = _warp(TGT[k])
+    print(f"  §16.3 endpoint warp = {WARP} (head fit in warped space, deployed in natural units)")
+
 
 def marg_width(qs):
     lo = float(qs[:, 0].min()); hi = float(qs[:, 4].max())
@@ -211,7 +246,7 @@ for c in ['W_svi', 'W_marg']:
 
 # ---- (b) interim-1-only head fine-tune (mode-aware: plain | semiparam) ----
 taus_j = jnp.asarray(TAUS)
-HEAD_MODE = dict(fit['net_kwargs']).get('head_mode', 'plain')
+HEAD_MODE = os.environ.get('RAGD_HEADMODE') or dict(fit['net_kwargs']).get('head_mode', 'plain')   # §16.3: 'freeq' skew head
 HIDDEN = tuple(dict(fit['net_kwargs']).get('hidden_dims', (64, 64)))
 EMB = int(dict(fit['net_kwargs']).get('embed_dim', 32))
 A_AUX = HD[ANCHOR].shape[-1] - 2 * EMB            # aux tail width in head_in
@@ -342,6 +377,11 @@ else:                                            # interim-1(anchor)-only, reuse
         HK[k] = _predict(params, k); PKS[k] = params
     HLABEL = 'head-ft-i1(ragged)'
 
+if WARP != 'none':                               # §16.3: back to natural units for affine/BvM/PPS/plots
+    for k in INTERIMS:
+        HK[k] = _unwarp(HK[k]); TGT[k] = TGT_NAT[k]
+    print(f"  §16.3 unwarped head-ft quantiles + targets to natural units ({WARP})")
+
 # §14.4.23 per-item EXPANDING median-shift (DEFAULT part of the head-ft): the prior-
 # trained encoder systematically under-predicts every item (global shrinkage-to-prior
 # bias); the shared head-ft fixes spread (PIT) but leaves a per-item location residual.
@@ -422,7 +462,7 @@ if os.environ.get('RAGD_BVM', '0') == '1':
 # --- PPS across items/interims (§14.1.6): P(H1|x,z^s) = P(rho>eta0|x,z^s) via CDF interp;
 #     PPS = mean over future draws s of 1{ P(H1|x,z^s) > etaH }. Uses the final per-draw
 #     conditional quantiles (BvM-corrected when RAGD_BVM=1, else the affine-shifted HK). ---
-ETA0 = float(os.environ.get('RAGD_ETA0', '0.5'))
+ETA0 = float(os.environ.get('RAGD_ETA0', '0.5'))                 # natural units (quantiles unwarped)
 ETAH = float(os.environ.get('RAGD_ETAH', '0.89'))
 PPSSRC = HKV if os.environ.get('RAGD_BVM', '0') == '1' else HK
 _ppsrows = []
@@ -493,6 +533,36 @@ base = cov_pit(lambda k: QS[k]).assign(config='baseline(ragged)')
 h1 = cov_pit(lambda k: HK[k], _MARGF).assign(config=HLABEL)   # PIT=conditional, marg=empty-z if EMPTYZ
 res = pd.concat([base, h1], ignore_index=True)
 res.to_csv(f"{OUT}/{file_prefix}_pps_RAGD_headft_coverage.csv", index=False)
+
+
+def cov_pit_by_item(getq, margq=None):
+    """Per-ITEM calibration (PIT-KS pooled over interims; marg-KS averaged over interims)."""
+    rows = []
+    for j in range(J):
+        us, mks = [], []
+        for k in INTERIMS:
+            y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
+            if yv.size < 10:
+                continue
+            us.append(pit(getq(k)[ok, j, :], yv))
+            qm = (margq(k) if margq is not None else getq(k))[:, j, :]
+            qm = qm[np.isfinite(qm).all(1)]
+            lo = min(yv.min(), qm[:, 0].min()); hi = max(yv.max(), qm[:, 4].max())
+            gr = np.linspace(lo, hi, 200)
+            Fs = (yv[:, None] <= gr[None]).mean(0)
+            Fm = np.mean([np.interp(gr, qm[s], TAUS, 0., 1.) for s in range(qm.shape[0])], 0)
+            mks.append(float(np.max(np.abs(Fs - Fm))))
+        if not us:
+            continue
+        u = np.concatenate(us); uu = np.sort(u); ec = np.arange(1, len(u) + 1) / len(u)
+        rows.append(dict(item_label=labels[j], pit_ks=float(np.max(np.abs(ec - uu))),
+                         marg_ks=float(np.mean(mks)), cov5=float((u <= .5).mean()),
+                         cov95=float((u <= .95).mean())))
+    return pd.DataFrame(rows)
+
+
+cov_pit_by_item(lambda k: HK[k], _MARGF).assign(config=HLABEL).to_csv(
+    f"{OUT}/{file_prefix}_pps_RAGD_pit_by_item.csv", index=False)
 print(f"\n=== MEAN over interims (nominal cov5=.50 cov95=.95; head-ft={HEADFT}) ===")
 print(res.groupby('config')[['cov5', 'cov95', 'pit_ks', 'marg_ks']].mean().round(3).to_string())
 print(f"\n{HLABEL} per interim:")

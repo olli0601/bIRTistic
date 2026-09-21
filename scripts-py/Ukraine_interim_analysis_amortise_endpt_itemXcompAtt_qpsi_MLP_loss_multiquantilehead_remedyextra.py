@@ -74,7 +74,7 @@ net = Net(**nkw)
 
 def _xfeat(k):
     xi = pd.read_csv(f"{DIR_RGE}/{file_prefix}_{k}_data_dp1.csv")
-    piv = xi.pivot_table(index='pid', columns=['item_label', 'time'], values='y')
+    piv = xi.pivot_table(index='pid', columns=['item_label', 'group'], values='y')
     n = piv.index.size; wx = np.zeros((J, 2), np.float32); chg = np.zeros((n, J))
     for j, l in enumerate(labels):
         y0 = piv[(l, 0)].to_numpy(float); y1 = piv[(l, 1)].to_numpy(float)
@@ -88,14 +88,14 @@ def _xfeat(k):
 def _zmean(k, D):
     xi = pd.read_csv(f"{DIR_RGE}/{file_prefix}_{k}_data_dp1.csv")
     n = xi.pid.nunique()
-    m = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ time - 1", seed=123)
+    m = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ group - 1", seed=123)
     zi = m.get_interim_z_from_ypredi(f"{DIR_RGE}/{file_prefix}_{k}_draws.zarr",
                                      N_FULL - n, pps_z_total=D, seed=123, keep_order=True)
     cols = [f'ypred_{s}' for s in range(D)]; out = np.zeros((D, J, 2), np.float32)
     for j, l in enumerate(labels):
         km = klev[j] - 1
         for tt in (0, 1):
-            v = zi[(zi.item_label == l) & (zi.time == tt)][cols].to_numpy(np.float32)
+            v = zi[(zi.item_label == l) & (zi.group == tt)][cols].to_numpy(np.float32)
             out[:, j, tt] = (v - 1).mean(0) / km
     return out
 

@@ -34,7 +34,19 @@ HEAD_HIDDEN = tuple(int(x) for x in os.environ.get('PP_HEAD', '64,64').split(','
 HEAD_SCALE = os.environ.get('PP_HEADSCALE', '0') == '1'   # #2: data-driven per-item scale at the head
 HEAD_RAW = os.environ.get('PP_HEADRAW', '0') == '1'       # #3: raw level/ratio fingerprint at the head
 META4 = os.environ.get('PP_META4', '0') == '1'            # #3: add caseness threshold c/K_max to metadata
+# §14.4.18 categorical-sufficiency extension (rho_SPR): the mean token cannot carry a
+# threshold functional, so widen the per-(participant,item,time) token to the CUMULATIVE
+# EXCEEDANCE vector [1{k>=1},..,1{k>=KMAX-1}] -> mean-pool = the empirical category CDF
+# (sufficient for both the mean and any caseness rate). CASEENDLINE makes the caseness
+# target the ENDLINE rate Pr(y_e>=c) (SPR; baseline computed but unused). ALLCASE dedicates
+# the net to caseness items (uniform [0,1] target scale).
+WIDETOK = os.environ.get('PP_WIDETOK', '0') == '1'
+CASEENDLINE = os.environ.get('PP_CASEENDLINE', '0') == '1'
+ALLCASE = os.environ.get('PP_ALLCASE', '0') == '1'
+if CASEENDLINE:
+    META4 = True                                          # SPR needs the caseness threshold in metadata
 META_DIM = 4 if META4 else 3
+R_TOK = 2 * (KMAX - 1) if WIDETOK else 2                  # per-token feature width
 NET_KW = dict(num_quantiles=5, embed_dim=EMBED_DIM,
               q_tau_hidden=(EMBED_DIM, EMBED_DIM), q_tok_hidden=(EMBED_DIM, EMBED_DIM),
               q_query_hidden=(EMBED_DIM, EMBED_DIM), hidden_dims=HEAD_HIDDEN, head_mode='powerlaw',
@@ -56,7 +68,7 @@ def _probs(theta, beta, tau, lam, K):
 def gen_example(rng, Jb):
     """One synthetic item set of size Jb + PCM params."""
     K = rng.choice(KVALS, size=Jb, p=KP)
-    typ = (rng.random(Jb) < 0.5).astype(int)          # 0 expected-score, 1 caseness
+    typ = np.ones(Jb, int) if ALLCASE else (rng.random(Jb) < 0.5).astype(int)  # 0 expected-score, 1 caseness
     dr = (rng.random(Jb) < 0.5).astype(int)           # 1 higher-is-better
     cc = np.maximum(2, (K + 1) // 2 + 1)              # caseness threshold per item (2..K)
     beta = rng.standard_normal(2)
@@ -89,18 +101,25 @@ def rho_ex(ex):
         ex['typ_bucket'] = ex['typ'][idx]; ex['cc_bucket'] = ex['cc'][idx]
         for a, i in enumerate(idx):
             w = _wbe(p, Kval, a, ex); wb = max(w[0], 1e-3); we = w[1]
-            rho[i] = np.clip((we / wb - 1) if ex['dr'][i] else (1 - we / wb), -CLIP, CLIP)
+            if CASEENDLINE and ex['typ'][i] == 1:
+                rho[i] = float(np.clip(we, -CLIP, CLIP))    # rho_SPR = endline caseness Pr(y_e>=c); baseline unused
+            else:
+                rho[i] = np.clip((we / wb - 1) if ex['dr'][i] else (1 - we / wb), -CLIP, CLIP)
     return rho
 
 
 def sim_cohort(ex, nab, rng):
-    Jb = len(ex['K']); Y = np.zeros((nab, Jb, 2), np.float32); th = rng.standard_normal(nab)
+    Jb = len(ex['K']); Y = np.zeros((nab, Jb, R_TOK), np.float32); th = rng.standard_normal(nab)
     for Kval in np.unique(ex['K']):
         idx, tau, lam = _bucket(ex, Kval)
         p = _probs(th, ex['beta'], tau, lam, Kval)                    # (nab,nK,2,K)
         cdf = np.cumsum(p, -1); u = rng.random((nab, len(idx), 2))
-        k = (cdf < u[..., None]).sum(-1)
-        Y[:, idx, :] = (k.astype(np.float32) / (Kval - 1))
+        k = (cdf < u[..., None]).sum(-1)                              # (nab,nK,2) category 0..K-1
+        if WIDETOK:                                                  # cumulative exceedance [1{k>=c}], c=1..KMAX-1
+            cvec = (k[..., None] >= np.arange(1, KMAX)[None, None, None, :]).astype(np.float32)
+            Y[:, idx, :] = cvec.reshape(nab, len(idx), R_TOK)         # (nab,nK,2*(KMAX-1))
+        else:
+            Y[:, idx, :] = (k.astype(np.float32) / (Kval - 1))
     return Y
 
 

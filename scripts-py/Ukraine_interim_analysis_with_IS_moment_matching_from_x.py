@@ -69,7 +69,7 @@ os.makedirs(dir_out, exist_ok=True)
 
 file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
-x_formula = "~ time - 1"
+x_formula = "~ group - 1"
 
 pps_z_total = 200
 pps_H1_min_effect_size_thresh = 0.5           # 1 - p1 / p0 > pps_H1_min_effect_size_thresh
@@ -92,35 +92,35 @@ dmeta = raw['dmeta'].copy()
 print(f"  dp: {len(dp):,} rows | dit: {len(dit):,} rows | dmeta: {len(dmeta):,} rows")
 
 tmp = (
-    dmeta[['pid', 'time_label', 'displacement_status']]
+    dmeta[['pid', 'group_label', 'displacement_status']]
     .drop_duplicates()
     .rename(columns={'pid': 'pid_label'})
     .dropna(subset=["displacement_status"], how='all')
 )
-dp = dp.merge(tmp, on=['pid_label', 'time_label'], how='inner', validate='many_to_one')
+dp = dp.merge(tmp, on=['pid_label', 'group_label'], how='inner', validate='many_to_one')
 
 dp1 = dp[~dp['item_label'].str.contains('agg')].copy()
 dp1['y_stan'] = dp1['y'] + 1
 dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
 
 item_time_df = (
-    dp1[['item_type', 'item_label', 'time']]
+    dp1[['item_type', 'item_label', 'group']]
     .drop_duplicates()
-    .sort_values(['item_type', 'time', 'item_label'])
+    .sort_values(['item_type', 'group', 'item_label'])
     .reset_index(drop=True)
 )
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
-dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 dp1 = dp1.merge(
     dit[['item_type', 'item_type_id']].drop_duplicates(), on='item_type', how='left',
 )
-dp1 = dp1.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1 = dp1.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
 dp1['oid'] = range(1, len(dp1) + 1)
 dp1['oidt'] = dp1.groupby('item_type').cumcount() + 1
 print(f"  Pre-processed dp1: {len(dp1):,} observations | participants: {dp1['pid'].nunique()}")
 
 _endline_dates = pd.to_datetime(
-    dp1.loc[dp1['time_label'] == 'Endline', 'submission_date']
+    dp1.loc[dp1['group_label'] == 'Endline', 'submission_date']
 ).dropna()
 _start = _endline_dates.min().replace(day=1)
 _end = (_endline_dates.max() + pd.offsets.MonthEnd(0)).normalize()
@@ -231,10 +231,10 @@ print(pps_df.head(10).to_string(index=False))
 
 print("\nPlotting MM p(H_1 | x, z) distribution...")
 tmp = p_h1_xz.merge(
-    dit[['item_label', 'group_label_long', 'item_label_short']].drop_duplicates(),
+    dit[['item_label', 'construct_long', 'item_label_short']].drop_duplicates(),
     on='item_label', how='left',
 )
-tmp['item_label_long'] = tmp['group_label_long'] + np.where(
+tmp['item_label_long'] = tmp['construct_long'] + np.where(
     tmp['item_label_short'].notna(), '\n' + tmp['item_label_short'], ''
 )
 all_items = list(pd.unique(tmp['item_label_long']))

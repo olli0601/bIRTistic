@@ -5,10 +5,10 @@ ENDLINE (treated + post) against the group-mean of the CONTROL arm at BASELINE
 (untreated + pre). The two groups are roughly time-matched and are matched on
 facilitator (every facilitator runs both an intervention group and a waitlist-
 control group), so the contrast controls for facilitator and secular timing that
-the pooled pre->post estimand (~ time - 1 on both arms) confounds.
+the pooled pre->post estimand (~ group - 1 on both arms) confounds.
 
 Design.
-  * Two cells of the trial are kept and mapped to the PCM's two 'time' levels:
+  * Two cells of the trial are kept and mapped to the PCM's two 'group' levels:
       time 0  'Baseline'  <-  CONTROL arm, baseline survey   (reference group)
       time 1  'Endline'   <-  INTERVENTION arm, endline survey (treated group)
     The other two cells (intervention-baseline, control-endline) are dropped.
@@ -45,7 +45,7 @@ dir_data = ("/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/"
 file_data = os.environ.get('UKRAINEP_CSV',
     os.path.join(dir_data, "Ukraine_Hope_Groups_Baseline_Endline_Wide_Aug6.csv"))
 dir_out = f"{SB}/py-ukraineP-crossarm-svi-260916"; os.makedirs(dir_out, exist_ok=True)
-file_prefix = "pcm_1_interim"; x_formula = "~ time - 1"; seed = 123
+file_prefix = "pcm_1_interim"; x_formula = "~ group - 1"; seed = 123
 NSTEPS = int(os.environ.get('UKRAINEP_STEPS', '10000'))
 S = int(os.environ.get('UKRAINEP_S', '4000'))
 NINT = int(os.environ.get('UKRAINEP_NINT', '8'))
@@ -61,21 +61,21 @@ dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
 
 # ---- restrict to the two cross-arm cells (already carry the right time labels) ----
 #   control  + Baseline (time 0) = reference group;  intervention + Endline (time 1) = treated group
-cellB = (dp1['treat'] == 0) & (dp1['time'] == 0)     # control-baseline
-cellA = (dp1['treat'] == 1) & (dp1['time'] == 1)     # intervention-endline
+cellB = (dp1['treat'] == 0) & (dp1['group'] == 0)     # control-baseline
+cellA = (dp1['treat'] == 1) & (dp1['group'] == 1)     # intervention-endline
 dp1 = dp1[cellB | cellA].copy()
 
-# item_time_id per (item_type, time); item_type_id (two K-families kept separate -> no K-mixing)
-item_time_df = (dp1[['item_type', 'item_label', 'time']].drop_duplicates()
-                .sort_values(['item_type', 'time', 'item_label']).reset_index(drop=True))
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
-dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+# item_group_id per (item_type, time); item_type_id (two K-families kept separate -> no K-mixing)
+item_time_df = (dp1[['item_type', 'item_label', 'group']].drop_duplicates()
+                .sort_values(['item_type', 'group', 'item_label']).reset_index(drop=True))
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 dp1 = dp1.merge(dit[['item_type', 'item_type_id']].drop_duplicates(), on='item_type', how='left')
 
 dit.to_csv(f"{dir_out}/{file_prefix}_1_data_dit.csv", index=False)
 
 # ---- facilitator accrual order: median endline (intervention) submission date ----
-fac_order = (dp1[dp1['time'] == 1].groupby('fid')['submission_date']
+fac_order = (dp1[dp1['group'] == 1].groupby('fid')['submission_date']
              .median().sort_values().index.to_numpy())
 n_fac = len(fac_order)
 grid = np.unique(np.round(np.linspace(max(4, n_fac // NINT), n_fac, NINT)).astype(int))
@@ -88,9 +88,9 @@ for k, nfac in enumerate(grid, 1):
     xi = dp1[dp1['fid'].isin(keep_fac)].copy()
     # sequential pid within the interim (people are disjoint across the two cells)
     xi['pid'] = pd.factorize(xi['pid_label'].astype(str))[0] + 1
-    xi = xi.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+    xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
     xi['oid'] = range(1, len(xi) + 1); xi['oidt'] = xi.groupby('item_type').cumcount() + 1
-    nb = xi[xi.time == 0].pid.nunique(); ne = xi[xi.time == 1].pid.nunique()
+    nb = xi[xi.group == 0].pid.nunique(); ne = xi[xi.group == 1].pid.nunique()
     xi.to_csv(f"{dir_out}/{file_prefix}_{k}_data_dp1.csv", index=False)
     pre = f"{dir_out}/{file_prefix}_{k}"
     print(f"\n=== interim {k}: {nfac} facilitators | ctrl-baseline n={nb}, int-endline n={ne} ===")

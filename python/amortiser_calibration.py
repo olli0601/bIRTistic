@@ -64,6 +64,16 @@ def head_transform(raw, prec, head_mode, zq=None, hd=None, g_head=None,
     if head_mode == 'floor':
         m = raw[..., 0:1]; a = jax.nn.softplus(raw[..., 1:2]); b = jax.nn.softplus(raw[..., 2:3])
         return m + zq * jnp.sqrt(a ** 2 + (b * prec) ** 2)
+    if head_mode == 'freeq':
+        # §16.3 skew-capable head: median + independent lower/upper monotone gaps (softplus),
+        # scaled by the BvM rate n^{-1/2}; BvM then rescales the width to the power law. The
+        # lower/upper gaps are free, so the quantile set can be asymmetric (any skew).
+        m = raw[..., 0:1]
+        d = jax.nn.softplus(raw[..., 1:5])                       # (...,4) positive gaps
+        zeros = jnp.zeros_like(m)
+        off = jnp.concatenate([-(d[..., 0:1] + d[..., 1:2]), -d[..., 1:2],
+                               zeros, d[..., 2:3], d[..., 2:3] + d[..., 3:4]], axis=-1)
+        return m + off * prec
     if head_mode == 'semiparam':
         return raw[..., 0:1] + zq * jax.nn.softplus(raw[..., 1:2]) * prec
     if head_mode == 'factored':

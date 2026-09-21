@@ -151,7 +151,7 @@ def _interim_x_features(interim_id):
     xi = pd.read_csv(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_data_dp1.csv"),
     )
-    piv = xi.pivot_table(index='pid', columns=['item_label', 'time'],
+    piv = xi.pivot_table(index='pid', columns=['item_label', 'group'],
                          values='y')
     n_pid = piv.index.size
     w_x = np.zeros((J, 2), dtype=np.float32)
@@ -177,7 +177,7 @@ def _interim_z_means(interim_id, D):
     )
     n_pid = xi['pid'].nunique()
     interim_m = N_FULL - n_pid
-    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ time - 1",
+    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ group - 1",
                                seed=123)
     zi = model.get_interim_z_from_ypredi(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_draws.zarr"),
@@ -188,7 +188,7 @@ def _interim_z_means(interim_id, D):
     for j, lbl in enumerate(items_df['item_label']):
         kmax = item_klevels[j] - 1.0
         for tt in (0, 1):
-            sub = zi[(zi['item_label'] == lbl) & (zi['time'] == tt)]
+            sub = zi[(zi['item_label'] == lbl) & (zi['group'] == tt)]
             vals = sub[ypred_cols].to_numpy(dtype=np.float32)
             out[:, j, tt] = (vals - 1.0).mean(axis=0) / kmax
     return out

@@ -126,16 +126,16 @@ dp1_col = dp1_col.merge(dit_col[['item_label', 'item_type']], on='item_label', h
 
 # Create item_time mapping
 item_time_df = (
-    dp1_col[['item_type', 'item_label', 'time']]
+    dp1_col[['item_type', 'item_label', 'group']]
     .drop_duplicates()
-    .sort_values(['item_type', 'time', 'item_label'])
+    .sort_values(['item_type', 'group', 'item_label'])
     .reset_index(drop=True)
 )
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
     
 
-# Merge item_time_id
-dp1_col = dp1_col.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+# Merge item_group_id
+dp1_col = dp1_col.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 
 # Add item_type_id
 dp1_col = dp1_col.merge(
@@ -145,7 +145,7 @@ dp1_col = dp1_col.merge(
 )
 
 # Sort and create oid
-dp1_col = dp1_col.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1_col = dp1_col.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
 dp1_col['oid'] = range(1, len(dp1_col) + 1)
 
 # Create oidt (observation id within item type)
@@ -164,7 +164,7 @@ pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
 
 # Build the Model instance once; all fit_* calls below dispatch through it.
 _ol = OrderedLogit(
-    dit=dit_col, dcati=dp1_col, x_formula="~ time - 1", seed=seed,
+    dit=dit_col, dcati=dp1_col, x_formula="~ group - 1", seed=seed,
 )
 
 # %%
@@ -259,7 +259,7 @@ pos = pd.concat([endpoints_hmc, endpoints_advi], ignore_index=True)
 
 # Pivot to wide format for comparison
 pos = pos.pivot_table(
-    index=['item_type_id','item_type','item_label','item_label_short','group_label','group_label_long','item_high_label','variable'],
+    index=['item_type_id','item_type','item_label','item_label_short','construct','construct_long','item_high_label','variable'],
     columns='method',
     values=['median', 'q_lower', 'iqr_lower', 'iqr_upper', 'q_upper']
 ).reset_index()
@@ -290,7 +290,7 @@ endpoints_plot = pos[pos['variable'] == 'diff'].copy()
 
 # Create composite label for facets
 endpoints_plot['facet_label'] = (
-    endpoints_plot['group_label_long'] + 
+    endpoints_plot['construct_long'] + 
     np.where(endpoints_plot['item_label_short'].notna(), 
              '---' + endpoints_plot['item_label_short'] , 
              ''
@@ -338,7 +338,7 @@ print("Creating endpoint ratio plot...")
 endpoints_plot = pos[pos['variable'] == 'ratio'].copy()
 
 endpoints_plot['facet_label'] = (
-    endpoints_plot['group_label_long'] + 
+    endpoints_plot['construct_long'] + 
     np.where(endpoints_plot['item_label_short'].notna(), 
              '---' + endpoints_plot['item_label_short'] , 
              ''
@@ -399,8 +399,8 @@ pos_advi['method'] = 'ADVI'
 pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
 
 pos = pos.pivot_table(
-    index=['cq_id', 'item_type_id', 'item_time_id', 'y', 'item_label', 'time_label',
-           'group_label_long', 'item_label_short', 'endpoint_measure'],
+    index=['cq_id', 'item_type_id', 'item_group_id', 'y', 'item_label', 'group_label',
+           'construct_long', 'item_label_short', 'endpoint_measure'],
     columns='method',
     values='median',
     aggfunc='first'
@@ -411,7 +411,7 @@ pos['abs_median_diff'] = pos['median_diff'].abs()
 pos = pos.sort_values('abs_median_diff', ascending=False)
         
 print(f"\nTop 10 items with largest median probability differences (HMC vs ADVI):")
-print(pos.head(10)[['item_label', 'time_label', 'y', 'HMC', 'ADVI', 'median_diff']])
+print(pos.head(10)[['item_label', 'group_label', 'y', 'HMC', 'ADVI', 'median_diff']])
     
 # Save combined results
 tmp = os.path.join(dir_out_ol, "comparison_ordered_prob_hmc_vs_advi.csv")
@@ -431,31 +431,31 @@ print("="*70)
 pos = pd.concat([pos_hmc, pos_advi], ignore_index=True)
 
 tmp_emp = dp1_col.groupby(
-    ['time_label', 'item_label', 'y_label', 'item_type_id', 'item_time_id', 'y']
+    ['group_label', 'item_label', 'y_label', 'item_type_id', 'item_group_id', 'y']
 ).size().reset_index(name='n')
 tmp_emp_totals = dp1_col.groupby(
-    ['time_label', 'item_label', 'item_type_id', 'item_time_id']
+    ['group_label', 'item_label', 'item_type_id', 'item_group_id']
 ).size().reset_index(name='total')
 tmp_emp = tmp_emp.merge(
     tmp_emp_totals,
-    on=['time_label', 'item_label', 'item_type_id', 'item_time_id'],
+    on=['group_label', 'item_label', 'item_type_id', 'item_group_id'],
 )
 tmp_emp['median'] = tmp_emp['n'] / tmp_emp['total']
 tmp_emp['iqr_lower'] = np.nan
 tmp_emp['iqr_upper'] = np.nan
 tmp_emp['method'] = 'Empirical'
 tmp_emp = tmp_emp.merge(
-    dit_col[['item_type_id', 'item_label', 'group_label_long', 'item_label_short']],
+    dit_col[['item_type_id', 'item_label', 'construct_long', 'item_label_short']],
     on=['item_type_id', 'item_label'],
     how='left',
 )
 
 plot_cols = [
-    'item_type_id', 'item_time_id', 'item_label', 'time_label', 'y', 'y_label',
-    'group_label_long', 'item_label_short', 'median', 'iqr_lower', 'iqr_upper', 'method'
+    'item_type_id', 'item_group_id', 'item_label', 'group_label', 'y', 'y_label',
+    'construct_long', 'item_label_short', 'median', 'iqr_lower', 'iqr_upper', 'method'
 ]
 pos_plot = pd.concat([pos[plot_cols], tmp_emp[plot_cols]], ignore_index=True)
-pos_plot['item_label_long'] = pos_plot['group_label_long'] + np.where(
+pos_plot['item_label_long'] = pos_plot['construct_long'] + np.where(
     pos_plot['item_label_short'].notna(), '\n' + pos_plot['item_label_short'], ''
 )
 pos_plot['method'] = pd.Categorical(
@@ -463,7 +463,7 @@ pos_plot['method'] = pd.Categorical(
     categories=['Empirical', 'HMC', 'ADVI'],
     ordered=True,
 )
-pos_plot = pos_plot.dropna(subset=['item_label_long', 'time_label'])
+pos_plot = pos_plot.dropna(subset=['item_label_long', 'group_label'])
 
 p = (
     ggplot(pos_plot, aes(x='y_label', y='median', fill='method'))
@@ -474,7 +474,7 @@ p = (
         width=0.25,
         na_rm=True,
     )
-    + facet_wrap('~ item_label_long +time_label', ncol = 3, scales='free')
+    + facet_wrap('~ item_label_long +group_label', ncol = 3, scales='free')
     + scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l], limits=[0, None])
     + scale_fill_futurama()
     + theme_bw()

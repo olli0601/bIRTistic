@@ -105,21 +105,21 @@ dp1 = dp[~dp['item_label'].str.contains('agg')].copy()
 dp1['y_stan'] = dp1['y'] + 1
 dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
 
-# item_time_id: sequential id of (item_label, time) within each item_type.
+# item_group_id: sequential id of (item_label, time) within each item_type.
 item_time_df = (
-    dp1[['item_type', 'item_label', 'time']]
+    dp1[['item_type', 'item_label', 'group']]
     .drop_duplicates()
-    .sort_values(['item_type', 'time', 'item_label'])
+    .sort_values(['item_type', 'group', 'item_label'])
     .reset_index(drop=True)
 )
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
-dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 
 dp1 = dp1.merge(
     dit[['item_type', 'item_type_id']].drop_duplicates(),
     on='item_type', how='left',
 )
-dp1 = dp1.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1 = dp1.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
 dp1['oid']  = range(1, len(dp1) + 1)
 dp1['oidt'] = dp1.groupby('item_type').cumcount() + 1
 
@@ -133,7 +133,7 @@ print(f"  Pre-processed dp1: {len(dp1):,} observations | participants: {dp1['pid
 
 print("Plotting accruing participants...")
 acc = (
-    dp1[dp1['time_label'] == 'Endline']
+    dp1[dp1['group_label'] == 'Endline']
     .groupby('submission_date')['pid'].nunique().reset_index(name='n_pid')
     .sort_values('submission_date')
 )
@@ -220,7 +220,7 @@ for i, row in di.iterrows():
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
     _pcm = PartialCreditModel(
-        dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
+        dit=dit, dcati=dcati, x_formula="~ group - 1", seed=seed,
     )
     result = _pcm.fit_pyro_svi(
         output_file_prefix=interim_prefix,
@@ -268,7 +268,7 @@ ipos = ipos.merge(
     dit[['item_label', 'endpoint_measure']].drop_duplicates('item_label'),
     on='item_label', how='left',
 )
-ipos['item_label_long'] = ipos['group_label_long'] + np.where(
+ipos['item_label_long'] = ipos['construct_long'] + np.where(
     ipos['item_label_short'].notna(), ' --- ' + ipos['item_label_short'].fillna(''), ''
 )
 ipos.to_csv(os.path.join(dir_out, f"{file_prefix}_primary_endpoints_b.csv"), index=False)
@@ -282,7 +282,7 @@ print(f"\nSaved primary endpoints to: {file_prefix}_primary_endpoints_b.csv")
 
 print("\nPlotting ratio over interim time...")
 ratio_df = ipos[ipos['variable'] == 'ratio'].copy()
-ratio_df['facet'] = ratio_df['group_label_long'] + '\n( ' + ratio_df['endpoint_measure'].fillna('') + ' )'
+ratio_df['facet'] = ratio_df['construct_long'] + '\n( ' + ratio_df['endpoint_measure'].fillna('') + ' )'
 ratio_pal = dict(zip(sorted(ratio_df['item_label_long'].unique()),
                      _futurama_palette(ratio_df['item_label_long'].nunique())))
 
@@ -320,7 +320,7 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_percentchanges_over_time.pdf"),
 
 print("Plotting diff over interim time...")
 diff_df = ipos[ipos['variable'] == 'diff'].copy()
-diff_df['facet'] = diff_df['group_label_long'] + '\n( ' + diff_df['endpoint_measure'].fillna('') + ' )'
+diff_df['facet'] = diff_df['construct_long'] + '\n( ' + diff_df['endpoint_measure'].fillna('') + ' )'
 diff_pal = dict(zip(sorted(diff_df['item_label_long'].unique()),
                     _futurama_palette(diff_df['item_label_long'].nunique())))
 
@@ -385,14 +385,14 @@ for interim_id, zarr_path in interim_zarr.items():
 rel_df = pd.concat(rel_rows, ignore_index=True)
 rel_df = rel_df.merge(di, on='interim_id')
 rel_df = rel_df.merge(
-    dit[['item_label', 'group_label_long', 'item_label_short', 'endpoint_measure']]
+    dit[['item_label', 'construct_long', 'item_label_short', 'endpoint_measure']]
        .drop_duplicates('item_label'),
     on='item_label', how='left',
 )
-rel_df['item_label_long'] = rel_df['group_label_long'] + np.where(
+rel_df['item_label_long'] = rel_df['construct_long'] + np.where(
     rel_df['item_label_short'].notna(), ' --- ' + rel_df['item_label_short'].fillna(''), ''
 )
-rel_df['facet'] = rel_df['group_label_long'] + '\n( ' + rel_df['endpoint_measure'].fillna('') + ' )'
+rel_df['facet'] = rel_df['construct_long'] + '\n( ' + rel_df['endpoint_measure'].fillna('') + ' )'
 
 rel_pal = dict(zip(sorted(rel_df['item_label_long'].unique()),
                    _futurama_palette(rel_df['item_label_long'].nunique())))

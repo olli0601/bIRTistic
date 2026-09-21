@@ -18,7 +18,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 DATA = os.environ.get('PISA_DIR',
     "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data/pisa")
 dir_out = f"{SB}/py-pisa-math_260904"; os.makedirs(dir_out, exist_ok=True)
-file_prefix = "pcm_1_interim"; x_formula = "~ time - 1"; seed = 123
+file_prefix = "pcm_1_interim"; x_formula = "~ group - 1"; seed = 123
 NSTEPS = int(os.environ.get('PISA_STEPS', '4000')); S = int(os.environ.get('PISA_S', '1000'))
 CAP = int(os.environ.get('PISA_CAP', '2000')); BASE_CYCLE = 2012
 ENDLINES = [int(x) for x in os.environ.get('PISA_ENDLINES', '2015,2018,2022').split(',')]
@@ -67,9 +67,9 @@ for cnt in CLIST:
             print(f"skip {cnt} {endc}: {len(both)} common dichotomous items"); continue
         a = cap_students(base[base.item_label.isin(both)]); b = cap_students(end[end.item_label.isin(both)])
         k += 1
-        xi = pd.concat([a.assign(time=0, time_label='Baseline'),
-                        b.assign(time=1, time_label='Endline')], ignore_index=True)
-        xi['pid'] = pd.factorize(xi['time'].astype(str) + '_' + xi['pid'].astype(str))[0] + 1
+        xi = pd.concat([a.assign(time=0, group_label='Baseline'),
+                        b.assign(time=1, group_label='Endline')], ignore_index=True)
+        xi['pid'] = pd.factorize(xi['group'].astype(str) + '_' + xi['pid'].astype(str))[0] + 1
         xi['pid_label'] = xi['pid'].astype(str); xi['fid'] = np.nan; xi['f_label'] = np.nan
         xi['submission_date'] = pd.NaT; xi['treat'] = 0.0
         xi['y_stan'] = xi['y'] + 1; xi['y_label'] = xi['y'].astype(str)
@@ -77,15 +77,15 @@ for cnt in CLIST:
         dit = pd.DataFrame({'item_label': both})
         dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = 2
         dit['item_label_short'] = dit['item_label']
-        dit['group_label'] = 'PISA Math'
-        dit['group_label_long'] = f'{CNAME.get(cnt, cnt)}: 2012 vs {endc}'
+        dit['construct'] = 'PISA Math'
+        dit['construct_long'] = f'{CNAME.get(cnt, cnt)}: 2012 vs {endc}'
         dit['item_high_label'] = 'higher_is_better'
         dit['endpoint_measure'] = 'mean item score (2012 vs cycle)'
         dit.to_csv(f"{dir_out}/{file_prefix}_{k}_data_dit.csv", index=False)
-        it = (xi[['item_label', 'time']].drop_duplicates().sort_values(['time', 'item_label']).reset_index(drop=True))
-        it['item_time_id'] = np.arange(1, len(it) + 1)
-        xi = xi.merge(it, on=['item_label', 'time'], how='left')
-        xi = xi.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+        it = (xi[['item_label', 'group']].drop_duplicates().sort_values(['group', 'item_label']).reset_index(drop=True))
+        it['item_group_id'] = np.arange(1, len(it) + 1)
+        xi = xi.merge(it, on=['item_label', 'group'], how='left')
+        xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
         xi['oid'] = range(1, len(xi) + 1); xi['oidt'] = xi.groupby('item_type_id').cumcount() + 1
         xi.to_csv(f"{dir_out}/{file_prefix}_{k}_data_dp1.csv", index=False)
         print(f"\n=== [{k}] {cnt} 2012 vs {endc}: nB={a.pid.nunique()} nE={b.pid.nunique()} items={len(both)} ===")

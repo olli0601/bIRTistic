@@ -40,7 +40,7 @@ dir_out = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-weekly-svi-260811"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 svi_algorithm = 'AutoLowRankMultivariateNormal'
-x_formula = "~ time - 1"
+x_formula = "~ group - 1"
 pps_z_total = 4000
 categorical_threshold = 2
 print(f"Output dir: {dir_out}")
@@ -48,18 +48,18 @@ print(f"Output dir: {dir_out}")
 # ---- load + preprocess (verbatim from the monthly regression script) ----
 raw = read_data_ukraine(file_data)
 dp = raw['dp'].copy(); dit = raw['dit'].copy(); dmeta = raw['dmeta'].copy()
-tmp = (dmeta[['pid', 'time_label', 'displacement_status']].drop_duplicates()
+tmp = (dmeta[['pid', 'group_label', 'displacement_status']].drop_duplicates()
        .rename(columns={'pid': 'pid_label'}).dropna(subset=["displacement_status"], how='all'))
-dp = dp.merge(tmp, on=['pid_label', 'time_label'], how='inner', validate='many_to_one')
+dp = dp.merge(tmp, on=['pid_label', 'group_label'], how='inner', validate='many_to_one')
 dp1 = dp[~dp['item_label'].str.contains('agg')].copy()
 dp1['y_stan'] = dp1['y'] + 1
 dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
-item_time_df = (dp1[['item_type', 'item_label', 'time']].drop_duplicates()
-                .sort_values(['item_type', 'time', 'item_label']).reset_index(drop=True))
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
-dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+item_time_df = (dp1[['item_type', 'item_label', 'group']].drop_duplicates()
+                .sort_values(['item_type', 'group', 'item_label']).reset_index(drop=True))
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 dp1 = dp1.merge(dit[['item_type', 'item_type_id']].drop_duplicates(), on='item_type', how='left')
-dp1 = dp1.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1 = dp1.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
 dp1['oid'] = range(1, len(dp1) + 1)
 dp1['oidt'] = dp1.groupby('item_type').cumcount() + 1
 n_full = dp1['pid'].nunique()
@@ -69,7 +69,7 @@ dit.to_csv(os.path.join(dir_out, f"{file_prefix}_1_data_dit.csv"), index=False)
 
 # ---- WEEKLY cutoffs (was freq='MS' month-starts) ----
 _endline_dates = pd.to_datetime(
-    dp1.loc[dp1['time_label'] == 'Endline', 'submission_date']).dropna()
+    dp1.loc[dp1['group_label'] == 'Endline', 'submission_date']).dropna()
 _start = _endline_dates.min().normalize()
 _end = _endline_dates.max().normalize()
 week_ends = pd.date_range(_start, _end, freq='W')

@@ -15,7 +15,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 RAW = os.environ.get('ICRC_XLSX',
     "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data/Andersen_Community-Level Mental Health Support Table.XLSX")
 dir_out = f"{SB}/py-icrc-dass-drc_260902"; os.makedirs(dir_out, exist_ok=True)
-file_prefix = "pcm_1_interim"; x_formula = "~ time - 1"; seed = 123
+file_prefix = "pcm_1_interim"; x_formula = "~ group - 1"; seed = 123
 NSTEPS = int(os.environ.get('ICRC_STEPS', '4000')); S = int(os.environ.get('ICRC_S', '2000'))
 STEP = int(os.environ.get('ICRC_STEP', '100'))               # interim every STEP participants
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.2')
@@ -42,7 +42,7 @@ for _, r in raw.iterrows():
         for t, col in ((0, pc), (1, oc)):
             ordv = int(pd.cut([r[col]], BINS[item], labels=[0, 1, 2, 3, 4])[0])
             rows.append(dict(pid=int(r['pid']), time=t,
-                             time_label='Baseline' if t == 0 else 'Endline',
+                             group_label='Baseline' if t == 0 else 'Endline',
                              item_label=f"DASS_{item}", y=ordv))
 dp1 = pd.DataFrame(rows)
 dp1['pid_label'] = dp1['pid'].astype(str); dp1['fid'] = np.nan; dp1['f_label'] = np.nan
@@ -55,14 +55,14 @@ dp1['item_type'] = 'out-of-7'; dp1['item_type_id'] = 1       # expected-score br
 dit = pd.DataFrame({'item_label': [f"DASS_{i}" for i in COL]})
 dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = 5
 dit['item_label_short'] = [i for i in COL]
-dit['group_label'] = 'DASS-21 distress'; dit['group_label_long'] = 'DASS-21 distress'
+dit['construct'] = 'DASS-21 distress'; dit['construct_long'] = 'DASS-21 distress'
 dit['item_high_label'] = 'lower_is_better'
 dit['endpoint_measure'] = 'mean DASS-21 severity level (0-4, pre vs post)'
 dit.to_csv(f"{dir_out}/{file_prefix}_1_data_dit.csv", index=False)
 
-it = (dp1[['item_label', 'time']].drop_duplicates().sort_values(['time', 'item_label']).reset_index(drop=True))
-it['item_time_id'] = np.arange(1, len(it) + 1)
-dp1 = dp1.merge(it, on=['item_label', 'time'], how='left')
+it = (dp1[['item_label', 'group']].drop_duplicates().sort_values(['group', 'item_label']).reset_index(drop=True))
+it['item_group_id'] = np.arange(1, len(it) + 1)
+dp1 = dp1.merge(it, on=['item_label', 'group'], how='left')
 
 pids = np.sort(dp1.pid.unique()); n_full = len(pids)
 EARLY = [20, 40, 60, 80]                                      # fine early grid (effect emerges fast)
@@ -71,7 +71,7 @@ print(f"interims (fine early + every {STEP}): n={grid}")
 
 for k, n in enumerate(grid, 1):
     obs = set(pids[:n]); xi = dp1[dp1.pid.isin(obs)].copy()
-    xi = xi.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+    xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
     xi['oid'] = range(1, len(xi) + 1); xi['oidt'] = xi.groupby('item_type').cumcount() + 1
     xi.to_csv(f"{dir_out}/{file_prefix}_{k}_data_dp1.csv", index=False)
     pre = f"{dir_out}/{file_prefix}_{k}"

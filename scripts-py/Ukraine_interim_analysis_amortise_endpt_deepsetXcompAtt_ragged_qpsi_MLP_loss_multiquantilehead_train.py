@@ -75,7 +75,7 @@ META = np.stack([itype, ihigh], -1).astype(np.float32)      # (J, 2)
 def build_pool():
     """POOL (D, N_POOL, J, 2) rescaled + rho_target (D, J)."""
     xi = pd.read_csv(f"{WK}/{file_prefix}_{ANCHOR}_data_dp1.csv")
-    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ time - 1", seed=123)
+    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ group - 1", seed=123)
     zi = model.get_interim_z_from_ypredi(f"{WK}/{file_prefix}_{ANCHOR}_draws.zarr",
                                          N_POOL, pps_z_total=D, seed=123, keep_order=True)
     cols = [f'ypred_{s}' for s in range(D)]
@@ -85,7 +85,7 @@ def build_pool():
     for j, l in enumerate(labels):
         km = kmax[j] - 1.0
         for t in (0, 1):
-            blk = zi[(zi.item_label == l) & (zi.time == t)].set_index('pid')[cols].reindex(pids)
+            blk = zi[(zi.item_label == l) & (zi.group == t)].set_index('pid')[cols].reindex(pids)
             v = blk.to_numpy(np.float32).T          # (D, NP), NaN for missing
             POOL[:, :, j, t] = np.nan_to_num((v - 1.0) / km)
     piv = wa.pivot_table(index='draw', columns='item_label', values='pps_ratio_x').reindex(columns=labels)

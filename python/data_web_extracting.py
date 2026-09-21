@@ -209,10 +209,151 @@ def download_icrc_andersen(dest_dir: str) -> Dict[str, str]:
     return got
 
 
+# ---------------------------------------------------------------------------
+# CAVD DataSpace (Fred Hutch / VISC) — §3.19 (HIV-vaccine trials)
+# ---------------------------------------------------------------------------
+# DataSpace (dataspace.cavd.org) is a LabKey server. We query its HTTP query API with
+# `requests`, which authenticates from ~/.netrc automatically (the `labkey` python client
+# does NOT reliably forward the netrc basic-auth; requests --netrc does). Integrated
+# per-participant assay datasets live in the /CAVD LabKey container, schema "study":
+#   NAb   neutralising-antibody titre (titer_ID50/ID80 per virus/isolate)  <- the HAI
+#         analogue: a serial-dilution titre per virus (item) at scheduled visits
+#         (visit_day; pre/post) -> the ordered-categorical (log-titre) input for the §14
+#         paired amortiser
+#   BAMA  binding-antibody multiplex (IgG magnitude/response per antigen)
+#   ICS   intracellular cytokine staining (T-cell response per antigen/cytokine)
+#   Demographics (arm, age, sex, visit map)
+# We pull the raw long tables here; the PCM reshape (isolate=item, visit=time, titre->k)
+# belongs in a data_loading loader, mirroring read_data_immport_flu.
+#
+# AUTH (Global Access data under a data-use agreement the user has accepted): DataSpace
+# uses plain email+password basic auth (NOT an API key), per the DataSpaceR vignette. In
+# ~/.netrc (chmod 600), using the email + password of your dataspace.cavd.org account:
+#   machine dataspace.cavd.org
+#   login  you@example.org
+#   password  <your DataSpace password>
+# (An Imperial-SSO email has no DataSpace-local password — set one via "forgot password".)
+#
+# DATA-AVAILABILITY CAVEAT (checked 2026-09-18): the two mosaic-Ad26 EFFICACY trials we
+# first targeted are NOT pullable — study_prot 'vtn705' (HVTN 705 Imbokodo) has no
+# DataSpace record at all, and 'vtn706' (HVTN 706 Mosaico) is metadata-only (0 rows in
+# every dataset). Only three HVTN-network studies carry integrated assay data:
+#   vtn505 (HVTN 505) — phase-2b efficacy test-of-concept, STOPPED EARLY AT INTERIM FOR
+#                       FUTILITY (2013): NAb 628 / BAMA 10 260 / ICS 22 684 / Demog 2 504.
+#                       The best "real interim go/no-go" substitute for §3.19.
+#   vtn097 (HVTN 097), vtn105 (HVTN 105) — immunogenicity (paired titres).
+CAVD_DOMAIN = "dataspace.cavd.org"
+CAVD_BASE = f"https://{CAVD_DOMAIN}/CAVD"       # LabKey container path = /CAVD
+CAVD_SCHEMA = "study"
+CAVD_ASSAYS = ("NAb", "BAMA", "ICS", "Demographics")   # study.<query> integrated datasets
+# HVTN name -> DataSpace study_prot; None marks studies not present in DataSpace.
+CAVD_STUDIES = {"HVTN 505": "vtn505", "HVTN 097": "vtn097", "HVTN 105": "vtn105",
+                "HVTN 706": "vtn706", "Mosaico": "vtn706",      # metadata-only, empty
+                "HVTN 705": None, "Imbokodo": None}             # absent from DataSpace
+
+
+def _cavd_curl_json(url: str, timeout: int = 600):
+    """GET a DataSpace LabKey API URL with `curl --netrc` (which parses ~/.netrc for the
+    basic-auth exactly as the server expects — the stdlib `netrc`/requests path mangles
+    passwords with special characters) and return the parsed JSON."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+        out = tf.name
+    try:
+        p = subprocess.run(["curl", "-sS", "--netrc", "--fail", "-A", UA,
+                            "-m", str(timeout), url, "-o", out],
+                           capture_output=True, text=True)
+        if p.returncode != 0:
+            raise RuntimeError(f"curl failed ({p.returncode}) for {url}\n{p.stderr.strip()}\n"
+                               f"Check the 'machine {CAVD_DOMAIN}' email+password in ~/.netrc.")
+        return json.load(open(out))
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
+
+
+def cavd_select(query: str, prot: Optional[str] = None, columns: Optional[Iterable[str]] = None,
+                schema: str = CAVD_SCHEMA, session=None) -> "pd.DataFrame":
+    """LabKey selectRows over HTTP against the /CAVD container -> DataFrame (all rows).
+    `prot` server-side filters on study_prot; `columns` restricts the projection.
+    (`session` is accepted for API symmetry but unused — auth is via curl --netrc.)"""
+    from urllib.parse import urlencode
+    params = [("schemaName", schema), ("query.queryName", query), ("query.maxRows", -1)]
+    if prot:
+        params.append(("query.study_prot~eq", prot))
+    if columns:
+        params.append(("query.columns", ",".join(columns)))
+    j = _cavd_curl_json(f"{CAVD_BASE}/query-selectRows.api?{urlencode(params)}")
+    if "rows" not in j:
+        raise RuntimeError(f"{schema}.{query}: {j.get('exception', j)}")
+    return pd.DataFrame(j["rows"])
+
+
+def cavd_studies_with_data(network: Optional[str] = None, session=None) -> "pd.DataFrame":
+    """CDS.study metadata -> (study_name, label, network, data_availability, type, stage).
+    `data_availability` non-null means the study has integrated assay data to pull."""
+    df = cavd_select("study", schema="CDS")
+    keep = [c for c in ("study_name", "label", "network", "data_availability",
+                        "type", "stage", "status") if c in df.columns]
+    df = df[keep]
+    if network:
+        df = df[df["network"] == network]
+    return df.reset_index(drop=True)
+
+
+def download_cavd_dataspace(study: str, dest_dir: str, assays: Iterable[str] = CAVD_ASSAYS
+                            ) -> Dict[str, str]:
+    """Pull the integrated assay datasets for one CAVD/HVTN study to parquet.
+
+    `study` is any key of CAVD_STUDIES (e.g. 'HVTN 505'). Returns {assay: parquet_path}
+    for datasets that returned rows. NAb is the HAI analogue (serial-dilution titre per
+    isolate) and the primary PCM target. Raises if the study has no DataSpace record
+    (vtn705); warns (not raises) on an empty pull (vtn706 metadata-only).
+    """
+    if study not in CAVD_STUDIES:
+        raise ValueError(f"unknown study {study!r}; known: {sorted(CAVD_STUDIES)}")
+    prot = CAVD_STUDIES[study]
+    if prot is None:
+        raise ValueError(f"{study} has no CAVD DataSpace record (checked 2026-09-18); "
+                         "no data to pull. HVTN studies with data: HVTN 505/097/105.")
+    os.makedirs(dest_dir, exist_ok=True)
+    got: Dict[str, str] = {}
+    for q in assays:
+        df = cavd_select(q, prot=prot)
+        if df.empty:
+            print(f"[warn] {prot}.{q}: 0 rows (dataset not loaded for this study)")
+            continue
+        out = os.path.join(dest_dir, f"cavd_{prot}_{q}.parquet")
+        df.to_parquet(out, index=False)
+        got[q] = out
+        idcol = next((c for c in ("SubjectId", "participant_id", "ParticipantId") if c in df.columns), None)
+        n_id = df[idcol].nunique() if idcol else len(df)
+        print(f"{prot}.{q}: {len(df)} rows, {n_id} subjects -> {out}")
+    if not got:
+        print(f"[warn] {prot}: nothing pulled — study is metadata-only in DataSpace, "
+              "or verify ~/.netrc email+password for dataspace.cavd.org.")
+    return got
+
+
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser()
     ap.add_argument("--cache", default="/tmp/pisa_cache")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--out", default=None)
+    ap.add_argument("--cavd", default=None,
+                    help="CAVD/HVTN study to pull (with data: 'HVTN 505','HVTN 097','HVTN 105'; "
+                         "705/706 are metadata-only/absent)")
+    ap.add_argument("--cavd-list", action="store_true",
+                    help="list HVTN-network studies and their DataSpace data availability")
     a = ap.parse_args()
-    build_pisa_math_extract(a.cache, a.out)
+    if a.cavd_list:
+        print(cavd_studies_with_data(network="HVTN").to_string(index=False))
+    elif a.cavd:
+        dest = a.out or "/tmp/cavd_cache"
+        download_cavd_dataspace(a.cavd, dest)
+    else:
+        if not a.out:
+            ap.error("--out is required for the PISA extract")
+        build_pisa_math_extract(a.cache, a.out)

@@ -97,32 +97,32 @@ print(f"  dp: {len(dp):,} rows | dit: {len(dit):,} rows | dmeta: {len(dmeta):,} 
 
 # drop participants with unknown displacement status
 tmp = (
-    dmeta[['pid', 'time_label', 'displacement_status']]
+    dmeta[['pid', 'group_label', 'displacement_status']]
     .drop_duplicates()
     .rename(columns={'pid': 'pid_label'})
     .dropna(subset=["displacement_status"], how='all')
 )
-dp = dp.merge(tmp, on=['pid_label', 'time_label'], how='inner', validate='many_to_one')
+dp = dp.merge(tmp, on=['pid_label', 'group_label'], how='inner', validate='many_to_one')
 
 dp1 = dp[~dp['item_label'].str.contains('agg')].copy()
 dp1['y_stan'] = dp1['y'] + 1
 dp1 = dp1.merge(dit[['item_label', 'item_type']], on='item_label', how='left')
 
-# item_time_id: sequential id of (item_label, time) within each item_type.
+# item_group_id: sequential id of (item_label, time) within each item_type.
 item_time_df = (
-    dp1[['item_type', 'item_label', 'time']]
+    dp1[['item_type', 'item_label', 'group']]
     .drop_duplicates()
-    .sort_values(['item_type', 'time', 'item_label'])
+    .sort_values(['item_type', 'group', 'item_label'])
     .reset_index(drop=True)
 )
-item_time_df['item_time_id'] = item_time_df.groupby('item_type').cumcount() + 1
-dp1 = dp1.merge(item_time_df, on=['item_label', 'time', 'item_type'], how='left')
+item_time_df['item_group_id'] = item_time_df.groupby('item_type').cumcount() + 1
+dp1 = dp1.merge(item_time_df, on=['item_label', 'group', 'item_type'], how='left')
 
 dp1 = dp1.merge(
     dit[['item_type', 'item_type_id']].drop_duplicates(),
     on='item_type', how='left',
 )
-dp1 = dp1.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+dp1 = dp1.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
 dp1['oid']  = range(1, len(dp1) + 1)
 dp1['oidt'] = dp1.groupby('item_type').cumcount() + 1
 
@@ -132,7 +132,7 @@ print(f"  Pre-processed dp1: {len(dp1):,} observations | participants: {dp1['pid
 # Each interim row spans one full calendar month: ``month_start`` (inclusive)
 # to ``interim_date`` (month-end, the cumulative cutoff used by the fits).
 _endline_dates = pd.to_datetime(
-    dp1.loc[dp1['time_label'] == 'Endline', 'submission_date']
+    dp1.loc[dp1['group_label'] == 'Endline', 'submission_date']
 ).dropna()
 _start = _endline_dates.min().replace(day=1)
 _end = (_endline_dates.max() + pd.offsets.MonthEnd(0)).normalize()
@@ -153,7 +153,7 @@ print(f"Interim grid: {len(di)} months from {di['month_start'].min().date()} to 
 
 print("Plotting accruing participants...")
 acc = (
-    dp1[dp1['time_label'] == 'Endline']
+    dp1[dp1['group_label'] == 'Endline']
     .groupby('submission_date')['pid'].nunique().reset_index(name='n_pid')
     .sort_values('submission_date')
 )
@@ -230,7 +230,7 @@ for _, _row in di.iterrows():
         continue
     # Keep only participants with both baseline + endline (same cohort used by the fits).
     _n_per = (
-        _sub.groupby(['pid', 'item_label'])['time']
+        _sub.groupby(['pid', 'item_label'])['group']
         .nunique().reset_index(name='n_times')
     )
     _complete = (
@@ -304,7 +304,7 @@ for i in range(len(di)):
 
     interim_prefix = os.path.join(dir_out, f"{file_prefix}_{interim_id}")
     _pcm = PartialCreditModel(
-        dit=dit, dcati=dcati, x_formula="~ time - 1", seed=seed,
+        dit=dit, dcati=dcati, x_formula="~ group - 1", seed=seed,
     )
     fit = _pcm.fit_pyro_svi(
         output_file_prefix=interim_prefix,
@@ -354,7 +354,7 @@ posx = posx.merge(
     dit[['item_label', 'endpoint_measure']].drop_duplicates('item_label'),
     on='item_label', how='left',
 )
-posx['item_label_long'] = posx['group_label_long'] + np.where(
+posx['item_label_long'] = posx['construct_long'] + np.where(
     posx['item_label_short'].notna(), ' --- ' + posx['item_label_short'].fillna(''), ''
 )
 posx.to_csv(os.path.join(dir_out, f"{file_prefix}_interim_endpoints_x.csv"), index=False)
@@ -368,7 +368,7 @@ print(f"\nSaved interim endpoints on data x to: {file_prefix}_interim_endpoints_
 
 print("\nPlotting ratio over interim time...")
 ratio_df = posx[posx['variable'] == 'ratio'].copy()
-ratio_df['facet'] = ratio_df['group_label_long'] + '\n( ' + ratio_df['endpoint_measure'].fillna('') + ' )'
+ratio_df['facet'] = ratio_df['construct_long'] + '\n( ' + ratio_df['endpoint_measure'].fillna('') + ' )'
 ratio_pal = dict(zip(sorted(ratio_df['item_label_long'].unique()),
                      _futurama_palette(ratio_df['item_label_long'].nunique())))
 
@@ -406,7 +406,7 @@ ggsave(p, os.path.join(dir_out, f"{file_prefix}_percentchanges_over_time.pdf"),
 
 print("Plotting diff over interim time...")
 diff_df = posx[posx['variable'] == 'diff'].copy()
-diff_df['facet'] = diff_df['group_label_long'] + '\n( ' + diff_df['endpoint_measure'].fillna('') + ' )'
+diff_df['facet'] = diff_df['construct_long'] + '\n( ' + diff_df['endpoint_measure'].fillna('') + ' )'
 diff_pal = dict(zip(sorted(diff_df['item_label_long'].unique()),
                     _futurama_palette(diff_df['item_label_long'].nunique())))
 
@@ -471,14 +471,14 @@ for interim_id, zarr_path in interim_x_draws_dict.items():
 rel_df = pd.concat(rel_rows, ignore_index=True)
 rel_df = rel_df.merge(di, on='interim_id')
 rel_df = rel_df.merge(
-    dit[['item_label', 'group_label_long', 'item_label_short', 'endpoint_measure']]
+    dit[['item_label', 'construct_long', 'item_label_short', 'endpoint_measure']]
        .drop_duplicates('item_label'),
     on='item_label', how='left',
 )
-rel_df['item_label_long'] = rel_df['group_label_long'] + np.where(
+rel_df['item_label_long'] = rel_df['construct_long'] + np.where(
     rel_df['item_label_short'].notna(), ' --- ' + rel_df['item_label_short'].fillna(''), ''
 )
-rel_df['facet'] = rel_df['group_label_long'] + '\n( ' + rel_df['endpoint_measure'].fillna('') + ' )'
+rel_df['facet'] = rel_df['construct_long'] + '\n( ' + rel_df['endpoint_measure'].fillna('') + ' )'
 
 rel_pal = dict(zip(sorted(rel_df['item_label_long'].unique()),
                    _futurama_palette(rel_df['item_label_long'].nunique())))
@@ -562,7 +562,7 @@ for interim_id in di['interim_id']:
     t0 = time.time()
     model = PartialCreditModel(dit=dit,
                                dcati=xi,
-                               x_formula="~ time - 1",
+                               x_formula="~ group - 1",
                                seed=seed,
                                categorical_threshold=2)
     zi = model.get_interim_z_from_ypredi(
@@ -584,7 +584,7 @@ for interim_id in di['interim_id']:
         },
         fit_method_args={
             'algorithm': svi_algorithm,
-            'x_formula': "~ time - 1",
+            'x_formula': "~ group - 1",
             'lr': 0.01,
             'num_steps': 10000,
             'output_samples': 4000,
@@ -627,10 +627,10 @@ print(pps_df.head(10).to_string(index=False))
 
 print("\nPlotting p(H_1 | x, z) distribution...")
 tmp = p_h1_xz.merge(
-    dit[['item_label', 'group_label_long', 'item_label_short']].drop_duplicates(),
+    dit[['item_label', 'construct_long', 'item_label_short']].drop_duplicates(),
     on='item_label', how='left',
 )
-tmp['item_label_long'] = tmp['group_label_long'] + np.where(
+tmp['item_label_long'] = tmp['construct_long'] + np.where(
     tmp['item_label_short'].notna(), '\n' + tmp['item_label_short'], ''
 )
 

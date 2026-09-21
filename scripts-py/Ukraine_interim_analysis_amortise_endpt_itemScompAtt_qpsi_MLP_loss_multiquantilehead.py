@@ -192,7 +192,7 @@ def _interim_x_features(interim_id):
     xi = pd.read_csv(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_data_dp1.csv"),
     )
-    piv = xi.pivot_table(index='pid', columns=['item_label', 'time'],
+    piv = xi.pivot_table(index='pid', columns=['item_label', 'group'],
                          values='y')
     n_pid = piv.index.size
     w_x = np.zeros((J, 2), dtype=np.float32)
@@ -225,7 +225,7 @@ def _interim_z_means(interim_id, D):
     )
     n_pid = xi['pid'].nunique()
     interim_m = N_FULL - n_pid
-    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ time - 1",
+    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ group - 1",
                                seed=123)
     zi = model.get_interim_z_from_ypredi(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_draws.zarr"),
@@ -236,7 +236,7 @@ def _interim_z_means(interim_id, D):
     for j, lbl in enumerate(items_df['item_label']):
         kmax = item_klevels[j] - 1.0
         for tt in (0, 1):
-            sub = zi[(zi['item_label'] == lbl) & (zi['time'] == tt)]
+            sub = zi[(zi['item_label'] == lbl) & (zi['group'] == tt)]
             vals = sub[ypred_cols].to_numpy(dtype=np.float32)   # (m, D), 1..K
             out[:, j, tt] = (vals - 1.0).mean(axis=0) / kmax
     return out
@@ -613,24 +613,24 @@ print(f"Saved RGEE perf long-form pkl.")
 # ``pps_RGEM_p_h1_xz_boxplot.pkl / .pdf`` layout.
 # =============================================================================
 
-# Load dit metadata (group_label_long + item_label_short) from the RGE dir's
+# Load dit metadata (construct_long + item_label_short) from the RGE dir's
 # cached data csv for interim 1 (schema stable across interims).
 _dit_path = os.path.join(DIR_RGE, f'{file_prefix}_1_data_dit.csv')
 try:
     dit_meta = pd.read_csv(_dit_path)[
-        ['item_label', 'group_label_long', 'item_label_short']
+        ['item_label', 'construct_long', 'item_label_short']
     ].drop_duplicates()
 except Exception as e:
     print(f"[warn] could not read dit meta at {_dit_path}: {e};"
           f" falling back to item_label as item_label_long.")
     dit_meta = pd.DataFrame({
         'item_label':       items_df['item_label'],
-        'group_label_long': items_df['item_label'],
+        'construct_long': items_df['item_label'],
         'item_label_short': [''] * len(items_df),
     })
 
 tmp = dp_h1_xz.merge(dit_meta, on='item_label', how='left')
-tmp['item_label_long'] = tmp['group_label_long'].fillna(tmp['item_label']) + (
+tmp['item_label_long'] = tmp['construct_long'].fillna(tmp['item_label']) + (
     np.where(
         tmp['item_label_short'].fillna('').astype(str).str.len() > 0,
         '\n' + tmp['item_label_short'].fillna('').astype(str),

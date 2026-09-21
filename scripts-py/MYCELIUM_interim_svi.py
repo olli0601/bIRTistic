@@ -15,7 +15,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 RAW = os.environ.get('MYCELIUM_CSV',
     "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data/mycelium/Mycelium.csv")
 dir_out = f"{SB}/py-mycelium-powdervsburger_260902"; os.makedirs(dir_out, exist_ok=True)
-file_prefix = "pcm_1_interim"; x_formula = "~ time - 1"; seed = 123
+file_prefix = "pcm_1_interim"; x_formula = "~ group - 1"; seed = 123
 NSTEPS = int(os.environ.get('MYC_STEPS', '4000')); S = int(os.environ.get('MYC_S', '2000'))
 NINT = int(os.environ.get('MYC_NINT', '8'))
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.3')
@@ -38,14 +38,14 @@ raw = pd.read_csv(RAW, encoding='utf-8-sig', low_memory=False)
 raw.columns = [str(c).strip() for c in raw.columns]
 raw = raw[raw['Process'].isin([2, 3])].reset_index(drop=True)   # 2=powder, 3=burger; drop cake
 raw['pid'] = np.arange(1, len(raw) + 1)
-raw['time'] = (raw['Process'] == 2).astype(int)                 # burger=0 (baseline), powder=1 (endline)
+raw['group'] = (raw['Process'] == 2).astype(int)                 # burger=0 (baseline), powder=1 (endline)
 
-long = raw[['pid', 'time'] + cols].melt(id_vars=['pid', 'time'], var_name='item_label', value_name='y')
+long = raw[['pid', 'group'] + cols].melt(id_vars=['pid', 'group'], var_name='item_label', value_name='y')
 long['y'] = pd.to_numeric(long['y'], errors='coerce')
 long = long.dropna(subset=['y'])
 dp1 = pd.DataFrame({
-    'time': long['time'].to_numpy(),
-    'time_label': long['time'].map({0: 'Baseline', 1: 'Endline'}).to_numpy(),   # burger=Baseline, powder=Endline (get_endpoints keys on these names)
+    'group': long['group'].to_numpy(),
+    'group_label': long['group'].map({0: 'Baseline', 1: 'Endline'}).to_numpy(),   # burger=Baseline, powder=Endline (get_endpoints keys on these names)
     'pid': long['pid'].to_numpy(), 'pid_label': long['pid'].astype(str).to_numpy(),
     'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT, 'treat': 0.0,
     'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(int).to_numpy(),
@@ -60,31 +60,31 @@ dp1['item_type'] = 'out-of-7'; dp1['item_type_id'] = 1
 dit = pd.DataFrame({'item_label': cols})
 dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = 7
 dit['item_label_short'] = dit['item_label'].map(lambda c: ITEMS[c][0])
-dit['group_label'] = dit['item_label'].map(lambda c: ITEMS[c][1])
-dit['group_label_long'] = dit['group_label']
+dit['construct'] = dit['item_label'].map(lambda c: ITEMS[c][1])
+dit['construct_long'] = dit['construct']
 dit['item_high_label'] = dit['item_label'].map(lambda c: ITEMS[c][2])
 dit['endpoint_measure'] = 'mean 7-point rating (powder vs burger)'
 dit.to_csv(f"{dir_out}/{file_prefix}_1_data_dit.csv", index=False)
 
-it = (dp1[['item_label', 'time']].drop_duplicates().sort_values(['time', 'item_label']).reset_index(drop=True))
-it['item_time_id'] = np.arange(1, len(it) + 1)
-dp1 = dp1.merge(it, on=['item_label', 'time'], how='left')
+it = (dp1[['item_label', 'group']].drop_duplicates().sort_values(['group', 'item_label']).reset_index(drop=True))
+it['item_group_id'] = np.arange(1, len(it) + 1)
+dp1 = dp1.merge(it, on=['item_label', 'group'], how='left')
 
 # shuffled accrual so both arms are present at every interim
 rng = np.random.default_rng(seed)
 pids = rng.permutation(np.sort(dp1.pid.unique())); n_full = len(pids)
 grid = np.unique(np.round(np.linspace(max(40, n_full // NINT), n_full, NINT)).astype(int))
-n_pow = int((raw['time'] == 1).sum()); n_bur = int((raw['time'] == 0).sum())
+n_pow = int((raw['group'] == 1).sum()); n_bur = int((raw['group'] == 0).sum())
 print(f"mycelium powder-vs-burger: n_full={n_full} (powder={n_pow}, burger={n_bur}), "
       f"{dp1.item_label.nunique()} items, interims n={grid.tolist()}")
 
 for k, n in enumerate(grid, 1):
     obs = set(pids[:n]); xi = dp1[dp1.pid.isin(obs)].copy()
-    xi = xi.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+    xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
     xi['oid'] = range(1, len(xi) + 1); xi['oidt'] = xi.groupby('item_type').cumcount() + 1
     xi.to_csv(f"{dir_out}/{file_prefix}_{k}_data_dp1.csv", index=False)
     pre = f"{dir_out}/{file_prefix}_{k}"
-    nb = xi[xi.time == 0].pid.nunique(); npw = xi[xi.time == 1].pid.nunique()
+    nb = xi[xi.group == 0].pid.nunique(); npw = xi[xi.group == 1].pid.nunique()
     print(f"\n=== interim {k}: n={n} (burger={nb}, powder={npw}) ===")
     t0 = time.time()
     model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed)

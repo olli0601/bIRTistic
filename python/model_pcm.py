@@ -141,9 +141,16 @@ class PartialCreditModel(IRTModel):
 
         category_stats = dcati.groupby('item_type_id').agg({
             'oid': 'count',
-            'item_time_id': 'max',
-            'y_stan': lambda x: len(x.unique()),
-        }).rename(columns={'oid': 'N', 'item_time_id': 'Q', 'y_stan': 'K'})
+            'item_group_id': 'max',
+        }).rename(columns={'oid': 'N', 'item_group_id': 'Q'})
+        # K = the intended category count from dit.cat_length, NOT the number of categories
+        # that happen to be OBSERVED at this interim. Sizing by observation makes the fitted
+        # category grid (and hence the ordered-prob param width) shrink when high categories
+        # are absent at small n, which then misaligns _map_cq_id_to_item_structure (built on
+        # cat_length) -> wrong probabilities/endpoints at early interims. Fixing K to
+        # cat_length keeps the category scale constant across interims.
+        k_by_type = dit.groupby('item_type_id')['cat_length'].max()
+        category_stats['K'] = k_by_type.reindex(category_stats.index).astype(int)
 
         stan_data['N'] = category_stats['N'].astype(int).tolist()
         stan_data['Q'] = category_stats['Q'].astype(int).tolist()
@@ -154,7 +161,7 @@ class PartialCreditModel(IRTModel):
 
         stan_data['y'] = dcati['y_stan'].astype(int).tolist()
         stan_data['unit_of_obs'] = dcati['pid'].astype(int).tolist()
-        stan_data['question_of_obs'] = dcati['item_time_id'].astype(int).tolist()
+        stan_data['question_of_obs'] = dcati['item_group_id'].astype(int).tolist()
         stan_data['cat_type'] = dcati['item_type_id'].astype(int).tolist()
 
         design_matrix = patsy.dmatrix(x_formula, data=dcati, return_type='dataframe')
@@ -1056,7 +1063,7 @@ class PartialCreditModel(IRTModel):
         1. draw ``n ~ U{n_min, .., n_max - 1}``, ``m = n_max - n``;
         2. draw ``theta_i ~ N(0, 1)`` for all ``N = n_max`` participants
            (ZeroSumNormal marginal), ``beta_t ~ N(0, 1)`` for the two
-           time-points (x_formula "~ time - 1");
+           time-points (x_formula "~ group - 1");
         3. per (real item j, time t): thresholds
            ``tau_{j, t, .} ~ N(0, threshold_scale)`` (K_j - 1 of them)
            and loading ``lam_{j, t} ~ |StudentT(3)|`` with the first

@@ -109,7 +109,7 @@ net = Net(**net_kwargs)
 def _x_feats(interim_id):
     xi = pd.read_csv(os.path.join(
         DIR_RGE, f"{file_prefix}_{interim_id}_data_dp1.csv"))
-    piv = xi.pivot_table(index='pid', columns=['item_label', 'time'],
+    piv = xi.pivot_table(index='pid', columns=['item_label', 'group'],
                          values='y')
     n_pid = piv.index.size
     w_x = np.zeros((J, 2), np.float32)
@@ -129,7 +129,7 @@ def _z_means(interim_id, D):
     xi = pd.read_csv(os.path.join(
         DIR_RGE, f"{file_prefix}_{interim_id}_data_dp1.csv"))
     n_pid = xi['pid'].nunique(); m = N_FULL - n_pid
-    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ time - 1",
+    model = PartialCreditModel(dit=dit_df, dcati=xi, x_formula="~ group - 1",
                                seed=123)
     zi = model.get_interim_z_from_ypredi(
         os.path.join(DIR_RGE, f"{file_prefix}_{interim_id}_draws.zarr"),
@@ -139,7 +139,7 @@ def _z_means(interim_id, D):
     for j, lbl in enumerate(items_df['item_label']):
         km = item_klevels[j] - 1.0
         for tt in (0, 1):
-            v = zi[(zi['item_label'] == lbl) & (zi['time'] == tt)][cols].to_numpy(np.float32)
+            v = zi[(zi['item_label'] == lbl) & (zi['group'] == tt)][cols].to_numpy(np.float32)
             out[:, j, tt] = (v - 1.0).mean(0) / km
     return out
 

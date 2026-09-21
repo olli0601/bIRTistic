@@ -107,7 +107,7 @@ pps_H1_min_effect_size_thresh = 0.5
 pps_ProbH1_target_lwr_quantile = 0.89
 categorical_threshold = 2        # on 1-indexed categories (matches RGE get_w)
 seed = 123
-x_formula = "~ time - 1"
+x_formula = "~ group - 1"
 
 N_FULL = 503                     # total trial participants (n + m per interim)
 # Response-level counts are read from dit['cat_length'] below (Ukraine:
@@ -166,7 +166,7 @@ print(f"J = {J} items:\n{items_df}")
 def _pivot_responses(df, value_col):
     """Long-form (pid, item_label, time, value) -> (n_pid, J, 2) float32,
     rescaled to [0, 1] via (y_stan - 1) / (K - 1) per item type."""
-    piv = df.pivot_table(index='pid', columns=['item_label', 'time'],
+    piv = df.pivot_table(index='pid', columns=['item_label', 'group'],
                          values=value_col)
     pids = piv.index.to_numpy()
     out = np.zeros((len(pids), J, 2), dtype=np.float32)

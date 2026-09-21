@@ -31,7 +31,7 @@ class IRTModel(Model):
     endpoint extraction from posterior ordered-prob arrays."""
 
     def __init__(self, dit: pd.DataFrame, dcati: pd.DataFrame,
-                 x_formula: str = "~ time - 1", *,
+                 x_formula: str = "~ group - 1", *,
                  seed: int = 123, categorical_threshold: int = 3):
         self.categorical_threshold = int(categorical_threshold)
         super().__init__(dit=dit, dcati=dcati, x_formula=x_formula, seed=seed)
@@ -48,7 +48,7 @@ class IRTModel(Model):
         if 'y_stan' not in x_dcati:
             x_dcati['y_stan'] = x_dcati['y'] + 1
         x_dcati = x_dcati.sort_values(
-            ['item_type_id', 'pid', 'time', 'item_label']
+            ['item_type_id', 'pid', 'group', 'item_label']
         ).reset_index(drop=True)
         x_dcati['oid'] = np.arange(1, len(x_dcati) + 1)
         x_dcati['oidt'] = x_dcati.groupby('item_type').cumcount() + 1
@@ -63,7 +63,7 @@ class IRTModel(Model):
         z_dcati = zi.assign(pid=zi['src_pid'], y_stan=zi[zcol].astype(int))
         z_dcati['y'] = z_dcati['y_stan'] - 1
         z_dcati = z_dcati.sort_values(
-            ['item_type_id', 'pid', 'time', 'item_label']
+            ['item_type_id', 'pid', 'group', 'item_label']
         ).reset_index(drop=True)
         z_dcati['oid'] = np.arange(1, len(z_dcati) + 1)
         z_dcati['oidt'] = z_dcati.groupby('item_type').cumcount() + 1
@@ -95,7 +95,7 @@ class IRTModel(Model):
             return dcati
 
         n_per_pid_item = (
-            dcati.groupby(['pid', 'item_label'])['time']
+            dcati.groupby(['pid', 'item_label'])['group']
             .nunique().reset_index(name='n_times')
         )
         keep = n_per_pid_item.loc[n_per_pid_item['n_times'] == 2, ['pid', 'item_label']]
@@ -109,7 +109,7 @@ class IRTModel(Model):
         dcati['pid'] = dcati['pid_new']
         dcati = dcati.drop(columns=['pid_orig', 'pid_new'])
 
-        dcati = dcati.sort_values(['item_type_id', 'pid', 'time', 'item_label']).reset_index(drop=True)
+        dcati = dcati.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
         dcati['oid'] = range(1, len(dcati) + 1)
         dcati['oidt'] = dcati.groupby('item_type').cumcount() + 1
         return dcati
@@ -141,29 +141,29 @@ class IRTModel(Model):
         zi_o7 = zi[zi['item_type'] == 'out-of-7']
         zi_cat = zi[zi['item_type'] == 'categorical']
         w_o7 = (
-            zi_o7.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+            zi_o7.groupby(['item_label', 'item_type', 'group'])[ypred_cols]
             .mean().reset_index()
         )
         zi_cat_bin = zi_cat[ypred_cols].ge(cat_thresh).astype(float)
         zi_cat_bin = pd.concat(
-            [zi_cat[['item_label', 'item_type', 'time']].reset_index(drop=True),
+            [zi_cat[['item_label', 'item_type', 'group']].reset_index(drop=True),
              zi_cat_bin.reset_index(drop=True)], axis=1,
         )
         w_cat = (
-            zi_cat_bin.groupby(['item_label', 'item_type', 'time'])[ypred_cols]
+            zi_cat_bin.groupby(['item_label', 'item_type', 'group'])[ypred_cols]
             .mean().reset_index()
         )
         wa = pd.concat([w_o7, w_cat], ignore_index=True).melt(
-            id_vars=['item_label', 'item_type', 'time'],
+            id_vars=['item_label', 'item_type', 'group'],
             value_vars=ypred_cols, var_name='s_col', value_name='w',
         )
         wa['draw'] = wa['s_col'].str.replace('ypred_', '').astype(int)
         wa = wa.drop(columns='s_col')
 
-        t_min, t_max = wa['time'].min(), wa['time'].max()
+        t_min, t_max = wa['group'].min(), wa['group'].max()
         wa = (
             wa.pivot_table(index=['item_label', 'item_type', 'draw'],
-                           columns='time', values='w')
+                           columns='group', values='w')
             .reset_index()
         )
         wa.columns.name = None
@@ -211,7 +211,7 @@ class IRTModel(Model):
         """Reshape a posterior probability array of shape ``(chain, draw,
         cq_id)`` into a long DataFrame with columns ``['.draw', 'cq_id',
         'prob']`` and merge in the item structure (``item_type_id``,
-        ``item_time_id``, ``y``) recovered from ``cq_id`` via
+        ``item_group_id``, ``y``) recovered from ``cq_id`` via
         :func:`utils._map_cq_id_to_item_structure`."""
         dp1 = self.dcati
         dit = self.dit
@@ -252,12 +252,23 @@ class IRTModel(Model):
         categorical_threshold: Optional[int] = None,
         endpoint_type: Literal["items", "item_groups"] = "items",
         param_name: str = "ordered_prob_by_cat_qu_pr",
+        rho_specs: Optional[list] = None,
+        contrast_col: str = "group",
         verbose: bool = False,
     ) -> pd.DataFrame:
         """Per-draw directional ``diff`` and ``ratio`` per item or
         item-group, computed from ``self.dcati`` + ``self.dit`` and the
         supplied posterior. ``categorical_threshold`` defaults to
-        ``self.categorical_threshold`` (set in the constructor)."""
+        ``self.categorical_threshold`` (set in the constructor).
+
+        If ``rho_specs`` is given, returns instead a long, MULTI-endpoint frame
+        (one row per draw x item x rho) tagged by ``rho_id`` / ``rho_label`` — see
+        :meth:`_rho_endpoints_per_draw`. Each spec picks a per-time-point reduction
+        of the category probabilities (``reduction``) and a way to combine the
+        Baseline / Endline values into the endpoint (``compare``). This is the
+        general path (e.g. influenza HAI needs both a seroprotection-rate endpoint
+        and a GMT-fold-rise endpoint); ``rho_specs=None`` keeps the legacy single
+        ``diff``/``ratio`` behaviour used by every existing caller."""
         if endpoint_type not in ("items", "item_groups"):
             raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
         if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
@@ -269,14 +280,23 @@ class IRTModel(Model):
         po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
         po = self._make_po(po_arr)
 
+        if rho_specs is not None:
+            return self._rho_endpoints_per_draw(po, rho_specs, endpoint_type=endpoint_type,
+                                                contrast_col=contrast_col)
+
         dp1 = self.dcati
         dit = self.dit
         parts = []
+        # The two conditions being contrasted are keyed on the NEUTRAL index ``time`` (0/1),
+        # not on the display string ``group_label``: time 0 -> ``group1``, time 1 -> ``group2``.
+        # ``group_label`` is a free display label (Baseline/Endline for a paired design, or
+        # e.g. adult/pediatric, mild/severe, vaccine/placebo for a between-group design) used
+        # only by the plots. The endpoint (diff/ratio) is group2-vs-group1 either way.
         for item_type in ('categorical', 'out-of-7'):
             tmp = dp1[dp1['item_type'] == item_type][
-                ['item_type_id', 'item_label', 'item_time_id', 'item_type', 'time_label']
+                ['item_type_id', 'item_label', 'item_group_id', 'item_type', 'group']
             ].drop_duplicates()
-            sub = po.merge(tmp, on=['item_type_id', 'item_time_id'])
+            sub = po.merge(tmp, on=['item_type_id', 'item_group_id'])
             if sub.empty:
                 continue
             if item_type == 'categorical':
@@ -285,46 +305,183 @@ class IRTModel(Model):
             else:
                 sub = sub.assign(_w=sub['y'] * sub['prob'])
             sub = sub.groupby(
-                ['.draw', 'item_type_id', 'item_label', 'item_time_id', 'item_type', 'time_label']
+                ['.draw', 'item_type_id', 'item_label', 'item_group_id', 'item_type', 'group']
             ).agg(value=('_w', 'sum')).reset_index()
             parts.append(sub)
         po = pd.concat(parts, ignore_index=True)
 
         po = po.merge(
-            dit[['item_type', 'item_label', 'group_label']],
+            dit[['item_type', 'item_label', 'construct']],
             on=['item_type', 'item_label'],
         )
 
         if endpoint_type == 'item_groups':
-            id_vars = ['item_type', 'group_label']
-            po = po.groupby(['.draw', 'item_type', 'time_label', 'group_label']).agg(
+            id_vars = ['item_type', 'construct']
+            po = po.groupby(['.draw', 'item_type', 'group', 'construct']).agg(
                 value=('value', 'mean')
             ).reset_index()
         else:
-            id_vars = ['item_type_id', 'item_type', 'item_label', 'group_label']
+            id_vars = ['item_type_id', 'item_type', 'item_label', 'construct']
 
         po = po.pivot_table(
             index=['.draw'] + id_vars,
-            columns='time_label',
+            columns='group',
             values='value',
-        ).reset_index()
-        po = po.dropna(subset=['Baseline', 'Endline'])
+        ).rename(columns={0: 'group1', 1: 'group2'}).reset_index()
+        po = po.dropna(subset=['group1', 'group2'])
         po = po.merge(
-            dit[['item_type', 'group_label', 'item_high_label']].drop_duplicates(),
-            on=['item_type', 'group_label'],
+            dit[['item_type', 'construct', 'item_high_label']].drop_duplicates(),
+            on=['item_type', 'construct'],
         )
 
         po['diff'] = np.nan
         po['ratio'] = np.nan
         tmp = po['item_high_label'] == 'lower_is_better'
-        po.loc[tmp, 'diff'] = po.loc[tmp, 'Baseline'] - po.loc[tmp, 'Endline']
-        po.loc[tmp, 'ratio'] = 1 - po.loc[tmp, 'Endline'] / po.loc[tmp, 'Baseline']
+        po.loc[tmp, 'diff'] = po.loc[tmp, 'group1'] - po.loc[tmp, 'group2']
+        po.loc[tmp, 'ratio'] = 1 - po.loc[tmp, 'group2'] / po.loc[tmp, 'group1']
         tmp = po['item_high_label'] == 'higher_is_better'
-        po.loc[tmp, 'diff'] = po.loc[tmp, 'Endline'] - po.loc[tmp, 'Baseline']
-        po.loc[tmp, 'ratio'] = po.loc[tmp, 'Endline'] / po.loc[tmp, 'Baseline'] - 1
+        po.loc[tmp, 'diff'] = po.loc[tmp, 'group2'] - po.loc[tmp, 'group1']
+        po.loc[tmp, 'ratio'] = po.loc[tmp, 'group2'] / po.loc[tmp, 'group1'] - 1
 
         po.rename(columns={'.draw': 'draw'}, inplace=True)
         return po
+
+    @staticmethod
+    def _apply_rho_compare(piv: pd.DataFrame, compare: str) -> "pd.Series":
+        """Combine the two per-condition summaries (``group1`` = time 0, ``group2`` = time 1)
+        into a scalar endpoint, respecting ``item_high_label`` direction. ``compare``:
+          'endline'/'group2' -> the group2 level only (group1 computed but unused, e.g. a
+                                seroprotection RATE at endline);
+          'baseline'/'group1' -> the group1 level only;
+          'fold'      -> geometric/level fold group2/group1 (good direction);
+          'fold_log2' -> 2**(group2-group1) when the summary is on a log2 scale
+                         (e.g. mean log2-titre -> GMT fold-rise);
+          'ratio'     -> group2/group1 - 1 (legacy relative change);
+          'diff'      -> group2 - group1.
+        For 'lower_is_better' items the group1/group2 roles are swapped for the change-type
+        compares (fold/fold_log2/ratio/diff). ('endline'/'baseline' kept as aliases so a
+        paired design reads naturally; a between-group design can use 'group2'/'group1'.)"""
+        hi = piv['item_high_label'].to_numpy() if 'item_high_label' in piv else np.array(['higher_is_better'] * len(piv))
+        lower = hi == 'lower_is_better'
+        B, E = piv['group1'].to_numpy(float), piv['group2'].to_numpy(float)
+        if compare in ('endline', 'group2'):
+            return pd.Series(E, index=piv.index)
+        if compare in ('baseline', 'group1'):
+            return pd.Series(B, index=piv.index)
+        # change-type: orient so "good" is the numerator/positive
+        num = np.where(lower, B, E)
+        den = np.where(lower, E, B)
+        if compare == 'fold':
+            with np.errstate(divide='ignore', invalid='ignore'):
+                return pd.Series(num / den, index=piv.index)
+        if compare == 'fold_log2':
+            return pd.Series(2.0 ** (num - den), index=piv.index)
+        if compare == 'ratio':
+            with np.errstate(divide='ignore', invalid='ignore'):
+                return pd.Series(num / den - 1.0, index=piv.index)
+        if compare == 'diff':
+            return pd.Series(num - den, index=piv.index)
+        raise ValueError(f"unknown compare {compare!r}")
+
+    def _rho_endpoints_per_draw(self, po: pd.DataFrame, rho_specs: list,
+                                endpoint_type: str = "items",
+                                contrast_col: str = "group") -> pd.DataFrame:
+        """Multi-endpoint per-draw frame. ``po`` is ``_make_po`` output (``.draw``,
+        ``cq_id``, ``prob``, ``item_type_id``, ``item_group_id``, ``y``). Each spec in
+        ``rho_specs`` is a dict with:
+          rho_id, rho_label       identifiers carried into the output;
+          reduction               'threshold' (P(y >= threshold), e.g. seroprotection)
+                                  or 'mean' (E[y]; on the log2-dilution scale this is
+                                  mean log2 titre -> pair with compare='fold_log2' for GMT);
+          threshold               the y cut for reduction='threshold' (y is 0-indexed:
+                                  y>=3 == titre>=1:40 on the HAI ladder start=5);
+          compare                 how group1/group2 combine (see _apply_rho_compare);
+          across/across_*         optional cross-stratum difference (see :meth:`_rho_across`).
+        ``contrast_col`` is the 0/1 axis the endpoint contrasts (0->group1, 1->group2); it is
+        ``'group'`` for the usual paired/between design, but a head-to-head fit whose flexible
+        ``group`` carries arm x time passes ``contrast_col='phase'`` (the within-arm baseline/
+        endline axis) and keeps ``arm`` as a stratum, so SPR/GMFR come out per (item, arm) and the
+        cross-arm difference is a further ``across='arm'`` step. Any per-item_group_id descriptor
+        columns present in ``dcati`` beyond the item (e.g. ``arm``) are carried as strata.
+        Returns columns: draw, item_type_id, item_type, item_label, construct, item_high_label,
+        [strata], rho_id, rho_label, reduction, compare, group1, group2, rho."""
+        dp1, dit = self.dcati, self.dit
+        # strata = per-item_group_id descriptors that are neither the item nor the contrast axis
+        strata = [c for c in ('arm',) if c in dp1.columns and c != contrast_col]
+        struct = dp1[['item_type_id', 'item_group_id', 'item_label', 'item_type',
+                      contrast_col] + strata].drop_duplicates()
+        base = po.merge(struct, on=['item_type_id', 'item_group_id'])
+        base = base.merge(
+            dit[['item_type', 'item_label', 'construct', 'item_high_label']].drop_duplicates(),
+            on=['item_type', 'item_label'])
+        if endpoint_type == 'item_groups':
+            idx = ['.draw', 'item_type', 'construct', 'item_high_label']
+        else:
+            idx = ['.draw', 'item_type_id', 'item_type', 'item_label',
+                   'construct', 'item_high_label'] + strata
+        gkeys = idx + [contrast_col]
+        out = []
+        for spec in rho_specs:
+            red = spec.get('reduction', 'mean')
+            if red == 'threshold':
+                k = int(spec['threshold'])
+                b = base.assign(_w=np.where(base['y'] >= k, base['prob'], 0.0))
+            elif red == 'mean':
+                b = base.assign(_w=base['y'] * base['prob'])
+            else:
+                raise ValueError(f"unknown reduction {red!r}")
+            val = b.groupby(gkeys, as_index=False).agg(value=('_w', 'sum'))
+            if endpoint_type == 'item_groups':     # average the per-item summaries within a group
+                val = val.groupby(idx + [contrast_col], as_index=False).agg(value=('value', 'mean'))
+            piv = (val.pivot_table(index=idx, columns=contrast_col, values='value')
+                   .rename(columns={0: 'group1', 1: 'group2'}).reset_index())
+            for tcol in ('group1', 'group2'):
+                if tcol not in piv.columns:
+                    piv[tcol] = np.nan
+            piv['rho'] = self._apply_rho_compare(piv, spec.get('compare', 'ratio'))
+            if spec.get('across'):
+                piv = self._rho_across(piv, spec)      # cross-arm (or other) difference endpoint
+            piv['rho_id'] = spec.get('rho_id')
+            piv['rho_label'] = spec.get('rho_label', str(spec.get('rho_id')))
+            piv['reduction'] = red
+            piv['compare'] = spec.get('compare', 'ratio')
+            out.append(piv)
+        res = pd.concat(out, ignore_index=True)
+        res.rename(columns={'.draw': 'draw'}, inplace=True)
+        return res
+
+    @staticmethod
+    def _rho_across(piv: pd.DataFrame, spec: dict) -> pd.DataFrame:
+        """Contrast the per-item base endpoint `rho` ACROSS a descriptor column (e.g. `arm`),
+        WITHIN a matching unit (e.g. `strain`), per draw — for a head-to-head difference such as
+        GMFR_diff / SPR_diff on the shared strain. Because both arms come from the SAME joint fit,
+        this is an exact per-draw contrast (no random draw-pairing). Spec keys: `across` (the
+        column, e.g. 'arm'), `across_values` = [ref, foc] (endpoint oriented as foc-vs-ref),
+        `across_within` (matching unit, default 'strain'), `across_compare` ('diff'|'fold'|'ratio',
+        default 'diff'). Output keeps the standard schema with group1 = ref value, group2 = foc
+        value, rho = their contrast; `item_label`/`strain` collapse to the matching unit and `arm`
+        becomes '<foc>-<ref>'. Only units present for BOTH values survive."""
+        ac = spec['across']; within = spec.get('across_within', 'item_label')
+        ref, foc = spec['across_values']; comp = spec.get('across_compare', 'diff')
+        w = piv.pivot_table(index=['.draw', within], columns=ac, values='rho')
+        w = w.dropna(subset=[ref, foc]).reset_index()
+        g1, g2 = w[ref].to_numpy(float), w[foc].to_numpy(float)
+        if comp == 'diff':
+            r = g2 - g1
+        elif comp == 'fold':
+            with np.errstate(divide='ignore', invalid='ignore'):
+                r = g2 / g1
+        elif comp == 'ratio':
+            with np.errstate(divide='ignore', invalid='ignore'):
+                r = g2 / g1 - 1.0
+        else:
+            raise ValueError(f"unknown across_compare {comp!r}")
+        const = {c: piv[c].iloc[0] for c in
+                 ('item_type_id', 'item_type', 'construct', 'item_high_label') if c in piv}
+        res = pd.DataFrame({'.draw': w['.draw'], **{c: const[c] for c in const},
+                            'item_label': w[within], within: w[within],
+                            ac: f'{foc}-{ref}', 'group1': g1, 'group2': g2, 'rho': r})
+        return res
 
     def get_endpoints(
         self,
@@ -350,13 +507,13 @@ class IRTModel(Model):
         )
 
         if endpoint_type == "item_groups":
-            id_vars = ['item_type', 'group_label']
+            id_vars = ['item_type', 'construct']
         else:
-            id_vars = ['item_type_id', 'item_type', 'item_label', 'group_label']
+            id_vars = ['item_type_id', 'item_type', 'item_label', 'construct']
 
         po = po.melt(
             id_vars=['draw'] + id_vars,
-            value_vars=['diff', 'ratio', 'Baseline', 'Endline'],
+            value_vars=['diff', 'ratio', 'group1', 'group2'],
             var_name='variable',
             value_name='value',
         )
@@ -368,14 +525,14 @@ class IRTModel(Model):
         pos = pos.reset_index()
 
         if endpoint_type == "item_groups":
-            tmp = dit[['item_type', 'group_label', 'group_label_long', 'item_high_label']].drop_duplicates()
-            pos = pos.merge(tmp, on=['item_type', 'group_label'])
+            tmp = dit[['item_type', 'construct', 'construct_long', 'item_high_label']].drop_duplicates()
+            pos = pos.merge(tmp, on=['item_type', 'construct'])
         else:
             tmp = dit[
-                ['item_type', 'item_label', 'item_label_short', 'group_label',
-                 'group_label_long', 'item_high_label']
+                ['item_type', 'item_label', 'item_label_short', 'construct',
+                 'construct_long', 'item_high_label']
             ].drop_duplicates()
-            pos = pos.merge(tmp, on=['item_type', 'item_label', 'group_label'])
+            pos = pos.merge(tmp, on=['item_type', 'item_label', 'construct'])
 
         vprint(f"Computed endpoints for {len(pos)} item-variable combinations")
         return pos

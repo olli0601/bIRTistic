@@ -78,7 +78,7 @@ net = DSNet(**nkw)
 
 
 def _pivot(df, col):
-    piv = df.pivot_table(index='pid', columns=['item_label', 'time'], values=col)
+    piv = df.pivot_table(index='pid', columns=['item_label', 'group'], values=col)
     out = np.zeros((piv.index.size, J, 2), np.float32)
     for j, l in enumerate(labels):
         for t in (0, 1):
@@ -96,7 +96,7 @@ def build(k):
     """Forward-pass all S draws -> qs (S,J,5), head_in (S,J,H), tgt (S,J)."""
     xi = pd.read_csv(f"{DIR_RGE}/{file_prefix}_{k}_data_dp1.csv")
     x_raw, _ = _pivot(xi, 'y_stan'); n = x_raw.shape[0]; m = N_FULL - n
-    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ time - 1", seed=123)
+    model = PartialCreditModel(dit=dit, dcati=xi, x_formula="~ group - 1", seed=123)
     zi = model.get_interim_z_from_ypredi(f"{DIR_RGE}/{file_prefix}_{k}_draws.zarr",
                                          m, pps_z_total=S, seed=123, keep_order=True)
     x_pad = np.zeros((N_FULL, J, 2), np.float32); x_pad[:n] = x_raw

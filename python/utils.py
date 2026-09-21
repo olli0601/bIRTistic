@@ -5,32 +5,63 @@ from __future__ import annotations
 from typing import Optional
 
 #%%
+def _full_cat_label_map(dcati: pd.DataFrame, dit: pd.DataFrame) -> pd.DataFrame:
+    """Complete ``(item_type_id, y, y_label)`` map covering ALL ``cat_length`` categories.
+
+    Prefers ``dit['cat_labels']`` (a JSON list of labels per item_type, ordered by
+    category 0..K-1) so categories that happen to be unobserved at a given interim are
+    still labelled — otherwise the plot's category grid (built from ``cat_length``) picks
+    up NaN labels. Falls back to the labels observed in ``dcati`` when ``cat_labels`` is
+    absent (backward compatible with apps that observe every category)."""
+    import json
+    import pandas as pd
+    if 'cat_labels' in dit.columns and dit['cat_labels'].notna().any():
+        rows, seen = [], set()
+        for _, r in dit.iterrows():
+            it = r['item_type_id']
+            if it in seen or pd.isna(r.get('cat_labels')):
+                continue
+            labs = r['cat_labels']
+            if isinstance(labs, str):
+                labs = json.loads(labs)
+            rows.extend((it, yy, str(lab)) for yy, lab in enumerate(labs))
+            seen.add(it)
+        m = pd.DataFrame(rows, columns=['item_type_id', 'y', 'y_label'])
+        miss = set(dcati['item_type_id'].unique()) - seen
+        if miss:                                        # item_types without cat_labels: observed
+            obs = dcati[dcati['item_type_id'].isin(miss)][
+                ['item_type_id', 'y', 'y_label']].drop_duplicates()
+            m = pd.concat([m, obs], ignore_index=True)
+        return m
+    return dcati[['item_type_id', 'y', 'y_label']].drop_duplicates()
+
+
 def _map_cq_id_to_item_structure(dp1: pd.DataFrame, dit: pd.DataFrame) -> pd.DataFrame:
     """
     Map probability question IDs (cq_id) back to item structure.
     
     Takes item metadata and generates a lookup table that maps each cq_id 
-    to its corresponding item_type_id, item_time_id, and category (y).
+    to its corresponding item_type_id, item_group_id, and category (y).
     
     Parameters
     ----------
     dp1 : pd.DataFrame
-        Pre-processed data containing item_type_id, item_label, item_time_id columns.
+        Pre-processed data containing item_type_id, item_label, item_group_id columns.
     dit : pd.DataFrame
         Item metadata containing item_type_id, item_label, cat_length columns.
     
     Returns
     -------
     pd.DataFrame
-        Lookup table with columns: item_type_id, item_time_id, y, cq_id.
-        One row per (item_type_id, item_time_id, category) combination.
+        Lookup table with columns: item_type_id, item_group_id, y, cq_id.
+        One row per (item_type_id, item_group_id, category) combination.
     """
     import numpy as np
 
-    tmp = dp1[['item_type_id', 'item_label', 'item_time_id']].drop_duplicates()
+    tmp = dp1[['item_type_id', 'item_label', 'item_group_id']].drop_duplicates()
     tmp = tmp.merge(dit[['item_type_id', 'item_label', 'cat_length']], 
                    on=['item_type_id', 'item_label'])
-    tmp = tmp.sort_values(['item_type_id', 'item_time_id']).reset_index(drop=True)
+    tmp = tmp.sort_values(['item_type_id', 'item_group_id']).reset_index(drop=True)
     tmp['cq_id'] = tmp['cat_length'].cumsum() - tmp['cat_length']
     tmp = tmp.assign(y=tmp['cat_length'].map(lambda n: np.arange(n))).explode('y', ignore_index=True)
     tmp['y'] = tmp['y'].astype(int)
@@ -232,18 +263,18 @@ def _summarize_ordered_prob_quantiles(
     ordered_prob_values : np.ndarray
         Array of shape (chain, draw, cq_id) from posterior ordered probability samples.
     dcati : pd.DataFrame
-        Pre-processed data containing item_type_id, item_time_id, item_label,
-        time_label, y, and y_label columns.
+        Pre-processed data containing item_type_id, item_group_id, item_label,
+        group_label, y, and y_label columns.
     dit : pd.DataFrame
-        Item metadata containing item_type_id, item_label, group_label_long,
+        Item metadata containing item_type_id, item_label, construct_long,
         item_label_short, and endpoint_measure columns.
     
     Returns
     -------
     pd.DataFrame
         Summary DataFrame with columns: cq_id, q_lower, iqr_lower, median, iqr_upper,
-        q_upper, item_type_id, item_time_id, y, item_label, time_label,
-        group_label_long, item_label_short, endpoint_measure.
+        q_upper, item_type_id, item_group_id, y, item_label, group_label,
+        construct_long, item_label_short, endpoint_measure.
     """
     import numpy as np
     import pandas as pd
@@ -263,12 +294,12 @@ def _summarize_ordered_prob_quantiles(
 
     tmp = _map_cq_id_to_item_structure(dcati, dit)
     tmp['cq_id'] = tmp['cq_id'] + 1
-    tmp2 = dcati[['item_type_id', 'item_time_id', 'item_label', 'time_label']].drop_duplicates()
-    tmp = tmp.merge(tmp2, on=['item_type_id', 'item_time_id'], how='left')
-    tmp2 = dcati[['item_type_id', 'y', 'y_label']].drop_duplicates()
+    tmp2 = dcati[['item_type_id', 'item_group_id', 'item_label', 'group_label']].drop_duplicates()
+    tmp = tmp.merge(tmp2, on=['item_type_id', 'item_group_id'], how='left')
+    tmp2 = _full_cat_label_map(dcati, dit)
     tmp = tmp.merge(tmp2, on=['item_type_id', 'y'], how='left')
     pos = pos.merge(tmp, on='cq_id', how='left')
-    pos = pos.merge(dit[['item_type_id', 'item_label', 'group_label_long', 
+    pos = pos.merge(dit[['item_type_id', 'item_label', 'construct_long', 
                          'item_label_short', 'endpoint_measure']],
                     on=['item_type_id', 'item_label'], how='left')
 
@@ -290,7 +321,7 @@ def _plot_ppcheck(
         Array of shape (chain, draw, oid) from ``idata.posterior['ypred'].values``.
     dcati : pd.DataFrame
         Pre-processed data containing oid, item_type, item_type_id, oidt,
-        y_stan, item_label, and time_label columns.
+        y_stan, item_label, and group_label columns.
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_ppcheck"``).
     """
@@ -318,7 +349,7 @@ def _plot_ppcheck(
     })
 
     tmp = dcati[['oid', 'item_type', 'item_type_id', 'oidt', 'y_stan',
-                 'item_label', 'time_label']].copy()
+                 'item_label', 'group_label']].copy()
     pos = pos.merge(tmp, on='oid')
     pos['in_ppi'] = (pos['y_stan'] >= pos['q_lower']) & (pos['y_stan'] <= pos['q_upper'])
     pos['in_ppi_label'] = np.where(pos['in_ppi'], 'TRUE', 'FALSE')
@@ -331,7 +362,7 @@ def _plot_ppcheck(
         geom_linerange(aes(ymin='iqr_lower', ymax='iqr_upper'), color='#4D4D4D', size=0.7) +
         geom_point(aes(y='median'), color='#1A1A1A', size=0.7) +
         geom_point(aes(y='y_stan', color='in_ppi_label'), size=0.9) +
-        facet_grid('item_label ~ time_label', scales='free') +
+        facet_grid('item_label ~ group_label', scales='free') +
         scale_y_continuous() +
         scale_color_npg() +
         labs(
@@ -372,8 +403,8 @@ def _compute_ordinal_brier_scores(
         Array of shape (chain, draw, c, q) from
         ``idata.posterior['ordinal_brier_score'].values``.
     dcati : pd.DataFrame
-        Pre-processed data containing item_type_id, item_time_id, item_type,
-        item_label, and time_label columns.
+        Pre-processed data containing item_type_id, item_group_id, item_type,
+        item_label, and group_label columns.
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_ordered_brierscore"``).
     """
@@ -391,7 +422,7 @@ def _compute_ordinal_brier_scores(
             brier_vals = po[:, c, q]
             rows.append({
                 'item_type_id': c + 1,
-                'item_time_id': q + 1,
+                'item_group_id': q + 1,
                 'median_brier_score': np.median(brier_vals),
                 'mean_brier_score': np.mean(brier_vals),
                 'q025_brier_score': np.percentile(brier_vals, 2.5),
@@ -399,10 +430,10 @@ def _compute_ordinal_brier_scores(
             })
 
     pos = pd.DataFrame(rows)
-    tmp = dcati[['item_type_id', 'item_time_id', 'item_type',
-                 'item_label', 'time_label']].drop_duplicates()
-    pos = pos.merge(tmp, on=['item_type_id', 'item_time_id'])
-    pos = pos.sort_values(['item_type_id', 'item_time_id'])
+    tmp = dcati[['item_type_id', 'item_group_id', 'item_type',
+                 'item_label', 'group_label']].drop_duplicates()
+    pos = pos.merge(tmp, on=['item_type_id', 'item_group_id'])
+    pos = pos.sort_values(['item_type_id', 'item_group_id'])
 
     brier_file = f"{output_file_stem}.csv"
     pos.to_csv(brier_file, index=False)
@@ -425,10 +456,10 @@ def _plot_prob_barplots(
         Array of shape (chain, draw, cq_id) from
         ``idata.posterior['ordered_prob_by_cat_qu_fit'].values``.
     dcati : pd.DataFrame
-        Pre-processed data containing item_type_id, item_time_id, item_label,
-        time_label, y, and y_label columns.
+        Pre-processed data containing item_type_id, item_group_id, item_label,
+        group_label, y, and y_label columns.
     dit : pd.DataFrame
-        Item metadata containing item_type_id, item_label, group_label_long,
+        Item metadata containing item_type_id, item_label, construct_long,
         item_label_short, and endpoint_measure columns.
     output_file_stem : str
         Output file path without extension (e.g. ``".../prefix_prob_by_question"``).
@@ -446,7 +477,7 @@ def _plot_prob_barplots(
 
     from plotnine import (
         ggplot, aes, geom_col, geom_boxplot, facet_grid,
-        scale_y_continuous, scale_fill_manual, theme_bw, theme, labs, guides,
+        scale_y_continuous, scale_fill_manual, scale_x_discrete, theme_bw, theme, labs, guides,
         element_text, position_dodge, guide_legend,
     )
     from plotnine import ggplot as _p9ggplot
@@ -466,26 +497,33 @@ def _plot_prob_barplots(
 
     tmp = _map_cq_id_to_item_structure(dcati, dit)
     tmp['cq_id'] = tmp['cq_id'] + 1
-    tmp2 = dcati[['item_type_id', 'item_time_id', 'item_label', 'time_label']].drop_duplicates()
-    tmp = tmp.merge(tmp2, on=['item_type_id', 'item_time_id'], how='left')
-    tmp2 = dcati[['item_type_id', 'y', 'y_label']].drop_duplicates()
+    tmp2 = dcati[['item_type_id', 'item_group_id', 'item_label', 'group_label']].drop_duplicates()
+    tmp = tmp.merge(tmp2, on=['item_type_id', 'item_group_id'], how='left')
+    tmp2 = _full_cat_label_map(dcati, dit)
     tmp = tmp.merge(tmp2, on=['item_type_id', 'y'], how='left')
     pos = pos.merge(tmp, on='cq_id', how='left')
 
-    tmp = dcati.groupby(['time_label', 'item_label', 'y_label']).size().reset_index(name='n')
-    tmp2 = dcati.groupby(['time_label', 'item_label']).size().reset_index(name='total')
-    tmp = tmp.merge(tmp2, on=['time_label', 'item_label'])
+    tmp = dcati.groupby(['group_label', 'item_label', 'y_label']).size().reset_index(name='n')
+    tmp2 = dcati.groupby(['group_label', 'item_label']).size().reset_index(name='total')
+    tmp = tmp.merge(tmp2, on=['group_label', 'item_label'])
     tmp['p_emp'] = tmp['n'] / tmp['total']
     pos = pos.merge(
-        tmp[['time_label', 'item_label', 'y_label', 'p_emp']],
-        on=['time_label', 'item_label', 'y_label'],
+        tmp[['group_label', 'item_label', 'y_label', 'p_emp']],
+        on=['group_label', 'item_label', 'y_label'],
         how='left',
     )
     pos['p_emp'] = pos['p_emp'].fillna(0)
 
     pos = pos.merge(dit, on=['item_type_id', 'item_label'])
-    pos['item_label_long'] = pos['group_label_long'] + np.where(
-        pos['item_label_short'].notna(), ': ' + pos['item_label_short'], ''
+    # item_label_long drives the LEGEND; construct_long drives the facet-row strip. When an
+    # item_label_short is given, the legend is "group_long: short"; when it is absent the legend
+    # falls back to the full item_label (so the strip can carry a SHORT label and the legend the
+    # long one, e.g. ImmPort strains).
+    _short = pos['item_label_short'].astype('string')
+    pos['item_label_long'] = np.where(
+        _short.notna(),
+        pos['construct_long'].astype('string') + ': ' + _short.fillna(''),
+        pos['item_label'].astype('string'),
     )
 
     csv_out = f"{output_file_stem}.csv"
@@ -512,11 +550,14 @@ def _plot_prob_barplots(
         pos_i['plot_group'] = pos_i['item_label_long'] + ':' + pos_i['y_label'].astype(str)
         items_i = list(pd.unique(pos_i['item_label_long']))
         color_dict_i = {k: color_dict[k] for k in items_i}
-        n_time = max(1, pos_i['time_label'].nunique())
+        n_time = max(1, pos_i['group_label'].nunique())
+        n_grp = max(1, pos_i['construct_long'].nunique())            # facet rows
         _wmult = float(os.environ.get('PROB_FIT_WIDTH_MULT', '1.0'))   # widen crowded panels (e.g. many items)
+        _hmult = float(os.environ.get('PROB_FIT_HEIGHT_MULT', '1.0'))  # taller rows when many groups
         subplot_width = max(8, 4 * n_time) * _wmult
-        subplot_height = 15
+        subplot_height = max(15, 4.5 * n_grp) * _hmult                 # ~4.5in per facet row
         y_label_i = str(pos_i['endpoint_measure'].dropna().iloc[0])
+        cat_order_i = pos_i.drop_duplicates('y').sort_values('y')['y_label'].tolist()  # x-axis in category order
         p_i = (
             ggplot(pos_i, aes(x='y_label', group='plot_group')) +
             geom_col(
@@ -539,8 +580,9 @@ def _plot_prob_barplots(
                 width=0.3,
             ) +
             scale_y_continuous(labels=lambda l: [f'{v:.0%}' for v in l]) +
+            scale_x_discrete(limits=cat_order_i) +               # order categories 0..K-1, not lexically
             scale_fill_manual(values=color_dict_i, limits=items_i, drop=False) +
-            facet_grid('group_label_long ~ time_label') +
+            facet_grid('construct_long ~ group_label') +
             theme_bw() +
             theme(
                 axis_text_x=element_text(angle=45, vjust=1, hjust=1),

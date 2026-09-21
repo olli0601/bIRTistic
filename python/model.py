@@ -47,7 +47,7 @@ class Model(ABC):
 
     # ---- 2.2 Construction ----------------------------------------------
     def __init__(self, dit: pd.DataFrame, dcati: pd.DataFrame,
-                 x_formula: str = "~ time - 1", *, seed: int = 123):
+                 x_formula: str = "~ group - 1", *, seed: int = 123):
         self.dit = dit
         self.dcati = dcati
         self.x_formula = x_formula
