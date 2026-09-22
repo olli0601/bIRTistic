@@ -323,20 +323,22 @@ Pulled 2026-09-18 to `ImmuneSpace_Influenza_Vaccine_Trials_v260918.xlsx` (16 stu
 **Totals: 16 studies · 1 061 participants · 904 with a paired day-0→endline HAI pair** (across the 15 HAI studies; SDY80 excluded). Predominantly single-arm inactivated TIV (Fluzone); LAIV in SDY269; a saline/Pneumovax comparator only in SDY180 — so the estimand is the **within-participant** seroresponse, not an arm contrast.
 
 | field | value |
-|------------|------------------------------------------------------------|
+|-----------|-------------------------------------------------------------|
 | Problem | influenza-vaccine immunogenicity (seroresponse) — a genuine, regulator-recognised success criterion (seroconversion / seroprotection rate, GMT ratio) |
 | Setting | HIPC systems-vaccinology cohorts via ImmuneSpace/ImmPort; healthy adults + elderly, two paediatric |
 | Arms | mostly single-arm TIV; **within-participant** paired (Baseline$=$day 0, Endline$=$day ≈ 21–28); SDY180 carries a placebo/Pneumovax comparator |
 | Items | **HAI titre per influenza strain** (2–7 strains; H1N1 / H3N2 / B) — $\log_2$ serial dilution $\to$ **ordered-categorical**; seroprotection (titre $\ge 40$) is the caseness threshold |
-| Effect measure $\rho$ | **two clinically-standard HAI endpoints per strain** (CHMP/CBER; @hobson1972role), computed from the fitted category probabilities via the general `rho_specs` path of `get_endpoints_per_draw` (`item_type='categorical'`; $y$ 0-indexed on the $\log_2$ ladder, start 1:5, so $y\ge 3 \equiv$ titre $\ge$ 1:40). **$\rho_1$ = seroprotection rate (SPR)** $= P(\text{titre}\ge 1{:}40)$ at endline — an absolute endline level (baseline SPR is computed but unused), success $H_1$ if SPR $>0.70$; **$\rho_2$ = GMT fold-rise (GMFR)** $= 2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ (mean $\log_2$ titre), success $H_1$ if GMFR $>2.5$. `higher_is_better` |
+| Effect measure $\rho$ | **two clinically-standard HAI endpoints per strain** (CHMP/CBER; @hobson1972role), computed from the fitted category probabilities via the general `rho_specs` path of `get_endpoints_per_draw` (`item_type='categorical'`; $y$ 0-indexed on the $\log_2$ ladder, start 1:5, so $y\ge 3 \equiv$ titre $\ge$ 1:40). $\rho_1$ = seroprotection rate (SPR) $= P(\text{titre}\ge 1{:}40)$ at endline — an absolute endline level (baseline SPR is computed but unused), success $H_1$ if SPR $>0.70$; $\rho_2$ = GMT fold-rise (GMFR) $= 2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ (mean $\log_2$ titre), success $H_1$ if GMFR $>2.5$. `higher_is_better` |
+| Category labels | the ordered titre categories carry **scientifically accurate reciprocal-dilution labels** (shared `_dilution_ladder_labels`): $k{=}0$ (value below the lowest 1:10 dilution) $\to$ `<1:10`, then `1:10, 1:20, 1:40` ($=k_3=$ the seroprotection threshold)`, 1:80, ...`; these flow through `dp1.y_label` + `dit.cat_labels` to every figure (prob-by-question fit, $p(\rho\mid x)$). Neutralisation ID50 (COVID/HIV) is a continuous readout binned to `1:4, 1:8, ...` (no below-detection floor) |
+| Composite (joint) decision | SPR and GMFR are extracted in **one** `get_endpoints_per_draw` call, so they are indexed on the **same Monte-Carlo draw**; the regulator's composite rule "**at least one** of the criteria met" is then evaluated *within a draw* as the OR of the per-$\rho$ indicators and averaged — the correct joint posterior probability, not a naive combination of marginal PPS (`PartialCreditModel.joint_any_met`; written to `*_any_met.csv`). E.g. SDY312 per strain: A-strains + B/Lee $\approx 0.95$–$1.0$, B/Brisbane & B/Florida $\le 0.08$. (**SCR / seroconversion is NOT included**: an individual \$\ge$4-fold rise is a *paired* per-participant event, which the population marginal predictive does not retain; add it via the per-$\theta\$ paired predictive.) |
 | Cohort / interims | 15 HAI studies, 904 paired participants; participant-accrual interims within a study; the 15 cohorts $=$ a **transfer / foundation-model** axis |
 | **Application target** | the **direct §14 paired amortiser on real vaccine data** $+$ the **ordered-categorical (GPCM) extension** ($\log_2$ titres) $+$ a **multi-cohort foundation-model demonstration** (one net across studies / seasons / ages) |
 | Data access | open-registration ImmuneSpace/ImmPort under a data-use agreement; **pulled and in hand** |
 | Loader (implemented) | `read_data_immport_flu(xlsx_path, study, endline_day=None, min_start_dilution=5.0)` in `python/data_loading.py` — join HAI (Assays) $\to$ day (Events); keep day 0 $+$ endline (auto-detected as the largest of $\{28,27,24,21\}$ present); map titre $\to$ ordered category $k=\mathrm{round}(\log_2(\text{titre}/5))$ on the 2-fold ladder with a **single study-wide** $K$ across strains (one `item_type_id` $\Rightarrow$ no $K$-mixing, cf. §3.11); keep paired participants only; emit the PCM `dp1`/`dit` with `item_label`$=$strain, `time`$\in\{0,1\}$ (`Baseline`/`Endline`), `y`$=k$ / `y_stan`$=k+1$, `item_type='out-of-7'` (expected-category endpoint, $K$-agnostic), `item_high_label='higher_is_better'`. Reuses `model_pcm` + `get_endpoints` unchanged |
 | Producer | `scripts-py/IMMPORT_flu_interim_svi.py` (mirrors `ICRC_interim_svi.py`): pseudo-orders participants by Participant ID, accrues interims every 10, SVI (`AutoDiagonalNormal`, 4 000 steps, 2 000 draws, `with_core_analyses`) at each, emitting the same figure set as `py-icrc-dass-drc_260902` |
-| Amortiser deploy ($\rho_2$ GMFR) | The **item-general J64 amortiser** (deepsetXcompAtt, scalar-mean token) on the SVI grids for **GMFR** with expanding head-ft + affine + §14.4.26 **head BvM**, via the shared ragged driver (`deploy_IMMPORT_amortiser.sh`; GMFR reference grid from `IMMPORT_flu_gmfr_refgrid.py`). Calibration to the SVI GMFR reference: **SDY312 PIT-KS 0.089 / marg-KS 0.114, SDY314 0.082 / 0.090** (baseline 0.32–0.51). $\eta_0$ sweep $\{2,2.5,3,3.5\}$-fold: a $\ge$2-fold rise reached confidently only by A/Uruguay; at the CHMP 2.5-fold bar the high-baseline cohorts read futile. Outputs $\to$ the single amortiser dir `py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`, prefix `pcm_gmfr_interim_*` |
-| Amortiser deploy ($\rho_1$ SPR) | SPR is a **threshold** functional, so the scalar-mean token is insufficient (§14.4.18). Retrained the J64 net with a **cumulative-exceedance token** $[\mathbf 1\{k\ge 1\},\dots]$ (pool $=$ empirical category CDF $\Rightarrow$ categorically sufficient), endline-caseness target, and the caseness threshold $c{=}3$ in item metadata; deployed with the same head-ft + affine + head BvM (`deploy_IMMPORT_amortiser_spr.sh`, `RAGD_WIDETOK=1`/`RAGD_CASE_C=3`). Calibration to the SVI SPR reference: **SDY312 PIT-KS 0.104 / marg-KS 0.142, SDY314 0.080 / 0.096** (baseline 0.58–0.68) — the token change crosses the sufficiency wall. $\eta_0$ sweep on the $[0,1]$ rate $\{0.5,0.6,0.7,0.8\}$ (0.70 $=$ CHMP): at $>$70% seroprotection A/PR8, A/Uruguay, A/Victoria, B/Lee pass, A/South Dakota borderline-fails, B/Brisbane & B/Florida fail. Outputs $\to$ the **same** amortiser dir under prefix `pcm_spr_interim_*` (SVI grid dir stays SVI-only). Full write-up in §16 |
-| Status | **implemented — SDY312 (79 paired, 7 strains, $K=10$) and SDY314 (89 paired, 6 strains, $K=9$)**; per-strain $\rho=$ relative rise in mean $\log_2$ titre, interims every 10 participants $\to$ `py-immport-SDY312_260918` / `py-immport-SDY314_260918`. Next: multi-cohort pool + the GPCM/ordered-categorical head |
+| Amortiser deploy ($\rho_2$ GMFR) | The **item-general J64 amortiser** (deepsetXcompAtt, scalar-mean token) on the SVI grids for **GMFR** with expanding head-ft + affine + §14.4.26 **head BvM**, via the shared ragged driver (`deploy_IMMPORT_amortiser.sh`; GMFR reference grid from `IMMPORT_flu_gmfr_refgrid.py`). Calibration to the SVI GMFR reference: **SDY312 PIT-KS 0.089 / marg-KS 0.114, SDY314 0.082 / 0.090** (baseline 0.32–0.51). $\eta_0$ sweep $\{2,2.5,3,3.5\}$-fold: a \$\ge\$2-fold rise reached confidently only by A/Uruguay; at the CHMP 2.5-fold bar the high-baseline cohorts read futile. Outputs $\to$ the single amortiser dir `py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`, prefix `pcm_gmfr_interim_*` |
+| Amortiser deploy ($\rho_1$ SPR) | SPR is a **threshold** functional, so the scalar-mean token is insufficient (§14.4.18). Retrained the J64 net with a **cumulative-exceedance token** $[\mathbf 1\{k\ge 1\},\dots]$ (pool $=$ empirical category CDF $\Rightarrow$ categorically sufficient), endline-caseness target, and the caseness threshold $c{=}3$ in item metadata; deployed with the same head-ft + affine + head BvM (`deploy_IMMPORT_amortiser_spr.sh`, `RAGD_WIDETOK=1`/`RAGD_CASE_C=3`). Calibration to the SVI SPR reference: **SDY312 PIT-KS 0.104 / marg-KS 0.142, SDY314 0.080 / 0.096** (baseline 0.58–0.68) — the token change crosses the sufficiency wall. $\eta_0$ sweep on the $[0,1]$ rate $\{0.5,0.6,0.7,0.8\}$ (0.70 $=$ CHMP): at \$\>\$70% seroprotection A/PR8, A/Uruguay, A/Victoria, B/Lee pass, A/South Dakota borderline-fails, B/Brisbane & B/Florida fail. Outputs $\to$ the **same** amortiser dir under prefix `pcm_spr_interim_*` (SVI grid dir stays SVI-only). Full write-up in §16 |
+| Status | **implemented — SDY312 (79 paired, 7 strains,** $K=10$) and SDY314 (89 paired, 6 strains, $K=9$); per-strain $\rho=$ relative rise in mean $\log_2$ titre, interims every 10 participants $\to$ `py-immport-SDY312_260918` / `py-immport-SDY314_260918`. Next: multi-cohort pool + the GPCM/ordered-categorical head |
 | Reference | Diray-Arce et al., *Sci. Data* 2022 (Immune Signatures resource); ImmuneSpace/ImmPort SDYs 67/80/144/180/212/269/270/296/301/305/312/314/315/400/404/520 |
 
 ## 3.19 Application: HIV-vaccine trials (CAVD DataSpace / HVTN)
@@ -344,7 +346,7 @@ Pulled 2026-09-18 to `ImmuneSpace_Influenza_Vaccine_Trials_v260918.xlsx` (16 stu
 The **efficacy-scale** vaccine application. The Collaboration for AIDS Vaccine Discovery **DataSpace** (Fred Hutch / VISC) hosts HVTN HIV-vaccine trials under a **Global Access policy that makes individual-level data public** (free registration): per-participant, multi-antigen **binding-antibody and neutralisation titres** (antigen/isolate $=$ item, pre/post $=$ paired). The original target — the two mosaic-Ad26 efficacy trials that stopped at interim, HVTN 705 *Imbokodo* and HVTN 706 *Mosaico* — turned out **not to be pullable**: on inspection (2026-09-18) `vtn705` has no DataSpace record at all and `vtn706` is metadata-only (`data_availability` null; 0 rows in every dataset). Of the four HVTN-network studies catalogued, only **three carry integrated assay data — `vtn097`, `vtn105`, `vtn505`**. Among these, **HVTN 505 (`vtn505`)** is a phase-2b DNA/rAd5 efficacy test-of-concept that was **stopped early at a pre-specified interim for futility (April 2013)**. Its assay data support a **vaccine-vs-placebo binding-antibody (BAMA) immunogenicity contrast**, monitored over accruing subjects — a real HIV-vaccine application of the between-arm amortiser. (Two caveats surfaced on inspection: HIV-naive subjects have no informative paired baseline, so the within-participant fold-rise used for flu is degenerate here — the estimand is the endline arm contrast; and the 2013 futility stop was on HIV-*infection* efficacy, a time-to-event endpoint absent from the antibody datasets, so that specific interim is not reconstructed.)
 
 | field | value |
-|---------------|---------------------------------------------------------|
+|-------------|-----------------------------------------------------------|
 | Problem | HIV-vaccine immunogenicity (multi-antigen seroresponse) and efficacy interim monitoring |
 | Setting | HVTN trials via CAVD DataSpace (Global Access public data); Fred Hutch / VISC |
 | Arms | vaccine vs placebo. **No informative paired baseline** — subjects are HIV-naive, so pre-vaccination antibody is a uniform floor (unlike flu's pre-existing immunity); the estimand is the single-timepoint **vaccine-vs-placebo** contrast, not a within-participant fold-rise |
@@ -364,7 +366,7 @@ The **efficacy-scale** vaccine application. The Collaboration for AIDS Vaccine D
 The **head-to-head vaccine** estimand — the genuinely decision-relevant contrast for a formulary/procurement choice: given two *vaccine options* (not baseline/endline of one, not two subpopulations), which produces the better immune response? From a shortlist of ImmuneSpace head-to-head studies (see below), **SDY269** (Systems Biology of 2008 Influenza Vaccination) is the sound in-hand case: two randomised adult arms, **LAIV** (live-attenuated, intranasal) vs **TIV** (inactivated, intramuscular), each with paired day-0/day-28 HAI and the same two clinical endpoints as §3.18 (SPR, GMFR). The contrast lives **across two per-arm paired analyses**: each arm is run as its own SDY312-style paired seroresponse study, then the two arms' posteriors are compared. **Caveat — different strain panels:** the arms were assayed on their own vaccine strains, so only **A/Uruguay/716/2007 (H3N2)** is shared and directly comparable strain-for-strain; the H1N1 and B strains compare each arm's *homologous* seroresponse (LAIV A/S.Dakota H1N1, B/Florida vs TIV A/Brisbane H1N1, B/Brisbane).
 
 | field | value |
-|---------------|---------------------------------------------------------|
+|-----------|-------------------------------------------------------------|
 | Problem | **head-to-head**: which of two vaccine options gives the stronger immune response (a procurement/formulary decision, distinct from within-arm pre/post or subpopulation contrasts) |
 | Setting | ImmuneSpace/ImmPort HIPC SDY269 (Emory, 2008 influenza season); two randomised adult arms, 28 paired participants each |
 | Arms | **LAIV** (live-attenuated intranasal) vs **TIV** (inactivated IM); each analysed as its own paired day-0/day-28 seroresponse, then compared |
@@ -372,10 +374,10 @@ The **head-to-head vaccine** estimand — the genuinely decision-relevant contra
 | Effect measure $\rho$ | the §3.18 pair per arm per strain: **SPR** $=P(\text{titre}\ge 1{:}40)$ at endline ($H_1{:}>0.70$) and **GMFR** $=$ GMT fold-rise ($H_1{:}>2.5$) |
 | Cohort / interims | 28 paired per arm; pseudo-order by Participant ID, interims every 10 ($n=10,20,28$) |
 | **Application target** | a **head-to-head** instance of the endpoint estimand: compare two vaccines' seroresponse, with a direct arm-difference posterior on the shared strain |
-| Loader + producers (implemented) | `read_data_immport_flu_headhead(xlsx, study, arms)` (pools both arms into ONE frame, item $=$ (strain, arm)) $+$ `IMMPORT_flu_headhead_svi.py` (one joint fit per interim $+$ four `get_endpoints_per_draw` calls) $+$ `IMMPORT_flu_headhead_compare.py` (final-interim summary, exact shared-strain difference, plots); $p(\rho\mid x)$ contractions via `IMMPORT_flu_rho_plots.py` (`IMMPORT_RHO_DIRS`, per-endpoint prefix). The arm filter `read_data_immport_flu(..., arm=)` remains for per-arm loads |
-| Estimator — **one joint fit, four endpoints** | Rather than two per-arm fits, both arms are fitted in ONE partial-credit model per interim under a clean schema: **`item_label` stays the pure response item** (the strain, so the shared A/Uruguay is *one* item), and the vaccine arm folds into the flexible condition axis together with the paired time-point — `group_label` $\in$ {LAIV\_baseline, LAIV\_endline, TIV\_baseline, TIV\_endline}. The full non-reduced structure is the cross **`item_group_id` = item_label $\times$ group** (5 strains $\times$ 4 conditions, sparse $=12$), and $\theta_i$ is shared across the disjoint participants (incomplete block). Two helper columns decompose the condition: `arm` (stratum) and `phase` (0/1 baseline/endline); the fit uses only `phase` (`x_formula="~ phase - 1"`), so it is **invariant** to this relabelling (same 12-way partition). From the single fit the endpoints are read with **four** `get_endpoints_per_draw(…, contrast_col='phase')` calls — **SPR**, **GMFR** per (item, arm), and **SPR\_diff** / **GMFR\_diff** (TIV$-$LAIV) on the shared strain via the cross-`arm` capability (`across='arm'`). One joint fit also gives the amortiser a single target already carrying the between-arm contrast. Output: dir `py-immport-SDY269`, joint fit under `pcm_1_interim_`, endpoints under `pcm_{SPR,GMFR,SPR_diff,GMFR_diff}_interim_i{k}_regression_training.pkl`, one `p_rho_x_by_item` each, `headhead_*` comparison |
-| Status | **implemented — SDY269 LAIV vs TIV, joint SVI (56 pooled, interims $n=10\!-\!56$ arms interleaved).** Textbook adult result: **TIV dominates LAIV on every strain and both endpoints.** Shared **A/Uruguay H3N2**: SPR LAIV $0.16$ vs TIV $0.69$; GMFR LAIV $1.23$ vs TIV $5.66$. H1N1: TIV meets both thresholds (SPR $0.82$, GMFR $3.12$), LAIV neither ($0.21$, $1.10$). Consistent with immunology — in adults inactivated IM TIV drives strong serum HAI, live-attenuated intranasal LAIV drives little (mucosal, pre-exposure). Amortiser deploy optional (arms small) |
-| Cross-arm difference on the shared strain | **$\rho_\text{SPR,diff}=\text{SPR}_\text{TIV}-\text{SPR}_\text{LAIV}$** and **$\rho_\text{GMFR,diff}=\text{GMFR}_\text{TIV}-\text{GMFR}_\text{LAIV}$** on A/Uruguay H3N2 — plain differences (bounded; no ratio blow-up). Because both arms share the joint fit these are **EXACT per-draw contrasts** (no random draw-pairing): the shared $\theta$/draw removes the artificial independence, tightening the interval and raising $P(\rho>0)$ vs an independent-fit pairing. Final interim: $\rho_\text{SPR,diff}$ median $\mathbf{0.51}$ (95% CI $0.20$–$0.75$, $P>0\approx1.00$); $\rho_\text{GMFR,diff}$ median $\mathbf{4.33}$-fold (95% CI $0.21$–$12.4$, $P>0=0.98$; lower bound positive, vs $-0.03$ under an independent pairing). Summary/plot `headhead_shared_strain_diff.{csv,pdf}`, contraction over $n$ |
+| Loader + producers (implemented) | `read_data_immport_flu_headhead(xlsx, study, arms)` (pools both arms into ONE frame, item $=$ pure strain) $+$ `IMMPORT_flu_headhead_svi.py` (one joint fit per interim $+$ two joint `get_endpoints_per_draw` calls $+$ composite decision) $+$ `IMMPORT_flu_headhead_compare.py` (final-interim summary, exact shared-strain difference, plots); the single combined $p(\rho\mid x)$ plot via `IMMPORT_flu_rho_plots.py` (`IMMPORT_RHO_DIRS`). The arm filter `read_data_immport_flu(..., arm=)` remains for per-arm loads |
+| Estimator — **one joint fit, six labelled rhos, joint decision** | Both arms are fitted in ONE partial-credit model per interim under the clean schema: **`item_label` stays the pure response item** (the strain, so the shared A/Uruguay is *one* item), the vaccine arm folds into the flexible condition axis with the paired time-point (`group_label` $\in$ {LAIV_baseline, …, TIV_endline}), and the non-reduced structure is the cross **`item_group_id` = item_label** $\times$ group ($5\times 4$, sparse $=12$); $\theta_i$ shared across disjoint participants, fit on the binary helper `phase` (`x_formula="~ phase - 1"`) so it is **invariant** to the relabelling. The **rho set is declared upfront by the loader** (`d['rho_specs']`) — six rhos each with a short `rho_label` and a pretty `rho_label_long`: **LAIV_spr, TIV_spr, LAIV_gmfr, TIV_gmfr** (level, per arm) and **TIV−LAIV_spr_diff, TIV−LAIV_gmfr_diff** (cross-arm, shared strain). Each is computed **one-by-one** (a scalable `get_endpoints_per_draw(…, contrast_col='phase')` call per rho — some from group means, others could be per-participant) but off the same fit, so all six share the Monte-Carlo **draw index** and concatenate into ONE joint per-draw frame. From the jointly-indexed level rhos the composite CHMP rule "\$\ge\$1 of SPR/GMFR met" is scored **per draw, per (strain, arm)** (`joint_any_met` $\to$ `headhead_any_met.csv`: TIV A/Brisbane-H1N1 $0.94$, A/Uruguay $0.93$; LAIV $\approx 0$). Output: dir `py-immport-SDY269`, fit `pcm_1_interim_`, joint frame `pcm_1_interim_i{k}_regression_training.pkl`; the single `p_rho_x_by_item` plot is a **strain (row)** $\times$ rho_label (column) grid (empty cells where a strain is in only one arm), `headhead_*` numeric summaries |
+| Status | **implemented — SDY269 LAIV vs TIV, joint SVI (56 pooled, interims** $n=10\!-\!56$ arms interleaved). Textbook adult result: **TIV dominates LAIV on every strain and both endpoints.** Shared **A/Uruguay H3N2**: SPR LAIV $0.16$ vs TIV $0.69$; GMFR LAIV $1.23$ vs TIV $5.66$. H1N1: TIV meets both thresholds (SPR $0.82$, GMFR $3.12$), LAIV neither ($0.21$, $1.10$). Consistent with immunology — in adults inactivated IM TIV drives strong serum HAI, live-attenuated intranasal LAIV drives little (mucosal, pre-exposure). Amortiser deploy optional (arms small) |
+| Cross-arm difference on the shared strain | $\rho_\text{SPR,diff}=\text{SPR}_\text{TIV}-\text{SPR}_\text{LAIV}$ and $\rho_\text{GMFR,diff}=\text{GMFR}_\text{TIV}-\text{GMFR}_\text{LAIV}$ on A/Uruguay H3N2 — plain differences (bounded; no ratio blow-up). Because both arms share the joint fit these are **EXACT per-draw contrasts** (no random draw-pairing): the shared $\theta$/draw removes the artificial independence, tightening the interval and raising $P(\rho>0)$ vs an independent-fit pairing. Final interim: $\rho_\text{SPR,diff}$ median $\mathbf{0.51}$ (95% CI $0.20$–$0.75$, $P>0\approx1.00$); $\rho_\text{GMFR,diff}$ median $\mathbf{4.33}$-fold (95% CI $0.21$–$12.4$, $P>0=0.98$; lower bound positive, vs $-0.03$ under an independent pairing). Summary/plot `headhead_shared_strain_diff.{csv,pdf}`, contraction over $n$ |
 | Head-to-head shortlist (ImmuneSpace) | **In hand (flu xlsx) — SDY269 LAIV/TIV is the ONLY viable two-vaccine head-to-head.** SDY305 IM-TIV vs intradermal-TIV was inspected and **dropped** (ID arm has only **3 paired** participants, $n_\text{enrolled}=9$). The updated head-to-head export (`ImmuneSpace_headhead_vaccince_v260920.xlsx`, 8 titre studies) adds no new two-vaccine case: SDY112 (age bands, all Fluzone), SDY1276 (males vs females TIV) are §3.20 *subpopulation* contrasts; SDY180 Fluzone-vs-saline is vaccine-vs-placebo ($n=6$/arm); SDY1293 has no titre; SDY80/SDY89 are single-arm as exported. **SDY690** (investigational HBsAg-1018 vs licensed Engerix-B HepB) — the cleanest cross-antigen head-to-head in principle — was pulled but carries **no titre data**, so it is a dead end |
 | Reference | SDY269 (Emory HIPC; Nakaya *et al.* 2011, PMID 21743478); ImmuneSpace/ImmPort |
 
@@ -1533,6 +1535,46 @@ Association with the SVI target (Pearson $\rho$ of the amortiser median against 
 
 **Conclusion.** One network prices any partial-credit item set of size $2$–$64$ from item features alone, deploying at PIT–KS $0.119$ / marg–KS $0.159$ on Ukraine — conditionally sharper than the hand-token encoders and marginally on par with the bespoke deepset. Deploying on a new application is then: feed its items, metadata and cohorts, and run the head fine-tune $+$ affine (and BvM) against that application's own SVI. The §14.4 amortiser becomes a **per-family asset** across the §3 datasets, at a small, recipe-bound calibration cost relative to a bespoke network.
 
+### 14.4.10 A net registry indexed by endpoint functional, and whether one token suffices
+
+§14.4.9 showed one network prices any *item set*. The remaining organising question is not the items but the **endpoint functional** $\rho$: a seroprotection *rate* $P(y\ge k)$, a GMT *fold-rise*, a signed *relative change*, a between-group *difference*. Two structural choices depend on the functional — the per-token summary (a **scalar** normalised mean, or the **wide** cumulative-exceedance vector $[\,\mathbf 1\{k\ge c\}\,]_c$ that is caseness-sufficient, §14.4.18) and the deploy **warp** (none / $\log_2$ / logit) — while the item family does *not* (the Ukraine-trained encoder deploys on the flu titre family at PIT–KS $\approx0.08$, §3.18). This motivates a **net registry keyed by functional, not item family**. A registry **instance** is one item-general §14.4.9 network (deep-set over participants, item cross-attention, quantile head), trained for a single endpoint functional; it is identified by the pair $(\text{reduction},\text{compare})$ that defines $\rho$, which in turn fixes the two structural deploy choices — the **token** (scalar mean vs wide cumulative-exceedance) and the **warp** (none / $\log_2$ / logit). It is *not* keyed by item family: one instance prices any item set within the §14.4.9 envelope ($\le 64$ items, $\le 10$ levels). The current registry:
+
+| instance | functional $\rho$ | reduction / compare | token | warp | example $H_1$ | applications (manifest) | status |
+|---------|---------|---------|---------|---------|---------|----------|---------|
+| $S_1$ | protection **rate** $P(y\ge k)$ | threshold / level | wide | logit | SPR $>0.70$ | flu SDY312/314, head-to-head (per arm) | trained |
+| $S_2$ | GMT **fold**-rise | mean / $\mathrm{fold}_{\log_2}$ | scalar | $\log_2$ | GMFR $>2.5$ | flu, head-to-head (per arm) | trained |
+| $S_3$ | **relative change**, mean (signed) | mean / ratio | scalar | none | $>0$ / effect size | ICRC, MYCELIUM, REFUGE, CAVD, **Ukraine (out-of-7)** | trained |
+| $S_4$ | **relative change**, caseness | threshold / ratio | wide | none | $>0$ | **Ukraine (categorical)** | trained (§14.4.10) |
+| $S_5$ | between-group **difference** (standardised) | any / diff | wide | none | $>0$ | head-to-head (LAIV$-$TIV) | to train |
+| $S_6$ | per-participant **seroconversion** (\$\ge\$4-fold) | paired rate | wide + paired sim | logit | SCR $>0.40$ | flu composite (SCR $\vee$ SPR $\vee$ GMFR) | later |
+
+An application's **manifest** is just the list of instances it deploys: flu $\{S_1,S_2\}$; head-to-head $\{S_1,S_2\;\text{per arm},\,S_5\;\text{difference}\}$; the psychometric datasets $\{S_3\}$; **Ukraine** $\{S_3\;\text{(out-of-7)},\,S_4\;\text{(categorical caseness)}\}$. **Deployment** is uniform (§14.4.6–14.4.7): filter the SVI reference to that endpoint (one `pps_ratio_x`), fit the expanding head $+$ affine, apply the head BvM, read the PPS in natural units after unwarping. New endpoints or datasets add a *row* or a *manifest entry*, never a new architecture.
+
+Because the wide token is *sufficient* — its mean-pool is the empirical category CDF, carrying the mean, any threshold, and group contrasts — it is natural to ask whether the registry collapses further: **one widetok encoder for all functionals**, the functional selected only by the deploy-time head fine-tune. We test this on Ukraine as an amortiser-**methods comparison** (the Ukraine data question of §14 is irrelevant here — we compare networks against the *same* fixed SVI reference; no new fit). Three encoders are deployed on the identical Ukraine relative-change reference (weekly SVI, 20 items, 29 interims $n=48\!\to\!500$) under **identical** settings — warp none, head BvM on, expanding head fine-tune, $N_{\mathrm{ref}}=503$ — so only the encoder $\times$ token differ: the **scalar** `scale-feat` net (the current default for $S_3$), the caseness-dedicated **widetok-SPR** net, and a purpose-trained **widetok-MIXED** net whose target is *per item* the relative change (typ $0$) or the endline rate (typ $1$), $\approx$ half each, forcing one encoder to carry both.
+
+*Metrics (both against the SVI reference).* **PIT–KS** — conditional calibration: for each (interim, item) form the probability-integral transform $u=\hat F(\rho^{\mathrm{svi}})$ of the amortiser's posterior CDF at the draw-aligned SVI value; PIT–KS is the Kolmogorov–Smirnov distance of the pooled $u$ from $\mathrm{Unif}[0,1]$ (a well-calibrated conditional posterior gives uniform $u$). **marg–KS** — marginal calibration: the KS distance between the SVI marginal CDF and the amortiser mixture CDF on a shared grid. Coverage `cov5`/`cov95` are the empirical masses below the nominal $0.05$/$0.95$ quantiles.
+
+*Fair aggregation.* One Ukraine item, `CG-VIO_ph-punish`, is a known **functional** pathology — a signed relative change with $\approx 25\%$ of its posterior mass negative, unstable near that boundary (the same instability that made the head-to-head difference, not percent, the sane cross-arm estimand, §3.21) — and it saturates the scalar/mean deploy (PIT–KS $0.84$, §14.4.9). Since it is present at every interim it inflates **every** aggregate, so it is dropped **throughout** — from the per-item means *and* the per-interim (across-$n$) aggregate (`RAGD_EXCLUDE_ITEMS`) — leaving 19 items.
+
+PIT–KS is by **cohort-size regime** (per-interim, CG-VIO excluded); marg–KS and mean posterior width $W$ are over all interims. The last row is the **federated** deploy — scalar $S_3$ on the 15 out-of-7 items, dedicated caseness $S_4$ (next paragraph) on the 4 categorical — the alternative to a *single* encoder.
+
+| approach | token | PIT–KS $n\le200$ | PIT–KS mid | PIT–KS $n\ge450$ | PIT–KS all | marg–KS | width $W$ |
+|---------------|---------|:-------:|:-------:|:-------:|:-------:|:-------:|:-------:|
+| **scalar** ($S_3$ default) | scalar | **0.073** | **0.084** | 0.096 | 0.088 | 0.110 | 0.43 |
+| widetok-SPR (rate, wrong target) | wide | 0.157 | 0.150 | 0.104 | 0.129 | 0.298 | 0.21 |
+| widetok-MIXED (single encoder) | wide | 0.079 | 0.092 | 0.101 | 0.094 | 0.123 | 0.34 |
+| **FEDERATED** ($S_3$ mean $+$ $S_4$ caseness) | scalar $+$ wide | **0.070** | **0.080** | **0.092** | **0.084** | 0.110 | 0.46 |
+
+(bins: $n\le200$ 6 interims, mid 9, $n\ge450$ 14; `cov95` $\approx0.91$–$0.94$ except widetok-SPR $\approx0.85$ at mid; $W$ = mean marginal width, widetok-SPR narrowest $=$ over-confident. The per-item PIT–KS aggregate gives the same ordering.)
+
+For a stopping rule the small-$n$ end carries the decision, and the table's regime split is the point: scalar, mixed and federated are sharpest and best-covered there, while widetok-SPR — a *rate*-dedicated net on a *mean* reference — is worst early and only competitive late, exactly wrong for early stopping.
+
+Three findings. **(i) The wide token is not the bottleneck:** on the *matched* mixed target the widetok encoder recovers to near-scalar, so the widetok-SPR deficit was target mismatch — the single-encoder collapse is feasible. **(ii) But it does not dominate:** the dedicated scalar stays marginally sharper (a small generality tax) and less over-confident. **(iii) The pathology is functional, not architectural:** `CG-VIO_ph-punish` is rescued only when scored as a *rate/caseness* rather than a signed ratio ($0.84\!\to\!0.17$), which no encoder change achieves — the estimand does.
+
+**Federated per-functional vs the single encoder.** Completing the registry, we trained the missing net $S_4$ — a widetok encoder for the categorical items' caseness *relative change* (widetok-SPR carries the endline *rate*, the wrong compare) — and deployed it on the 4 categorical items with the scalar $S_3$ on the 15 out-of-7. The federated set is the sharpest (table); on every categorical item the dedicated caseness net edges the mean net, so even the mono scalar was slightly overpaying. The single mixed encoder trails by $\approx0.03$ PIT–KS — one asset over several.
+
+**Conclusion.** Adopt the registry as $S_1$–$S_6$ **keyed by functional, no item-family axis**: scalar token for mean-type ($S_2$/$S_3$), wide for rate/difference ($S_1$/$S_4$/$S_5$). The federated per-functional set is marginally the sharpest; the single-widetok collapse is a proven *fallback* at a small ($\approx0.02$–$0.03$ PIT–KS) tax. And an item that miscalibrates because its *functional* is unstable is fixed by the estimand (a difference or rate), not the network.
+
 ### 14.5.1 Cross-architecture summary
 
 Calibration of the three encoders under the deployable remedy (expanding head fine-tune $+$ affine shift, §14.4.6), and of the two BvM-corrected deepset heads (§14.4.7); PIT–KS is conditional calibration, marg–KS marginal calibration:
@@ -1621,77 +1663,40 @@ At full accrual the per-item effects span $\rho\in[0.24, 1.46]$ (median $0.61$) 
 
 # 16. Amortiser retraining and deployment for the influenza-vaccine endpoints
 
-The influenza HAI application (§3.18) carries two clinically standard endpoints per strain
-(CHMP/CBER; @hobson1972role): the **seroprotection rate** $\text{SPR}=P(\text{titre}\ge 1{:}40)$
-and the **geometric-mean fold-rise** $\text{GMFR}=\text{GMT}_{\text{end}}/\text{GMT}_{\text{base}}$.
-Both are amortised with the item-general J64 encoder of §14.4.9, but they make different demands
-on the per-participant summary. This section reports how the training distribution was extended
-to cover both endpoints (§16.1), how the deployed estimators calibrate against the SVI reference,
-including per item (§16.2), and why two influenza-B strains trail the rest (§16.3).
+The influenza HAI application (§3.18) carries two clinically standard endpoints per strain (CHMP/CBER; @hobson1972role): the **seroprotection rate** $\text{SPR}=P(\text{titre}\ge 1{:}40)$ and the **geometric-mean fold-rise** $\text{GMFR}=\text{GMT}_{\text{end}}/\text{GMT}_{\text{base}}$. Both are amortised with the item-general J64 encoder of §14.4.9, but they make different demands on the per-participant summary. This section reports how the training distribution was extended to cover both endpoints (§16.1), how the deployed estimators calibrate against the SVI reference, including per item (§16.2), and why two influenza-B strains trail the rest (§16.3).
 
 ## 16.1 Extending the training distribution to several endpoints
 
-The item-general trainer synthesises item sets of two kinds. For an **expected-score** item the
-effect is the relative change of the mean category $\mathbb E[k]$; for a **caseness** item it is a
-threshold exceedance $P(y\ge c)$. GMFR is of the first kind — $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$
-is a smooth function of the mean $\log_2$-titre, which the scalar per-participant token (the
-normalised category $(y-1)/(K-1)$, mean-pooled over participants) already renders sufficient. GMFR
-is therefore deployed with the **existing J64 network of §14.4.9 unchanged**.
+The item-general trainer synthesises item sets of two kinds. For an **expected-score** item the effect is the relative change of the mean category $\mathbb E[k]$; for a **caseness** item it is a threshold exceedance $P(y\ge c)$. GMFR is of the first kind — $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ is a smooth function of the mean $\log_2$-titre, which the scalar per-participant token (the normalised category $(y-1)/(K-1)$, mean-pooled over participants) already renders sufficient. GMFR is therefore deployed with the **existing J64 network of §14.4.9 unchanged**.
 
-SPR is of the second kind, where the scalar-mean token fails: a threshold exceedance is not a
-function of the mean but of the category profile near the cut $c$ (the categorical-sufficiency wall,
-§14.4.18). Two changes were made to the training distribution, both leaving the architecture
-(nested DeepSets over participants $+$ cross-attention over items $+$ multi-quantile head) untouched:
+SPR is of the second kind, where the scalar-mean token fails: a threshold exceedance is not a function of the mean but of the category profile near the cut $c$ (the categorical-sufficiency wall, §14.4.18). Two changes were made to the training distribution, both leaving the architecture (nested DeepSets over participants $+$ cross-attention over items $+$ multi-quantile head) untouched:
 
-1.  **Sufficient token.** The per-$(\text{participant},\text{item},\text{time})$ token becomes the
-    **cumulative-exceedance vector** $[\mathbf 1\{k\ge 1\},\dots,\mathbf 1\{k\ge K_{\max}-1\}]$ (width
-    $2(K_{\max}-1)=18$ for $K_{\max}=10$, one block per time-point). Mean-pooling over participants
-    then returns the empirical category survival curve, from which every threshold rate — and the
-    mean — is recoverable; the pooled statistic is thus sufficient for SPR **and** GMFR at once. Only
-    the input width changes, so the first token network absorbs it and the rest is identical.
-2.  **Endline target and threshold metadata.** For caseness items the label is the **endline** rate
-    $P(y_{\text{end}}\ge c)$ (the baseline rate is computed but unused, matching the operational SPR
-    of §3.18), and the cut $c/K_{\max}$ is appended to the per-item metadata so the network prices the
-    queried threshold. Training was restricted to caseness items for a dedicated SPR network (uniform
-    $[0,1]$ target scale).
+1.  **Sufficient token.** The per-$(\text{participant},\text{item},\text{time})$ token becomes the **cumulative-exceedance vector** $[\mathbf 1\{k\ge 1\},\dots,\mathbf 1\{k\ge K_{\max}-1\}]$ (width $2(K_{\max}-1)=18$ for $K_{\max}=10$, one block per time-point). Mean-pooling over participants then returns the empirical category survival curve, from which every threshold rate — and the mean — is recoverable; the pooled statistic is thus sufficient for SPR **and** GMFR at once. Only the input width changes, so the first token network absorbs it and the rest is identical.
+2.  **Endline target and threshold metadata.** For caseness items the label is the **endline** rate $P(y_{\text{end}}\ge c)$ (the baseline rate is computed but unused, matching the operational SPR of §3.18), and the cut $c/K_{\max}$ is appended to the per-item metadata so the network prices the queried threshold. Training was restricted to caseness items for a dedicated SPR network (uniform $[0,1]$ target scale).
 
-The SPR network was trained with the interval-score objective (§14.4.11) on item sets of size
-$J\sim\mathcal U\{2,\dots,64\}$, $K$ over $\{2,4,5,7,8,9,10\}$, decoupled cohort sizes (§14.4.13),
-for 6000 steps at batch 24; the target-standardisation constant was $\sigma=0.325$ (a rate, hence
-$O(0.1)$). **Wall-clock training time was 212 min.** The GMFR network is the pre-existing J64
-network and was not retrained.
+The SPR network was trained with the interval-score objective (§14.4.11) on item sets of size $J\sim\mathcal U\{2,\dots,64\}$, $K$ over $\{2,4,5,7,8,9,10\}$, decoupled cohort sizes (§14.4.13), for 6000 steps at batch 24; the target-standardisation constant was $\sigma=0.325$ (a rate, hence $O(0.1)$). **Wall-clock training time was 212 min.** The GMFR network is the pre-existing J64 network and was not retrained.
 
 ## 16.2 Deployment and calibration against the SVI reference
 
-Both endpoints deploy through the shared ragged driver (§14.4.8) with expanding-window head
-fine-tuning, the per-item affine median-shift (§14.4.23) and the between-first **head BvM**
-correction (§14.4.26); the SPR deployment additionally activates the cumulative-exceedance token and
-the caseness cut $c=3$ (titre $\ge 1{:}40$). Success is scored by the conditional **PIT–KS** and the
-**marginal KS** against the per-interim SVI posterior of the endpoint. Both endpoints' amortiser
-outputs are written to a **single per-study directory**
-`py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`,
-distinguished by file prefix (`pcm_gmfr_interim_*` / `pcm_spr_interim_*`); the SVI reference grid and
-its plots stay in `py-immport-SDY{312,314}_260918/`.
+Both endpoints deploy through the shared ragged driver (§14.4.8) with expanding-window head fine-tuning, the per-item affine median-shift (§14.4.23) and the between-first **head BvM** correction (§14.4.26); the SPR deployment additionally activates the cumulative-exceedance token and the caseness cut $c=3$ (titre $\ge 1{:}40$). Success is scored by the conditional **PIT–KS** and the **marginal KS** against the per-interim SVI posterior of the endpoint. Both endpoints' amortiser outputs are written to a **single per-study directory** `py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`, distinguished by file prefix (`pcm_gmfr_interim_*` / `pcm_spr_interim_*`); the SVI reference grid and its plots stay in `py-immport-SDY{312,314}_260918/`.
 
 Aggregate calibration (mean over interims):
 
-| study | endpoint | PIT–KS | marg–KS | uncalibrated baseline (PIT / marg) |
-|------|------|------|------|------|
-| SDY312 | GMFR | 0.089 | 0.114 | 0.32 / 0.43 |
-| SDY312 | SPR  | 0.104 | 0.142 | 0.63 / 0.68 |
-| SDY314 | GMFR | 0.082 | 0.090 | 0.33 / 0.51 |
-| SDY314 | SPR  | 0.080 | 0.096 | 0.58 / 0.60 |
+| study  | endpoint | PIT–KS | marg–KS | uncalibrated baseline (PIT / marg) |
+|--------|----------|--------|---------|------------------------------------|
+| SDY312 | GMFR     | 0.089  | 0.114   | 0.32 / 0.43                        |
+| SDY312 | SPR      | 0.104  | 0.142   | 0.63 / 0.68                        |
+| SDY314 | GMFR     | 0.082  | 0.090   | 0.33 / 0.51                        |
+| SDY314 | SPR      | 0.080  | 0.096   | 0.58 / 0.60                        |
 
-The uncalibrated SPR baseline (0.58–0.68) **is** the sufficiency wall — with the scalar-mean token
-the network cannot reproduce a threshold rate at all — and the cumulative-exceedance token brings the
-deployed SPR estimator into the same calibration band as GMFR (PIT–KS $\approx 0.08$–$0.10$).
+The uncalibrated SPR baseline (0.58–0.68) **is** the sufficiency wall — with the scalar-mean token the network cannot reproduce a threshold rate at all — and the cumulative-exceedance token brings the deployed SPR estimator into the same calibration band as GMFR (PIT–KS $\approx 0.08$–$0.10$).
 
 Per-item calibration (SDY312; PIT–KS pooled over interims, marg–KS averaged over interims):
 
 Each cell is **PIT–KS / marg–KS** for that strain and endpoint.
 
 | strain | GMFR (PIT–KS / marg–KS) | SPR (PIT–KS / marg–KS) |
-|------|------|------|
+|----------------------------|-----------------------|----------------------|
 | A/Puerto Rico/8/1934(H1N1) | 0.064 / 0.073 | 0.101 / 0.135 |
 | A/South Dakota/06/2007(H1N1) | 0.089 / 0.117 | 0.088 / 0.109 |
 | A/Uruguay/716/2007(H3N2) | 0.122 / 0.115 | **0.186 / 0.280** |
@@ -1700,156 +1705,110 @@ Each cell is **PIT–KS / marg–KS** for that strain and endpoint.
 | B/Florida/4/2006 | 0.134 / 0.120 | 0.088 / 0.097 |
 | B/Lee/1940 | 0.102 / 0.093 | 0.127 / 0.150 |
 
-Calibration is uniformly good (PIT–KS $\lesssim 0.13$) with two exceptions, and they are
-**endpoint-specific boundary effects**, not a property of particular strains. PIT–KS scores how well
-the amortiser's (roughly symmetric) five-quantile head reproduces the *shape* of the SVI posterior;
-it degrades where that posterior is pushed against a boundary and becomes strongly skewed:
+Calibration is uniformly good (PIT–KS $\lesssim 0.13$) with two exceptions, and they are **endpoint-specific boundary effects**, not a property of particular strains. PIT–KS scores how well the amortiser's (roughly symmetric) five-quantile head reproduces the *shape* of the SVI posterior; it degrades where that posterior is pushed against a boundary and becomes strongly skewed:
 
-- **GMFR, at the titre floor.** B/Brisbane (PIT–KS 0.200) and B/Florida (0.134) sit at the assay
-  floor — baseline GMT 9 and 17, most participants at $k=0$ (below the 1:10 detection limit). Since
-  $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ is a fold of a near-zero baseline mean,
-  the SVI posterior is **right-skewed / heavy-tailed** (skewness 1.1 and 1.5, vs 0.5–0.65 for the
-  well-calibrated strains); B/Brisbane is the most extreme floor case and calibrates worst.
-- **SPR, at the ceiling.** A/Uruguay (PIT–KS 0.186) has SPR $\approx 0.97$, compressed against 1.0
-  (skewness $-2.05$, a third of draws within 0.02 of the boundary); its head fits worst *for SPR*,
-  while the two B strains — interior SPR rates 0.24–0.35 — calibrate cleanly (0.09).
+- **GMFR, at the titre floor.** B/Brisbane (PIT–KS 0.200) and B/Florida (0.134) sit at the assay floor — baseline GMT 9 and 17, most participants at $k=0$ (below the 1:10 detection limit). Since $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ is a fold of a near-zero baseline mean, the SVI posterior is **right-skewed / heavy-tailed** (skewness 1.1 and 1.5, vs 0.5–0.65 for the well-calibrated strains); B/Brisbane is the most extreme floor case and calibrates worst.
+- **SPR, at the ceiling.** A/Uruguay (PIT–KS 0.186) has SPR $\approx 0.97$, compressed against 1.0 (skewness $-2.05$, a third of draws within 0.02 of the boundary); its head fits worst *for SPR*, while the two B strains — interior SPR rates 0.24–0.35 — calibrate cleanly (0.09).
 
-Two mechanisms compound: (i) the head family is near-symmetric — the affine shift (§14.4.23) corrects
-*location* and the BvM correction the *width*, but neither reshapes **skew**; (ii) near-floor /
-near-ceiling category profiles are under-represented in the synthetic training prior ($\beta\sim
-\mathcal N(0,1)$), so the network mildly extrapolates there. This is a head-shape limitation at
-endpoint boundaries, not a location error — the go/no-go (a clear futility for the B strains under
-GMFR, a clear pass for A/Uruguay under SPR) is unaffected. A skew-capable head, or a log-/logit-warped
-target (log-GMFR would symmetrise the floor skew), would close it — §16.3 implements and compares
-both. The per-item PIT and contraction boxes are in `…_pps_RAGD_pit_box_by_item.pdf` /
-`…_contraction_cdf_by_item.pdf`; SDY314 (6 strains) is analogous, all per-item PIT–KS $\le 0.11$.
+Two mechanisms compound: (i) the head family is near-symmetric — the affine shift (§14.4.23) corrects *location* and the BvM correction the *width*, but neither reshapes **skew**; (ii) near-floor / near-ceiling category profiles are under-represented in the synthetic training prior ($\beta\sim
+\mathcal N(0,1)$), so the network mildly extrapolates there. This is a head-shape limitation at endpoint boundaries, not a location error — the go/no-go (a clear futility for the B strains under GMFR, a clear pass for A/Uruguay under SPR) is unaffected. A skew-capable head, or a log-/logit-warped target (log-GMFR would symmetrise the floor skew), would close it — §16.3 implements and compares both. The per-item PIT and contraction boxes are in `…_pps_RAGD_pit_box_by_item.pdf` / `…_contraction_cdf_by_item.pdf`; SDY314 (6 strains) is analogous, all per-item PIT–KS $\le 0.11$.
 
-**PPS and the deployment sweep.** The predictive probability of success $P(H_1\mid x)$ is swept over
-the operational threshold $\eta_0$ — GMFR $\in\{2,2.5,3,3.5\}$-fold and SPR $\in\{0.5,0.6,0.7,0.8\}$
-(2.5 and 0.70 the CHMP anchors) — with the per-strain trajectory over accruing participants in each
-deploy directory (`…_pps_RAGD_trajectory.pdf`). At the CHMP seroprotection bar SPR $>0.70$,
-A/Puerto Rico, A/Uruguay, A/Victoria and B/Lee reach PPS $\approx 1$ by full accrual, A/South Dakota
-is a borderline no-go, and B/Brisbane and B/Florida are futile; the GMFR $>2.5$-fold bar is met
-confidently only by A/Uruguay, reflecting the high pre-existing titres in these cohorts.
+**PPS and the deployment sweep.** The predictive probability of success $P(H_1\mid x)$ is swept over the operational threshold $\eta_0$ — GMFR $\in\{2,2.5,3,3.5\}$-fold and SPR $\in\{0.5,0.6,0.7,0.8\}$ (2.5 and 0.70 the CHMP anchors) — with the per-strain trajectory over accruing participants in each deploy directory (`…_pps_RAGD_trajectory.pdf`). At the CHMP seroprotection bar SPR $>0.70$, A/Puerto Rico, A/Uruguay, A/Victoria and B/Lee reach PPS $\approx 1$ by full accrual, A/South Dakota is a borderline no-go, and B/Brisbane and B/Florida are futile; the GMFR $>2.5$-fold bar is met confidently only by A/Uruguay, reflecting the high pre-existing titres in these cohorts.
 
 ## 16.3 Skew-capable heads: two remedies, compared
 
-The boundary-skew miscalibration of §16.2 motivates a head (or target) that can represent an
-asymmetric predictive. Because the deployment re-fits the quantile head on the frozen encoder
-features (§14.4.8), **both remedies are deploy-only — no encoder retraining**:
+The boundary-skew miscalibration of §16.2 motivates a head (or target) that can represent an asymmetric predictive. Because the deployment re-fits the quantile head on the frozen encoder features (§14.4.8), **both remedies are deploy-only — no encoder retraining**:
 
-- **C — target warp.** Keep the symmetric power-law head but fit it to a monotone-warped endpoint
-  that is approximately symmetric: $\rho'=\log_2\text{GMFR}$ (a fold $\to$ additive; the floor
-  right-skew is removed) and $\rho'=\operatorname{logit}\text{SPR}$ (the rate's $[0,1]$ boundaries
-  map to $\mathbb R$). The head fits the symmetric $\rho'$; the deployed quantiles, mapped back, are
-  correctly skewed. `RAGD_WARP=log2|logit`; $\eta_0$ and the KS diagnostics are computed in the
-  warped space (KS is invariant under the monotone map, so the numbers stay comparable).
-- **B — free-quantile head.** Replace $q=m+z_\tau\,C n^{-p}$ (fixed symmetric normal $z_\tau$) by a
-  **median plus independent lower/upper monotone gaps** (`head_mode='freeq'`), so the quantile set
-  can take any skew; the BvM correction then rescales the width to the power law. Same encoder, a
-  richer head re-fit at deploy.
+- **C — target warp.** Keep the symmetric power-law head but fit it to a monotone-warped endpoint that is approximately symmetric: $\rho'=\log_2\text{GMFR}$ (a fold $\to$ additive; the floor right-skew is removed) and $\rho'=\operatorname{logit}\text{SPR}$ (the rate's $[0,1]$ boundaries map to $\mathbb R$). The head fits the symmetric $\rho'$; the deployed quantiles, mapped back, are correctly skewed. `RAGD_WARP=log2|logit`; $\eta_0$ and the KS diagnostics are computed in the warped space (KS is invariant under the monotone map, so the numbers stay comparable).
+- **B — free-quantile head.** Replace $q=m+z_\tau\,C n^{-p}$ (fixed symmetric normal $z_\tau$) by a **median plus independent lower/upper monotone gaps** (`head_mode='freeq'`), so the quantile set can take any skew; the BvM correction then rescales the width to the power law. Same encoder, a richer head re-fit at deploy.
 
 Calibration vs the SVI reference (SDY312, mean over interims; PIT–KS conditional, marg–KS marginal):
 
-| endpoint | head variant | PIT–KS | marg–KS |
-|------|------|------|------|
-| GMFR | current (symmetric power-law) | 0.089 | 0.114 |
-| GMFR | **C — $\log_2$ warp** | **0.068** | **0.074** |
-| GMFR | B — free-quantile | 0.082 | 0.111 |
-| SPR | current (symmetric power-law) | 0.104 | 0.142 |
-| SPR | **C — logit warp** | **0.081** | **0.113** |
-| SPR | B — free-quantile | 0.110 | 0.142 |
+| endpoint | head variant                  | PIT–KS    | marg–KS   |
+|----------|-------------------------------|-----------|-----------|
+| GMFR     | current (symmetric power-law) | 0.089     | 0.114     |
+| GMFR     | **C —** $\log_2$ warp         | **0.068** | **0.074** |
+| GMFR     | B — free-quantile             | 0.082     | 0.111     |
+| SPR      | current (symmetric power-law) | 0.104     | 0.142     |
+| SPR      | **C — logit warp**            | **0.081** | **0.113** |
+| SPR      | B — free-quantile             | 0.110     | 0.142     |
 
 Per-item PIT–KS at the two problem strains (the boundary cases of §16.2):
 
-| endpoint · strain | current | C (warp) | B (free-q) |
-|------|------|------|------|
-| GMFR · B/Brisbane/60/2008 (floor) | 0.200 | **0.075** | 0.190 |
-| GMFR · B/Florida/4/2006 | 0.134 | 0.114 | **0.081** |
-| SPR · A/Uruguay/716/2007 (ceiling) | 0.186 | **0.097** | 0.273 |
+| endpoint · strain                  | current | C (warp)  | B (free-q) |
+|------------------------------------|---------|-----------|------------|
+| GMFR · B/Brisbane/60/2008 (floor)  | 0.200   | **0.075** | 0.190      |
+| GMFR · B/Florida/4/2006            | 0.134   | 0.114     | **0.081**  |
+| SPR · A/Uruguay/716/2007 (ceiling) | 0.186   | **0.097** | 0.273      |
 
-**C wins decisively** — best aggregate for both endpoints, and it collapses the two worst cases
-(B/Brisbane GMFR $0.200\to0.075$; A/Uruguay SPR $0.186\to0.097$). The log/logit map is the natural
-symmetriser of a fold / a rate, and — crucially — it respects the endpoint's support by construction,
-so the head never has to place quantile mass beyond the titre floor or above SPR $=1$.
+**C wins decisively** — best aggregate for both endpoints, and it collapses the two worst cases (B/Brisbane GMFR $0.200\to0.075$; A/Uruguay SPR $0.186\to0.097$). The log/logit map is the natural symmetriser of a fold / a rate, and — crucially — it respects the endpoint's support by construction, so the head never has to place quantile mass beyond the titre floor or above SPR $=1$.
 
-**B disappoints, and instructively.** It helps a few interior strains (B/Florida GMFR
-$0.134\to0.081$, B/Lee GMFR $0.102\to0.065$) but *worsens* the hard boundary cases — A/Uruguay SPR
-rises to 0.273. Two reasons: a free five-quantile head has more shape parameters to fit from the
-limited per-interim reference draws at deploy, so it is under-constrained near the boundaries; and,
-working in the raw $[0,1]$ / floor space, no monotone-quantile set can reproduce a posterior piled
-against a hard bound (SPR $\to 1$). The warp removes the bound, which the extra head flexibility
-cannot.
+**B disappoints, and instructively.** It helps a few interior strains (B/Florida GMFR $0.134\to0.081$, B/Lee GMFR $0.102\to0.065$) but *worsens* the hard boundary cases — A/Uruguay SPR rises to 0.273. Two reasons: a free five-quantile head has more shape parameters to fit from the limited per-interim reference draws at deploy, so it is under-constrained near the boundaries; and, working in the raw $[0,1]$ / floor space, no monotone-quantile set can reproduce a posterior piled against a hard bound (SPR $\to 1$). The warp removes the bound, which the extra head flexibility cannot.
 
-The go/no-go is unchanged throughout: $P(\rho>\eta_0)=P(\rho'>\eta_0')$ under a monotone warp, so C
-only reshapes the predictive, not the decision.
+The go/no-go is unchanged throughout: $P(\rho>\eta_0)=P(\rho'>\eta_0')$ under a monotone warp, so C only reshapes the predictive, not the decision.
 
-**Adopted.** C is now the default for the influenza deploys (`RAGD_WARP=log2` for GMFR,
-`RAGD_WARP=logit` for SPR in the deploy wrappers): the head is fit in warped space, then the
-quantiles and targets are mapped back so PPS, $\eta_0$ and all plots stay in natural units. On the
-full canonical deploy (both studies, expanding head-ft $+$ affine $+$ head BvM, complete diagnostic
-suite) C improves every aggregate metric:
+**Adopted.** C is now the default for the influenza deploys (`RAGD_WARP=log2` for GMFR, `RAGD_WARP=logit` for SPR in the deploy wrappers): the head is fit in warped space, then the quantiles and targets are mapped back so PPS, $\eta_0$ and all plots stay in natural units. On the full canonical deploy (both studies, expanding head-ft $+$ affine $+$ head BvM, complete diagnostic suite) C improves every aggregate metric:
 
-| study | endpoint | symmetric (was) | C — warp (now) |
-|------|------|------|------|
-| SDY312 | GMFR | 0.089 / 0.114 | **0.068 / 0.095** |
-| SDY312 | SPR  | 0.104 / 0.142 | **0.085 / 0.127** |
-| SDY314 | GMFR | 0.082 / 0.090 | **0.063 / 0.086** |
-| SDY314 | SPR  | 0.080 / 0.096 | **0.073 / 0.093** |
+| study  | endpoint | symmetric (was) | C — warp (now)    |
+|--------|----------|-----------------|-------------------|
+| SDY312 | GMFR     | 0.089 / 0.114   | **0.068 / 0.095** |
+| SDY312 | SPR      | 0.104 / 0.142   | **0.085 / 0.127** |
+| SDY314 | GMFR     | 0.082 / 0.090   | **0.063 / 0.086** |
+| SDY314 | SPR      | 0.080 / 0.096   | **0.073 / 0.093** |
 
-(PIT–KS / marg–KS, mean over interims.) SDY314 has no extreme-floor strain, so all its per-item
-PIT–KS are $\le 0.09$ under C. The full plot suite (per-interim SVI-vs-amortiser CDF overlays,
-contraction law/factor, PIT and contraction boxes, $\eta_0$-sweep, PPS trajectory) is written in each
-amortiser dir under the endpoint prefix. The three variants are kept in separate directories:
-C-warp (the default) in `…-J64-Cwarp-ftheadexpand-bvm_260920/`, the symmetric baseline in
-`…-J64-ftheadexpand-bvm_260919/`, and the free-quantile head in `…-J64-Bfreeq-ftheadexpand-bvm_260920/`.
+(PIT–KS / marg–KS, mean over interims.) SDY314 has no extreme-floor strain, so all its per-item PIT–KS are $\le 0.09$ under C. The full plot suite (per-interim SVI-vs-amortiser CDF overlays, contraction law/factor, PIT and contraction boxes, $\eta_0$-sweep, PPS trajectory) is written in each amortiser dir under the endpoint prefix. The three variants are kept in separate directories: C-warp (the default) in `…-J64-Cwarp-ftheadexpand-bvm_260920/`, the symmetric baseline in `…-J64-ftheadexpand-bvm_260919/`, and the free-quantile head in `…-J64-Bfreeq-ftheadexpand-bvm_260920/`.
 
-**The warp is endpoint-specific, and correctly scoped.** C is set in the *influenza wrappers*, not
-the driver (whose default remains `RAGD_WARP=none`), because $\log_2$/logit suit a fold / a bounded
-rate but not every endpoint. The Ukraine partial-credit endpoint (§14) is a *signed*
-relative-change $\rho$ (1.4% of reference draws are $\le 0$ — up to 25% for the violence-reduction
-item, with $\rho$ as low as $-4.8$), so $\log_2\rho$ is undefined and the logit (a $[0,1]$ map) does
-not apply; moreover Ukraine's $\rho$ is already near-symmetric (median $|\text{skewness}|\approx0.4$)
-and its symmetric-head deployment is already well calibrated. C therefore neither applies to nor is
-needed for Ukraine, and the default scoping leaves the Ukraine deployment unchanged. (Endpoints with
-a hard boundary — folds, rates, censored effects — are the ones the warp helps.)
+**The warp is endpoint-specific, and correctly scoped.** C is set in the *influenza wrappers*, not the driver (whose default remains `RAGD_WARP=none`), because $\log_2$/logit suit a fold / a bounded rate but not every endpoint. The Ukraine partial-credit endpoint (§14) is a *signed* relative-change $\rho$ (1.4% of reference draws are $\le 0$ — up to 25% for the violence-reduction item, with $\rho$ as low as $-4.8$), so $\log_2\rho$ is undefined and the logit (a $[0,1]$ map) does not apply; moreover Ukraine's $\rho$ is already near-symmetric (median $|\text{skewness}|\approx0.4$) and its symmetric-head deployment is already well calibrated. C therefore neither applies to nor is needed for Ukraine, and the default scoping leaves the Ukraine deployment unchanged. (Endpoints with a hard boundary — folds, rates, censored effects — are the ones the warp helps.)
 
 ## 16.4 Why B/Brisbane and B/Florida trail the other strains
 
-Both the SVI reference and the amortised PPS place the two influenza-B strains well below the other
-five. This is a genuine immunogenicity gap, not an artefact — the observed titres (SDY312, full
-cohort):
+Both the SVI reference and the amortised PPS place the two influenza-B strains well below the other five. This is a genuine immunogenicity gap, not an artefact — the observed titres (SDY312, full cohort):
 
-| strain | baseline GMT | endline GMT | endline SPR |
-|------|------|------|------|
-| A/Uruguay/716/2007(H3N2) | 63 | 178 | 0.97 |
-| A/Puerto Rico/8/1934(H1N1) | 45 | 83 | 0.90 |
-| A/Victoria/3/1975(H3N2) | 31 | 59 | 0.83 |
-| B/Lee/1940 | 31 | 58 | 0.79 |
-| A/South Dakota/06/2007(H1N1) | 31 | 44 | 0.68 |
-| B/Florida/4/2006 | 17 | 20 | 0.33 |
-| B/Brisbane/60/2008 | 9 | 16 | 0.23 |
+| strain                       | baseline GMT | endline GMT | endline SPR |
+|------------------------------|--------------|-------------|-------------|
+| A/Uruguay/716/2007(H3N2)     | 63           | 178         | 0.97        |
+| A/Puerto Rico/8/1934(H1N1)   | 45           | 83          | 0.90        |
+| A/Victoria/3/1975(H3N2)      | 31           | 59          | 0.83        |
+| B/Lee/1940                   | 31           | 58          | 0.79        |
+| A/South Dakota/06/2007(H1N1) | 31           | 44          | 0.68        |
+| B/Florida/4/2006             | 17           | 20          | 0.33        |
+| B/Brisbane/60/2008           | 9            | 16          | 0.23        |
 
 Three non-exclusive hypotheses:
 
-1.  **B-lineage mismatch.** A trivalent inactivated vaccine carries a *single* influenza-B lineage,
-    whereas B/Brisbane/60/2008 is **Victoria**-lineage and B/Florida/4/2006 is **Yamagata**-lineage.
-    Whichever lineage is absent from the season's formulation receives only weak cross-lineage
-    boosting — the classic reason B responses lag in TIV. That both trail while the ancestral
-    B/Lee/1940 does not (endline SPR 0.79) points to a lineage-specific, not pan-B, failure.
-2.  **Lower intrinsic immunogenicity of influenza B.** Even lineage-matched, HAI responses to B are
-    consistently smaller than to A(H1N1)/A(H3N2) in inactivated vaccines; the fold-rises here
-    (1.2–1.7) sit at the low end typical of B.
-3.  **Not a ceiling effect.** A capped fold-rise from high pre-existing immunity would show *high*
-    baseline titres; instead B/Brisbane's baseline GMT is 9 (below the 1:10 detection floor for most
-    participants) and rises only to 16. Low baseline *and* low endline together indicate a true
-    failure to boost — mismatch / low immunogenicity — rather than saturation.
+1.  **B-lineage mismatch.** A trivalent inactivated vaccine carries a *single* influenza-B lineage, whereas B/Brisbane/60/2008 is **Victoria**-lineage and B/Florida/4/2006 is **Yamagata**-lineage. Whichever lineage is absent from the season's formulation receives only weak cross-lineage boosting — the classic reason B responses lag in TIV. That both trail while the ancestral B/Lee/1940 does not (endline SPR 0.79) points to a lineage-specific, not pan-B, failure.
+2.  **Lower intrinsic immunogenicity of influenza B.** Even lineage-matched, HAI responses to B are consistently smaller than to A(H1N1)/A(H3N2) in inactivated vaccines; the fold-rises here (1.2–1.7) sit at the low end typical of B.
+3.  **Not a ceiling effect.** A capped fold-rise from high pre-existing immunity would show *high* baseline titres; instead B/Brisbane's baseline GMT is 9 (below the 1:10 detection floor for most participants) and rises only to 16. Low baseline *and* low endline together indicate a true failure to boost — mismatch / low immunogenicity — rather than saturation.
 
-The calibration consequence in §16.2 follows: sitting near the floor with strongly right-skewed
-endpoint posteriors, these strains are where the symmetric quantile head fits least well, yet the
-go/no-go — a clear futility — is unambiguous.
+The calibration consequence in §16.2 follows: sitting near the floor with strongly right-skewed endpoint posteriors, these strains are where the symmetric quantile head fits least well, yet the go/no-go — a clear futility — is unambiguous.
 
-# 17. References
+# 17. Head-to-head vaccine comparison (SDY269 LAIV vs TIV)
+
+The head-to-head is the genuinely procurement-relevant estimand: given two vaccine *options*, which produces the stronger immune response? SDY269 (2008 Systems Biology influenza; §3.21) is the sound in-hand case — two randomised adult arms, **LAIV** (live-attenuated, intranasal) vs **TIV** (inactivated, intramuscular), each with paired day-0/day-28 HAI and the two §3.18 endpoints (SPR, GMFR). The arms were assayed on **different strain panels**, so only **A/Uruguay/716/2007 (H3N2)** is directly comparable strain-for-strain; the H1N1 and B strains compare each arm's homologous response.
+
+## 17.1 One joint fit, endpoints declared with the data
+
+Both arms are fitted in **one** partial-credit model per interim: the item stays the pure strain, and the vaccine arm folds into the flexible condition axis with the paired time-point (`group_label` $\in\{$LAIV\_baseline, LAIV\_endline, TIV\_baseline, TIV\_endline$\}$). The non-reduced structure is the cross `item_group_id` $=$ strain $\times$ arm $\times$ phase (5 strains $\times$ 4 conditions, sparse $=12$), $\theta_i$ shared across the disjoint participants (incomplete block); the design uses only the binary `phase` (`x_formula="~ phase - 1"`), so the fit is invariant to the relabelling. The loader declares **six endpoints upfront**, each with a short and a long label — `LAIV_spr`, `TIV_spr`, `LAIV_gmfr`, `TIV_gmfr` (per-arm levels) and `TIV-LAIV_spr_diff`, `TIV-LAIV_gmfr_diff` (cross-arm). Each is computed one-by-one off the *same* fit, so all six share the Monte-Carlo draw index — enabling both the composite decision and an *exact* cross-arm contrast.
+
+## 17.2 Seroresponse: TIV dominates, and the composite call
+
+A textbook adult result — **TIV dominates LAIV on every strain and both endpoints**. On the shared A/Uruguay H3N2: SPR LAIV $0.16$ vs TIV $0.69$; GMFR LAIV $1.23$ vs TIV $5.66$. On H1N1, TIV meets both CHMP thresholds (SPR $0.82$, GMFR $3.12$) while LAIV meets neither ($0.21$, $1.10$). This is the expected immunology: in adults an inactivated IM vaccine drives strong serum HAI, whereas a live-attenuated intranasal vaccine (mucosal, against a pre-exposed background) drives little. The **composite CHMP rule** — at least one of SPR/GMFR met — scored per draw over the jointly-indexed level endpoints, per (strain, arm): TIV A/Brisbane-H1N1 $0.94$, A/Uruguay $0.93$; LAIV $\approx 0$ throughout.
+
+## 17.3 The cross-arm difference on the shared strain — exact per-draw
+
+Because both arms share the joint fit, the between-arm difference is an **exact per-draw contrast** — no random draw-pairing of independent fits, so the shared $\theta$/draw removes the artificial independence. The endpoints are plain differences (a signed ratio is unstable at the boundary, §3.21): $\rho_{\text{SPR,diff}}=\text{SPR}_\text{TIV}-\text{SPR}_\text{LAIV}$ and $\rho_{\text{GMFR,diff}}=\text{GMFR}_\text{TIV}-\text{GMFR}_\text{LAIV}$. At full accrual: $\rho_{\text{SPR,diff}}$ median $0.51$ (95% CI $0.20$–$0.75$, $P>0\approx1.00$); $\rho_{\text{GMFR,diff}}$ median $4.33$-fold (95% CI $0.21$–$12.4$, $P>0=0.98$).
+
+## 17.4 Amortising the cross-arm difference ($S_5$), standardised
+
+The between-group difference is the $S_5$ registry instance (§14.4.10). To be **scale-free across applications**, it targets the *standardised* difference — a Cohen's $d$, $d=(g_B-g_A)/s$ with $g$ the per-group functional (mean or rate) and $s$ the pooled within-group SD — on the wide (per-group CDF) token, with no warp ($d$ is signed and $O(1)$). It is trained on **generic between-subjects prior-predictive cohorts**, not on SDY269: held-out PIT–KS $0.055$, coverage $0.055/0.514/0.947$, median-vs-true correlation $0.836$.
+
+Deployed on SDY269 by **reusing the existing SVI fit** — the future cohort is the joint fit's `ypred` subset to the shared-strain endline observations, and the reference is the standardised difference formed from the per-arm SPR draws already in the fit; **no re-fit**. Calibration to the SVI: **PIT–KS $0.062$, marg–KS $0.061$, coverage $0.50/0.97$** — matching the held-out figure. The amortised **$\mathrm{PPS}(d>0.5\,\text{SD})=0.97$** at full accrual reproduces the SVI's decisive TIV-over-LAIV call. This is the head-to-head's methodological point: the cross-arm contrast the SVI computes from a joint posterior is amortised *directly* by a single generic network, and its deployment re-uses the existing fit rather than re-fitting.
+
+## 17.5 Federated diagnostics per endpoint
+
+The head-to-head deploys a **manifest** of registry instances — $S_1$ (SPR per arm, wide/logit), $S_2$ (GMFR per arm, scalar/$\log_2$), $S_5$ (difference, wide/none) — each a *different* trained network in a *different* deployment directory. Diagnostics therefore load per endpoint from the corresponding federated deploy; a single generic routine resolves each declared $\rho$ (its reduction/compare and warp) to its network and directory and assembles the contraction, calibration and PPS figures across them.
+
+# 18. References
 
 ```{=html}
 <!--
@@ -1902,7 +1861,7 @@ Because the temperature enters only as an exponent, the move kernel's log-densit
 
 We found that at the worst (earliest) interim the adaptive schedule reaches $\beta = 1$ in $\approx 40$ steps and restores $\mathrm{ESS}/K \approx 1$ at a wall-clock cost dominated by the per-step move rather than the one-off compile. The overall computational cost was 7-8 times larger than SVI estimation of the posterior $p(\theta | x, z^{(s)})$.
 
----
+------------------------------------------------------------------------
 
 # B. Appendix B: Other data sets
 
@@ -1924,7 +1883,7 @@ A large cross-sectional dataset of $24{,}292$ students, each answering four self
 | **Application target** | **validate the PCM amortiser**; simulate cohorts from the real fitted item bank |
 | Data | [@su2023temporal] |
 
----
+------------------------------------------------------------------------
 
 ## 3.11 Application: PISA international assessment
 
@@ -1944,7 +1903,7 @@ The OECD Programme for International Student Assessment, a triennial cross-natio
 
 **Notes.** (i) *Anchoring.* Unpaired cohorts are linked into one ability scale by sharing item difficulties across cycles (the `~ time - 1` cycle covariate); without this the cycles float independently and the trend is unidentified. (ii) *Dichotomous only.* Mixing $K=2$ and $K=3$ items under one item type forces $K=3$ on all, giving the binary items a phantom threshold that mean-field SVI collapses — so partial-credit items are dropped here. (iii) *Mode confound.* 2012 was paper, 2015+ computer, so the 2012\$\to$2015 step carries a paper$\to$computer mode effect on top of the real trend (the OECD applies a mode adjustment we do not); the *shape* of the 2015$\to$2018$\to\$2022 trajectory is the cleaner signal — e.g. United States Math falls $-0.04/-0.04/-0.10$ (2015/18/22 vs 2012), steepest at the 2022 (COVID) cycle. (iv) *Amortiser deferred.* The §14 amortiser's core statistic is a **per-participant** baseline$\to$endline change; PISA is unpaired, so the marginal-$p(\rho\mid x)$ validation against SVI awaits a between-cohort variant of the network (§14). Fits in `py-pisa-math_260904`; producer `scripts-py/PISA_interim_svi.py`.
 
----
+------------------------------------------------------------------------
 
 ## 3.15 Application: selfBACK app-delivered self-management RCT for low-back pain
 
@@ -1966,7 +1925,7 @@ A randomised controlled trial of an AI-app that delivers evidence-based, individ
 | Status | *planned* — strong structural fit; awaiting a data request |
 | Reference | Sandal et al. 2021; NCT03798288 |
 
----
+------------------------------------------------------------------------
 
 ## 3.16 Application: digital data-driven intervention RCT for depression and anxiety
 
@@ -1988,7 +1947,7 @@ A waitlist-controlled randomised trial of a digital, data-driven therapeutic int
 | Status | *planned* — awaiting a data request |
 | Reference | *npj Digit. Med.* 2025, doi:10.1038/s41746-025-01511-7 |
 
----
+------------------------------------------------------------------------
 
 ## 3.20 Application: COVID-19 subpopulation contrasts (ImmPort / ImmuneSpace)
 
@@ -1997,7 +1956,7 @@ A waitlist-controlled randomised trial of a digital, data-driven therapeutic int
 A **between-subpopulation** immune-response application: rather than a within-participant pre/post effect or a vaccine-arm contrast, compare the antibody response between two *subpopulations* of a COVID-19 cohort — the same **group-contrast** estimand as MYCELIUM/CAVD-BAMA (§3.14/§3.19), on SARS-CoV-2 neutralisation titres. From an inventory of 13 ImmuneSpace COVID studies, **SDY1764** (Distinct antibody responses to SARS-CoV-2 in children and adults across the clinical spectrum) is the one carrying an **ordered-titre** assay (serum neutralisation ID50 + ELISA) together with clean subpopulation strata. It supports two contrasts from its four clinical arms (adult ARDS, pediatric MIS-C, pediatric non-MIS-C, adult convalescent): **age** (pediatric $<18$ vs adult) and **severity** (severe $\{$ARDS, MIS-C$\}$ vs mild $\{$non-MIS-C, convalescent$\}$). (The severity-focused SDY1669 was inspected and **dropped** — it has only flow-cytometry / RNA-seq, no antibody titre, so it cannot drive the titre-PCM; SDY1764's own severity arms cover that contrast.)
 
 | field | value |
-|---------------|---------------------------------------------------------|
+|-----------|-------------------------------------------------------------|
 | Problem | COVID-19 humoral immunity **by subpopulation** — is the neutralising response higher in one group than another (a genuine, decision-relevant contrast for risk stratification / trial design) |
 | Setting | ImmuneSpace/ImmPort HIPC COVID cohort SDY1764 (Mount Sinai); 79 subjects with serum neutralisation |
 | Groups | **between-subpopulation** (no paired baseline): age (pediatric 47 / adult 32) or severity (severe 29 / mild 50); encoded MYCELIUM-style (group A $=$ `Baseline`, group B $=$ `Endline`) |
@@ -2006,6 +1965,6 @@ A **between-subpopulation** immune-response application: rather than a within-pa
 | Cohort / interims | 79 subjects, shuffled accrual so both groups present at each of 8 interims |
 | **Application target** | the **between-subpopulation** amortiser on real SARS-CoV-2 neutralisation titres — a third instance of the group-contrast estimand (after MYCELIUM food and HVTN-505 vaccine arms), now on disease/age strata |
 | Data access | **ImmuneSpace/ImmPort** (DUA + API, same as §3.18); pulled to `ImmuneSpace_COVID19_v260920.xlsx` (13 COVID SDYs) |
-| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'|'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ `scripts-py/IMMPORT_covid_interim_svi.py` (mirrors `CAVD_bama_interim_svi.py`) |
-| Status | **implemented — SDY1764, SVI + amortiser.** Directionally coherent: **age** $\rho(\text{pediatric vs adult})\approx-0.38$ (children neutralise $\sim$40% lower); **severity** $\rho(\text{severe vs mild})\approx+0.32$ (severe higher). SVI grids $\to$ `py-immport-covid-SDY1764-{age,severity}_260920` (with the `p_rho_x_by_item` contraction plot). **J64 amortiser deployed** (between-group, scalar-mean token, head BvM, no warp — signed relative-change endpoint) via `deploy_IMMPORT_covid_amortiser.sh`: calibration to the SVI reference **age PIT-KS 0.135 / marg 0.115, severity 0.122 / 0.104**; PPS(severe$>$mild) $=0.94$ at $\eta_0{=}0$. Note the SDY1764 severity axis is confounded with age/phenotype (severe $=$ adult-ARDS $+$ pediatric-MIS-C); a within-age contrast or IMPACC (SDY1760) de-confounds. Next: ELISA items; other titre-bearing COVID SDYs |
+| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ `scripts-py/IMMPORT_covid_interim_svi.py` (mirrors `CAVD_bama_interim_svi.py`) |
+| Status | **implemented — SDY1764, SVI + amortiser.** Directionally coherent: **age** $\rho(\text{pediatric vs adult})\approx-0.38$ (children neutralise \$\sim\$40% lower); **severity** $\rho(\text{severe vs mild})\approx+0.32$ (severe higher). SVI grids $\to$ `py-immport-covid-SDY1764-{age,severity}_260920` (with the `p_rho_x_by_item` contraction plot). **J64 amortiser deployed** (between-group, scalar-mean token, head BvM, no warp — signed relative-change endpoint) via `deploy_IMMPORT_covid_amortiser.sh`: calibration to the SVI reference **age PIT-KS 0.135 / marg 0.115, severity 0.122 / 0.104**; PPS(severe$>$mild) $=0.94$ at $\eta_0{=}0$. Note the SDY1764 severity axis is confounded with age/phenotype (severe $=$ adult-ARDS $+$ pediatric-MIS-C); a within-age contrast or IMPACC (SDY1760) de-confounds. Next: ELISA items; other titre-bearing COVID SDYs |
 | Reference | SDY1764 (Mount Sinai; PMID 33154590); IMPACC SDY1760/2112 (severity-trajectory cohort, larger follow-on); ImmuneSpace/ImmPort |

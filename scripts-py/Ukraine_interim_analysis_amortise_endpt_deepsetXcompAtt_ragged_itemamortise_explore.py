@@ -43,6 +43,13 @@ META4 = os.environ.get('PP_META4', '0') == '1'            # #3: add caseness thr
 WIDETOK = os.environ.get('PP_WIDETOK', '0') == '1'
 CASEENDLINE = os.environ.get('PP_CASEENDLINE', '0') == '1'
 ALLCASE = os.environ.get('PP_ALLCASE', '0') == '1'
+# S5: BETWEEN-GROUP difference. The two conditions become two GROUPS (each participant in ONE, not
+# paired), and the target is the STANDARDISED difference d = (g_1 - g_0)/s of a per-group functional
+# (mean E[y] or caseness rate P(y>=c)), s = pooled within-group SD -> a Cohen's-d, scale-free across
+# apps. Needs the wide token (each group's CDF); no warp (d is signed, O(1)).
+GROUPDIFF = os.environ.get('PP_GROUPDIFF', '0') == '1'
+if GROUPDIFF:
+    WIDETOK = True                                         # per-group CDF token
 if CASEENDLINE:
     META4 = True                                          # SPR needs the caseness threshold in metadata
 META_DIM = 4 if META4 else 3
@@ -123,9 +130,56 @@ def sim_cohort(ex, nab, rng):
     return Y
 
 
+def rho_ex_groupdiff(ex):
+    """S5 target: standardised between-group difference d = (g_1 - g_0)/s per item, g the per-group
+    functional (mean E[y] for typ 0, caseness rate P(y>=c) for typ 1), s the pooled within-group SD
+    (Cohen's d). Direction-aware via `dr`. Scale-free -> transfers across apps."""
+    rho = np.zeros(len(ex['K']))
+    for Kval in np.unique(ex['K']):
+        idx, tau, lam = _bucket(ex, Kval)
+        p = _probs(TH_REF, ex['beta'], tau, lam, Kval)               # (M_REF, nK, 2, K) population profiles
+        ks = np.arange(1, Kval + 1)
+        for a, i in enumerate(idx):
+            if ex['typ'][i] == 0:                                    # mean level per group + within-group SD
+                Ey = (p[:, a] * ks[None, None, :]).sum(-1).mean(0)               # (2,)
+                Ey2 = (p[:, a] * (ks ** 2)[None, None, :]).sum(-1).mean(0)
+                var = np.maximum(Ey2 - Ey ** 2, 1e-6); s = float(np.sqrt(var.mean())); w = Ey
+            else:                                                    # caseness rate per group + binomial SD
+                c = int(ex['cc'][i]); w = p[:, a, :, c - 1:].sum(-1).mean(0)     # (2,)
+                pbar = float(np.clip(w.mean(), 1e-3, 1 - 1e-3)); s = float(np.sqrt(pbar * (1 - pbar)))
+            d = (w[1] - w[0]) if ex['dr'][i] else (w[0] - w[1])
+            rho[i] = float(np.clip(d / max(s, 1e-3), -CLIP, CLIP))
+    return rho
+
+
+def sim_cohort_gd(ex, nab, rng):
+    """Between-SUBJECTS cohort: each participant is in ONE of the two groups; its wide token carries
+    that group's cumulative-exceedance in the group's slot (the other slot is zero). Pooling over
+    participants recovers both groups' CDFs -> the net reads the standardised difference."""
+    Jb = len(ex['K']); Y = np.zeros((nab, Jb, R_TOK), np.float32); th = rng.standard_normal(nab)
+    grp = (rng.random(nab) < 0.5).astype(int)                        # participant's group 0/1
+    for Kval in np.unique(ex['K']):
+        idx, tau, lam = _bucket(ex, Kval)
+        p = _probs(th, ex['beta'], tau, lam, Kval)                   # (nab, nK, 2, K)
+        cdf = np.cumsum(p, -1); u = rng.random((nab, len(idx), 2))
+        k = (cdf < u[..., None]).sum(-1)                             # (nab, nK, 2) category
+        gk = k[np.arange(nab)[:, None], np.arange(len(idx))[None, :], grp[:, None]]   # (nab, nK) own-group cat
+        cvec = (gk[..., None] >= np.arange(1, KMAX)[None, None, :]).astype(np.float32)  # (nab, nK, KMAX-1)
+        full = np.zeros((nab, len(idx), 2, KMAX - 1), np.float32)
+        for g in (0, 1):
+            m = grp == g
+            if m.any():
+                full[m, :, g, :] = cvec[m]
+        Y[:, idx, :] = full.reshape(nab, len(idx), R_TOK)
+    return Y
+
+
+RHO_FN = rho_ex_groupdiff if GROUPDIFF else rho_ex        # S5 uses the standardised group-difference
+SIM_FN = sim_cohort_gd if GROUPDIFF else sim_cohort        # ... and the between-subjects cohort
+
 # ---- global sigma pilot (single scalar; power-law head learns per-item C_j) ----
 _pr = np.random.default_rng(1)
-_pilot = [rho_ex(gen_example(_pr, int(_pr.integers(2, JMAX + 1)))) for _ in range(600)]
+_pilot = [RHO_FN(gen_example(_pr, int(_pr.integers(2, JMAX + 1)))) for _ in range(600)]
 SIG_GLOB = float(np.maximum(np.std(np.concatenate([r for r in _pilot])), 1e-3))
 np.save(f"{dir_out}/{file_prefix}_item_std.npy", np.array([SIG_GLOB], np.float32))
 np.save(f"{dir_out}/{file_prefix}_meta_dim.npy", np.array([META_DIM], np.int32))   # deploy reads this
@@ -147,10 +201,10 @@ def _sizes(rng, total):
 def sample_batch(rng):
     Jb = int(rng.integers(2, JMAX + 1)); Qb = min(Q, Jb)
     exs = [gen_example(rng, Jb) for _ in range(B)]
-    rhos = np.stack([rho_ex(ex) for ex in exs])                        # (B, Jb)
+    rhos = np.stack([RHO_FN(ex) for ex in exs])                        # (B, Jb)
     nb = _sizes(rng, T_X); mb = _sizes(rng, T_Z)
-    xl = [sim_cohort(exs[b], int(nb[b]), rng) for b in range(B)]
-    zl = [sim_cohort(exs[b], int(mb[b]), rng) for b in range(B)]
+    xl = [SIM_FN(exs[b], int(nb[b]), rng) for b in range(B)]
+    zl = [SIM_FN(exs[b], int(mb[b]), rng) for b in range(B)]
     x_flat = np.concatenate(xl, 0); z_flat = np.concatenate(zl, 0)
     x_seg = np.repeat(np.arange(B), nb).astype(np.int32); z_seg = np.repeat(np.arange(B), mb).astype(np.int32)
     def _mc(ex):
@@ -170,6 +224,26 @@ def sample_batch(rng):
 
 b0, y0 = sample_batch(np.random.default_rng(7))
 params = net.init(jax.random.PRNGKey(0), b0)
+
+if os.environ.get('PP_EVAL_ONLY', '0') == '1':               # load saved net -> held-out PIT (no training)
+    from amortiser_common import load_fitted_model
+    params = load_fitted_model(f"{dir_out}/{file_prefix}_amortised_pps_net.pkl")['params']
+    TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95])           # the head's 5 quantile levels
+    rng = np.random.default_rng(999); U = []; med = []; tru = []
+    for _ in range(int(os.environ.get('PP_EVAL_BATCHES', '40'))):
+        bb, yy = sample_batch(rng)
+        pr = np.maximum.accumulate(np.asarray(net.apply(params, bb)), -1)   # (B,Qb,5) standardised/sig
+        yy = np.asarray(yy)
+        for b in range(pr.shape[0]):
+            for qq in range(pr.shape[1]):
+                U.append(float(np.interp(yy[b, qq], pr[b, qq], TAUS, 0., 1.)))
+                med.append(float(pr[b, qq, 2])); tru.append(float(yy[b, qq]))
+    U = np.sort(U); ec = np.arange(1, len(U)+1)/len(U)
+    pit_ks = float(np.max(np.abs(ec - U)))
+    cov = {f'{t:.2f}': float((np.array(sorted(U)) <= t).mean()) for t in (0.05, 0.5, 0.95)}
+    corr = float(np.corrcoef(med, tru)[0, 1])
+    print(f"HELD-OUT (n={len(U)}): PIT-KS={pit_ks:.3f}  cov{cov}  median-vs-true corr={corr:.3f}")
+    import sys; sys.exit(0)
 
 
 def interval_score(pr, y):

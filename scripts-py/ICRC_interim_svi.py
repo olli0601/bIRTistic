@@ -20,6 +20,15 @@ NSTEPS = int(os.environ.get('ICRC_STEPS', '4000')); S = int(os.environ.get('ICRC
 STEP = int(os.environ.get('ICRC_STEP', '100'))               # interim every STEP participants
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.2')
 
+# rho declared upfront (short + long label) — DASS-21 distress is lower_is_better, so the
+# direction-aware relative change reads as a severity REDUCTION (post vs pre); H1 = >50% reduction
+RHO_SPECS = [{'rho_id': 1, 'rho_label': 'distress_reduction', 'reduction': 'mean', 'compare': 'ratio',
+              'rho_label_long': 'DASS-21 distress — relative severity reduction (post vs pre)'}]
+RLL = {s['rho_id']: s['rho_label_long'] for s in RHO_SPECS}
+PKL_COLS = ['draw', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
+            'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x',
+            'pps_ratio_x', 'pps_H1_x']
+
 # DASS-21 (x2 scaled, 0-42) severity bins per Figure 2 -> ordinal 0..4
 SEV = ['Normal', 'Mild', 'Moderate', 'Severe', 'Extremely severe']
 BINS = {'Depression': [-np.inf, 9, 13, 20, 27, np.inf],
@@ -41,7 +50,7 @@ for _, r in raw.iterrows():
     for item, (pc, oc) in COL.items():
         for t, col in ((0, pc), (1, oc)):
             ordv = int(pd.cut([r[col]], BINS[item], labels=[0, 1, 2, 3, 4])[0])
-            rows.append(dict(pid=int(r['pid']), time=t,
+            rows.append(dict(pid=int(r['pid']), group=t,
                              group_label='Baseline' if t == 0 else 'Endline',
                              item_label=f"DASS_{item}", y=ordv))
 dp1 = pd.DataFrame(rows)
@@ -81,12 +90,12 @@ for k, n in enumerate(grid, 1):
     fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal',
                              lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                              with_core_analyses=True, with_additional_analyses=False, verbose=False)
-    xr = model.get_endpoints_per_draw(draws=fit['draws'], categorical_threshold=2,
-                                      endpoint_type='items').rename(columns={'ratio': 'pps_ratio_x'})
-    xr['pps_H1_x'] = (xr['pps_ratio_x'] > 0.5).astype(int)
-    if 'item_high_label' not in xr.columns:
-        xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')
-    xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']].to_pickle(
-        f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
+    # labelled rho endpoint (declared upfront): relative severity reduction per subscale
+    xr = model.get_endpoints_per_draw(draws=fit['draws'], rho_specs=RHO_SPECS,
+                                      endpoint_type='items').rename(columns={'rho': 'pps_rho_x'})
+    xr['rho_label_long'] = xr['rho_id'].map(RLL)
+    xr['pps_ratio_x'] = xr['pps_rho_x']                  # legacy alias (downstream deploys)
+    xr['pps_H1_x'] = (xr['pps_rho_x'] > 0.5).astype(int)
+    xr[PKL_COLS].to_pickle(f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
     print(f"  done ({(time.time()-t0)/60:.1f} min)")
 print("ICRC DASS/DRC SVI grid complete ->", dir_out)

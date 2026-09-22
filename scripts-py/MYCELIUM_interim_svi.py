@@ -20,6 +20,15 @@ NSTEPS = int(os.environ.get('MYC_STEPS', '4000')); S = int(os.environ.get('MYC_S
 NINT = int(os.environ.get('MYC_NINT', '8'))
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.3')
 
+# rho declared upfront (short + long label): between-arm relative effect (powder vs burger),
+# direction-aware per construct (Acceptance/Naturalness up = good, Disgust down = good); H1 >0.5
+RHO_SPECS = [{'rho_id': 1, 'rho_label': 'powder_vs_burger', 'reduction': 'mean', 'compare': 'ratio',
+              'rho_label_long': 'powder-vs-burger relative effect (direction-aware, per construct)'}]
+RLL = {s['rho_id']: s['rho_label_long'] for s in RHO_SPECS}
+PKL_COLS = ['draw', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
+            'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x',
+            'pps_ratio_x', 'pps_H1_x']
+
 # item -> (paper short code, construct, direction)
 ITEMS = {
     'INT1': ('A1', 'Acceptance', 'higher_is_better'),      # would consider consuming
@@ -91,12 +100,11 @@ for k, n in enumerate(grid, 1):
     fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal',
                              lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                              with_core_analyses=True, with_additional_analyses=False, verbose=False)
-    xr = model.get_endpoints_per_draw(draws=fit['draws'], categorical_threshold=2,
-                                      endpoint_type='items').rename(columns={'ratio': 'pps_ratio_x'})
-    xr['pps_H1_x'] = (xr['pps_ratio_x'] > 0.5).astype(int)
-    if 'item_high_label' not in xr.columns:
-        xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')
-    xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']].to_pickle(
-        f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
+    xr = model.get_endpoints_per_draw(draws=fit['draws'], rho_specs=RHO_SPECS,
+                                      endpoint_type='items').rename(columns={'rho': 'pps_rho_x'})
+    xr['rho_label_long'] = xr['rho_id'].map(RLL)
+    xr['pps_ratio_x'] = xr['pps_rho_x']                  # legacy alias (downstream deploys)
+    xr['pps_H1_x'] = (xr['pps_rho_x'] > 0.5).astype(int)
+    xr[PKL_COLS].to_pickle(f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
     print(f"  done ({(time.time()-t0)/60:.1f} min)")
 print("mycelium SVI grid complete ->", dir_out)

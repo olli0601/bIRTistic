@@ -28,6 +28,14 @@ NSTEPS = int(os.environ.get('CAVD_STEPS', '4000')); S = int(os.environ.get('CAVD
 NINT = int(os.environ.get('CAVD_NINT', '10')); KCAT = int(os.environ.get('CAVD_KCAT', '3'))
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.3')
 
+# rho declared upfront (short + long label): between-arm BAMA IgG response, vaccine vs placebo
+RHO_SPECS = [{'rho_id': 1, 'rho_label': 'vaccine_vs_placebo', 'reduction': 'mean', 'compare': 'ratio',
+              'rho_label_long': 'BAMA IgG binding response — vaccine-vs-placebo relative effect'}]
+RLL = {s['rho_id']: s['rho_label_long'] for s in RHO_SPECS}
+PKL_COLS = ['draw', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
+            'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x',
+            'pps_ratio_x', 'pps_H1_x']
+
 
 def run_study(prot):
     dir_out = f"{SB}/py-cavd-{prot}-bama_260918"; os.makedirs(dir_out, exist_ok=True)
@@ -64,13 +72,12 @@ def run_study(prot):
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal',
                                  lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=False)
-        xr = model.get_endpoints_per_draw(draws=fit['draws'], categorical_threshold=2,
-                                          endpoint_type='items').rename(columns={'ratio': 'pps_ratio_x'})
-        xr['pps_H1_x'] = (xr['pps_ratio_x'] > 0.5).astype(int)
-        if 'item_high_label' not in xr.columns:
-            xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')
-        xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']].to_pickle(
-            f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
+        xr = model.get_endpoints_per_draw(draws=fit['draws'], rho_specs=RHO_SPECS,
+                                          endpoint_type='items').rename(columns={'rho': 'pps_rho_x'})
+        xr['rho_label_long'] = xr['rho_id'].map(RLL)
+        xr['pps_ratio_x'] = xr['pps_rho_x']              # legacy alias (downstream deploys)
+        xr['pps_H1_x'] = (xr['pps_rho_x'] > 0.5).astype(int)
+        xr[PKL_COLS].to_pickle(f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
         print(f"  done ({(time.time()-t0)/60:.1f} min)")
     print(f"{prot} BAMA between-arm SVI grid complete ->", dir_out)
 

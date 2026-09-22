@@ -1049,8 +1049,39 @@ def read_data_immport_flu_headhead(xlsx_path, study, arms=('LAIV', 'TIV'),
     dp1['item_id'] = pd.factorize(dp1['item_label'])[0] + 1
     dit = pd.concat(dits, ignore_index=True).drop_duplicates('item_label').reset_index(drop=True)
     shared = sorted(set.intersection(*[set(d['dp']['item_label']) for _, d in per]))
+    ref, foc = arms[0], arms[1]                                  # e.g. LAIV (reference), TIV
+    # rho definitions declared UPFRONT with the application: each rho carries its own short
+    # `rho_label` and pretty `rho_label_long` (used verbatim in plots), the get_endpoints params,
+    # its H1 threshold `h1`, whether it is a per-arm `level` (restricted to `arm`) or a cross-arm
+    # `diff`, and `is_level` for the composite "at least one met" rule. Built one-by-one downstream
+    # but all indexed on the same draw, then joined -> supports joint decisions.
+    # endpoint-major column order: both arms' SPR, then both arms' GMFR, then the two diffs
+    rho_specs = []
+    _lvl = [('spr', 'seroprotection rate  P(titre ≥ 1:40) at endline', 0.70,
+             {'reduction': 'threshold', 'threshold': 3, 'compare': 'endline'}),
+            ('gmfr', 'GMT fold-rise (endline / baseline)', 2.5,
+             {'reduction': 'mean', 'compare': 'fold_log2'})]
+    for tag, long, h1, params in _lvl:
+        for a in arms:
+            rho_specs.append({'rho_id': len(rho_specs) + 1, 'rho_label': f'{a}_{tag}',
+                              'rho_label_long': f'{a} — {long}', 'kind': 'level', 'arm': a,
+                              'is_level': True, 'h1': h1, **params})
+    rho_specs += [
+        {'rho_id': len(rho_specs) + 1, 'rho_label': f'{foc}-{ref}_spr_diff',
+         'rho_label_long': f'{foc} − {ref} — seroprotection-rate difference (shared strain)',
+         'kind': 'diff', 'is_level': False, 'h1': 0.0,
+         'reduction': 'threshold', 'threshold': 3, 'compare': 'endline',
+         'across': 'arm', 'across_within': 'item_label', 'across_values': [ref, foc],
+         'across_compare': 'diff'},
+        {'rho_id': len(rho_specs) + 2, 'rho_label': f'{foc}-{ref}_gmfr_diff',
+         'rho_label_long': f'{foc} − {ref} — GMT fold-rise difference (shared strain)',
+         'kind': 'diff', 'is_level': False, 'h1': 0.0,
+         'reduction': 'mean', 'compare': 'fold_log2',
+         'across': 'arm', 'across_within': 'item_label', 'across_values': [ref, foc],
+         'across_compare': 'diff'},
+    ]
     return {'dp': dp1, 'dit': dit, 'K': K, 'arms': list(arms), 'shared': shared,
-            'endline_day': int(per[0][1]['endline_day'])}
+            'rho_specs': rho_specs, 'endline_day': int(per[0][1]['endline_day'])}
 
 
 def read_data_cavd_nab(nab_parquet, demo_parquet=None, min_start_dilution=5.0,

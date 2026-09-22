@@ -42,26 +42,17 @@ NSTEPS = int(os.environ.get('IMMPORT_STEPS', '4000')); S = int(os.environ.get('I
 STEP = int(os.environ.get('IMMPORT_STEP', '10'))
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.2')
 
-# Four endpoints from the one joint fit. y 0-indexed on the log2 ladder (start 1:5) -> y>=3 ==
-# titre>=1:40. The _diff specs contrast arm (ref=LAIV, foc=TIV -> TIV-LAIV) within strain, so they
-# collapse to the shared strain automatically (non-shared strains have a single arm -> dropped).
-REF, FOC = ARMS[0], ARMS[1]                                  # LAIV, TIV
-ENDPOINTS = [
-    ('SPR',       {'rho_id': 1, 'rho_label': 'SPR: P(titre>=1:40) at endline',
-                   'reduction': 'threshold', 'threshold': 3, 'compare': 'endline'}, 0.70),
-    ('GMFR',      {'rho_id': 2, 'rho_label': 'GMT fold-rise (endline/baseline)',
-                   'reduction': 'mean', 'compare': 'fold_log2'}, 2.5),
-    ('SPR_diff',  {'rho_id': 3, 'rho_label': f'SPR difference ({FOC}-{REF}), shared strain',
-                   'reduction': 'threshold', 'threshold': 3, 'compare': 'endline',
-                   'across': 'arm', 'across_within': 'item_label', 'across_values': [REF, FOC],
-                   'across_compare': 'diff'}, 0.0),
-    ('GMFR_diff', {'rho_id': 4, 'rho_label': f'GMFR difference ({FOC}-{REF}), shared strain',
-                   'reduction': 'mean', 'compare': 'fold_log2',
-                   'across': 'arm', 'across_within': 'item_label', 'across_values': [REF, FOC],
-                   'across_compare': 'diff'}, 0.0),
-]
-PKL_COLS = ['draw', 'arm', 'item_label', 'item_type', 'item_high_label', 'rho_id',
-            'rho_label', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x', 'pps_H1_x']
+# The rho set is declared UPFRONT by the loader (`d['rho_specs']`): six rhos, each with its own
+# short `rho_label` (LAIV_spr, TIV_spr, LAIV_gmfr, TIV_gmfr, TIV-LAIV_spr_diff, TIV-LAIV_gmfr_diff)
+# and pretty `rho_label_long`. Each is computed ONE-BY-ONE (scalable get_endpoints call per rho) but
+# off the SAME fit -> indexed on the same Monte-Carlo draw; the six are then concatenated into one
+# JOINT per-draw frame, from which the composite CHMP rule "at least one criterion met" is scored
+# per draw (model_irt.joint_any_met over the `is_level` rhos), per (strain, arm).
+# NOTE SCR (individual >=4-fold seroconversion) is a PAIRED per-participant quantity the population
+# marginal predictive does not retain, so the composite rule is over SPR + GMFR (add SCR later via
+# the per-theta paired predictive get_endpoints_per_draw_from_theta_batch).
+PKL_COLS = ['draw', 'arm', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
+            'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x', 'pps_H1_x']
 
 
 def _interleave(dp1):
@@ -76,7 +67,7 @@ def _interleave(dp1):
 
 def run():
     d = read_data_immport_flu_headhead(XLSX, STUDY, arms=ARMS)
-    dp1, dit, K, shared = d['dp'], d['dit'], d['K'], d['shared']
+    dp1, dit, K, shared, RHO = d['dp'], d['dit'], d['K'], d['shared'], d['rho_specs']
     ngrp = dp1[['item_label', 'group']].drop_duplicates().shape[0]
     print(f"\n##### {STUDY} head-to-head JOINT fit: arms {ARMS}, {dp1.pid.nunique()} pooled paired "
           f"participants, {dit.item_label.nunique()} strain items x {dp1.group.nunique()} conditions "
@@ -93,6 +84,20 @@ def run():
     grid = sorted(set(list(range(STEP, n_full, STEP)) + [n_full]))
     print(f"interims (every {STEP} pooled, arms interleaved): n={grid}")
 
+    def _one_rho(model, fit, spec):
+        """Compute ONE rho off the fit, tagged with its declared short + long label. A `level` rho
+        is restricted to its `arm`; a `diff` rho already collapses to arm='<foc>-<ref>'. All rhos
+        from a fit share the draw index, so concatenating them yields a jointly-indexed frame."""
+        xr = model.get_endpoints_per_draw(draws=fit['draws'], endpoint_type='items',
+                                          rho_specs=[spec], contrast_col='phase'
+                                          ).rename(columns={'rho': 'pps_rho_x'})
+        if spec.get('kind') == 'level':
+            xr = xr[xr['arm'] == spec['arm']]
+        xr['rho_label'] = spec['rho_label']; xr['rho_label_long'] = spec['rho_label_long']
+        xr['pps_H1_x'] = (xr['pps_rho_x'] > spec['h1']).astype(int)
+        return xr[PKL_COLS]
+
+    any_rows = []
     for k, n in enumerate(grid, 1):
         obs = set(pids[:n]); xi = dp1[dp1.pid.isin(obs)].copy()
         xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
@@ -106,15 +111,18 @@ def run():
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal',
                                  lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=False)
-        for tag, spec, h1 in ENDPOINTS:                     # four get_endpoints calls off the ONE fit
-            xr = model.get_endpoints_per_draw(draws=fit['draws'], endpoint_type='items',
-                                              rho_specs=[spec], contrast_col='phase'
-                                              ).rename(columns={'rho': 'pps_rho_x'})
-            xr['pps_H1_x'] = (xr['pps_rho_x'] > h1).astype(int)
-            xr[PKL_COLS].to_pickle(f"{DIR}/pcm_{tag}_interim_i{k}_regression_training.pkl")
+        # each rho built one-by-one but sharing the draw index -> ONE joint per-draw frame
+        joint = pd.concat([_one_rho(model, fit, s) for s in RHO], ignore_index=True)
+        joint.to_pickle(f"{DIR}/{file_prefix}_i{k}_regression_training.pkl")
+        # composite CHMP decision (>=1 of SPR/GMFR met) from the jointly-indexed LEVEL rhos, per (strain, arm)
+        lvl_labels = [s['rho_label'] for s in RHO if s['is_level']]
+        lvl = joint[joint['rho_label'].isin(lvl_labels)]
+        _, pps = PartialCreditModel.joint_any_met(lvl, group_keys=['item_label', 'arm'])
+        pps['interim'] = k; pps['n_arm'] = min(na.values()); any_rows.append(pps)
         print(f"  done ({(time.time()-t0)/60:.1f} min)")
-    print(f"{STUDY} head-to-head JOINT SVI grid -> {DIR}  (fit pcm_1_interim_, endpoints "
-          f"pcm_{{SPR,GMFR,SPR_diff,GMFR_diff}}_interim_)")
+    pd.concat(any_rows, ignore_index=True).to_csv(f"{DIR}/headhead_any_met.csv", index=False)
+    print(f"{STUDY} head-to-head JOINT SVI grid -> {DIR}  (fit pcm_1_interim_, JOINT per-draw rho frame "
+          f"pcm_1_interim_i*_regression_training.pkl [{len(RHO)} rho_labels], any-met headhead_any_met.csv)")
 
 
 if __name__ == "__main__":

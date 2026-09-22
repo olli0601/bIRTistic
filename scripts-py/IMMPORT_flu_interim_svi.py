@@ -34,11 +34,14 @@ os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.2')
 #                -> H1 if fold-rise > 2.5 (CHMP adult)
 RHO_SPECS = [
     {'rho_id': 1, 'rho_label': 'SPR: P(titre>=1:40) at endline',
+     'rho_label_long': 'seroprotection rate  P(titre ≥ 1:40) at endline',
      'reduction': 'threshold', 'threshold': 3, 'compare': 'endline', 'h1_threshold': 0.70},
     {'rho_id': 2, 'rho_label': 'GMT fold-rise (endline/baseline)',
+     'rho_label_long': 'GMT fold-rise (endline / baseline)',
      'reduction': 'mean', 'compare': 'fold_log2', 'h1_threshold': 2.5},
 ]
 H1 = {s['rho_id']: s['h1_threshold'] for s in RHO_SPECS}
+RLL = {s['rho_id']: s['rho_label_long'] for s in RHO_SPECS}
 
 
 def run_study(study):
@@ -60,6 +63,7 @@ def run_study(study):
     grid = sorted(set(list(range(STEP, n_full, STEP)) + [n_full]))
     print(f"interims (every {STEP}, pseudo-order by Participant ID): n={grid}")
 
+    any_rows = []
     for k, n in enumerate(grid, 1):
         obs = set(pids[:n]); xi = dp1[dp1.pid.isin(obs)].copy()
         xi = xi.sort_values(['item_type_id', 'pid', 'group', 'item_label']).reset_index(drop=True)
@@ -72,13 +76,19 @@ def run_study(study):
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal',
                                  lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=False)
+        # SPR+GMFR extracted in ONE call -> jointly indexed on the same draw
         xr = model.get_endpoints_per_draw(draws=fit['draws'], endpoint_type='items',
                                           rho_specs=RHO_SPECS).rename(columns={'rho': 'pps_rho_x'})
+        xr['rho_label_long'] = xr['rho_id'].map(RLL)
         xr['pps_H1_x'] = (xr['pps_rho_x'] > xr['rho_id'].map(H1)).astype(int)
         xr[['draw', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
-            'reduction', 'compare', 'group1', 'group2', 'pps_rho_x', 'pps_H1_x']].to_pickle(
+            'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x', 'pps_H1_x']].to_pickle(
             f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
+        # composite CHMP decision: at least one of {SPR, GMFR} met, evaluated per draw (joint)
+        _, pps = PartialCreditModel.joint_any_met(xr, group_keys=['item_label'])
+        pps['interim'] = k; pps['n'] = n; any_rows.append(pps)
         print(f"  done ({(time.time()-t0)/60:.1f} min)")
+    pd.concat(any_rows, ignore_index=True).to_csv(f"{dir_out}/{file_prefix}_any_met.csv", index=False)
     print(f"{study} HAI SVI grid complete ->", dir_out)
 
 

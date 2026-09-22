@@ -28,9 +28,14 @@ if os.environ.get('IMMPORT_RHO_DIRS'):
         parts = x.split(':'); lab, sub = parts[0], parts[1]
         fp = parts[2] if len(parts) > 2 else DEFAULT_PREFIX
         STUDIES[lab] = (sub, fp, parts[3] if len(parts) > 3 else fp)
-# H1 threshold line per rho_label; unknown labels (e.g. the head-to-head _diff endpoints) -> 0
-H1 = {'SPR: P(titre>=1:40) at endline': 0.70, 'GMT fold-rise (endline/baseline)': 2.5}
-_h1 = lambda rl: H1.get(rl, 0.0)
+# H1 threshold line inferred from the rho_label (works for both the single-study labels
+# 'SPR: ...'/'GMT fold-rise ...' and the head-to-head short labels 'LAIV_spr'/'TIV_gmfr'/*_diff)
+def _h1(rho_label):
+    rl = str(rho_label).lower()
+    if 'diff' in rl: return 0.0                       # arm-difference: reference line at 0
+    if 'spr' in rl or 'seroprot' in rl: return 0.70
+    if 'gmfr' in rl or 'gmt' in rl or 'fold' in rl: return 2.5
+    return 0.0
 RHO_ORDER = ['SPR: P(titre>=1:40) at endline', 'GMT fold-rise (endline/baseline)']
 _hmult = float(os.environ.get('PROB_FIT_HEIGHT_MULT', '1.0'))
 
@@ -45,13 +50,11 @@ def build_summary(d, file_prefix=DEFAULT_PREFIX, dp_prefix=None):
         k = int(re.search(r'_i(\d+)_', f).group(1))
         n = pd.read_csv(f"{d}/{dp_prefix}_{k}_data_dp1.csv")['pid'].nunique()
         x = pd.read_pickle(f).copy()
-        # disambiguate an item measured under >1 arm (e.g. the head-to-head shared strain, one
-        # item_label per arm) so its trajectories do not pool; single-arm items keep the bare label
-        if 'arm' in x.columns and x.groupby('item_label')['arm'].nunique().max() > 1:
-            x['item_label'] = x['item_label'] + ' [' + x['arm'].astype(str) + ']'
-        for (item, rid, rlab), g in x.groupby(['item_label', 'rho_id', 'rho_label']):
+        if 'rho_label_long' not in x.columns:            # single-study frames carry only the short label
+            x['rho_label_long'] = x['rho_label']
+        for (item, rid, rlab, rll), g in x.groupby(['item_label', 'rho_id', 'rho_label', 'rho_label_long']):
             q = g['pps_rho_x'].quantile([0.025, 0.25, 0.5, 0.75, 0.975]).to_numpy()
-            rows.append(dict(n=n, item=item, rho_id=rid, rho_label=rlab,
+            rows.append(dict(n=n, item=item, rho_id=rid, rho_label=rlab, rho_label_long=rll,
                              ymin=q[0], lower=q[1], middle=q[2], upper=q[3], ymax=q[4]))
     return pd.DataFrame(rows)
 
@@ -65,13 +68,18 @@ def plot_study(study, d, file_prefix=DEFAULT_PREFIX, dp_prefix=None):
         print(f"{study}: no endpoint pkls"); return
     df.to_csv(f"{d}/{file_prefix}_p_rho_x_by_item.csv", index=False)
     ns = sorted(df['n'].unique()); items = sorted(df['item'].unique())
-    present = set(df['rho_label'])                                 # keep known order, append any extras
-    rhos = [r for r in RHO_ORDER if r in present] + sorted(present - set(RHO_ORDER))
-    df['n_f'] = pd.Categorical(df['n'].astype(str), categories=[str(x) for x in ns], ordered=True)
+    # rho COLUMNS ordered by rho_id (the loader's declared order); the pretty rho_label_long is the
+    # facet strip (verbatim application labels, e.g. LAIV_spr -> "LAIV — seroprotection rate ...")
+    rho_ord = df[['rho_id', 'rho_label', 'rho_label_long']].drop_duplicates().sort_values('rho_id')
+    rhos = rho_ord['rho_label_long'].tolist(); nrho = len(rhos)
+    df['n_f'] = pd.Categorical(df['n'].astype(int).astype(str), categories=[str(x) for x in ns], ordered=True)
     df['item_f'] = pd.Categorical(df['item'], categories=items, ordered=True)
-    df['rho_f'] = pd.Categorical(df['rho_label'], categories=rhos, ordered=True)
-    # per-panel H1 threshold line (0 for the head-to-head _diff endpoints)
-    thr = pd.DataFrame([(it, rl, _h1(rl)) for it in items for rl in rhos],
+    df['rho_f'] = pd.Categorical(df['rho_label_long'], categories=rhos, ordered=True)
+    # H1 threshold line on the FULL item x rho_label product (0.70 SPR, 2.5 GMFR, 0 for _diff). This
+    # layer covers every combination, so facet_wrap draws an ALIGNED strain(row) x rho(column) grid
+    # with empty panels (just the reference line) where a strain is not assayed in that rho's arm.
+    lab_of = dict(zip(rho_ord['rho_label_long'], rho_ord['rho_label']))
+    thr = pd.DataFrame([(it, rl, _h1(lab_of[rl])) for it in items for rl in rhos],
                        columns=['item_f', 'rho_f', 'yint'])
     thr['item_f'] = pd.Categorical(thr['item_f'], categories=items, ordered=True)
     thr['rho_f'] = pd.Categorical(thr['rho_f'], categories=rhos, ordered=True)
@@ -83,19 +91,19 @@ def plot_study(study, d, file_prefix=DEFAULT_PREFIX, dp_prefix=None):
          + geom_boxplot(aes(ymin='ymin', lower='lower', middle='middle', upper='upper',
                             ymax='ymax', fill='item_f'), stat='identity', alpha=0.8, width=0.7)
          + geom_hline(thr, aes(yintercept='yint'), linetype='dashed', color='#555555')
-         + facet_wrap(['item_f', 'rho_f'], ncol=len(rhos), scales='free_y')   # rows=strain, cols=rho
+         + facet_wrap(['item_f', 'rho_f'], ncol=nrho, scales='free_y')   # rows=strain, cols=rho_label
          + scale_fill_manual(values=cdict, guide=None)
          + theme_bw()
          + theme(axis_text_x=element_text(angle=45, vjust=1, hjust=1, size=7),
-                 strip_text=element_text(size=8),
-                 figure_size=(5.5 * len(rhos), max(14, 2.4 * len(items)) * _hmult))
+                 strip_text=element_text(size=7),
+                 figure_size=(max(6, 3.2 * nrho), max(10, 1.9 * len(items)) * _hmult))
          + labs(x='interim (cumulative participants)',
-                y='p(rho | x)  —  SPR (prob) / GMFR (fold)',
-                title=f'{study} HAI: SVI p(rho|x) contraction by strain and endpoint '
-                      f'(dashed = H1: SPR>0.70, GMFR>2.5)'))
-    p.save(f"{d}/{file_prefix}_p_rho_x_by_item.pdf", verbose=False)
-    p.save(f"{d}/{file_prefix}_p_rho_x_by_item.png", dpi=110, verbose=False)
-    print(f"{study}: {df['n'].nunique()} interims x {len(items)} strains x {len(rhos)} rho "
+                y='p(rho | x)',
+                title=f'{study}: SVI p(rho|x) contraction by item (row) x rho (column) '
+                      f'(dashed = H1 threshold)'))
+    p.save(f"{d}/{file_prefix}_p_rho_x_by_item.pdf", verbose=False, limitsize=False)
+    p.save(f"{d}/{file_prefix}_p_rho_x_by_item.png", dpi=110, verbose=False, limitsize=False)
+    print(f"{study}: {df['n'].nunique()} interims x {len(items)} strains x {nrho} rho "
           f"[{file_prefix}] -> {d}")
 
 

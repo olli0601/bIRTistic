@@ -57,6 +57,9 @@ S = int(os.environ.get('RAG_S', 200))
 WIDETOK = os.environ.get('RAGD_WIDETOK', '0') == '1'
 KMAX_D = int(os.environ.get('RAGD_KMAX', '10'))
 CASE_C = float(os.environ.get('RAGD_CASE_C', '2'))
+# items to EXCLUDE from the across-interim aggregate (fair comparison when one item is a known
+# functional pathology, e.g. Ukraine CG-VIO_ph-punish signed-ratio boundary instability §14.4.10)
+EXCLUDE_ITEMS = set(x for x in os.environ.get('RAGD_EXCLUDE_ITEMS', '').split(',') if x)
 TAUS = np.array([0.05, 0.25, 0.5, 0.75, 0.95], np.float32)
 CACHE = f"/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad/ragged_deploy_cells_{os.environ.get('RAGD_CTAG', 'focused')}"
 os.makedirs(CACHE, exist_ok=True)
@@ -503,16 +506,22 @@ pd.DataFrame(_boxrows).to_pickle(f"{OUT}/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.
 print(f"  wrote p(H1|x,z) boxplot pkl ({len(_boxrows)} rows, eta0={ETA0})")
 
 
-def cov_pit(getq, margq=None):
+_PITROWS = []                                              # per-(interim,item) PIT u, for federated re-pooling
+def cov_pit(getq, margq=None, save_pit=False):
     out = []
     for k in INTERIMS:
         us = []; mks = []
         for j in range(J):
+            if labels[j] in EXCLUDE_ITEMS:                 # fair aggregate: drop pathological item(s)
+                continue
             y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
             if yv.size < 10:
                 continue
             q = getq(k)[ok, j, :]
-            us.append(pit(q, yv))                          # conditional PIT (draw-aligned)
+            uj = pit(q, yv)                                # conditional PIT (draw-aligned)
+            us.append(uj)
+            if save_pit and os.environ.get('RAGD_SAVE_PIT', '0') == '1':
+                _PITROWS.extend((int(k), labels[j], float(v)) for v in uj)
             qm = (margq(k) if margq is not None else getq(k))[:, j, :]    # marg source: ALL mixture rows
             qm = qm[np.isfinite(qm).all(1)]                # (not SVI-draw-aligned; R may != S)
             # marg-KS: SVI empirical CDF vs amortiser mixture CDF (the CDF-plot area)
@@ -530,9 +539,12 @@ def cov_pit(getq, margq=None):
 
 _MARGF = (lambda k: MARGSRC[k]) if MARGSRC is not None else None
 base = cov_pit(lambda k: QS[k]).assign(config='baseline(ragged)')
-h1 = cov_pit(lambda k: HK[k], _MARGF).assign(config=HLABEL)   # PIT=conditional, marg=empty-z if EMPTYZ
+h1 = cov_pit(lambda k: HK[k], _MARGF, save_pit=True).assign(config=HLABEL)   # PIT=conditional, marg=empty-z if EMPTYZ
 res = pd.concat([base, h1], ignore_index=True)
 res.to_csv(f"{OUT}/{file_prefix}_pps_RAGD_headft_coverage.csv", index=False)
+if os.environ.get('RAGD_SAVE_PIT', '0') == '1' and _PITROWS:
+    pd.DataFrame(_PITROWS, columns=['interim_id', 'item_label', 'u']).to_csv(
+        f"{OUT}/{file_prefix}_pps_RAGD_pit_u.csv", index=False)
 
 
 def cov_pit_by_item(getq, margq=None):

@@ -347,6 +347,25 @@ class IRTModel(Model):
         return po
 
     @staticmethod
+    def joint_any_met(endpoints_long: pd.DataFrame, group_keys, met_col: str = 'pps_H1_x',
+                      draw_col: str = 'draw'):
+        """Joint (composite) decision over several endpoints that are indexed on the SAME Monte-Carlo
+        sample. `endpoints_long` is the multi-endpoint per-draw frame from
+        :meth:`get_endpoints_per_draw` (one row per draw x item x rho, each carrying a per-rho
+        criterion indicator `met_col` = 1{rho > its threshold}). Because the rhos share the draw
+        index, the composite "**at least one criterion met**" (e.g. CHMP influenza: SCR *or* SPR
+        *or* GMFR met) is evaluated WITHIN a draw as the OR of the per-rho indicators, then the PPS
+        is the fraction of draws meeting it — the correct JOINT posterior probability, not a naive
+        combination of the marginal PPS. Returns (per_draw, pps): `per_draw` has one
+        `any_met` per (draw, *group_keys*); `pps` has `pps_any_met` per *group_keys*."""
+        gk = list(group_keys)
+        per_draw = (endpoints_long.groupby([draw_col] + gk)[met_col].max()
+                    .reset_index().rename(columns={met_col: 'any_met'}))
+        pps = (per_draw.groupby(gk)['any_met'].mean()
+               .reset_index().rename(columns={'any_met': 'pps_any_met'}))
+        return per_draw, pps
+
+    @staticmethod
     def _apply_rho_compare(piv: pd.DataFrame, compare: str) -> "pd.Series":
         """Combine the two per-condition summaries (``group1`` = time 0, ``group2`` = time 1)
         into a scalar endpoint, respecting ``item_high_label`` direction. ``compare``:
@@ -356,7 +375,9 @@ class IRTModel(Model):
           'fold'      -> geometric/level fold group2/group1 (good direction);
           'fold_log2' -> 2**(group2-group1) when the summary is on a log2 scale
                          (e.g. mean log2-titre -> GMT fold-rise);
-          'ratio'     -> group2/group1 - 1 (legacy relative change);
+          'ratio'     -> direction-aware relative change vs the group1 baseline (legacy
+                         `get_endpoints`): higher_is_better group2/group1-1, lower_is_better
+                         1-group2/group1;
           'diff'      -> group2 - group1.
         For 'lower_is_better' items the group1/group2 roles are swapped for the change-type
         compares (fold/fold_log2/ratio/diff). ('endline'/'baseline' kept as aliases so a
@@ -376,9 +397,10 @@ class IRTModel(Model):
                 return pd.Series(num / den, index=piv.index)
         if compare == 'fold_log2':
             return pd.Series(2.0 ** (num - den), index=piv.index)
-        if compare == 'ratio':
+        if compare == 'ratio':                                  # improvement relative to group1 (legacy)
             with np.errstate(divide='ignore', invalid='ignore'):
-                return pd.Series(num / den - 1.0, index=piv.index)
+                good = np.where(lower, B - E, E - B)
+                return pd.Series(good / B, index=piv.index)
         if compare == 'diff':
             return pd.Series(num - den, index=piv.index)
         raise ValueError(f"unknown compare {compare!r}")
