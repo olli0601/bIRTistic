@@ -264,7 +264,7 @@ A new-product acceptance study for mycelium as a human food protein — the laun
 | Items (built) | **9** items, $1$–$7$ ($K=7$): **Acceptance** (A1–A4), **Disgust** (D1–D4), **Perceived naturalness** (PN) |
 | Effect measure $\rho$ | between-arm powder-vs-burger contrast per item — Acceptance $+0.08$–$0.15$, Disgust (severity down) $+0.13$–$0.27$, Naturalness $+0.11$: powder beats burger on every construct |
 | Cohort / interims | $n=298$; **8** participant-accrual interims (shuffled to mix arms) |
-| **Application target** | **real-time launch/acceptance evaluation** with a genuine condition contrast. *Amortiser deferred* — like PISA the design is **unpaired between-arm**, so the §14 (per-participant) amortiser awaits a between-cohort variant; SVI fits done in `py-mycelium-powdervsburger_260902` |
+| **Application target** | **real-time launch/acceptance evaluation** with a genuine condition contrast. **Amortiser delivered (§21)** — the unpaired between-arm design is handled by the registry $S_3$ group-contrast network (arm$=$time, burger$=$Baseline/powder$=$Endline), the same one used for HVTN 505 (§20); federated deploy calibrates to PIT–KS $0.078$. SVI fits in `py-mycelium-powdervsburger_260902` |
 | Data | open, [@fischer2024mycelium]; OSF `e3gxa` / Zenodo 10628634 |
 
 ## 3.17 Application: Parenting for Lifelong Health pooled trials
@@ -351,7 +351,7 @@ The **efficacy-scale** vaccine application. The Collaboration for AIDS Vaccine D
 | Setting | HVTN trials via CAVD DataSpace (Global Access public data); Fred Hutch / VISC |
 | Arms | vaccine vs placebo. **No informative paired baseline** — subjects are HIV-naive, so pre-vaccination antibody is a uniform floor (unlike flu's pre-existing immunity); the estimand is the single-timepoint **vaccine-vs-placebo** contrast, not a within-participant fold-rise |
 | Timepoints | endline only for the contrast (HVTN 505 day 196). NAb is measured paired ($\{0,196\}$) but baseline is all below-detection $\Rightarrow$ the paired fold-rise is degenerate; BAMA is endline-only |
-| Items | **BAMA** binding-IgG antigens (antigen $=$ item; `mfi_delta` $\to$ per-antigen ordinal, $K=3$). HVTN 505: 18 antigens, **10 retained** (both arms span all $K$) — the V1V2 immune-correlate scaffolds (AE.A244, C.1086C V1V2, gp70-V1V2), Con6 gp120, p24. (NAb: 5 isolates but only MN.3 paired, floor baseline — not usable for the contrast) |
+| Items | **BAMA** binding-IgG antigens (antigen $=$ item; `mfi_delta` $\to$ per-antigen ordinal, $K=3$). HVTN 505: 18 antigens, 10 span both arms across all $K$; the federated interim/amortiser deploy restricts to the **rectangular 9-antigen panel** measured on *all* subjects (drops the sparse gp70-V1V2(A), covered on only 50/239) so the SVI reference is coherent across interims — the V1V2 immune-correlate scaffolds (AE.A244, C.1086C V1V2), Con6 gp120, p24. (NAb: 5 isolates but only MN.3 paired, floor baseline — not usable for the contrast) |
 | Effect measure $\rho$ | per-antigen relative **vaccine-vs-placebo** shift in ordinal binding, `higher_is_better` (encoded MYCELIUM-style: placebo$=$`Baseline`, vaccine$=$`Endline`) |
 | Cohort / interims | **HVTN 505** — 239 subjects (190 vaccine / 49 placebo); shuffled accrual so both arms are present at each of 10 interims |
 | **Application target** | the **between-arm endline immunogenicity amortiser** on real HIV-vaccine binding data (BAMA $\to$ ordered categorical), reusing the MYCELIUM/UkraineP group-contrast machinery. (The 2013 futility stop was on HIV-*infection* efficacy — a time-to-event endpoint not in the assay datasets — so it is not reconstructed here) |
@@ -1678,18 +1678,16 @@ The SPR network was trained with the interval-score objective (§14.4.11) on ite
 
 ## 16.2 Deployment and calibration against the SVI reference
 
-Both endpoints deploy through the shared ragged driver (§14.4.8) with expanding-window head fine-tuning, the per-item affine median-shift (§14.4.23) and the between-first **head BvM** correction (§14.4.26); the SPR deployment additionally activates the cumulative-exceedance token and the caseness cut $c=3$ (titre $\ge 1{:}40$). Success is scored by the conditional **PIT–KS** and the **marginal KS** against the per-interim SVI posterior of the endpoint. Both endpoints' amortiser outputs are written to a **single per-study directory** `py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`, distinguished by file prefix (`pcm_gmfr_interim_*` / `pcm_spr_interim_*`); the SVI reference grid and its plots stay in `py-immport-SDY{312,314}_260918/`.
+Both endpoints deploy through the shared ragged driver (§14.4.8) with expanding-window head fine-tuning, the per-item affine median-shift (§14.4.23) and the between-first **head BvM** correction (§14.4.26); the SPR deployment additionally activates the cumulative-exceedance token and the caseness cut $c=3$ (titre $\ge 1{:}40$). Success is scored by the conditional **PIT–KS** and the **marginal KS** against the per-interim SVI posterior of the endpoint. The two endpoints are now deployed as a **federated amortiser** (§14.4.9, §17.5): one parent directory `py-immport-SDY312-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919-federated_260924/` with a **per-endpoint subdirectory** (`SPR/`, `GMFR/`, each a delegated amortiser with its subset reference nested), and every combined diagnostic figure and the `flu_amortiser_calibration.*` summary reporting into the parent; the SVI reference grid and its plots stay in `py-immport-SDY312_260918/`.
 
-Aggregate calibration (mean over interims):
+Aggregate calibration (SDY312, federated re-run, mean over interims):
 
 | study  | endpoint | PIT–KS | marg–KS | uncalibrated baseline (PIT / marg) |
 |--------|----------|--------|---------|------------------------------------|
-| SDY312 | GMFR     | 0.089  | 0.114   | 0.32 / 0.43                        |
-| SDY312 | SPR      | 0.104  | 0.142   | 0.63 / 0.68                        |
-| SDY314 | GMFR     | 0.082  | 0.090   | 0.33 / 0.51                        |
-| SDY314 | SPR      | 0.080  | 0.096   | 0.58 / 0.60                        |
+| SDY312 | GMFR     | 0.106  | 0.110   | 0.32 / 0.43                        |
+| SDY312 | SPR      | 0.110  | 0.137   | 0.63 / 0.68                        |
 
-The uncalibrated SPR baseline (0.58–0.68) **is** the sufficiency wall — with the scalar-mean token the network cannot reproduce a threshold rate at all — and the cumulative-exceedance token brings the deployed SPR estimator into the same calibration band as GMFR (PIT–KS $\approx 0.08$–$0.10$).
+The uncalibrated SPR baseline (0.63–0.68) **is** the sufficiency wall — with the scalar-mean token the network cannot reproduce a threshold rate at all — and the cumulative-exceedance token brings the deployed SPR estimator into the same calibration band as GMFR (PIT–KS $\approx 0.11$). (SDY314, the second study, is not run under the federated pipeline; its earlier single-study deploy calibrated to GMFR 0.082 / 0.090 and SPR 0.080 / 0.096, the same band.)
 
 Per-item calibration (SDY312; PIT–KS pooled over interims, marg–KS averaged over interims):
 
@@ -1697,18 +1695,18 @@ Each cell is **PIT–KS / marg–KS** for that strain and endpoint.
 
 | strain | GMFR (PIT–KS / marg–KS) | SPR (PIT–KS / marg–KS) |
 |----------------------------|-----------------------|----------------------|
-| A/Puerto Rico/8/1934(H1N1) | 0.064 / 0.073 | 0.101 / 0.135 |
-| A/South Dakota/06/2007(H1N1) | 0.089 / 0.117 | 0.088 / 0.109 |
-| A/Uruguay/716/2007(H3N2) | 0.122 / 0.115 | **0.186 / 0.280** |
-| A/Victoria/3/1975(H3N2) | 0.078 / 0.091 | 0.071 / 0.107 |
-| B/Brisbane/60/2008 | **0.200 / 0.187** | 0.095 / 0.116 |
-| B/Florida/4/2006 | 0.134 / 0.120 | 0.088 / 0.097 |
-| B/Lee/1940 | 0.102 / 0.093 | 0.127 / 0.150 |
+| A/Puerto Rico/8/1934(H1N1) | 0.057 / 0.072 | 0.106 / 0.125 |
+| A/South Dakota/06/2007(H1N1) | 0.078 / 0.105 | 0.089 / 0.107 |
+| A/Uruguay/716/2007(H3N2) | 0.122 / 0.116 | **0.198 / 0.264** |
+| A/Victoria/3/1975(H3N2) | 0.081 / 0.091 | 0.075 / 0.106 |
+| B/Brisbane/60/2008 | **0.195 / 0.181** | 0.091 / 0.108 |
+| B/Florida/4/2006 | 0.122 / 0.116 | 0.079 / 0.094 |
+| B/Lee/1940 | 0.091 / 0.092 | 0.132 / 0.157 |
 
 Calibration is uniformly good (PIT–KS $\lesssim 0.13$) with two exceptions, and they are **endpoint-specific boundary effects**, not a property of particular strains. PIT–KS scores how well the amortiser's (roughly symmetric) five-quantile head reproduces the *shape* of the SVI posterior; it degrades where that posterior is pushed against a boundary and becomes strongly skewed:
 
-- **GMFR, at the titre floor.** B/Brisbane (PIT–KS 0.200) and B/Florida (0.134) sit at the assay floor — baseline GMT 9 and 17, most participants at $k=0$ (below the 1:10 detection limit). Since $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ is a fold of a near-zero baseline mean, the SVI posterior is **right-skewed / heavy-tailed** (skewness 1.1 and 1.5, vs 0.5–0.65 for the well-calibrated strains); B/Brisbane is the most extreme floor case and calibrates worst.
-- **SPR, at the ceiling.** A/Uruguay (PIT–KS 0.186) has SPR $\approx 0.97$, compressed against 1.0 (skewness $-2.05$, a third of draws within 0.02 of the boundary); its head fits worst *for SPR*, while the two B strains — interior SPR rates 0.24–0.35 — calibrate cleanly (0.09).
+- **GMFR, at the titre floor.** B/Brisbane (PIT–KS 0.195) and B/Florida (0.122) sit at the assay floor — baseline GMT 9 and 17, most participants at $k=0$ (below the 1:10 detection limit). Since $\text{GMFR}=2^{\bar E_{\text{end}}-\bar E_{\text{base}}}$ is a fold of a near-zero baseline mean, the SVI posterior is **right-skewed / heavy-tailed** (skewness 1.1 and 1.5, vs 0.5–0.65 for the well-calibrated strains); B/Brisbane is the most extreme floor case and calibrates worst.
+- **SPR, at the ceiling.** A/Uruguay (PIT–KS 0.198) has SPR $\approx 0.97$, compressed against 1.0 (skewness $-2.05$, a third of draws within 0.02 of the boundary); its head fits worst *for SPR*, while the two B strains — interior SPR rates 0.24–0.35 — calibrate cleanly (0.09).
 
 Two mechanisms compound: (i) the head family is near-symmetric — the affine shift (§14.4.23) corrects *location* and the BvM correction the *width*, but neither reshapes **skew**; (ii) near-floor / near-ceiling category profiles are under-represented in the synthetic training prior ($\beta\sim
 \mathcal N(0,1)$), so the network mildly extrapolates there. This is a head-shape limitation at endpoint boundaries, not a location error — the go/no-go (a clear futility for the B strains under GMFR, a clear pass for A/Uruguay under SPR) is unaffected. A skew-capable head, or a log-/logit-warped target (log-GMFR would symmetrise the floor skew), would close it — §16.3 implements and compares both. The per-item PIT and contraction boxes are in `…_pps_RAGD_pit_box_by_item.pdf` / `…_contraction_cdf_by_item.pdf`; SDY314 (6 strains) is analogous, all per-item PIT–KS $\le 0.11$.
@@ -1726,37 +1724,28 @@ Calibration vs the SVI reference (SDY312, mean over interims; PIT–KS condition
 
 | endpoint | head variant                  | PIT–KS    | marg–KS   |
 |----------|-------------------------------|-----------|-----------|
-| GMFR     | current (symmetric power-law) | 0.089     | 0.114     |
-| GMFR     | **C —** $\log_2$ warp         | **0.068** | **0.074** |
-| GMFR     | B — free-quantile             | 0.082     | 0.111     |
-| SPR      | current (symmetric power-law) | 0.104     | 0.142     |
-| SPR      | **C — logit warp**            | **0.081** | **0.113** |
-| SPR      | B — free-quantile             | 0.110     | 0.142     |
+| GMFR     | current (symmetric power-law) | 0.106     | 0.110     |
+| GMFR     | **C —** $\log_2$ warp         | **0.081** | **0.093** |
+| GMFR     | B — free-quantile             | 0.099     | 0.109     |
+| SPR      | current (symmetric power-law) | 0.110     | 0.137     |
+| SPR      | **C — logit warp**            | **0.103** | **0.126** |
+| SPR      | B — free-quantile             | 0.143     | 0.140     |
 
 Per-item PIT–KS at the two problem strains (the boundary cases of §16.2):
 
 | endpoint · strain                  | current | C (warp)  | B (free-q) |
 |------------------------------------|---------|-----------|------------|
-| GMFR · B/Brisbane/60/2008 (floor)  | 0.200   | **0.075** | 0.190      |
-| GMFR · B/Florida/4/2006            | 0.134   | 0.114     | **0.081**  |
-| SPR · A/Uruguay/716/2007 (ceiling) | 0.186   | **0.097** | 0.273      |
+| GMFR · B/Brisbane/60/2008 (floor)  | 0.195   | **0.077** | 0.194      |
+| GMFR · B/Florida/4/2006            | 0.122   | 0.109     | **0.085**  |
+| SPR · A/Uruguay/716/2007 (ceiling) | 0.198   | **0.125** | 0.285      |
 
-**C wins decisively** — best aggregate for both endpoints, and it collapses the two worst cases (B/Brisbane GMFR $0.200\to0.075$; A/Uruguay SPR $0.186\to0.097$). The log/logit map is the natural symmetriser of a fold / a rate, and — crucially — it respects the endpoint's support by construction, so the head never has to place quantile mass beyond the titre floor or above SPR $=1$.
+**C is best on both endpoints** — the aggregate gain is large for GMFR ($0.106\to0.081$) and modest but consistent for SPR ($0.110\to0.103$), and it collapses the two worst per-strain cases (B/Brisbane GMFR $0.195\to0.077$; A/Uruguay SPR $0.198\to0.125$). The log/logit map is the natural symmetriser of a fold / a rate, and — crucially — it respects the endpoint's support by construction, so the head never has to place quantile mass beyond the titre floor or above SPR $=1$.
 
-**B disappoints, and instructively.** It helps a few interior strains (B/Florida GMFR $0.134\to0.081$, B/Lee GMFR $0.102\to0.065$) but *worsens* the hard boundary cases — A/Uruguay SPR rises to 0.273. Two reasons: a free five-quantile head has more shape parameters to fit from the limited per-interim reference draws at deploy, so it is under-constrained near the boundaries; and, working in the raw $[0,1]$ / floor space, no monotone-quantile set can reproduce a posterior piled against a hard bound (SPR $\to 1$). The warp removes the bound, which the extra head flexibility cannot.
+**B disappoints, and instructively.** It helps a few interior strains (B/Florida GMFR $0.122\to0.085$, B/Lee GMFR $0.091\to0.062$) but *worsens* both hard boundary cases — A/Uruguay SPR rises to 0.285, and the aggregate SPR is the worst of the three variants (0.143). Two reasons: a free five-quantile head has more shape parameters to fit from the limited per-interim reference draws at deploy, so it is under-constrained near the boundaries; and, working in the raw $[0,1]$ / floor space, no monotone-quantile set can reproduce a posterior piled against a hard bound (SPR $\to 1$). The warp removes the bound, which the extra head flexibility cannot.
 
 The go/no-go is unchanged throughout: $P(\rho>\eta_0)=P(\rho'>\eta_0')$ under a monotone warp, so C only reshapes the predictive, not the decision.
 
-**Adopted.** C is now the default for the influenza deploys (`RAGD_WARP=log2` for GMFR, `RAGD_WARP=logit` for SPR in the deploy wrappers): the head is fit in warped space, then the quantiles and targets are mapped back so PPS, $\eta_0$ and all plots stay in natural units. On the full canonical deploy (both studies, expanding head-ft $+$ affine $+$ head BvM, complete diagnostic suite) C improves every aggregate metric:
-
-| study  | endpoint | symmetric (was) | C — warp (now)    |
-|--------|----------|-----------------|-------------------|
-| SDY312 | GMFR     | 0.089 / 0.114   | **0.068 / 0.095** |
-| SDY312 | SPR      | 0.104 / 0.142   | **0.085 / 0.127** |
-| SDY314 | GMFR     | 0.082 / 0.090   | **0.063 / 0.086** |
-| SDY314 | SPR      | 0.080 / 0.096   | **0.073 / 0.093** |
-
-(PIT–KS / marg–KS, mean over interims.) SDY314 has no extreme-floor strain, so all its per-item PIT–KS are $\le 0.09$ under C. The full plot suite (per-interim SVI-vs-amortiser CDF overlays, contraction law/factor, PIT and contraction boxes, $\eta_0$-sweep, PPS trajectory) is written in each amortiser dir under the endpoint prefix. The three variants are kept in separate directories: C-warp (the default) in `…-J64-Cwarp-ftheadexpand-bvm_260920/`, the symmetric baseline in `…-J64-ftheadexpand-bvm_260919/`, and the free-quantile head in `…-J64-Bfreeq-ftheadexpand-bvm_260920/`.
+**Adopted.** C is now the default for the influenza deploys (`RAGD_WARP=log2` for GMFR, `RAGD_WARP=logit` for SPR in the deploy wrappers): the head is fit in warped space, then the quantiles and targets are mapped back so PPS, $\eta_0$ and all plots stay in natural units. On the full canonical federated deploy (expanding head-ft $+$ affine $+$ head BvM, complete diagnostic suite) C improves both aggregate endpoints over the symmetric baseline — GMFR $0.106/0.110\to\mathbf{0.081/0.093}$, SPR $0.110/0.137\to\mathbf{0.103/0.126}$ (the three-variant table above). SDY314 has no extreme-floor strain, so its earlier single-study deploy already calibrated well and improved consistently under C (GMFR $0.082/0.090\to0.063/0.086$, SPR $0.080/0.096\to0.073/0.093$; all per-item PIT–KS $\le 0.09$). Each variant is a self-contained **federated deployment** — one parent directory with `SPR/` and `GMFR/` subdirectories, the combined diagnostic suite (per-item PIT and contraction boxes, contraction law, $\eta_0$-sweep, PPS trajectory, calibration summary) reporting into the parent: C-warp (the default) in `…-J64-Cwarp-ftheadexpand-bvm_260920-federated_260924/`, the symmetric baseline in `…-J64-ftheadexpand-bvm_260919-federated_260924/`, and the free-quantile head in `…-J64-Bfreeq-ftheadexpand-bvm_260920-federated_260924/`.
 
 **The warp is endpoint-specific, and correctly scoped.** C is set in the *influenza wrappers*, not the driver (whose default remains `RAGD_WARP=none`), because $\log_2$/logit suit a fold / a bounded rate but not every endpoint. The Ukraine partial-credit endpoint (§14) is a *signed* relative-change $\rho$ (1.4% of reference draws are $\le 0$ — up to 25% for the violence-reduction item, with $\rho$ as low as $-4.8$), so $\log_2\rho$ is undefined and the logit (a $[0,1]$ map) does not apply; moreover Ukraine's $\rho$ is already near-symmetric (median $|\text{skewness}|\approx0.4$) and its symmetric-head deployment is already well calibrated. C therefore neither applies to nor is needed for Ukraine, and the default scoping leaves the Ukraine deployment unchanged. (Endpoints with a hard boundary — folds, rates, censored effects — are the ones the warp helps.)
 
@@ -1808,7 +1797,91 @@ Deployed on SDY269 by **reusing the existing SVI fit** — the future cohort is 
 
 The head-to-head deploys a **manifest** of registry instances — $S_1$ (SPR per arm, wide/logit), $S_2$ (GMFR per arm, scalar/$\log_2$), $S_5$ (difference, wide/none) — each a *different* trained network. The delegated amortisers live side-by-side as subdirectories of one federated deployment directory (one subdirectory per endpoint $\rho$, its subset reference nested within), and every diagnostic figure reports into that parent. Each per-arm amortiser is deployed over **all that arm's strains** (the item-general net carries them jointly), so the federated set spans every response item, not only the shared strain. Because the endpoints are federated across networks, each diagnostic is assembled as a **single combined figure faceted strain (rows) $\times$ endpoint $\rho$ (columns)**, with panels left empty where a strain is not measured under that endpoint (e.g. the between-arm difference exists only on the shared strain). A generic routine pools the tidy per-plot data each amortiser dumps and renders the diagnostic suite — PIT uniformity and coverage calibration, the marginal $p(\rho\mid x)$ SVI-vs-amortiser quantile boxes, the conditional-PIT box, the contraction power law, the $\eta_0$ success-threshold sweep with the SVI $\rho$-predictive against those thresholds, and the amortised-PPS trajectory — one plot each, for both the deployed (head-ft + affine + BvM) and raw-network baselines. Panels use per-facet free scales where the endpoints carry different units (rate vs fold vs standardised difference); the interim axis is labelled by participants-per-arm since SDY269 carries no calendar time. Per-interim single-endpoint overlays are not emitted.
 
-# 18. References
+Calibration of the five delegated amortisers against the joint SVI reference (mean over interims and over each arm's strains; coverage is the empirical 5%/95%-quantile mass):
+
+| endpoint             | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|----------------------|----------|--------|---------|---------------------|
+| LAIV SPR             | $S_1$ rate | 0.100 | 0.104 | 0.49 / 0.98 |
+| TIV SPR              | $S_1$ rate | 0.066 | 0.073 | 0.52 / 0.94 |
+| LAIV GMFR            | $S_2$ fold | 0.055 | 0.074 | 0.48 / 0.94 |
+| TIV GMFR             | $S_2$ fold | 0.059 | 0.082 | 0.46 / 0.95 |
+| TIV$-$LAIV SPR diff  | $S_5$ diff | 0.062 | 0.061 | 0.50 / 0.97 |
+
+Every delegated network calibrates in the same PIT–KS $\lesssim 0.10$ band as the single-endpoint influenza deploys of §16 — three *different* trained networks ($S_1$/$S_2$/$S_5$), federated over one joint fit, each reproducing the SVI posterior of its endpoint. The cross-arm difference ($S_5$, §17.4) is the tightest (PIT–KS 0.062), confirming that a single generic between-groups network amortises the procurement-relevant contrast directly.
+
+# 18. ICRC community-level MHPSS interim evaluation (DASS-21 / DRC)
+
+The first of four further applications (two humanitarian, one HIV-vaccine, one consumer) deployed with the **generic between/within-cohort amortiser** exactly as the influenza endpoints, differing only in the estimand's registry family and the $\eta_0$ scale. ICRC community-level mental-health and psychosocial support (§3.10) is a paired pre/post humanitarian cohort at scale: the Depression, Anxiety and Stress DASS-21 subscale totals are each binned into the five clinical severity levels (Normal $\to$ Extremely severe, $K=5$) on the paper's own Figure-2 cut-offs, turning each subscale into one ordinal item. The estimand is the **relative severity reduction** post-vs-pre (DASS is distress, so `lower_is_better` — the direction-aware $\rho$ reads as a reduction), the registry $S_3$ relative-change instance (scalar `scale-feat` net, no warp), fitted over the DRC arm ($n=1{,}669$ beneficiaries with complete pre&post on all three subscales) with a fine early interim grid ($20/40/60/80$) then every 100 accruing beneficiaries.
+
+## 18.1 Results: a very large effect, discriminating only at a high threshold
+
+Community MHPSS produces enormous pre$\to$post severity drops ($\rho\approx0.80$–$0.95$ relative reduction, matching the paper's 96.6% improved on DASS-21), so the predictive probability of success is essentially $1$ from the first interim at the default $\eta_0=0.5$. The interim decision only becomes *discriminating* at a high operational threshold $\eta_0\approx0.85$ — the $\eta_0$ sweep is therefore run over $\{0,0.50,0.70,0.85,0.95\}$, and the operational lesson is that the go/no-go rule for a high-efficacy psychosocial intervention must be set on that scale rather than at a nominal 50% reduction.
+
+## 18.2 Federated amortiser calibration
+
+Deployed as a single-endpoint federated amortiser (one $S_3$ delegated network over the three subscales; combined diagnostic grid faceted subscale $\times$ $\rho$, one column). Calibration against the SVI reference (mean over interims and subscales):
+
+| endpoint                     | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|------------------------------|----------|--------|---------|---------------------|
+| DASS-21 severity reduction   | $S_3$ rel-change | 0.099 | 0.134 | 0.53 / 0.94 |
+
+The relative-change network — the same one trained generically and reused for REFUGE, HVTN 505 and mycelium below — reproduces the SVI posterior across all three subscales in the PIT–KS $\approx0.10$ band, at real humanitarian scale and under a very large effect. Fits in `py-icrc-dass-drc_260902`; federated deploy in `py-icrc-dass-drc-amortise-…-J64-ftheadexpand-bvm-federated_260924`; the pipeline is driven by `scripts-py/ICRC-DASS-DRC_startme.py`.
+
+# 19. REFUGE-ED perceived social support (MSPSS)
+
+The second humanitarian application, and the amortiser's **cross-cohort generalisation test**. REFUGE-ED (§3.9) is a paired baseline/endline pilot of refugee and migrant youth across six countries with no treatment arm — the estimand is the within-cohort endpoint effect. The 12 MSPSS perceived-social-support items (three subscales — Family / Friends / Significant Other, $1$–$7$ Likert, `out-of-7` expected-score) give the **relative support gain** endline-vs-baseline (`higher_is_better`), again the registry $S_3$ relative-change instance, over the $324$ participants linked at both timepoints, on an 8-point participant-count interim grid ($n=40\to324$).
+
+## 19.1 Results: modest gains, a low operational threshold
+
+Perceived-support gains are modest, so — mirror-image of ICRC — the $\eta_0$ sweep is run low, over $\{0,0.05,0.10,0.15,0.20\}$: a 5–20% relative gain is the operationally interesting range for a psychosocial-support pilot, and the PPS becomes discriminating there rather than at a 50% bar. The 12 items span the three MSPSS subscales, so the combined diagnostic grid carries one row per item (single $\rho$ column).
+
+## 19.2 Federated amortiser calibration
+
+Calibration against the SVI reference (mean over interims and the 12 items):
+
+| endpoint                       | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|--------------------------------|----------|--------|---------|---------------------|
+| MSPSS perceived-support gain   | $S_3$ rel-change | 0.092 | 0.134 | 0.47 / 0.92 |
+
+This is the key generalisation result: the *same* item-general $S_3$ network deployed on Ukraine (§14) and ICRC (§18) calibrates just as well on a **different cohort, a different instrument, and a wider item set** (12 MSPSS items) it never saw in training — PIT–KS 0.092, within the band of every other deployment. Fits in `py-refugee_interim_260831`; federated deploy in `py-refugee-interim-amortise-…-J64-ftheadexpand-bvm-federated_260924`; driven by `scripts-py/REFUGE-ED_startme.py`.
+
+# 20. HVTN 505 HIV-vaccine immunogenicity (CAVD DataSpace / BAMA)
+
+The efficacy-scale vaccine application on **real HIV-vaccine trial data** (§3.19). HVTN 505 is a phase-2b DNA/rAd5 test-of-concept stopped early for futility (2013); its binding-antibody (BAMA) assay data support a **vaccine-vs-placebo** immunogenicity contrast. HIV-naive subjects have no informative paired baseline (pre-vaccination antibody is a uniform floor), so unlike the influenza fold-rise the estimand is a **between-arm** contrast, encoded MYCELIUM-style with the arm playing the role of time (placebo $=$ `Baseline`, vaccine $=$ `Endline`). Each BAMA antigen's `mfi_delta` is binned per antigen into $K=3$ ordinal levels (low / intermediate / high response); the estimand is the per-antigen relative vaccine-vs-placebo shift (`higher_is_better`), the registry $S_3$ relative-change instance reused from ICRC/REFUGE. To keep the SVI reference coherent across interims the deploy restricts to the **rectangular 9-antigen panel** measured on all subjects (the sparse antigens, covered on only a subset, are dropped — see §16.4-style heterogeneity), over 239 subjects (190 vaccine / 49 placebo) with shuffled accrual so both arms are present at each of 10 interims.
+
+## 20.1 Results: a coherent immune-correlate ordering
+
+The between-arm shifts recover the known HVTN 505 immunogenicity ordering: Con6 gp120 shows the strongest vaccine-vs-placebo effect ($\rho\approx1.14$, amortised PPS $\to1.00$), the V1V2 immune-correlate scaffolds sit at $\rho\approx0.75$–0.80, and the p24 Gag antigen is essentially null ($\rho\approx0.50$). The go/no-go is unambiguous for the gp120/V1V2 antigens and a clear no-go for p24 — a real HIV-vaccine application of the between-arm amortiser on public Global-Access data. (The 2013 futility stop was on HIV-*infection* efficacy, a time-to-event endpoint absent from the antibody datasets, so that specific interim is not reconstructed.)
+
+## 20.2 Federated amortiser calibration
+
+Calibration against the SVI reference (mean over interims and the 9 antigens):
+
+| endpoint                          | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|-----------------------------------|----------|--------|---------|---------------------|
+| BAMA vaccine-vs-placebo shift     | $S_3$ rel-change | 0.092 | 0.156 | 0.54 / 0.92 |
+
+The marginal KS (0.156) is the highest of the deployments, reflecting the sharp $K=3$ per-antigen ordinal (only three categories, so the marginal $p(\rho\mid x)$ is coarser than the $K\ge5$ instruments), but the conditional PIT–KS (0.092) is in the same band as the rest — the between-arm relative-change network is as well calibrated on ordinal HIV binding data as on continuous-scale psychosocial instruments. Fits in `py-cavd-vtn505-bama_260918`; federated deploy in `py-cavd-vtn505-bama-amortise-…-J64-ftheadexpand-bvm-federated_260923`; driven by `scripts-py/CAVD-hvtn505_startme.py`.
+
+# 21. Mycelium novel-food acceptance (powder vs burger)
+
+The consumer-launch application (§3.14): a UK Prolific panel rates mycelium as a food protein under a $3\times3$ (processing $\times$ substrate) manipulation. Built as the between-arm "Option A" contrast — product **powder vs burger**, substrates pooled — encoded exactly as HVTN 505 with the arm as time (burger $=$ `Baseline`, powder $=$ `Endline`); each respondent is in one arm (unpaired, $n=298$: 149 powder / 149 burger). Nine $1$–$7$ items over three constructs — Acceptance (A1–A4), Disgust (D1–D4), Perceived naturalness (PN) — give a direction-aware **relative powder-vs-burger shift** per item (Acceptance/Naturalness up $=$ good, Disgust down $=$ good; each oriented so higher $=$ better), the registry $S_3$ instance, over 8 shuffled participant-accrual interims.
+
+## 21.1 Results: powder beats burger on every construct
+
+The contrast is consistent and modest: Acceptance $+0.08$–$0.15$, Disgust (severity down) $+0.13$–$0.27$, Naturalness $+0.11$ — powder beats the burger presentation on every construct, none at the 50% level, so (as for REFUGE) the operationally interesting $\eta_0$ sweep is low, $\{0,0.10,0.20,0.30\}$. This is the launch-decision regime of §3.12 with a genuine condition contrast: given the ratings so far, will powder clear its acceptance margin once the panel completes?
+
+## 21.2 Federated amortiser calibration
+
+Calibration against the SVI reference (mean over interims and the 9 items):
+
+| endpoint                        | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|---------------------------------|----------|--------|---------|---------------------|
+| powder-vs-burger relative shift | $S_3$ rel-change | 0.078 | 0.094 | 0.51 / 0.95 |
+
+The best-calibrated of the between-arm deployments (PIT–KS 0.078, marg 0.094) — the mycelium contrast previously reported as *amortiser-deferred* (§3.14) is delivered here by the same $S_3$ between-group network as HVTN 505, closing that gap. Fits in `py-mycelium-powdervsburger_260902`; federated deploy in `py-mycelium-powdervsburger-amortise-…-J64-ftheadexpand-bvm-federated_260924`; driven by `scripts-py/MYCELIUM_startme.py`.
+
+# 22. References
 
 ```{=html}
 <!--

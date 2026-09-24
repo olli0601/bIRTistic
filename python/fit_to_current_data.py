@@ -37,6 +37,11 @@ def shuffled_accrual(dp1, seed=123):
     return np.random.default_rng(seed).permutation(np.sort(dp1.pid.unique()))
 
 
+def sorted_accrual(dp1):
+    """Accrual in natural participant-id (enrolment) order."""
+    return np.sort(dp1.pid.unique())
+
+
 def ordered_accrual(dp1):
     """Accrual pseudo-ordered by the participant-id string (deterministic, no arm balancing)."""
     return dp1[['pid', 'pid_label']].drop_duplicates().sort_values('pid_label')['pid'].to_numpy()

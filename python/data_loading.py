@@ -654,6 +654,79 @@ def read_data_mycelium(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
 
 
+def read_data_mycelium_powdervsburger(file_data: str) -> Dict[str, object]:
+    """Read the mycelium study as the between-arm "Option A" contrast (doc §3.14, §21).
+
+    The full survey (read_data_mycelium) is cross-sectional; here the 3x3 design is collapsed to a
+    single **between-arm** comparison — product **powder vs burger**, pooling all three substrates —
+    encoded MYCELIUM-style with the arm playing the role of time: burger = ``Baseline`` (group 0),
+    powder = ``Endline`` (group 1). Each respondent is in exactly one arm (UNPAIRED), and the
+    endpoint rho is the direction-aware relative mean shift powder-vs-burger, per item. Nine items
+    over three constructs (Acceptance A1-A4, Disgust D1-D4, Perceived naturalness PN), 1-7 Likert
+    (``out-of-7`` expected-score, K=7). This is the same group-contrast machinery as CAVD/HVTN 505.
+
+    Parameters
+    ----------
+    file_data : str
+        Path to ``Mycelium.csv``.
+
+    Returns
+    -------
+    dict
+        'dp'  : long format ready for the PCM (group 0/1, group_label Baseline/Endline, y_stan 1..7,
+                y 0-indexed, item_type 'out-of-7'); 'dit' : the 9-item metadata (direction, construct);
+        'K' : 7; 'n' : total respondents; 'n_powder' / 'n_burger' : per-arm counts; 'items' : item list.
+    """
+    # item -> (paper short code, construct, direction). Acceptance/Naturalness up = good, Disgust down
+    # = good; the rho itself is oriented so higher = better for every construct via item_high_label.
+    ITEMS = {
+        'INT1': ('A1', 'Acceptance', 'higher_is_better'),      # would consider consuming
+        'ATT1': ('A2', 'Acceptance', 'higher_is_better'),      # would enjoy consuming
+        'INT2': ('A3', 'Acceptance', 'higher_is_better'),      # would make me want to consume
+        'ATT2': ('A4', 'Acceptance', 'higher_is_better'),      # would make me feel good
+        'DISG1': ('D1', 'Disgust', 'lower_is_better'),
+        'DISG2': ('D2', 'Disgust', 'lower_is_better'),
+        'DISG3': ('D3', 'Disgust', 'lower_is_better'),
+        'DISG4': ('D4', 'Disgust', 'lower_is_better'),
+        'NATURAL': ('PN', 'Perceived naturalness', 'higher_is_better'),
+    }
+    cols = list(ITEMS)
+    if not Path(file_data).exists():
+        raise FileNotFoundError(f"Data file not found: {file_data}")
+    raw = pd.read_csv(file_data, encoding='utf-8-sig', low_memory=False)
+    raw.columns = [str(c).replace('﻿', '').replace('ï»¿', '').strip() for c in raw.columns]
+    raw = raw[raw['Process'].isin([2, 3])].reset_index(drop=True)   # 2=powder, 3=burger; drop cake
+    raw['pid'] = np.arange(1, len(raw) + 1)
+    raw['group'] = (raw['Process'] == 2).astype(int)               # burger=0 (baseline), powder=1 (endline)
+
+    long = raw[['pid', 'group'] + cols].melt(id_vars=['pid', 'group'], var_name='item_label', value_name='y')
+    long['y'] = pd.to_numeric(long['y'], errors='coerce')
+    long = long.dropna(subset=['y'])
+    dp = pd.DataFrame({
+        'group': long['group'].to_numpy(),
+        'group_label': long['group'].map({0: 'Baseline', 1: 'Endline'}).to_numpy(),   # get_endpoints keys on these names
+        'pid': long['pid'].to_numpy(), 'pid_label': long['pid'].astype(str).to_numpy(),
+        'fid': np.nan, 'f_label': np.nan, 'submission_date': pd.NaT, 'treat': 0.0,
+        'item_label': long['item_label'].to_numpy(), 'y': long['y'].astype(int).to_numpy(),
+    })
+    _R = dp['y'].astype(int)
+    dp['y_stan'] = _R                                              # 1..7 model input
+    dp['y_label'] = _R.astype(str)                                # rating label (1..7)
+    dp['y'] = _R - 1                                              # 0-indexed category (plots)
+    dp['item_type'] = 'out-of-7'; dp['item_type_id'] = 1
+
+    dit = pd.DataFrame({'item_label': cols})
+    dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = 7
+    dit['item_label_short'] = dit['item_label'].map(lambda c: ITEMS[c][0])
+    dit['construct'] = dit['item_label'].map(lambda c: ITEMS[c][1])
+    dit['construct_long'] = dit['construct']
+    dit['item_high_label'] = dit['item_label'].map(lambda c: ITEMS[c][2])
+    dit['endpoint_measure'] = 'mean 7-point rating (powder vs burger)'
+    n_pow = int((raw['group'] == 1).sum()); n_bur = int((raw['group'] == 0).sum())
+    return {'dp': dp.reset_index(drop=True), 'dit': dit, 'K': 7, 'n': len(raw),
+            'n_powder': n_pow, 'n_burger': n_bur, 'items': cols}
+
+
 def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
     """Read REFUGE-ED Youth Baseline & Endline (doc §3.9) into common format.
 
@@ -1321,3 +1394,44 @@ def read_data_immport_covid_neut(xlsx_path, study='SDY1764', group='age',
     dit['endpoint_measure'] = 'titres among participants'
     dit['cat_labels'] = cat_labels
     return {'dp': dp1, 'dit': dit, 'K': K, 'group': group, 'groups': (gA, gB)}
+
+
+def read_data_icrc_dass(xlsx_path, country=2):
+    """ICRC community-MHPSS (Andersen et al. 2022, §3.10) -> paired pre/post PCM frame. Each
+    beneficiary's Depression/Anxiety/Stress DASS-21 subscale total (x2-scaled, 0-42) is binned into
+    the Figure-2 severity levels (Normal..Extremely severe, K=5), giving 3 ordinal items; group 0=pre
+    (Baseline), 1=post (Endline). Higher DASS = worse -> lower_is_better (so the relative change reads
+    as a severity REDUCTION). `country`: the ctry code to keep (2 = DRC, the DASS arm). Complete
+    pre&post on all 3 subscales required. Returns dict(dp, dit, K, n)."""
+    _sev = ['Normal', 'Mild', 'Moderate', 'Severe', 'Extremely severe']
+    _bins = {'Depression': [-np.inf, 9, 13, 20, 27, np.inf],
+             'Anxiety':    [-np.inf, 7, 9, 14, 19, np.inf],
+             'Stress':     [-np.inf, 14, 18, 25, 33, np.inf]}
+    _col = {'Depression': ('prdep', 'podep'), 'Anxiety': ('pranx', 'poanx'), 'Stress': ('prstr', 'postr')}
+    raw = pd.read_excel(xlsx_path, sheet_name='Data', header=0)
+    raw = raw[raw['ctry'] == country].reset_index(drop=True)
+    need = [c for cc in _col.values() for c in cc]
+    for c in need:
+        raw[c] = pd.to_numeric(raw[c], errors='coerce')
+    raw = raw.dropna(subset=need).reset_index(drop=True)
+    raw['pid'] = np.arange(1, len(raw) + 1)
+    rows = []
+    for _, r in raw.iterrows():
+        for item, (pc, oc) in _col.items():
+            for t, col in ((0, pc), (1, oc)):
+                ordv = int(pd.cut([r[col]], _bins[item], labels=[0, 1, 2, 3, 4])[0])
+                rows.append(dict(pid=int(r['pid']), group=t, group_label='Baseline' if t == 0 else 'Endline',
+                                 item_label=f"DASS_{item}", y=ordv))
+    dp1 = pd.DataFrame(rows)
+    dp1['pid_label'] = dp1['pid'].astype(str); dp1['fid'] = np.nan; dp1['f_label'] = np.nan
+    dp1['submission_date'] = pd.NaT; dp1['treat'] = 0.0
+    dp1['y_stan'] = dp1['y'] + 1
+    dp1['y_label'] = dp1['y'].map({i: f"{i} {s}" for i, s in enumerate(_sev)})   # severity-prefixed -> x-axis order
+    dp1['item_type'] = 'out-of-7'; dp1['item_type_id'] = 1
+    dit = pd.DataFrame({'item_label': [f"DASS_{i}" for i in _col]})
+    dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = 5
+    dit['item_label_short'] = list(_col)
+    dit['construct'] = 'DASS-21 distress'; dit['construct_long'] = 'DASS-21 distress'
+    dit['item_high_label'] = 'lower_is_better'
+    dit['endpoint_measure'] = 'mean DASS-21 severity level (0-4, pre vs post)'
+    return {'dp': dp1, 'dit': dit, 'K': 5, 'n': int(dp1.pid.nunique())}
