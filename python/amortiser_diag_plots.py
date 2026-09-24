@@ -244,3 +244,462 @@ def all_plots(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, blo
     contraction_factor(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow)
     contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow)
     print(f"  saved 4 comparison plots ({suf}) -> {out}")
+
+
+# =============================================================================
+# FEDERATED combined diagnostics (§17.5 / §3.18-3.19): pool each endpoint's tidy plot data
+# (RAGD_PLOTDATA) across the delegated amortisers of one federated parent and render, per
+# diagnostic type, ONE combined figure faceted item (rows) x endpoint rho (columns). Shared by
+# every app (SDY269 / SDY312 variants / CAVD ...); the per-app config lives in data_loading.
+# Mixed-unit apps (columns in rate vs fold vs difference) stitch one own-y-scale column per
+# endpoint (facet_grid free_y squashes across a row); single-/like-unit apps use one facet_grid.
+# =============================================================================
+import os as _os
+import glob as _glob
+import re as _re
+import pickle as _pickle
+
+
+def _fed_pal(keys):
+    import ggsci, matplotlib.colors as mcolors
+    pal = [mcolors.to_hex(c) for c in ggsci.pal_futurama("planetexpress")(12)]
+    return {k: pal[i % len(pal)] for i, k in enumerate(keys)}
+
+
+class FederatedDiagnostics:
+    """Render the combined amortiser diagnostic suite for one federated parent dir. Construct from
+    (sandbox root, app-config dict from data_loading.amortiser_app) and call .run()."""
+
+    def __init__(self, sb, cfg, verbose=True):
+        self.v = verbose; self.cfg = cfg
+        self.FED = f"{sb}/{cfg['fed']}"; self.SRC = f"{sb}/{cfg['svi']}"; self.OUT = self.FED
+        self.pfx = cfg.get('pfx', 'pcm_1_interim')
+        self.title = cfg['title']; self.mixed = bool(cfg.get('mixed_units', False))
+        self.eta_units = cfg.get('eta0_units', 'endpoint units x100')
+        self.calib = cfg.get('calib_prefix', 'amortiser')
+        self.item_word = cfg.get('item_kind', 'item')
+        self.eps = self._resolve(cfg['endpoints'])
+        self.RHO = [e['rho'] for e in self.eps]
+        self.DIR = {e['rho']: f"{self.FED}/{e['rho']}" for e in self.eps}
+        self.INST = {e['rho']: e['instance'] for e in self.eps}
+        self.LONG = {e['rho']: e['long'] for e in self.eps}
+        self.LONG_ORDER = [self.LONG[r] for r in self.RHO]
+        self.ITEMS = list(pd.read_csv(f"{self.SRC}/{self.pfx}_1_data_dit.csv").item_label)
+        self.ILAB = self._ilab(); self.IORDER = [self.ILAB[k] for k in sorted(self.ILAB)]
+
+    # ---- config / label resolution -------------------------------------------------------
+    def _resolve(self, eps):
+        fs = sorted(_glob.glob(f"{self.SRC}/{self.pfx}_i*_regression_training.pkl"),
+                    key=lambda f: int(_re.search(r'_i(\d+)_', f).group(1)))
+        x = pd.read_pickle(fs[-1]) if fs else pd.DataFrame()
+        by_lab = (x[['rho_label', 'rho_label_long']].drop_duplicates()
+                  .set_index('rho_label')['rho_label_long'].to_dict()) if len(x) else {}
+        by_id = (x[['rho_id', 'rho_label_long']].drop_duplicates()
+                 .set_index('rho_id')['rho_label_long'].to_dict()) if len(x) else {}
+        out = []
+        for e in eps:
+            e = dict(e)
+            if 'long' not in e:
+                e['long'] = by_id.get(e['rho_id']) if e.get('rho_id') is not None else by_lab.get(e['rho'], e['rho'])
+            out.append(e)
+        return out
+
+    def _ilab(self):
+        for r in self.RHO:
+            p = f"{self.DIR[r]}/{self.pfx}_pps_RAGD_pps_by_item.csv"
+            if _os.path.exists(p):
+                m = pd.read_csv(p)[['interim_id', 'n']].drop_duplicates().set_index('interim_id')['n'].to_dict()
+                return {int(k): f"interim {int(k)}\n(n={int(vv)})" for k, vv in m.items()}
+        return {}
+
+    # ---- small helpers -------------------------------------------------------------------
+    def _catcols(self, df):
+        df = df.copy()
+        if 'item_label' in df:
+            df['item_label'] = pd.Categorical(df['item_label'], categories=self.ITEMS, ordered=True)
+        df['rho_label_long'] = pd.Categorical(
+            df['rho_label_long'], ordered=True,
+            categories=[c for c in self.LONG_ORDER if c in set(df['rho_label_long'])])
+        return df
+
+    def _xcat(self, df, col):
+        df = df.copy()
+        df['xlab'] = pd.Categorical(df[col].astype(int).map(self.ILAB), categories=self.IORDER, ordered=True)
+        return df
+
+    def _rot(self):
+        return theme(axis_text_x=element_text(rotation=60, ha='right', size=6))
+
+    def _grid(self, scales='fixed'):
+        from plotnine import facet_grid
+        return facet_grid('item_label ~ rho_label_long', scales=scales)
+
+    def _theme(self, h=None, w=None):
+        h = 1.95 * len(self.ITEMS) if h is None else h
+        return (theme_bw() + theme(figure_size=(3.6 * len(self.RHO) if w is None else w, h),
+                                   strip_background=element_blank(),
+                                   strip_text=element_text(face='bold', size=7),
+                                   strip_text_y=element_text(angle=270, size=7),
+                                   legend_position='top', panel_spacing=0.02))
+
+    def _rhos_in(self, df):
+        return [r for r in self.LONG_ORDER if r in set(df['rho_label_long'].dropna())]
+
+    # ---- data loading --------------------------------------------------------------------
+    def load_plotdata(self):
+        store = {}
+        for r in self.RHO:
+            p = f"{self.DIR[r]}/{self.pfx}_pps_RAGD_plotdata.pkl"
+            if not _os.path.exists(p):
+                continue
+            with open(p, 'rb') as fh:
+                frames = _pickle.load(fh)
+            for key, df in frames.items():
+                suf, name = key.split('::')
+                df = df.copy(); df['rho_label'] = r; df['rho_label_long'] = self.LONG[r]
+                store.setdefault(name, {}).setdefault(suf, []).append(df)
+        return {name: {suf: pd.concat(v, ignore_index=True) for suf, v in bysuf.items()}
+                for name, bysuf in store.items()}
+
+    def _read_eta(self, name):
+        rows = []
+        for r in self.RHO:
+            p = f"{self.DIR[r]}/{self.pfx}_pps_RAGD_{name}.csv"
+            if not _os.path.exists(p):
+                continue
+            e = pd.read_csv(p).rename(columns={'item': 'item_label'})
+            nmap = (pd.read_csv(f"{self.DIR[r]}/{self.pfx}_pps_RAGD_pps_by_item.csv")[['interim_id', 'n']]
+                    .drop_duplicates().rename(columns={'interim_id': 'interim'}))
+            e = e.merge(nmap, on='interim', how='left'); e['rho_label_long'] = self.LONG[r]; rows.append(e)
+        return self._catcols(pd.concat(rows, ignore_index=True)) if rows else pd.DataFrame()
+
+    def load_calibration(self):
+        cal = []
+        for r in self.RHO:
+            p = f"{self.DIR[r]}/{self.pfx}_pps_RAGD_pit_by_item.csv"
+            if _os.path.exists(p):
+                df = pd.read_csv(p); m = df[['pit_ks', 'marg_ks', 'cov5', 'cov95']].mean()
+                cal.append(dict(rho=r, instance=self.INST[r], n_item=len(df),
+                                pit_ks=m.pit_ks, marg_ks=m.marg_ks, cov5=m.cov5, cov95=m.cov95))
+        return pd.DataFrame(cal)
+
+    # ---- stitch (mixed-units): one own-y-scale facet_grid column per endpoint ------------
+    def _fill(self, d, rho_long):
+        present = set(d['item_label'].dropna().astype(str))
+        miss = [s for s in self.ITEMS if s not in present]
+        if miss:
+            pad = pd.DataFrame({'item_label': miss}); pad['rho_label_long'] = rho_long
+            d = pd.concat([d, pad], ignore_index=True)
+        if 'source' in d.columns:
+            d['source'] = d['source'].fillna('SVI')
+        d = self._catcols(d)
+        if 'xlab' in d.columns and len(self.IORDER):
+            d['xlab'] = pd.Categorical(d['xlab'].astype('object').where(d['xlab'].notna(), self.IORDER[0]),
+                                       categories=self.IORDER, ordered=True)
+        return d
+
+    @staticmethod
+    def _wrapcols(rhos, width=26):
+        import textwrap
+        w = {r: ('\n'.join(textwrap.wrap(str(r), width)) or str(r)) for r in rhos}
+        m = max((s.count('\n') for s in w.values()), default=0)
+        return {r: s + '\n' * (m - s.count('\n')) for r, s in w.items()}
+
+    @staticmethod
+    def _strip(i, n):
+        ex = {}
+        if i != n - 1:
+            ex['strip_text_y'] = element_blank()
+        if i != 0:
+            ex['axis_title_y'] = element_blank()
+        return theme(**ex) if ex else theme()
+
+    def _stitch_save(self, subplots, out, h, title='', legend=None, legend_title='', w_each=4.7):
+        import tempfile, matplotlib.pyplot as plt, matplotlib.image as mpimg
+        from matplotlib.patches import Patch
+        dpi = 150; tmp, imgs = [], []
+        for p in subplots:
+            f = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name; tmp.append(f)
+            p.save(f, width=w_each, height=h, dpi=dpi, verbose=False, limitsize=False)
+            imgs.append(mpimg.imread(f))
+        ws = [im.shape[1] for im in imgs]; hpx = max(im.shape[0] for im in imgs)
+        band_t = 0.75 if title else 0.0; band_b = 0.65 if legend else 0.0
+        Wax, Hax = sum(ws) / dpi, hpx / dpi; H = Hax + band_t + band_b
+        fig, axes = plt.subplots(1, len(imgs), figsize=(Wax, H), gridspec_kw={'width_ratios': ws})
+        axes = np.atleast_1d(axes)
+        for ax, im in zip(axes, imgs):
+            ax.imshow(im); ax.axis('off')
+        fig.subplots_adjust(left=0, right=1, top=(Hax + band_b) / H, bottom=band_b / H, wspace=0.01)
+        if title:
+            fig.suptitle(title, y=1 - band_t / H * 0.45, fontsize=13)
+        if legend:
+            fig.legend(handles=[Patch(facecolor=c, label=l) for l, c in legend], title=legend_title,
+                       loc='lower center', ncol=min(len(legend), 8), frameon=False, fontsize=9)
+        fig.savefig(out, dpi=dpi); fig.savefig(out[:-4] + '.png', dpi=dpi); plt.close(fig)
+        for f in tmp:
+            _os.remove(f)
+
+    def _grid_or_stitch(self, df, out, *, geoms, aes0, title, y_title, x_title='interim',
+                        scales='free_y', rot=True, legend=None, legend_title='', hlines=None):
+        """If mixed_units: stitch per-endpoint columns (own y). Else: one facet_grid. `geoms(p, d, r)`
+        adds the layers to a base ggplot(d, aes0); `hlines(r)` optionally returns a per-endpoint frame."""
+        rhos = self._rhos_in(df)
+        if not self.mixed:
+            d = self._xcat(self._catcols(df), 'interim_id') if 'interim_id' in df else self._catcols(df)
+            p = ggplot(d, aes(**aes0)); p = geoms(p, d, None)
+            p = p + self._grid(scales) + self._theme(w=3.6 * len(self.RHO)) + (self._rot() if rot else theme())
+            p = p + labs(x=x_title, y=y_title, title=self.title + ' — ' + title)
+            p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
+            return
+        if 'interim_id' in df:                          # xlab on the REAL rows first; _fill pads them valid
+            df = self._xcat(df, 'interim_id')
+        wl = self._wrapcols(rhos); subs = []
+        for i, r in enumerate(rhos):
+            dd = self._fill(df[df.rho_label_long == r].copy(), r).assign(rho_label_long=wl[r])
+            p = ggplot(dd, aes(**aes0)); p = geoms(p, dd, r)
+            if hlines is not None:
+                p = hlines(p, r, wl[r])
+            p = (p + self._grid(scales) + self._theme(w=4.7) + (self._rot() if rot else theme())
+                 + self._strip(i, len(rhos)) + theme(legend_position='none')
+                 + labs(x=x_title, y=(y_title if i == 0 else '')))
+            subs.append(p)
+        self._stitch_save(subs, out, 2.6 * len(self.ITEMS), title=self.title + ' — ' + title,
+                          legend=legend, legend_title=legend_title)
+
+    # ---- the figures ---------------------------------------------------------------------
+    def fig_tests_pit(self, store, suf):
+        from plotnine import geom_histogram
+        df = store.get('pit_u', {}).get(suf)
+        if df is None:
+            return
+        p = (ggplot(self._catcols(df), aes('u')) + geom_histogram(aes(y='..density..'), bins=20,
+             fill=CBLUE, colour='white', size=.2) + geom_hline(yintercept=1, linetype='dashed', colour='black')
+             + self._grid() + self._theme() + labs(x='PIT  u = F_amortiser(rho_SVI | x, z)', y='density',
+               title=f'{self.title} — PIT uniformity ({suf}); flat = calibrated'))
+        p.save(f"{self.OUT}/{self.pfx}_pps_{suf}_tests_pit.pdf", verbose=False, limitsize=False)
+
+    def fig_tests_coverage(self, store, suf):
+        from plotnine import geom_abline, scale_color_manual
+        df = store.get('coverage', {}).get(suf)
+        if df is None:
+            return
+        df = self._catcols(df)
+        df['ilab'] = pd.Categorical(df.interim_id.astype(int).map(self.ILAB), categories=self.IORDER, ordered=True)
+        p = (ggplot(df, aes('eta_inpol', 'coverage', colour='ilab', group='ilab'))
+             + geom_abline(intercept=0, slope=1, linetype='dashed', colour='black')
+             + geom_line(size=.4, alpha=.85) + geom_point(size=.8)
+             + scale_color_manual(values=_fed_pal(self.IORDER), name='interim') + self._grid('free_y') + self._theme()
+             + labs(x='nominal coverage', y='empirical coverage',
+               title=f'{self.title} — coverage calibration ({suf}); on the diagonal = calibrated'))
+        p.save(f"{self.OUT}/{self.pfx}_pps_{suf}_tests_coverage.pdf", verbose=False, limitsize=False)
+
+    def fig_contraction_cdf(self, store, suf):
+        df = store.get('contbox', {}).get(suf)
+        if df is None:
+            return
+        tag = '[deployed: head-ft + affine + BvM]' if suf == 'RAGD' else '[RAW net: no recalibration]'
+
+        def geoms(p, d, r):
+            return (p + geom_boxplot(stat='identity', position=position_dodge(width=0.78), size=.3,
+                                     width=.7, alpha=.85)
+                    + scale_fill_manual(values={'SVI': CBLUE, 'amortiser': CRED}, name=''))
+        self._grid_or_stitch(
+            df, f"{self.OUT}/{self.pfx}_pps_{suf}_contraction_cdf_by_item.pdf", geoms=geoms,
+            aes0=dict(x='xlab', ymin='ymin', lower='lower', middle='middle', upper='upper',
+                      ymax='ymax', fill='source'),
+            title=f'marginal p(rho|x): SVI vs amortiser ({suf}) {tag}', y_title='p(rho | x) estimate',
+            legend=[('SVI', CBLUE), ('amortiser', CRED)], legend_title='source')
+
+    def fig_pit_box(self, store, suf):
+        from plotnine import scale_fill_gradient2
+        from mizani.bounds import squish
+        df = store.get('pitbox', {}).get(suf)
+        if df is None:
+            return
+        df = self._xcat(self._catcols(df), 'interim_id'); df['dev'] = df['middle'] - 0.5
+        p = (ggplot(df, aes('xlab', ymin='ymin', lower='lower', middle='middle',
+                            upper='upper', ymax='ymax', fill='dev'))
+             + geom_hline(yintercept=[0.10, 0.25, 0.50, 0.75, 0.90], linetype='dashed', colour='#9e9e9e', size=.3)
+             + geom_boxplot(stat='identity', alpha=.9, size=.3, width=.7)
+             + scale_fill_gradient2(low='#2166ac', mid='#f7f7f7', high='#b2182b', midpoint=0.0,
+                 limits=[-0.3, 0.3], oob=squish, name='PIT median − 0.5')
+             + self._grid() + self._theme(w=3.6 * len(self.RHO)) + self._rot()
+             + labs(x='interim', y='PIT  u = F_amortiser(rho_SVI | x, z)',
+               title=f'{self.title} — conditional calibration (PIT box on dashed refs = calibrated)'))
+        p.save(f"{self.OUT}/{self.pfx}_pps_{suf}_pit_box_by_item.pdf", verbose=False, limitsize=False)
+
+    def fig_contraction_law(self, store, suf='RAGD'):
+        from plotnine import geom_text, scale_color_manual
+        df = store.get('contlaw', {}).get(suf)
+        if df is None:
+            return
+        df = self._catcols(df)
+
+        def _pow(g):
+            n = g.n.values.astype(float); y = np.maximum(g.sd.values, 1e-6)
+            b = np.polyfit(np.log(n), np.log(y), 1); pp = -b[0]; C = np.exp(b[1])
+            pr = C * n ** (-pp); ss = np.sum((y - pr) ** 2); st = np.sum((y - y.mean()) ** 2)
+            return pp, C, (1 - ss / st if st > 0 else np.nan)
+        cur, ann = [], []
+        for (it, r), gi in df.groupby(['item_label', 'rho_label_long'], observed=True):
+            yhi, ylo = gi.sd.max(), gi.sd.min(); xlo = gi.sqrt_n.min()
+            for src, isS in (('SVI', True), ('amortiser', False)):
+                g = gi[gi.source == src]
+                if len(g) < 4:
+                    continue
+                pp, C, r2 = _pow(g); ng = np.linspace(g.n.min(), g.n.max(), 60)
+                for xx, yy in zip(np.sqrt(ng), C * ng ** (-pp)):
+                    cur.append(dict(item_label=it, rho_label_long=r, source=src, sqrt_n=xx, sd=yy))
+                ann.append(dict(item_label=it, rho_label_long=r, sqrt_n=xlo, sd=(yhi if isS else ylo),
+                                src=src, label=f'{src[:3]}: p={pp:.2f} (R2={r2:.2f})'))
+        cur = self._catcols(pd.DataFrame(cur)) if cur else pd.DataFrame()
+        a = self._catcols(pd.DataFrame(ann)) if ann else pd.DataFrame()
+        out = f"{self.OUT}/{self.pfx}_pps_{suf}_contraction-law_trained-vs-svi.pdf"
+        rhos = self._rhos_in(df)
+        if not self.mixed:
+            p = (ggplot(df, aes('sqrt_n', 'sd', colour='source')) + geom_point(size=1.3)
+                 + scale_color_manual(values={'SVI': CBLUE, 'amortiser': CRED}, name=''))
+            if len(cur):
+                p = p + geom_line(cur, aes('sqrt_n', 'sd', colour='source'), size=.6)
+            for src, col in (('SVI', CBLUE), ('amortiser', CRED)):
+                s = a[a.src == src] if len(a) else a
+                if len(s):
+                    p = p + geom_text(s, aes('sqrt_n', 'sd', label='label'), inherit_aes=False,
+                                      ha='left', va='top', size=6, colour=col)
+            p = (p + self._grid('free') + self._theme(w=3.6 * len(self.RHO))
+                 + labs(x='sqrt(participants)  sqrt(n)', y='posterior SD of rho',
+                   title=f'{self.title} — trained (amortiser) vs actual (SVI) contraction (SD = C n^-p)'))
+            p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
+            return
+        wl = self._wrapcols(rhos); subs = []
+        for i, r in enumerate(rhos):
+            rw = wl[r]
+            d = self._fill(df[df.rho_label_long == r].copy(), r).assign(rho_label_long=rw)
+            cr = cur[cur.rho_label_long == r].assign(rho_label_long=rw) if len(cur) else cur
+            ar = a[a.rho_label_long == r].assign(rho_label_long=rw) if len(a) else a
+            p = (ggplot(d, aes('sqrt_n', 'sd', colour='source')) + geom_point(size=1.3)
+                 + scale_color_manual(values={'SVI': CBLUE, 'amortiser': CRED}, name=''))
+            if len(cr):
+                p = p + geom_line(cr, aes('sqrt_n', 'sd', colour='source'), size=.6)
+            for src, col in (('SVI', CBLUE), ('amortiser', CRED)):
+                s = ar[ar.src == src] if len(ar) else ar
+                if len(s):
+                    p = p + geom_text(s, aes('sqrt_n', 'sd', label='label'), inherit_aes=False,
+                                      ha='left', va='top', size=6, colour=col)
+            p = (p + self._grid('free') + self._theme(w=4.7) + self._strip(i, len(rhos)) + theme(legend_position='none')
+                 + labs(x='sqrt(participants)  sqrt(n)', y=('posterior SD of rho' if i == 0 else '')))
+            subs.append(p)
+        self._stitch_save(subs, out, 2.6 * len(self.ITEMS),
+                          title=f'{self.title} — trained (amortiser) vs actual (SVI) contraction (SD = C n^-p)',
+                          legend=[('SVI', CBLUE), ('amortiser', CRED)], legend_title='source')
+
+    def fig_rho_vs_eta0(self):
+        from plotnine import scale_color_manual
+        rdf = self._read_eta('eta0_rho')
+        if rdf.empty:
+            return
+        pdf = self._read_eta('eta0_pps')
+        ldf = (pdf[['item_label', 'rho_label_long', 'eta0_pct']].drop_duplicates()
+               .assign(rho_pct=lambda d: d.eta0_pct.astype(float)))
+        ldf['eta0'] = ldf.eta0_pct.astype(int).astype(str)
+        thr = sorted(ldf.eta0_pct.unique()); cd = _fed_pal([str(int(t)) for t in thr])
+        out = f"{self.OUT}/{self.pfx}_pps_RAGD_rho_vs_eta0_lines_by_item.pdf"
+        rhos = self._rhos_in(rdf)
+        if not self.mixed:
+            d = self._xcat(rdf, 'interim')
+            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_size=.15, fill='#d9d9d9', size=.3)
+                 + geom_hline(ldf, aes(yintercept='rho_pct', colour='eta0'), size=.5)
+                 + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
+                 + self._grid('free_y') + self._theme(w=3.6 * len(self.RHO)) + self._rot()
+                 + labs(x='interim', y=f'rho  ({self.eta_units})',
+                   title=f'{self.title} — SVI rho predictive vs eta0 thresholds'))
+            p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
+            return
+        wl = self._wrapcols(rhos); subs = []
+        rdf = self._xcat(rdf, 'interim')
+        for i, r in enumerate(rhos):
+            rw = wl[r]
+            d = self._fill(rdf[rdf.rho_label_long == r].copy(), r).assign(rho_label_long=rw)
+            l = ldf[ldf.rho_label_long == r].assign(rho_label_long=rw)
+            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_size=.15, fill='#d9d9d9', size=.3)
+                 + geom_hline(l, aes(yintercept='rho_pct', colour='eta0'), size=.5)
+                 + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
+                 + self._grid('free_y') + self._theme(w=4.7) + self._rot() + self._strip(i, len(rhos))
+                 + theme(legend_position='none')
+                 + labs(x='interim', y=(f'rho  ({self.eta_units})' if i == 0 else '')))
+            subs.append(p)
+        self._stitch_save(subs, out, 2.6 * len(self.ITEMS),
+                          title=f'{self.title} — SVI rho predictive (grey box) vs eta0 thresholds',
+                          legend=[('SVI rho', '#d9d9d9')] + [(t, cd[t]) for t in [str(int(x)) for x in thr]],
+                          legend_title=f'eta0 threshold ({self.eta_units})')
+
+    def fig_eta0_sweep(self):
+        from plotnine import facet_grid, scale_color_manual
+        pdf = self._read_eta('eta0_pps')
+        if pdf.empty:
+            return
+        pdf['ilab'] = pd.Categorical(pdf.interim.astype(int).map(self.ILAB), categories=self.IORDER, ordered=True)
+        p = (ggplot(pdf, aes('eta0_pct', 'pps', colour='ilab', group='ilab'))
+             + geom_line(size=.5) + geom_point(size=1.1)
+             + scale_color_manual(values=_fed_pal(self.IORDER), name='interim')
+             + facet_grid('item_label ~ rho_label_long', scales='free_x') + self._theme()
+             + labs(x=f'success threshold eta0 ({self.eta_units}, %)', y='PPS:  P( P(rho > eta0 | x) > 0.89 )',
+               title=f'{self.title} — PPS decay vs eta0 threshold'))
+        p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_eta0_sweep_compare.pdf", verbose=False, limitsize=False)
+
+    def fig_trajectory(self):
+        from plotnine import facet_grid, scale_y_continuous, scale_color_manual
+        import matplotlib.cm as cm, matplotlib.colors as mcolors
+        df = self._read_eta('eta0_pps')
+        if df.empty:
+            return
+        df = self._xcat(df, 'interim')
+        thr = sorted(df.eta0_pct.unique()); cmap = cm.get_cmap('viridis'); n = max(1, len(thr) - 1)
+        cd = {str(int(t)): mcolors.to_hex(cmap(1 - i / n)) for i, t in enumerate(thr)}
+        df['eta0'] = pd.Categorical(df.eta0_pct.astype(int).astype(str),
+                                    categories=[str(int(t)) for t in thr], ordered=True)
+        p = (ggplot(df, aes('xlab', 'pps', colour='eta0', group='eta0'))
+             + geom_hline(yintercept=[0.1, 0.9], linetype='dashed', colour='#999999')
+             + geom_line() + geom_point(size=1.3)
+             + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units}; darker = harder)')
+             + scale_y_continuous(limits=[0, 1], labels=lambda l: [f'{v:.0%}' for v in l])
+             + facet_grid('item_label ~ rho_label_long') + self._theme() + self._rot()
+             + labs(x='interim', y='amortised PPS',
+               title=f'{self.title} — amortised PPS trajectory (dashed 10%/90% go/no-go guides)'))
+        p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.pdf", verbose=False, limitsize=False)
+        p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.png", dpi=110, verbose=False)
+
+    def fig_calibration(self, cal):
+        from plotnine import geom_col, facet_wrap, coord_flip
+        m = cal.melt(id_vars=['rho', 'instance'], value_vars=['pit_ks', 'marg_ks'],
+                     var_name='metric', value_name='ks')
+        m['rho_f'] = pd.Categorical(m['rho'], categories=self.RHO[::-1], ordered=True)
+        p = (ggplot(m, aes(x='rho_f', y='ks', fill='instance')) + geom_col(show_legend=True) + coord_flip()
+             + geom_hline(yintercept=0.10, linetype='dashed', color='#555555') + facet_wrap('metric', ncol=2)
+             + scale_fill_manual(values=_fed_pal(cal['instance'].unique()), name='amortiser')
+             + theme_bw() + theme(figure_size=(9, 3), strip_text=element_text(size=9))
+             + labs(x='endpoint (federated amortiser)', y='KS vs SVI (dashed = 0.10)',
+                    title=f'{self.title}: federated amortiser calibration (mean over {self.item_word}s)'))
+        p.save(f"{self.OUT}/{self.calib}_calibration.pdf", verbose=False)
+        p.save(f"{self.OUT}/{self.calib}_calibration.png", dpi=120, verbose=False)
+
+    # ---- orchestration -------------------------------------------------------------------
+    def run(self):
+        cal = self.load_calibration()
+        cal.to_csv(f"{self.OUT}/{self.calib}_calibration.csv", index=False)
+        if self.v:
+            pd.set_option('display.width', 160)
+            print(f"=== {self.title} federated amortiser calibration (mean over {self.item_word}s) "
+                  f"[{_os.path.basename(self.FED)}] ===")
+            print(cal.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
+        if not cal.empty:
+            self.fig_calibration(cal)
+        store = self.load_plotdata()
+        for suf in ('RAGD', 'RAGDbase'):
+            self.fig_tests_pit(store, suf); self.fig_tests_coverage(store, suf); self.fig_contraction_cdf(store, suf)
+        self.fig_pit_box(store, 'RAGD'); self.fig_contraction_law(store, 'RAGD')
+        self.fig_trajectory(); self.fig_rho_vs_eta0(); self.fig_eta0_sweep()
+        for f in _glob.glob(f"{self.FED}/*/*.pdf"):          # subdirs are data-only
+            _os.remove(f)
+        if self.v:
+            print(f"combined {self.item_word} x rho figures -> {self.OUT}/{self.pfx}_pps_*.pdf (+ {self.calib}_calibration)")

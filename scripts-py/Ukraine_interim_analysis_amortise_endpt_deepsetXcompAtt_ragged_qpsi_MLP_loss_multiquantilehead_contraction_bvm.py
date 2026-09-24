@@ -44,6 +44,16 @@ file_prefix = os.environ.get('RAGD_FILEPREFIX', 'pcm_1_interim')   # e.g. pcm_sp
 BASE_PREFIX = 'pcm_1_interim'                     # the trained net's fixed prefix in BASE (independent of the endpoint prefix)
 ANCHOR = int(os.environ.get('RAGD_ANCHOR', 4))   # interim used for i1-only head-ft
 MAKE_PDFS = os.environ.get('RAGD_PDFS', '0') == '1'
+PERINT = os.environ.get('RAGD_PERINTERIM', '1') == '1'   # emit per-interim marginal-cdf/median PDFs
+PLOTDATA = os.environ.get('RAGD_PLOTDATA', '0') == '1'   # dump tidy per-plot data for external combined figures
+_PLOTDATA = {}                                           # (suf, name) -> tidy DataFrame
+
+
+def _stash(suf, name, df):
+    if PLOTDATA:
+        _PLOTDATA[(suf, name)] = df.copy()
+
+
 OUT = os.environ.get('RAGD_OUT', BASE)           # write outputs here (BASE loads the net)
 HEADFT = os.environ.get('RAGD_HEADFT', 'i1')     # i1 | expand (as §14.4.8)
 os.makedirs(OUT, exist_ok=True)
@@ -620,11 +630,14 @@ def save_pdfs(getq, suf):
        title=f'Coverage calibration — {suf}')).save(
         f"{d}/{file_prefix}_pps_{suf}_tests_coverage.pdf", verbose=False, limitsize=False)
     pl = pd.concat([pd.DataFrame({'item_label': r['item_label'], 'u': r['pit']}) for r in pk])
+    _stash(suf, 'coverage', pd.DataFrame(covr)); _stash(suf, 'pit_u', pl)      # tidy data for combined figures
     (ggplot(pl, aes('u')) + geom_histogram(aes(y='..density..'), bins=20, fill='#1f77b4', colour='white', size=.2)
      + geom_hline(yintercept=1, linetype='dashed', colour='black') + facet_wrap('~ item_label', ncol=4)
      + theme_bw() + theme(figure_size=(12, 12.5), strip_background=element_blank(),
        strip_text=element_text(face='bold')) + labs(x='PIT u', y='density', title=f'PIT uniformity — {suf}')).save(
         f"{d}/{file_prefix}_pps_{suf}_tests_pit.pdf", verbose=False, limitsize=False)
+    if not PERINT:
+        return                                       # per-interim marginal-cdf/median PDFs suppressed
     mcdf = pd.DataFrame(mc); scdf = pd.DataFrame(sc)
     for k in INTERIMS:
         s = mcdf[mcdf.interim_id == k]
@@ -674,6 +687,7 @@ def save_contraction_cdf(getq, suf):
                                  upper=float(q[3]), ymax=float(q[4])))
     df = pd.DataFrame(rows)
     df.to_csv(f"{OUT}/{file_prefix}_pps_{suf}_contraction_cdf_by_item.csv", index=False)  # box data (calibrated marginal)
+    _stash(suf, 'contbox', df)
     df['interim_id'] = pd.Categorical(df.interim_id, categories=sorted(df.interim_id.unique()), ordered=True)
     (ggplot(df, aes('interim_id', ymin='ymin', lower='lower', middle='middle',
                     upper='upper', ymax='ymax', fill='source'))
@@ -716,6 +730,7 @@ def save_pit_box(getq, suf):
             rows.append(dict(interim_id=int(k), item_label=labels[j], ymin=float(q[0]),
                              lower=float(q[1]), middle=float(q[2]), upper=float(q[3]), ymax=float(q[4])))
     df = pd.DataFrame(rows)
+    _stash(suf, 'pitbox', df)
     df['interim_id'] = pd.Categorical(df.interim_id, categories=sorted(df.interim_id.unique()), ordered=True)
     df['dev'] = df['middle'] - 0.5                        # median PIT deviation from calibrated 0.5
     (ggplot(df, aes('interim_id', ymin='ymin', lower='lower', middle='middle',
@@ -754,6 +769,7 @@ def save_contraction_factor(getq, suf):
             asd = float(np.sqrt(np.mean(sdw ** 2) + np.var(mu)))  # marginal-predictive sd
             rows.append(dict(item_label=labels[j], sqrt_n=sn, sd=asd, source='amortiser'))
     df = pd.DataFrame(rows)
+    _stash(suf, 'contfac', df)
 
     def _fit(g):
         b = np.polyfit(g.sqrt_n, g.sd, 1); pred = np.polyval(b, g.sqrt_n)
@@ -812,6 +828,7 @@ def save_contraction_law(getq, suf):
             pts.append(dict(item_label=labels[j], n=NOBS[k], sqrt_n=float(np.sqrt(NOBS[k])),
                             sd=float(np.sqrt(np.mean(sdw ** 2) + np.var(mu))), source='amortiser'))
     df = pd.DataFrame(pts)
+    _stash(suf, 'contlaw', df)
 
     def _pow(g):
         n = g.n.values.astype(float); y = np.maximum(g.sd.values, 1e-6)
@@ -859,6 +876,11 @@ if MAKE_PDFS:
         save_pit_box(lambda k: HK[k], SUF)           # CONDITIONAL calibration (PIT-KS) quantile-box
     save_contraction_factor(_mplot, SUF)             # SD-vs-n: empty-z marginal has no MC inflation
     save_contraction_law(_mplot, SUF)
+    if PLOTDATA and _PLOTDATA:                        # tidy per-plot data -> external combined figures
+        import pickle
+        with open(f"{OUT}/{file_prefix}_pps_{SUF}_plotdata.pkl", 'wb') as _fh:
+            pickle.dump({f"{s}::{n}": d for (s, n), d in _PLOTDATA.items()}, _fh)
+        print(f"  saved plotdata pickle ({len(_PLOTDATA)} frames)")
 if os.environ.get('RAGD_ETA0GRID', '0') == '1':      # eta_0 deployment sweep (§14.4.8 toolkit)
     from amortiser_diag_plots import eta0_sweep
     _eg = [float(x) for x in os.environ.get('RAGD_ETA0GRID_VALS', '0,0.25,0.5,0.75,1.0').split(',')]

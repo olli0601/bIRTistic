@@ -556,7 +556,12 @@ def _plot_prob_barplots(
         _hmult = float(os.environ.get('PROB_FIT_HEIGHT_MULT', '1.0'))  # taller rows when many groups
         subplot_width = max(8, 4 * n_time) * _wmult
         subplot_height = max(15, 4.5 * n_grp) * _hmult                 # ~4.5in per facet row
-        y_label_i = str(pos_i['endpoint_measure'].dropna().iloc[0])
+        # x-axis title = what the ordinal category measures (dit['cat_axis_label'] if the loader set it,
+        # e.g. 'HIV-1 binding IgG (log10 MFI, ordinal)'); otherwise blank. y-axis is always a per-sample
+        # category distribution, so it is labelled generically.
+        x_label_i = ''
+        if 'cat_axis_label' in pos_i.columns and pos_i['cat_axis_label'].notna().any():
+            x_label_i = str(pos_i['cat_axis_label'].dropna().iloc[0])
         cat_order_i = pos_i.drop_duplicates('y').sort_values('y')['y_label'].tolist()  # x-axis in category order
         p_i = (
             ggplot(pos_i, aes(x='y_label', group='plot_group')) +
@@ -591,7 +596,7 @@ def _plot_prob_barplots(
                 figure_size=(subplot_width, subplot_height),
             ) +
             guides(fill=guide_legend(ncol=3)) +
-            labs(x='', y=y_label_i, fill='')
+            labs(x=x_label_i, y='responses at interim sample', fill='')
         )
         subplot_plots.append(p_i)
         subplot_widths.append(subplot_width)

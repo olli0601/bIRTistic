@@ -7,6 +7,7 @@ ported from the original R implementations.
 
 from typing import Dict
 import re
+import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -587,15 +588,6 @@ def _common_dit(items, item_type, high_low, group_of, group_long, endpoint, cat_
 # Mycelium acceptance items (1-7 Likert): positive constructs vs reverse-direction
 # risk/disgust. Recoded duplicates (hearR, envrR), composites (Env, EnvD), the Q17
 # battery and design/demographic columns are excluded from the item set.
-_MYCELIUM_HIGH = ['INT1', 'INT2', 'ATT1', 'ATT2', 'SOC1', 'SOC2', 'SOC3',
-                  'HeaB', 'EnvB', 'NATURAL', 'Familiarity']
-_MYCELIUM_LOW = ['DISG1', 'DISG2', 'DISG3', 'DISG4', 'HeaR', 'EnvR']
-_MYCELIUM_GROUP_LONG = {'INT': 'Intention to eat', 'ATT': 'Attitude', 'SOC': 'Social norms',
-                        'DISG': 'Disgust', 'HeaB': 'Health benefit', 'EnvB': 'Environmental benefit',
-                        'HeaR': 'Health risk', 'EnvR': 'Environmental risk',
-                        'NATURAL': 'Naturalness', 'Familiarity': 'Familiarity'}
-
-
 def read_data_mycelium(file_data: str) -> Dict[str, pd.DataFrame]:
     """Read the mycelium novel-food acceptance survey (doc §3.14) into common format.
 
@@ -615,6 +607,13 @@ def read_data_mycelium(file_data: str) -> Dict[str, pd.DataFrame]:
         'dit' : item metadata; 'dmeta': age, gender, education, condition, processing, substrate.
     """
     import re
+    _MYCELIUM_HIGH = ['INT1', 'INT2', 'ATT1', 'ATT2', 'SOC1', 'SOC2', 'SOC3',
+                      'HeaB', 'EnvB', 'NATURAL', 'Familiarity']
+    _MYCELIUM_LOW = ['DISG1', 'DISG2', 'DISG3', 'DISG4', 'HeaR', 'EnvR']
+    _MYCELIUM_GROUP_LONG = {'INT': 'Intention to eat', 'ATT': 'Attitude', 'SOC': 'Social norms',
+                            'DISG': 'Disgust', 'HeaB': 'Health benefit', 'EnvB': 'Environmental benefit',
+                            'HeaR': 'Health risk', 'EnvR': 'Environmental risk',
+                            'NATURAL': 'Naturalness', 'Familiarity': 'Familiarity'}
     if not Path(file_data).exists():
         raise FileNotFoundError(f"Data file not found: {file_data}")
     raw = pd.read_csv(file_data, encoding='utf-8-sig', low_memory=False)
@@ -655,10 +654,6 @@ def read_data_mycelium(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
 
 
-# REFUGE-ED MSPSS: drop the four subscale-mean / total columns, keep the 12 items.
-_REFUGE_MSPSS_DROP = {'MSPSS_Mean', 'MSPSS_SO', 'MSPSS_Fam', 'MSPSS_Fri'}
-
-
 def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
     """Read REFUGE-ED Youth Baseline & Endline (doc §3.9) into common format.
 
@@ -677,6 +672,7 @@ def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
     """
     if not Path(file_data).exists():
         raise FileNotFoundError(f"Data file not found: {file_data}")
+    _REFUGE_MSPSS_DROP = {'MSPSS_Mean', 'MSPSS_SO', 'MSPSS_Fam', 'MSPSS_Fri'}  # drop subscale means/total
     xl = pd.ExcelFile(file_data)
     bl = xl.parse('Baseline Data').dropna(how='all'); bl['group'] = 0
     el = xl.parse('Endline Data').dropna(how='all'); el['group'] = 1
@@ -720,13 +716,6 @@ def read_data_refuge_ed(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta.reset_index(drop=True)}
 
 
-# Temporal-dynamics symptom scales (doc §3.5). All score higher = worse (lower_is_better).
-_TEMPORAL_SCALES = {'phq9': 'Patient Health Questionnaire (depression)',
-                    'gad7': 'Generalised Anxiety Disorder scale',
-                    'isi': 'Insomnia Severity Index',
-                    'pss': 'Perceived Stress Scale'}
-
-
 def read_data_temporal_dynamics(file_data: str) -> Dict[str, pd.DataFrame]:
     """Read the temporal-dynamics psychological item bank (doc §3.5) into common format.
 
@@ -745,6 +734,11 @@ def read_data_temporal_dynamics(file_data: str) -> Dict[str, pd.DataFrame]:
     d = Path(file_data)
     if not d.exists():
         raise FileNotFoundError(f"Directory not found: {file_data}")
+    # symptom scales; all score higher = worse (lower_is_better)
+    _TEMPORAL_SCALES = {'phq9': 'Patient Health Questionnaire (depression)',
+                        'gad7': 'Generalised Anxiety Disorder scale',
+                        'isi': 'Insomnia Severity Index',
+                        'pss': 'Perceived Stress Scale'}
     dps, dits = [], []
     for scale, longname in _TEMPORAL_SCALES.items():
         fp = d / f"{scale}.csv"
@@ -787,10 +781,6 @@ def read_data_temporal_dynamics(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta}
 
 
-_CHATGPT_SURVEY = {'Pre-Intervention Survey on Critical Approach to AI.xlsx': 0,
-                   'Post-Intervention Survey on Critical Approach to AI.xlsx': 1}
-
-
 def read_data_chatgpt_rct(file_data: str) -> Dict[str, pd.DataFrame]:
     """Read the ChatGPT-vs-expert-feedback RCT survey (doc §3.7) into common format.
 
@@ -810,6 +800,8 @@ def read_data_chatgpt_rct(file_data: str) -> Dict[str, pd.DataFrame]:
     d = Path(file_data)
     if not d.exists():
         raise FileNotFoundError(f"Directory not found: {file_data}")
+    _CHATGPT_SURVEY = {'Pre-Intervention Survey on Critical Approach to AI.xlsx': 0,   # -> time
+                       'Post-Intervention Survey on Critical Approach to AI.xlsx': 1}
     frames = []
     for fname, t in _CHATGPT_SURVEY.items():
         fp = d / fname
@@ -990,6 +982,7 @@ def read_data_immport_flu(xlsx_path, study, endline_day=None, min_start_dilution
     dit['item_high_label'] = 'higher_is_better'
     dit['endpoint_measure'] = f'{study} HAI: titre (log2 dilution)'
     dit['cat_labels'] = cat_labels
+    dit['cat_axis_label'] = 'HAI: titre (log2 dilution)'   # x-axis title (what the ordinal categories are)
     return {'dp': dp1, 'dit': dit, 'K': K, 'endline_day': int(endline_day)}
 
 
@@ -1148,8 +1141,9 @@ def read_data_cavd_nab(nab_parquet, demo_parquet=None, min_start_dilution=5.0,
     return {'dp': dp1, 'dit': dit, 'K': K, 'baseline_day': int(b), 'endline_day': int(e)}
 
 
+
 def read_data_cavd_bama_endline(bama_parquet, demo_parquet, endline_day=None, n_cat=3,
-                                min_mfi=1.0):
+                                min_mfi=1.0, complete_panel=False, complete_panel_frac=0.5):
     """CAVD DataSpace BAMA (binding-antibody) -> BETWEEN-ARM endline PCM frame for one HVTN
     study. HIV vaccine trials have no informative paired baseline (HIV-naive floor), so the
     estimand is the single-timepoint vaccine-vs-placebo contrast, encoded MYCELIUM-style:
@@ -1159,6 +1153,14 @@ def read_data_cavd_bama_endline(bama_parquet, demo_parquet, endline_day=None, n_
     n_cat levels). Antigens where either arm fails to span all n_cat categories are dropped
     (the codebase requires every item_time to observe every category). rho_j = relative
     vaccine-vs-placebo shift, higher_is_better. Returns dict(dp, dit, K, kept, dropped).
+
+    `complete_panel`: BAMA antigens sit on DIFFERENT assay panels, so coverage is heterogeneous
+    (HVTN 505: 9 antigens on 188 subjects, an extra panel with gp70-V1V2(A) on only 50). That
+    sparsity makes the under-measured antigen prior-dominated at early interims (its SVI posterior,
+    and hence the amortiser target, are noisy). With complete_panel=True the loader drops the
+    panel-outlier antigens (coverage < complete_panel_frac x the max) and keeps only subjects
+    observed on EVERY remaining antigen -> a rectangular complete-case design (188 x 9 for vtn505),
+    then re-bins the tertiles on that cohort.
 
     Arm from Demographics.study_group (1=vaccine, 2=placebo). bama/demo parquet from
     data_web_extracting.download_cavd_dataspace (cavd_vtn505_BAMA/_Demographics.parquet).
@@ -1177,32 +1179,72 @@ def read_data_cavd_bama_endline(bama_parquet, demo_parquet, endline_day=None, n_
     b = b.dropna(subset=['mag'])
     b = b.drop_duplicates(['SubjectId', 'antigen'], keep='last')
     K = int(n_cat)
-    b['y'] = b.groupby('antigen')['mag'].transform(
-        lambda s: pd.qcut(s.rank(method='first'), K, labels=False)).astype(int)
-    # keep antigens where BOTH arms span all K categories (item_time coverage requirement)
-    def _cov(g):
-        return all(g.loc[g.arm == a, 'y'].nunique() == K for a in ('vaccine', 'placebo'))
-    kept = sorted(ag for ag, g in b.groupby('antigen') if _cov(g))
-    dropped = sorted(set(b['antigen'].unique()) - set(kept))
+    all_ag = set(b['antigen'].unique())
+
+    def _bin_cov(bb):
+        """per-antigen tertile qcut + keep antigens whose BOTH arms span all K categories."""
+        bb = bb.copy()
+        bb['y'] = bb.groupby('antigen')['mag'].transform(
+            lambda s: pd.qcut(s.rank(method='first'), K, labels=False)).astype(int)
+        keep = sorted(ag for ag, g in bb.groupby('antigen')
+                      if all(g.loc[g.arm == a, 'y'].nunique() == K for a in ('vaccine', 'placebo')))
+        return bb, keep
+
+    b, kept = _bin_cov(b)
     b = b[b['antigen'].isin(kept)].copy()
+    if complete_panel:                                          # rectangular complete-case panel
+        cov = b.groupby('antigen')['SubjectId'].nunique()
+        panel = cov[cov >= complete_panel_frac * cov.max()].index          # drop panel-outlier antigens
+        b = b[b['antigen'].isin(panel)]
+        full = b.groupby('SubjectId')['antigen'].nunique()
+        b = b[b['SubjectId'].isin(full[full == b['antigen'].nunique()].index)]   # subjects observed on ALL
+        b, kept = _bin_cov(b)                                   # re-bin tertiles on the restricted cohort
+        b = b[b['antigen'].isin(kept)].copy()
+    dropped = sorted(all_ag - set(kept))
     b['pid_label'] = b['SubjectId'].astype(str)
     b['pid'] = pd.factorize(b['pid_label'])[0] + 1
+    # HVTN BAMA antigen panel -> (clean display name, antigen GROUP). The group becomes the facet-row
+    # strip (construct_long) so ~10 messy reagent names organise into a few tidy rows; the clean name is
+    # the legend. Groups: V1V2 on the gp70 murine-leukaemia-virus scaffold (RV144 correlate reagents),
+    # V1V2/V2 on small tag scaffolds, and the non-V1V2 controls (full Env gp120 + Gag p24).
+    _gp70, _tag, _ctrl = 'V1V2 gp70-scaffold', 'V1V2 tag-scaffold', 'Env gp120 & Gag'
+    antigen_meta = {
+        'gp70-V1V2 (A)':            ('gp70 V1V2 (A)',              _gp70),
+        'VRC_A_gp70V1V2_avi':       ('gp70 V1V2 (A, avi)',         _gp70),
+        'gp70_B.CaseA_V1_V2':       ('gp70 V1V2 (B, CaseA)',       _gp70),
+        'gp70_B.CaseA2 V1/V2/169K': ('gp70 V1V2 (B, CaseA2 169K)', _gp70),
+        'gp70_C.1086C V1/V2/293F':  ('gp70 V1V2 (C, 1086C)',       _gp70),
+        'AE.A244 V1V2 Tags/293F':   ('A244 V1V2 (AE)',             _tag),
+        'C.1086 V2 tags/293F':      ('1086 V2 (C)',                _tag),
+        'C.1086C_V1_V2 Tags':       ('1086C V1V2 (C)',            _tag),
+        'Con 6 gp120/B':            ('Con6 gp120 (B)',             _ctrl),
+        'p24':                      ('Gag p24',                    _ctrl)}
+    arm_label = {'placebo': 'healthy, HIV-uninfected participants\nat high risk of HIV infection\nplacebo arm',
+                 'vaccine': 'healthy, HIV-uninfected participants\nat high risk of HIV infection\nvaccine arm'}
+    _tertile = '\n(per-antigen log10 Mean\nFluorescence Intensity\ntertile)'
+    _lvls = {2: ('low', 'high'), 3: ('low', 'intermediate', 'high')}.get(K, [f'level {i + 1}' for i in range(K)])
+    cats = [f'{lvl} respondents{_tertile}' for lvl in _lvls]     # y = per-antigen tertile of log10 MFI
+    meta = b['antigen'].map(lambda a: antigen_meta.get(str(a), (str(a), 'other')))   # (clean name, group)
+    b['item_clean'] = meta.map(lambda t: t[0]); b['item_group'] = meta.map(lambda t: t[1])
     dp1 = pd.DataFrame({
         'group': (b['arm'] == 'vaccine').astype(int).to_numpy(),
-        'group_label': np.where(b['arm'] == 'vaccine', 'vaccine', 'placebo'),   # display = arm; contrast keyed on numeric time
+        'group_label': b['arm'].map(arm_label).to_numpy(),   # display = arm (long); contrast keyed on numeric group
         'pid': b['pid'].to_numpy(), 'pid_label': b['pid_label'].to_numpy(),
         'fid': np.nan, 'f_label': b['arm'].to_numpy(), 'submission_date': pd.NaT,
         'treat': (b['arm'] == 'vaccine').astype(float).to_numpy(),
-        'item_label': b['antigen'].astype(str).to_numpy(), 'y': b['y'].to_numpy(),
+        'item_label': b['item_clean'].to_numpy(), 'y': b['y'].to_numpy(),
     })
     dp1['y_stan'] = dp1['y'] + 1                        # 1..K model input
-    dp1['y_label'] = dp1['y'].astype(str)
+    dp1['y_label'] = np.asarray(cats)[dp1['y'].to_numpy()]       # display = category meaning, matched to dit cat_labels
     dp1['item_type'] = 'out-of-7'; dp1['item_type_id'] = 1
-    antigens = sorted(dp1['item_label'].unique())
-    dit = pd.DataFrame({'item_label': antigens})
+    grp_of = dict(zip(b['item_clean'], b['item_group']))
+    dit = pd.DataFrame({'item_label': sorted(dp1['item_label'].unique())})
     dit['item_type'] = 'out-of-7'; dit['item_type_id'] = 1; dit['cat_length'] = K
-    dit['item_label_short'] = dit['item_label'].str.slice(0, 18)
-    dit['construct'] = 'HIV BAMA IgG'; dit['construct_long'] = 'HIV-1 binding IgG (log10 MFI, ordinal)'
+    dit['item_label_short'] = np.nan                            # legend = the clean item_label alone (no prefix)
+    dit['construct'] = dit['item_label'].map(grp_of)            # antigen GROUP -> facet rows (a few tidy rows)
+    dit['construct_long'] = dit['construct']
+    dit['cat_labels'] = json.dumps(cats)                        # x-axis category labels 0..K-1 = low..high
+    dit['cat_axis_label'] = 'HIV-1 binding IgG (log10 MFI, ordinal)'   # x-axis title (what the ordinal measures)
     dit['item_high_label'] = 'higher_is_better'
     dit['endpoint_measure'] = 'mean ordinal binding-IgG level (vaccine vs placebo, endline)'
     return {'dp': dp1, 'dit': dit, 'K': K, 'endline_day': e, 'kept': kept, 'dropped': dropped}

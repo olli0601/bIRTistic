@@ -5,7 +5,7 @@ design (MYCELIUM/CAVD-BAMA style): the subpopulation is the group axis — group
 serum-neutralisation ID50 titre -> ordered category on the 2-fold ladder. rho = relative
 group-B-vs-A shift in mean log2 titre (higher_is_better). Two contrasts via env COVID_GROUP:
 'age' (pediatric vs adult) or 'severity' (severe vs mild). Subjects accrue in shuffled order
-(both groups present at each interim); SVI at each. Mirrors CAVD_bama_interim_svi.py; figures
+(both groups present at each interim); SVI at each. Mirrors the folded startme SVI pattern (fit_to_current_data); figures
 as py-icrc-dass-drc_260902. Data: ImmuneSpace_COVID19_v260920.xlsx."""
 # ---- boilerplate ----
 
