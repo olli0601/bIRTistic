@@ -14,18 +14,19 @@ All six architectures share the batch-construction extracted from their deploy
 scripts and the shared `amortiser_calibration` metrics (same code as Ukraine).
 
 Output: py-mvn-interim-diagnostics-260916/mvn_arch_diagnostics.csv (+ .pdf).
-Usage: pixi run python scripts-py/MVN_interim_diagnostics_by_architecture.py
+Usage: pixi run python python/amortiser_mvn_diagnostics.py
 Env: DIAG_S (200), DIAG_ARCHS (comma list of suffixes), DIAG_SMOKE (1).
 """
 # ---- boilerplate ----
 
 import os, sys, time, warnings
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / 'python'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # this file lives in python/ alongside its imports
 import numpy as np, pandas as pd
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model, predict_amortised_p_h1_for_one_xz
 import amortiser_calibration as cal
+import model_mvn_common as mc
 
 _sb = "/Users/or105/sandbox/bIRTistic"
 DIR_SIM = f"{_sb}/py-mvn-interim-simulations-260609"
@@ -61,20 +62,9 @@ if SMOKE:
     J_GRID = [20]
 
 
-def _xz_arrays(dpi, zi, J, S, m):
-    """x_wide (n,J); ypred_arr (S,m,J) aligned to zi.ypred draws."""
-    x_wide = (dpi.pivot_table(index='pid', columns='j', values='y').sort_index()
-              .reindex(columns=range(J)).to_numpy(np.float64))
-    cols = sorted([c for c in zi.columns if c.startswith('ypred_')],
-                  key=lambda c: int(c.split('_')[1]))[:S]
-    zis = zi.sort_values(['pid', 'j']).reset_index(drop=True)
-    ypred = zis[cols].to_numpy().T.reshape(S, m, J)
-    return x_wide, ypred
-
-
 def deploy(fit, kind, dpi, zi, K, Kd, n, m, J, S, taus):
     """Return qs (S,J,nq) capturing the full quantile matrix per draw."""
-    nq = len(taus); x_wide, ypred = _xz_arrays(dpi, zi, J, S, m)
+    nq = len(taus); x_wide, ypred = mc.xz_arrays(dpi, zi, J, S, m)
     qs = np.empty((S, J, nq), np.float64)
     if kind == 'idcomp':
         sum_x = dpi.groupby('j')['y'].sum().reindex(range(J), fill_value=0.0).to_numpy()
@@ -106,37 +96,11 @@ def deploy(fit, kind, dpi, zi, K, Kd, n, m, J, S, taus):
             tok = np.stack([xs, zs, K.astype(np.float32)], -1).astype(np.float32)
             batch = dict(tokens=tok, mask=np.ones((J, J), np.float32), query_idx=qidx,
                          aux=np.concatenate([sizes_b, Kd_b], -1).astype(np.float32))
-        else:   # deepset
-            x_pad = np.zeros((N_MAX, J), np.float32); x_pad[:n] = x_wide
-            z_pad = np.zeros((N_MAX, J), np.float32); z_pad[:m] = ypred[s]
-            mx = np.zeros(N_MAX, np.float32); mx[:n] = 1.0
-            mz = np.zeros(N_MAX, np.float32); mz[:m] = 1.0
-            batch = dict(x_responses=np.broadcast_to(x_pad[None, :, :, None], (J, N_MAX, J, 1)).astype(np.float32),
-                         mask_x=np.broadcast_to(mx[None], (J, N_MAX)).astype(np.float32),
-                         z_responses=np.broadcast_to(z_pad[None, :, :, None], (J, N_MAX, J, 1)).astype(np.float32),
-                         mask_z=np.broadcast_to(mz[None], (J, N_MAX)).astype(np.float32),
-                         item_metadata=K.astype(np.float32)[..., None], query_idx=qidx,
-                         aux=np.concatenate([sizes_b, Kd_b], -1).astype(np.float32))
+        else:   # deepset -> shared padded batch builder (mvn_common)
+            batch = mc.with_z(mc.deepset_static_batch(x_wide, K, Kd, n, m, N_MAX, J), ypred[s])
         _p, _q, preds = predict_amortised_p_h1_for_one_xz(fit, batch, ETA0)
         qs[s] = preds
     return qs
-
-
-def amo_contraction_p(QS, NOBS, interims, J):
-    """Median amortiser posterior-contraction exponent (log-log slope of the
-    marginal-predictive SD vs n)."""
-    ps = []
-    for j in range(J):
-        ns, sds = [], []
-        for k in interims:
-            q = QS[k][:, j, :]; q = q[np.isfinite(q).all(1)]
-            mu = q[:, q.shape[1] // 2]; sdw = (q[:, -1] - q[:, 0]) / 3.2897
-            sd = np.sqrt(np.mean(sdw ** 2) + np.var(mu))
-            if sd > 1e-9:
-                ns.append(NOBS[k]); sds.append(sd)
-        if len(ns) >= 3:
-            ps.append(-np.polyfit(np.log(ns), np.log(sds), 1)[0])
-    return float(np.nanmedian(ps)) if ps else np.nan
 
 
 rows = []
@@ -164,7 +128,7 @@ for label, suf, ddir, kind, jlist in ARCHS:
             NOBS[k] = n
         summ = cal.calibration_summary(QS, TGT, NOBS, interims, labels, taus=taus)
         _, ref_p = cal.contraction_slope(TGT, NOBS, interims, labels)
-        amo_p = amo_contraction_p(QS, NOBS, interims, J)
+        _, amo_p = cal.contraction_slope_amortiser(QS, NOBS, interims, J)
         # PPS-MSE vs closed form (recomputed from captured quantiles, this S)
         cfJ = pps_cf[pps_cf.J == J].set_index(['interim_id', 'j'])['pps']
         se = []

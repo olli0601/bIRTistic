@@ -292,3 +292,22 @@ def contraction_slope(TGT, NOBS, interims, labels):
             out[labels[j]] = float(-np.polyfit(np.log(ns), np.log(sds), 1)[0])
     med = float(np.nanmedian(list(out.values()))) if out else float('nan')
     return out, med
+
+
+def contraction_slope_amortiser(QS, NOBS, interims, J):
+    """Amortiser-side power-law exponent p: log-log slope of the deployed marginal-predictive SD
+    (sqrt(mean within-draw var + between-draw var of the median)) vs n, from the amortiser quantiles
+    QS[k] (S, J, nq) rather than the reference draws. Mirror of contraction_slope on the deployed
+    posterior. Returns (per_item_list, median_p)."""
+    ps = []
+    for j in range(J):
+        ns, sds = [], []
+        for k in interims:
+            q = QS[k][:, j, :]; q = q[np.isfinite(q).all(1)]
+            mu = q[:, q.shape[1] // 2]; sdw = (q[:, -1] - q[:, 0]) / 3.2897
+            sd = np.sqrt(np.mean(sdw ** 2) + np.var(mu))
+            if sd > 1e-9:
+                ns.append(NOBS[k]); sds.append(sd)
+        if len(ns) >= 3:
+            ps.append(-np.polyfit(np.log(ns), np.log(sds), 1)[0])
+    return ps, (float(np.nanmedian(ps)) if ps else np.nan)

@@ -292,10 +292,13 @@ class FederatedDiagnostics:
         fs = sorted(_glob.glob(f"{self.SRC}/{self.pfx}_i*_regression_training.pkl"),
                     key=lambda f: int(_re.search(r'_i(\d+)_', f).group(1)))
         x = pd.read_pickle(fs[-1]) if fs else pd.DataFrame()
+        # single-rho legacy pkls (Ukraine/covid) carry neither rho_id nor rho_label_long; guard on
+        # column presence so the label lookup degrades to the endpoint's own `long`/`rho` (below).
+        has = lambda cols: len(x) and set(cols).issubset(x.columns)
         by_lab = (x[['rho_label', 'rho_label_long']].drop_duplicates()
-                  .set_index('rho_label')['rho_label_long'].to_dict()) if len(x) else {}
+                  .set_index('rho_label')['rho_label_long'].to_dict()) if has(['rho_label', 'rho_label_long']) else {}
         by_id = (x[['rho_id', 'rho_label_long']].drop_duplicates()
-                 .set_index('rho_id')['rho_label_long'].to_dict()) if len(x) else {}
+                 .set_index('rho_id')['rho_label_long'].to_dict()) if has(['rho_id', 'rho_label_long']) else {}
         out = []
         for e in eps:
             e = dict(e)
@@ -667,7 +670,7 @@ class FederatedDiagnostics:
              + labs(x='interim', y='amortised PPS',
                title=f'{self.title} — amortised PPS trajectory (dashed 10%/90% go/no-go guides)'))
         p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.pdf", verbose=False, limitsize=False)
-        p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.png", dpi=110, verbose=False)
+        p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.png", dpi=110, verbose=False, limitsize=False)
 
     def fig_calibration(self, cal):
         from plotnine import geom_col, facet_wrap, coord_flip

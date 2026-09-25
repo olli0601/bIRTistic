@@ -70,7 +70,8 @@ warnings.filterwarnings('ignore')
 from model_mvn import MVNModel
 from amortiser_common import train, save_trained_model, load_fitted_model, _pinball_loss
 import amortiser_diag_plots as adp
-import amortiser_calibration as cal        # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
+import amortiser_calibration as cal
+import model_mvn_common as mc        # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
 
 # §14.4.3 ragged encoder switch. MVN_RAGGED=1 uses the ragged-participant-axis
 # deepsetXcompAtt (no padding/mask, segmented mean-pool) instead of the padded
@@ -213,12 +214,7 @@ def build_forward(fit, head_mode):
         mu_draws = np.asarray(blk['mu_draws'][:S], dtype=np.float64)   # (S,J)
         TGT[k] = (mu_draws - MU0).astype(np.float64)                  # rho^(s)
 
-        x_wide = (dpi.pivot_table(index='pid', columns='j', values='y')
-                  .sort_index().reindex(columns=range(J_DEPLOY)).to_numpy(np.float64))
-        ypred_cols = sorted([c for c in zi_full.columns if c.startswith('ypred_')],
-                            key=lambda c: int(c.split('_')[1]))[:S]
-        zi_sorted = zi_full.sort_values(['pid', 'j']).reset_index(drop=True)
-        ypred_arr = zi_sorted[ypred_cols].to_numpy().T.reshape(S, m, J_DEPLOY)  # (S,m,J)
+        x_wide, ypred_arr = mc.xz_arrays(dpi, zi_full, J_DEPLOY, S, m)   # (n,J), (S,m,J)
 
         qs = np.empty((S, J_DEPLOY, 5), np.float64); hd = None
         if RAGGED:
@@ -241,23 +237,9 @@ def build_forward(fit, head_mode):
                     hd = np.empty((S, J_DEPLOY, np.asarray(head).shape[-1]), np.float32)
                 hd[s] = np.asarray(head)[0]
         else:
-            x_pad = np.zeros((N_FULL, J_DEPLOY), np.float32); x_pad[:n_obs] = x_wide
-            mask_x = np.zeros((N_FULL,), np.float32); mask_x[:n_obs] = 1.0
-            mask_z = np.zeros((N_FULL,), np.float32); mask_z[:m] = 1.0
-            sizes = np.array([n_obs / N_FULL, m / N_FULL], np.float32)
-            x_rb = np.broadcast_to(x_pad[None, :, :, None], (J_DEPLOY, N_FULL, J_DEPLOY, 1)).astype(np.float32)
-            mx_b = np.broadcast_to(mask_x[None, :], (J_DEPLOY, N_FULL)).astype(np.float32)
-            mz_b = np.broadcast_to(mask_z[None, :], (J_DEPLOY, N_FULL)).astype(np.float32)
-            meta_b = K.astype(np.float32)[..., None]                      # (J,J,1)
-            aux_b = np.concatenate([np.broadcast_to(sizes[None, :], (J_DEPLOY, 2)),
-                                    K_diag[:, None]], -1).astype(np.float32)  # (J,3)
-            qidx = np.arange(J_DEPLOY, dtype=np.int32)
+            static = mc.deepset_static_batch(x_wide, K, K_diag, n_obs, m, N_FULL, J_DEPLOY)
             for s in range(S):
-                z_pad = np.zeros((N_FULL, J_DEPLOY), np.float32); z_pad[:m] = ypred_arr[s]
-                z_rb = np.broadcast_to(z_pad[None, :, :, None],
-                                       (J_DEPLOY, N_FULL, J_DEPLOY, 1)).astype(np.float32)
-                batch = dict(x_responses=x_rb, mask_x=mx_b, z_responses=z_rb, mask_z=mz_b,
-                             item_metadata=meta_b, query_idx=qidx, aux=aux_b)
+                batch = mc.with_z(static, ypred_arr[s])          # shared padded batch builder
                 out, head = _fwd(fit['params'], batch)
                 qs[s] = np.maximum.accumulate(np.asarray(out), 1) * sig[:, None]
                 if hd is None:
@@ -297,37 +279,11 @@ def calibrate(fit, head_mode, use_bvm, QS, HD, TGT):
 # =============================================================================
 
 
-def _ks_uniform(u):
-    u = np.sort(u[np.isfinite(u)])
-    if u.size < 5:
-        return np.nan
-    F = np.arange(1, u.size + 1) / u.size
-    return float(np.max(np.abs(F - u)))
-
-
-def _marg_ks_item(qs, yv):
-    lo = float(min(qs.min(), yv.min())); hi = float(max(qs.max(), yv.max()))
-    if hi <= lo:
-        return np.nan
-    gr = np.linspace(lo, hi, 400)
-    Fa = adp._marg_cdf(qs, gr, np.asarray(TAUS))
-    ys = np.sort(yv); Fr = np.searchsorted(ys, gr, side='right') / ys.size
-    return float(np.max(np.abs(Fa - Fr)))
-
-
 def scalar_summary(PPSSRC, TGT, label, suf):
-    rows = []
-    for k in INTERIMS:
-        for j in range(J_DEPLOY):
-            y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
-            if yv.size < 10:
-                continue
-            qs = PPSSRC[k][ok, j, :]
-            u = np.array([np.interp(yv[s], qs[s], TAUS, 0., 1.) for s in range(len(yv))])
-            qsa = PPSSRC[k][:, j, :]; qsa = qsa[np.isfinite(qsa).all(1)]
-            rows.append(dict(config=label, suf=suf, interim_id=k, n=NOBS[k], item_label=labels[j],
-                             pit_ks=_ks_uniform(u), marg_ks=_marg_ks_item(qsa, yv)))
-    return pd.DataFrame(rows)
+    """Per (interim, item) PIT-KS + marg-KS via the shared amortiser_calibration layer
+    (one implementation shared with Ukraine + by-architecture; adds config/suf columns)."""
+    return cal.calibration_summary(PPSSRC, TGT, NOBS, INTERIMS, labels, taus=TAUS,
+                                   extra=dict(config=label, suf=suf))
 
 
 # %%

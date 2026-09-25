@@ -62,6 +62,17 @@ def step_grid(n_full, step=10):
     return sorted(set(list(range(step, n_full, step)) + [n_full]))
 
 
+def weekly_dates(dp1, date_col='submission_date', on_group_label='Endline', freq='W'):
+    """Calendar interim cutoffs at weekly cadence, spanning the observed `on_group_label` dates.
+
+    For a trial with a real accrual calendar (e.g. Ukraine `submission_date`), interims accrue by
+    DATE rather than participant count: one cutoff per week-ending over the span of the endline
+    submission dates. Returns a list of pandas Timestamps (week-ends) passed to
+    ``fit_interim_grid_weekly``."""
+    d = pd.to_datetime(dp1.loc[dp1['group_label'] == on_group_label, date_col]).dropna()
+    return list(pd.date_range(d.min().normalize(), d.max().normalize(), freq=freq))
+
+
 # ---- the common one-call endpoint extraction --------------------------------------------
 def endpoint_frame(model, fit, rho_specs, h1=0.5, contrast_col=None):
     """One get_endpoints_per_draw call -> the per-draw endpoint pkl frame. `h1` is a scalar or a
@@ -103,3 +114,53 @@ def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=1
         on_fit(model, fit, k, n, xi).to_pickle(f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training.pkl")
         print(f"  done ({(time.time() - t0) / 60:.1f} min)")
     print(f"{label} SVI grid complete -> {dir_out}")
+
+
+# ---- the date-driven (weekly) interim loop ----------------------------------------------
+def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_full=None,
+                            seed=123, nsteps=10000, output_samples=4000,
+                            algorithm='AutoLowRankMultivariateNormal', prob_width=None,
+                            verbose=False, label=''):
+    """Weekly-cadence sibling of `fit_interim_grid`: SVI at each calendar cutoff in `dates`.
+
+    Unlike the participant-count loop, the interim cohort at week k is everyone whose accrual date is
+    on/before that cutoff (``PartialCreditModel.get_interim_data_x``), with both timepoints complete.
+    Weeks with <2 participants, or with no remaining future participants (m<=0), are skipped — the
+    file index k stays the week number, so the emitted interim ids may have gaps (the deploy globs
+    whatever exists). `algorithm`/`nsteps`/`output_samples` default to the Ukraine reference config
+    (AutoLowRankMVN, 10k steps, 4000 draws), which differs from the count loop's AutoDiagonalNormal.
+    `on_fit(model, fit, k, n_obs, xi) -> DataFrame` returns the per-draw endpoint frame to pickle."""
+    from model_pcm import PartialCreditModel
+    os.makedirs(dir_out, exist_ok=True)
+    if prob_width is not None:
+        os.environ.setdefault('PROB_FIT_WIDTH_MULT', str(prob_width))
+    if n_full is None:
+        n_full = int(dp1['pid'].nunique())
+    dit.to_csv(f"{dir_out}/{FILE_PREFIX}_1_data_dit.csv", index=False)
+    timing = []
+    for k, date in enumerate(dates, 1):
+        date = pd.to_datetime(date)
+        xi = PartialCreditModel.get_interim_data_x(dp1, date)
+        if xi.empty or xi['pid'].nunique() < 2:
+            if verbose:
+                print(f"[{label} week {k} {date.date()}] skip: n<2")
+            continue
+        n_obs = int(xi['pid'].nunique()); m = n_full - n_obs
+        if m <= 0:                                      # no future accrual left -> nothing to predict
+            if verbose:
+                print(f"[{label} week {k} {date.date()}] skip: m<=0")
+            continue
+        xi.to_csv(f"{dir_out}/{FILE_PREFIX}_{k}_data_dp1.csv", index=False)
+        pre = f"{dir_out}/{FILE_PREFIX}_{k}"
+        print(f"\n=== {label} week {k} ({date.date()}): n={n_obs} m={m} ===")
+        t0 = time.time()
+        model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed)
+        fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm=algorithm, lr=0.01,
+                                 num_steps=nsteps, output_samples=output_samples, resume=True,
+                                 with_core_analyses=True, with_additional_analyses=False, verbose=verbose)
+        on_fit(model, fit, k, n_obs, xi).to_pickle(f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training.pkl")
+        timing.append(dict(interim_id=k, interim_date=date, n_obs=n_obs, interim_m=m,
+                           mins=round((time.time() - t0) / 60, 3)))
+        print(f"  done ({(time.time() - t0) / 60:.1f} min)")
+    pd.DataFrame(timing).to_csv(f"{dir_out}/{FILE_PREFIX}_weekly_timing.csv", index=False)
+    print(f"{label} weekly SVI grid complete ({len(timing)} interims) -> {dir_out}")

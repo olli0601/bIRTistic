@@ -257,7 +257,7 @@ The MovieLens rating datasets — up to 25M timestamped $0.5$–$5$ star movie r
 A new-product acceptance study for mycelium as a human food protein — the launch-decision setting of §3.12 with an explicit experimental design [@fischer2024mycelium]. A UK Prolific panel rates the product under a $3\times3$ manipulation, on item-level ordinal scales. Built as a **between-arm** analysis (**Option A**): **product powder vs burger, pooling all three substrates**, treating the burger arm as the baseline and the powder arm as the endline.
 
 | field | value |
-|-------------|-----------------------------------------------------------|
+|------------|------------------------------------------------------------|
 | Problem | consumer acceptance of mycelium as a novel food (protein) source |
 | Setting | UK Prolific panel, $N=449$ ($3\times3$: processing $\times$ substrate) |
 | Arms (built) | **powder vs burger**, substrates pooled — **unpaired** between-arm ($n=149+149=298$; Baseline$=$burger, Endline$=$powder) |
@@ -275,7 +275,7 @@ Of the seven pooled trials, the amortiser needs $N>200$ paired cohorts; three qu
 
 | trial (programme) | design | $N$ | fit |
 |--------------------------|--------------|--------------|-------------------|
-| **RISE** — N. Macedonia / Moldova / Romania (NCT04721730), PLH-YC | cluster-RCT | **823** | ✅ largest; SE-Europe, also in the §3.11 PISA set |
+| **RISE** — N. Macedonia / Moldova / Romania (NCT04721730), PLH-YC | cluster-RCT | **823** | ✅ largest; SE-Europe, also in the §B.2 PISA set |
 | **Sinovuyo Teen** — South Africa (PACTR201507001119966), PLH-Teen | cluster-RCT, 40 clusters | **552** | ✅ published flagship |
 | **Sinovuyo Kids** — South Africa (NCT02165371), PLH-YC | RCT | **296** | ✅ full efficacy RCT |
 | Thailand (NCT03539341), PLH-YC | RCT | 120 | ✗ too small |
@@ -334,7 +334,7 @@ Pulled 2026-09-18 to `ImmuneSpace_Influenza_Vaccine_Trials_v260918.xlsx` (16 stu
 | Cohort / interims | 15 HAI studies, 904 paired participants; participant-accrual interims within a study; the 15 cohorts $=$ a **transfer / foundation-model** axis |
 | **Application target** | the **direct §14 paired amortiser on real vaccine data** $+$ the **ordered-categorical (GPCM) extension** ($\log_2$ titres) $+$ a **multi-cohort foundation-model demonstration** (one net across studies / seasons / ages) |
 | Data access | open-registration ImmuneSpace/ImmPort under a data-use agreement; **pulled and in hand** |
-| Loader (implemented) | `read_data_immport_flu(xlsx_path, study, endline_day=None, min_start_dilution=5.0)` in `python/data_loading.py` — join HAI (Assays) $\to$ day (Events); keep day 0 $+$ endline (auto-detected as the largest of $\{28,27,24,21\}$ present); map titre $\to$ ordered category $k=\mathrm{round}(\log_2(\text{titre}/5))$ on the 2-fold ladder with a **single study-wide** $K$ across strains (one `item_type_id` $\Rightarrow$ no $K$-mixing, cf. §3.11); keep paired participants only; emit the PCM `dp1`/`dit` with `item_label`$=$strain, `time`$\in\{0,1\}$ (`Baseline`/`Endline`), `y`$=k$ / `y_stan`$=k+1$, `item_type='out-of-7'` (expected-category endpoint, $K$-agnostic), `item_high_label='higher_is_better'`. Reuses `model_pcm` + `get_endpoints` unchanged |
+| Loader (implemented) | `read_data_immport_flu(xlsx_path, study, endline_day=None, min_start_dilution=5.0)` in `python/data_loading.py` — join HAI (Assays) $\to$ day (Events); keep day 0 $+$ endline (auto-detected as the largest of $\{28,27,24,21\}$ present); map titre $\to$ ordered category $k=\mathrm{round}(\log_2(\text{titre}/5))$ on the 2-fold ladder with a **single study-wide** $K$ across strains (one `item_type_id` $\Rightarrow$ no $K$-mixing, cf. §B.2); keep paired participants only; emit the PCM `dp1`/`dit` with `item_label`$=$strain, `time`$\in\{0,1\}$ (`Baseline`/`Endline`), `y`$=k$ / `y_stan`$=k+1$, `item_type='out-of-7'` (expected-category endpoint, $K$-agnostic), `item_high_label='higher_is_better'`. Reuses `model_pcm` + `get_endpoints` unchanged |
 | Producer | `scripts-py/IMMPORT_flu_interim_svi.py` (mirrors `ICRC_interim_svi.py`): pseudo-orders participants by Participant ID, accrues interims every 10, SVI (`AutoDiagonalNormal`, 4 000 steps, 2 000 draws, `with_core_analyses`) at each, emitting the same figure set as `py-icrc-dass-drc_260902` |
 | Amortiser deploy ($\rho_2$ GMFR) | The **item-general J64 amortiser** (deepsetXcompAtt, scalar-mean token) on the SVI grids for **GMFR** with expanding head-ft + affine + §14.4.26 **head BvM**, via the shared ragged driver (`deploy_IMMPORT_amortiser.sh`; GMFR reference grid from `IMMPORT_flu_gmfr_refgrid.py`). Calibration to the SVI GMFR reference: **SDY312 PIT-KS 0.089 / marg-KS 0.114, SDY314 0.082 / 0.090** (baseline 0.32–0.51). $\eta_0$ sweep $\{2,2.5,3,3.5\}$-fold: a \$\ge\$2-fold rise reached confidently only by A/Uruguay; at the CHMP 2.5-fold bar the high-baseline cohorts read futile. Outputs $\to$ the single amortiser dir `py-immport-SDY{312,314}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm_260919/`, prefix `pcm_gmfr_interim_*` |
 | Amortiser deploy ($\rho_1$ SPR) | SPR is a **threshold** functional, so the scalar-mean token is insufficient (§14.4.18). Retrained the J64 net with a **cumulative-exceedance token** $[\mathbf 1\{k\ge 1\},\dots]$ (pool $=$ empirical category CDF $\Rightarrow$ categorically sufficient), endline-caseness target, and the caseness threshold $c{=}3$ in item metadata; deployed with the same head-ft + affine + head BvM (`deploy_IMMPORT_amortiser_spr.sh`, `RAGD_WIDETOK=1`/`RAGD_CASE_C=3`). Calibration to the SVI SPR reference: **SDY312 PIT-KS 0.104 / marg-KS 0.142, SDY314 0.080 / 0.096** (baseline 0.58–0.68) — the token change crosses the sufficiency wall. $\eta_0$ sweep on the $[0,1]$ rate $\{0.5,0.6,0.7,0.8\}$ (0.70 $=$ CHMP): at \$\>\$70% seroprotection A/PR8, A/Uruguay, A/Victoria, B/Lee pass, A/South Dakota borderline-fails, B/Brisbane & B/Florida fail. Outputs $\to$ the **same** amortiser dir under prefix `pcm_spr_interim_*` (SVI grid dir stays SVI-only). Full write-up in §16 |
@@ -346,7 +346,7 @@ Pulled 2026-09-18 to `ImmuneSpace_Influenza_Vaccine_Trials_v260918.xlsx` (16 stu
 The **efficacy-scale** vaccine application. The Collaboration for AIDS Vaccine Discovery **DataSpace** (Fred Hutch / VISC) hosts HVTN HIV-vaccine trials under a **Global Access policy that makes individual-level data public** (free registration): per-participant, multi-antigen **binding-antibody and neutralisation titres** (antigen/isolate $=$ item, pre/post $=$ paired). The original target — the two mosaic-Ad26 efficacy trials that stopped at interim, HVTN 705 *Imbokodo* and HVTN 706 *Mosaico* — turned out **not to be pullable**: on inspection (2026-09-18) `vtn705` has no DataSpace record at all and `vtn706` is metadata-only (`data_availability` null; 0 rows in every dataset). Of the four HVTN-network studies catalogued, only **three carry integrated assay data — `vtn097`, `vtn105`, `vtn505`**. Among these, **HVTN 505 (`vtn505`)** is a phase-2b DNA/rAd5 efficacy test-of-concept that was **stopped early at a pre-specified interim for futility (April 2013)**. Its assay data support a **vaccine-vs-placebo binding-antibody (BAMA) immunogenicity contrast**, monitored over accruing subjects — a real HIV-vaccine application of the between-arm amortiser. (Two caveats surfaced on inspection: HIV-naive subjects have no informative paired baseline, so the within-participant fold-rise used for flu is degenerate here — the estimand is the endline arm contrast; and the 2013 futility stop was on HIV-*infection* efficacy, a time-to-event endpoint absent from the antibody datasets, so that specific interim is not reconstructed.)
 
 | field | value |
-|-------------|-----------------------------------------------------------|
+|------------|------------------------------------------------------------|
 | Problem | HIV-vaccine immunogenicity (multi-antigen seroresponse) and efficacy interim monitoring |
 | Setting | HVTN trials via CAVD DataSpace (Global Access public data); Fred Hutch / VISC |
 | Arms | vaccine vs placebo. **No informative paired baseline** — subjects are HIV-naive, so pre-vaccination antibody is a uniform floor (unlike flu's pre-existing immunity); the estimand is the single-timepoint **vaccine-vs-placebo** contrast, not a within-participant fold-rise |
@@ -378,7 +378,7 @@ The **head-to-head vaccine** estimand — the genuinely decision-relevant contra
 | Estimator — **one joint fit, six labelled rhos, joint decision** | Both arms are fitted in ONE partial-credit model per interim under the clean schema: **`item_label` stays the pure response item** (the strain, so the shared A/Uruguay is *one* item), the vaccine arm folds into the flexible condition axis with the paired time-point (`group_label` $\in$ {LAIV_baseline, …, TIV_endline}), and the non-reduced structure is the cross **`item_group_id` = item_label** $\times$ group ($5\times 4$, sparse $=12$); $\theta_i$ shared across disjoint participants, fit on the binary helper `phase` (`x_formula="~ phase - 1"`) so it is **invariant** to the relabelling. The **rho set is declared upfront by the loader** (`d['rho_specs']`) — six rhos each with a short `rho_label` and a pretty `rho_label_long`: **LAIV_spr, TIV_spr, LAIV_gmfr, TIV_gmfr** (level, per arm) and **TIV−LAIV_spr_diff, TIV−LAIV_gmfr_diff** (cross-arm, shared strain). Each is computed **one-by-one** (a scalable `get_endpoints_per_draw(…, contrast_col='phase')` call per rho — some from group means, others could be per-participant) but off the same fit, so all six share the Monte-Carlo **draw index** and concatenate into ONE joint per-draw frame. From the jointly-indexed level rhos the composite CHMP rule "\$\ge\$1 of SPR/GMFR met" is scored **per draw, per (strain, arm)** (`joint_any_met` $\to$ `headhead_any_met.csv`: TIV A/Brisbane-H1N1 $0.94$, A/Uruguay $0.93$; LAIV $\approx 0$). Output: dir `py-immport-SDY269`, fit `pcm_1_interim_`, joint frame `pcm_1_interim_i{k}_regression_training.pkl`; the single `p_rho_x_by_item` plot is a **strain (row)** $\times$ rho_label (column) grid (empty cells where a strain is in only one arm), `headhead_*` numeric summaries |
 | Status | **implemented — SDY269 LAIV vs TIV, joint SVI (56 pooled, interims** $n=10\!-\!56$ arms interleaved). Textbook adult result: **TIV dominates LAIV on every strain and both endpoints.** Shared **A/Uruguay H3N2**: SPR LAIV $0.16$ vs TIV $0.69$; GMFR LAIV $1.23$ vs TIV $5.66$. H1N1: TIV meets both thresholds (SPR $0.82$, GMFR $3.12$), LAIV neither ($0.21$, $1.10$). Consistent with immunology — in adults inactivated IM TIV drives strong serum HAI, live-attenuated intranasal LAIV drives little (mucosal, pre-exposure). Amortiser deploy optional (arms small) |
 | Cross-arm difference on the shared strain | $\rho_\text{SPR,diff}=\text{SPR}_\text{TIV}-\text{SPR}_\text{LAIV}$ and $\rho_\text{GMFR,diff}=\text{GMFR}_\text{TIV}-\text{GMFR}_\text{LAIV}$ on A/Uruguay H3N2 — plain differences (bounded; no ratio blow-up). Because both arms share the joint fit these are **EXACT per-draw contrasts** (no random draw-pairing): the shared $\theta$/draw removes the artificial independence, tightening the interval and raising $P(\rho>0)$ vs an independent-fit pairing. Final interim: $\rho_\text{SPR,diff}$ median $\mathbf{0.51}$ (95% CI $0.20$–$0.75$, $P>0\approx1.00$); $\rho_\text{GMFR,diff}$ median $\mathbf{4.33}$-fold (95% CI $0.21$–$12.4$, $P>0=0.98$; lower bound positive, vs $-0.03$ under an independent pairing). Summary/plot `headhead_shared_strain_diff.{csv,pdf}`, contraction over $n$ |
-| Head-to-head shortlist (ImmuneSpace) | **In hand (flu xlsx) — SDY269 LAIV/TIV is the ONLY viable two-vaccine head-to-head.** SDY305 IM-TIV vs intradermal-TIV was inspected and **dropped** (ID arm has only **3 paired** participants, $n_\text{enrolled}=9$). The updated head-to-head export (`ImmuneSpace_headhead_vaccince_v260920.xlsx`, 8 titre studies) adds no new two-vaccine case: SDY112 (age bands, all Fluzone), SDY1276 (males vs females TIV) are §3.20 *subpopulation* contrasts; SDY180 Fluzone-vs-saline is vaccine-vs-placebo ($n=6$/arm); SDY1293 has no titre; SDY80/SDY89 are single-arm as exported. **SDY690** (investigational HBsAg-1018 vs licensed Engerix-B HepB) — the cleanest cross-antigen head-to-head in principle — was pulled but carries **no titre data**, so it is a dead end |
+| Head-to-head shortlist (ImmuneSpace) | **In hand (flu xlsx) — SDY269 LAIV/TIV is the ONLY viable two-vaccine head-to-head.** SDY305 IM-TIV vs intradermal-TIV was inspected and **dropped** (ID arm has only **3 paired** participants, $n_\text{enrolled}=9$). The updated head-to-head export (`ImmuneSpace_headhead_vaccince_v260920.xlsx`, 8 titre studies) adds no new two-vaccine case: SDY112 (age bands, all Fluzone), SDY1276 (males vs females TIV) are §B.5 *subpopulation* contrasts; SDY180 Fluzone-vs-saline is vaccine-vs-placebo ($n=6$/arm); SDY1293 has no titre; SDY80/SDY89 are single-arm as exported. **SDY690** (investigational HBsAg-1018 vs licensed Engerix-B HepB) — the cleanest cross-antigen head-to-head in principle — was pulled but carries **no titre data**, so it is a dead end |
 | Reference | SDY269 (Emory HIPC; Nakaya *et al.* 2011, PMID 21743478); ImmuneSpace/ImmPort |
 
 ------------------------------------------------------------------------
@@ -896,7 +896,7 @@ Accuracy is scored as the mean squared error of the estimated per-component PPS 
 | nested-MC (inner HMC) | 0.00153 | 0.00242 | 0.00204 | 18.7–39.7 min |
 | regression on $w(z)$, Gaussian | 0.00348 | 0.00370 | 0.00336 | 0.1–0.8 min |
 
-**Calibration and contraction — raw prior-trained amortiser.** PIT–KS is the conditional-calibration distance (rank of the reference draw among the predicted quantiles vs uniform); marg–KS the distance between the amortiser's marginal $\hat p(\rho_j \mid x)$ and the closed-form posterior; $\hat p$ the posterior-contraction exponent (log–log slope of the predictive SD against $n$), for the amortiser and for the reference. Produced by the shared harness `MVN_interim_diagnostics_by_architecture.py`.
+**Calibration and contraction — raw prior-trained amortiser.** PIT–KS is the conditional-calibration distance (rank of the reference draw among the predicted quantiles vs uniform); marg–KS the distance between the amortiser's marginal $\hat p(\rho_j \mid x)$ and the closed-form posterior; $\hat p$ the posterior-contraction exponent (log–log slope of the predictive SD against $n$), for the amortiser and for the reference. Produced by the shared harness `python/amortiser_mvn_diagnostics.py`.
 
 | architecture | $J$ | PIT–KS | marg–KS | $\hat p$ (amortiser) | $\hat p$ (reference) |
 |------------|------------|-----------:|-----------:|-----------:|-----------:|
@@ -944,7 +944,7 @@ The fitted contraction law recovers the exact exponent, median $\hat p = 0.517$ 
 
 **Reading.** Conditional calibration is $J$-invariant — PIT–KS sits in a flat $0.079$–$0.085$ band from $J = 2$ to $J = 100$ with no trend, matching the best fixed-$J$ result — so amortising over $J$ costs nothing in the object the interim decision consumes. The marginal distance rises mildly and plateaus ($0.090 \to 0.11$): a larger component set is slightly harder to summarise, the same small $n/J$-gradient seen in the partial-credit case. PPS–MSE is negligible everywhere ($\le 0.2\%$); the isolated $J = 75$ bump is single-cohort-seed noise, not a $J$ effect. One amortiser, fitted with a $J$-curriculum on the fixed covariance structure, prices any $J \in [2, 100]$ with flat calibration and negligible error.
 
-**Files.** Architectures and samplers in [`python/model_mvn.py`](../python/model_mvn.py) and the `amortiser_pps_features_*` classes; deployment calibration in the shared [`python/amortiser_calibration.py`](../python/amortiser_calibration.py); cross-architecture diagnostics in [`scripts-py/MVN_interim_diagnostics_by_architecture.py`](../scripts-py/MVN_interim_diagnostics_by_architecture.py); the deep-set A/C $+$ BvM deployment in [`scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py`](../scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py); the amortise-over-$J$ study in [`scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py`](../scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py); the full cross-method comparison in `MVN_interim_analyses_compare_methods.py`.
+**Files.** Architectures and samplers in [`python/model_mvn.py`](../python/model_mvn.py) and the `amortiser_pps_features_*` classes; deployment calibration in the shared [`python/amortiser_calibration.py`](../python/amortiser_calibration.py); cross-architecture diagnostics in [`python/amortiser_mvn_diagnostics.py`](../python/amortiser_mvn_diagnostics.py); the deep-set A/C $+$ BvM deployment in [`scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py`](../scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py); the amortise-over-$J$ study in [`scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py`](../scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py); the full cross-method comparison in `MVN_interim_analyses_compare_methods.py`.
 
 ------------------------------------------------------------------------
 
@@ -1638,7 +1638,7 @@ Both 15–16 are superseded by the in-regime **BvM correction** (§14.4.7), whic
 
 **The cross-arm, facilitator-matched estimand.** UkraineP replaces the pre→post contrast by a between-arm one, matched on facilitator and roughly matched in calendar time. Every facilitator runs both an intervention group and a waitlist-control group; per item we contrast the group-mean level of the **intervention arm at endline** (treated, post) with the **control arm at baseline** (untreated, pre), $$\rho_j \;=\; s_j\!\Big(\bar w^{\text{int,end}}_j \big/ \bar w^{\text{ctrl,base}}_j - 1\Big),$$ $\bar w^{\text{int,end}}_j$ the endline mean level of the intervention arm, $\bar w^{\text{ctrl,base}}_j$ the baseline mean level of the control arm. The control-baseline group is untreated and measured before the programme; the intervention-endline group just after — so the contrast isolates a treated-post vs untreated-pre difference while holding the facilitator fixed (both groups share one) and the calendar window roughly fixed.
 
-**Construction.** The two comparison cells already carry the partial-credit model's two time labels, so UkraineP is the Ukraine dataset restricted to {control-baseline (time 0, the reference), intervention-endline (time 1, the treated)}; the other two cells (intervention-baseline, control-endline) are dropped. The two cells are *disjoint sets of participants*, so this is an **unpaired between-group** partial-credit fit — each participant contributes a single time-point, the group-level shift carried by the per-`item_time_id` difficulties with ability $\theta_i\sim N(0,1)$ shared across groups — the same structure as the mycelium (§3.14) and PISA (§3.11) between-cohort designs, and therefore an SVI-reference application: the paired amortiser of §14 (baseline→endline within participant) does not apply. The two item types (out-of-7 days-in-week, $K=8$; categorical caseness, $K=4$) sit on separate `item_type_id`, so no K-family mixing (§3.11).
+**Construction.** The two comparison cells already carry the partial-credit model's two time labels, so UkraineP is the Ukraine dataset restricted to {control-baseline (time 0, the reference), intervention-endline (time 1, the treated)}; the other two cells (intervention-baseline, control-endline) are dropped. The two cells are *disjoint sets of participants*, so this is an **unpaired between-group** partial-credit fit — each participant contributes a single time-point, the group-level shift carried by the per-`item_time_id` difficulties with ability $\theta_i\sim N(0,1)$ shared across groups — the same structure as the mycelium (§3.14) and PISA (§B.2) between-cohort designs, and therefore an SVI-reference application: the paired amortiser of §14 (baseline→endline within participant) does not apply. The two item types (out-of-7 days-in-week, $K=8$; categorical caseness, $K=4$) sit on separate `item_type_id`, so no K-family mixing (§B.2).
 
 **Interim accrual over facilitators.** Rather than a calendar cutoff, interims accrue **facilitators** — ordered by the median endline date of each facilitator's intervention group — so at interim $k$ the first $k$ facilitators contribute their intervention-endline and control-baseline group means and the number of matched comparisons grows with $k$. The model is fitted by SVI at each interim (AutoLowRankMVN, $10\,000$ steps, $S=4000$ posterior-predictive draws), producing the same artifacts as the other SVI producers (dp1, draws, endpoint draws, `prob_by_question_fit` plots).
 
@@ -1777,7 +1777,7 @@ The head-to-head is the genuinely procurement-relevant estimand: given two vacci
 
 ## 17.1 One joint fit, endpoints declared with the data
 
-Both arms are fitted in **one** partial-credit model per interim: the item stays the pure strain, and the vaccine arm folds into the flexible condition axis with the paired time-point (`group_label` $\in\{$LAIV\_baseline, LAIV\_endline, TIV\_baseline, TIV\_endline$\}$). The non-reduced structure is the cross `item_group_id` $=$ strain $\times$ arm $\times$ phase (5 strains $\times$ 4 conditions, sparse $=12$), $\theta_i$ shared across the disjoint participants (incomplete block); the design uses only the binary `phase` (`x_formula="~ phase - 1"`), so the fit is invariant to the relabelling. The loader declares **six endpoints upfront**, each with a short and a long label — `LAIV_spr`, `TIV_spr`, `LAIV_gmfr`, `TIV_gmfr` (per-arm levels) and `TIV-LAIV_spr_diff`, `TIV-LAIV_gmfr_diff` (cross-arm). Each is computed one-by-one off the *same* fit, so all six share the Monte-Carlo draw index — enabling both the composite decision and an *exact* cross-arm contrast.
+Both arms are fitted in **one** partial-credit model per interim: the item stays the pure strain, and the vaccine arm folds into the flexible condition axis with the paired time-point (`group_label` $\in\{$LAIV_baseline, LAIV_endline, TIV_baseline, TIV_endline$\}$). The non-reduced structure is the cross `item_group_id` $=$ strain $\times$ arm $\times$ phase (5 strains $\times$ 4 conditions, sparse $=12$), $\theta_i$ shared across the disjoint participants (incomplete block); the design uses only the binary `phase` (`x_formula="~ phase - 1"`), so the fit is invariant to the relabelling. The loader declares **six endpoints upfront**, each with a short and a long label — `LAIV_spr`, `TIV_spr`, `LAIV_gmfr`, `TIV_gmfr` (per-arm levels) and `TIV-LAIV_spr_diff`, `TIV-LAIV_gmfr_diff` (cross-arm). Each is computed one-by-one off the *same* fit, so all six share the Monte-Carlo draw index — enabling both the composite decision and an *exact* cross-arm contrast.
 
 ## 17.2 Seroresponse: TIV dominates, and the composite call
 
@@ -1791,21 +1791,21 @@ Because both arms share the joint fit, the between-arm difference is an **exact 
 
 The between-group difference is the $S_5$ registry instance (§14.4.10). To be **scale-free across applications**, it targets the *standardised* difference — a Cohen's $d$, $d=(g_B-g_A)/s$ with $g$ the per-group functional (mean or rate) and $s$ the pooled within-group SD — on the wide (per-group CDF) token, with no warp ($d$ is signed and $O(1)$). It is trained on **generic between-subjects prior-predictive cohorts**, not on SDY269: held-out PIT–KS $0.055$, coverage $0.055/0.514/0.947$, median-vs-true correlation $0.836$.
 
-Deployed on SDY269 by **reusing the existing SVI fit** — the future cohort is the joint fit's `ypred` subset to the shared-strain endline observations, and the reference is the standardised difference formed from the per-arm SPR draws already in the fit; **no re-fit**. Calibration to the SVI: **PIT–KS $0.062$, marg–KS $0.061$, coverage $0.50/0.97$** — matching the held-out figure. The amortised **$\mathrm{PPS}(d>0.5\,\text{SD})=0.97$** at full accrual reproduces the SVI's decisive TIV-over-LAIV call. This is the head-to-head's methodological point: the cross-arm contrast the SVI computes from a joint posterior is amortised *directly* by a single generic network, and its deployment re-uses the existing fit rather than re-fitting.
+Deployed on SDY269 by **reusing the existing SVI fit** — the future cohort is the joint fit's `ypred` subset to the shared-strain endline observations, and the reference is the standardised difference formed from the per-arm SPR draws already in the fit; **no re-fit**. Calibration to the SVI: **PIT–KS** $0.062$, marg–KS $0.061$, coverage $0.50/0.97$ — matching the held-out figure. The amortised $\mathrm{PPS}(d>0.5\,\text{SD})=0.97$ at full accrual reproduces the SVI's decisive TIV-over-LAIV call. This is the head-to-head's methodological point: the cross-arm contrast the SVI computes from a joint posterior is amortised *directly* by a single generic network, and its deployment re-uses the existing fit rather than re-fitting.
 
 ## 17.5 Federated diagnostics per endpoint
 
-The head-to-head deploys a **manifest** of registry instances — $S_1$ (SPR per arm, wide/logit), $S_2$ (GMFR per arm, scalar/$\log_2$), $S_5$ (difference, wide/none) — each a *different* trained network. The delegated amortisers live side-by-side as subdirectories of one federated deployment directory (one subdirectory per endpoint $\rho$, its subset reference nested within), and every diagnostic figure reports into that parent. Each per-arm amortiser is deployed over **all that arm's strains** (the item-general net carries them jointly), so the federated set spans every response item, not only the shared strain. Because the endpoints are federated across networks, each diagnostic is assembled as a **single combined figure faceted strain (rows) $\times$ endpoint $\rho$ (columns)**, with panels left empty where a strain is not measured under that endpoint (e.g. the between-arm difference exists only on the shared strain). A generic routine pools the tidy per-plot data each amortiser dumps and renders the diagnostic suite — PIT uniformity and coverage calibration, the marginal $p(\rho\mid x)$ SVI-vs-amortiser quantile boxes, the conditional-PIT box, the contraction power law, the $\eta_0$ success-threshold sweep with the SVI $\rho$-predictive against those thresholds, and the amortised-PPS trajectory — one plot each, for both the deployed (head-ft + affine + BvM) and raw-network baselines. Panels use per-facet free scales where the endpoints carry different units (rate vs fold vs standardised difference); the interim axis is labelled by participants-per-arm since SDY269 carries no calendar time. Per-interim single-endpoint overlays are not emitted.
+The head-to-head deploys a **manifest** of registry instances — $S_1$ (SPR per arm, wide/logit), $S_2$ (GMFR per arm, scalar/$\log_2$), $S_5$ (difference, wide/none) — each a *different* trained network. The delegated amortisers live side-by-side as subdirectories of one federated deployment directory (one subdirectory per endpoint $\rho$, its subset reference nested within), and every diagnostic figure reports into that parent. Each per-arm amortiser is deployed over **all that arm's strains** (the item-general net carries them jointly), so the federated set spans every response item, not only the shared strain. Because the endpoints are federated across networks, each diagnostic is assembled as a **single combined figure faceted strain (rows)** $\times$ endpoint $\rho$ (columns), with panels left empty where a strain is not measured under that endpoint (e.g. the between-arm difference exists only on the shared strain). A generic routine pools the tidy per-plot data each amortiser dumps and renders the diagnostic suite — PIT uniformity and coverage calibration, the marginal $p(\rho\mid x)$ SVI-vs-amortiser quantile boxes, the conditional-PIT box, the contraction power law, the $\eta_0$ success-threshold sweep with the SVI $\rho$-predictive against those thresholds, and the amortised-PPS trajectory — one plot each, for both the deployed (head-ft + affine + BvM) and raw-network baselines. Panels use per-facet free scales where the endpoints carry different units (rate vs fold vs standardised difference); the interim axis is labelled by participants-per-arm since SDY269 carries no calendar time. Per-interim single-endpoint overlays are not emitted.
 
 Calibration of the five delegated amortisers against the joint SVI reference (mean over interims and over each arm's strains; coverage is the empirical 5%/95%-quantile mass):
 
-| endpoint             | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
-|----------------------|----------|--------|---------|---------------------|
-| LAIV SPR             | $S_1$ rate | 0.100 | 0.104 | 0.49 / 0.98 |
-| TIV SPR              | $S_1$ rate | 0.066 | 0.073 | 0.52 / 0.94 |
-| LAIV GMFR            | $S_2$ fold | 0.055 | 0.074 | 0.48 / 0.94 |
-| TIV GMFR             | $S_2$ fold | 0.059 | 0.082 | 0.46 / 0.95 |
-| TIV$-$LAIV SPR diff  | $S_5$ diff | 0.062 | 0.061 | 0.50 / 0.97 |
+| endpoint            | registry   | PIT–KS | marg–KS | coverage (5% / 95%) |
+|---------------------|------------|--------|---------|---------------------|
+| LAIV SPR            | $S_1$ rate | 0.100  | 0.104   | 0.49 / 0.98         |
+| TIV SPR             | $S_1$ rate | 0.066  | 0.073   | 0.52 / 0.94         |
+| LAIV GMFR           | $S_2$ fold | 0.055  | 0.074   | 0.48 / 0.94         |
+| TIV GMFR            | $S_2$ fold | 0.059  | 0.082   | 0.46 / 0.95         |
+| TIV$-$LAIV SPR diff | $S_5$ diff | 0.062  | 0.061   | 0.50 / 0.97         |
 
 Every delegated network calibrates in the same PIT–KS $\lesssim 0.10$ band as the single-endpoint influenza deploys of §16 — three *different* trained networks ($S_1$/$S_2$/$S_5$), federated over one joint fit, each reproducing the SVI posterior of its endpoint. The cross-arm difference ($S_5$, §17.4) is the tightest (PIT–KS 0.062), confirming that a single generic between-groups network amortises the procurement-relevant contrast directly.
 
@@ -1821,9 +1821,9 @@ Community MHPSS produces enormous pre$\to$post severity drops ($\rho\approx0.80$
 
 Deployed as a single-endpoint federated amortiser (one $S_3$ delegated network over the three subscales; combined diagnostic grid faceted subscale $\times$ $\rho$, one column). Calibration against the SVI reference (mean over interims and subscales):
 
-| endpoint                     | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
-|------------------------------|----------|--------|---------|---------------------|
-| DASS-21 severity reduction   | $S_3$ rel-change | 0.099 | 0.134 | 0.53 / 0.94 |
+| endpoint | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|--------------------|-------------|-------------|-------------|--------------|
+| DASS-21 severity reduction | $S_3$ rel-change | 0.099 | 0.134 | 0.53 / 0.94 |
 
 The relative-change network — the same one trained generically and reused for REFUGE, HVTN 505 and mycelium below — reproduces the SVI posterior across all three subscales in the PIT–KS $\approx0.10$ band, at real humanitarian scale and under a very large effect. Fits in `py-icrc-dass-drc_260902`; federated deploy in `py-icrc-dass-drc-amortise-…-J64-ftheadexpand-bvm-federated_260924`; the pipeline is driven by `scripts-py/ICRC-DASS-DRC_startme.py`.
 
@@ -1839,9 +1839,9 @@ Perceived-support gains are modest, so — mirror-image of ICRC — the $\eta_0$
 
 Calibration against the SVI reference (mean over interims and the 12 items):
 
-| endpoint                       | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
-|--------------------------------|----------|--------|---------|---------------------|
-| MSPSS perceived-support gain   | $S_3$ rel-change | 0.092 | 0.134 | 0.47 / 0.92 |
+| endpoint | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|---------------------|-------------|-------------|-------------|-------------|
+| MSPSS perceived-support gain | $S_3$ rel-change | 0.092 | 0.134 | 0.47 / 0.92 |
 
 This is the key generalisation result: the *same* item-general $S_3$ network deployed on Ukraine (§14) and ICRC (§18) calibrates just as well on a **different cohort, a different instrument, and a wider item set** (12 MSPSS items) it never saw in training — PIT–KS 0.092, within the band of every other deployment. Fits in `py-refugee_interim_260831`; federated deploy in `py-refugee-interim-amortise-…-J64-ftheadexpand-bvm-federated_260924`; driven by `scripts-py/REFUGE-ED_startme.py`.
 
@@ -1857,9 +1857,9 @@ The between-arm shifts recover the known HVTN 505 immunogenicity ordering: Con6 
 
 Calibration against the SVI reference (mean over interims and the 9 antigens):
 
-| endpoint                          | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
-|-----------------------------------|----------|--------|---------|---------------------|
-| BAMA vaccine-vs-placebo shift     | $S_3$ rel-change | 0.092 | 0.156 | 0.54 / 0.92 |
+| endpoint | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|---------------------|-------------|-------------|-------------|-------------|
+| BAMA vaccine-vs-placebo shift | $S_3$ rel-change | 0.092 | 0.156 | 0.54 / 0.92 |
 
 The marginal KS (0.156) is the highest of the deployments, reflecting the sharp $K=3$ per-antigen ordinal (only three categories, so the marginal $p(\rho\mid x)$ is coarser than the $K\ge5$ instruments), but the conditional PIT–KS (0.092) is in the same band as the rest — the between-arm relative-change network is as well calibrated on ordinal HIV binding data as on continuous-scale psychosocial instruments. Fits in `py-cavd-vtn505-bama_260918`; federated deploy in `py-cavd-vtn505-bama-amortise-…-J64-ftheadexpand-bvm-federated_260923`; driven by `scripts-py/CAVD-hvtn505_startme.py`.
 
@@ -1875,8 +1875,8 @@ The contrast is consistent and modest: Acceptance $+0.08$–$0.15$, Disgust (sev
 
 Calibration against the SVI reference (mean over interims and the 9 items):
 
-| endpoint                        | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
-|---------------------------------|----------|--------|---------|---------------------|
+| endpoint | registry | PIT–KS | marg–KS | coverage (5% / 95%) |
+|----------------------|-------------|-------------|-------------|-------------|
 | powder-vs-burger relative shift | $S_3$ rel-change | 0.078 | 0.094 | 0.51 / 0.95 |
 
 The best-calibrated of the between-arm deployments (PIT–KS 0.078, marg 0.094) — the mycelium contrast previously reported as *amortiser-deferred* (§3.14) is delivered here by the same $S_3$ between-group network as HVTN 505, closing that gap. Fits in `py-mycelium-powdervsburger_260902`; federated deploy in `py-mycelium-powdervsburger-amortise-…-J64-ftheadexpand-bvm-federated_260924`; driven by `scripts-py/MYCELIUM_startme.py`.
@@ -1940,7 +1940,7 @@ We found that at the worst (earliest) interim the adaptive schedule reaches $\be
 
 Data sets considered but set aside for an amortised interim analysis; the blocking issue is stated at the top of each. Section numbers are retained from the main text so existing cross-references still resolve.
 
-## 3.5 Application: temporal dynamics in psychological assessments
+## B.1 Application: temporal dynamics in psychological assessments
 
 **Issue:** no intervention and no repeat measurement
 
@@ -1958,7 +1958,7 @@ A large cross-sectional dataset of $24{,}292$ students, each answering four self
 
 ------------------------------------------------------------------------
 
-## 3.11 Application: PISA international assessment
+## B.2 Application: PISA international assessment
 
 **Issue:** each wave has fresh participants, not accrueing
 
@@ -1978,7 +1978,7 @@ The OECD Programme for International Student Assessment, a triennial cross-natio
 
 ------------------------------------------------------------------------
 
-## 3.15 Application: selfBACK app-delivered self-management RCT for low-back pain
+## B.3 Application: selfBACK app-delivered self-management RCT for low-back pain
 
 **Issue:** did not share data
 
@@ -2000,7 +2000,7 @@ A randomised controlled trial of an AI-app that delivers evidence-based, individ
 
 ------------------------------------------------------------------------
 
-## 3.16 Application: digital data-driven intervention RCT for depression and anxiety
+## B.4 Application: digital data-driven intervention RCT for depression and anxiety
 
 **Issue:** did not respond to data sharing request
 
@@ -2020,16 +2020,12 @@ A waitlist-controlled randomised trial of a digital, data-driven therapeutic int
 | Status | *planned* — awaiting a data request |
 | Reference | *npj Digit. Med.* 2025, doi:10.1038/s41746-025-01511-7 |
 
-------------------------------------------------------------------------
-
-## 3.20 Application: COVID-19 subpopulation contrasts (ImmPort / ImmuneSpace)
-
-**Issue:** observational cohort, actual question unclear betw severe/mild, adult/child
+## B.5 Application: COVID-19 subpopulation contrasts (ImmPort / ImmuneSpace)
 
 A **between-subpopulation** immune-response application: rather than a within-participant pre/post effect or a vaccine-arm contrast, compare the antibody response between two *subpopulations* of a COVID-19 cohort — the same **group-contrast** estimand as MYCELIUM/CAVD-BAMA (§3.14/§3.19), on SARS-CoV-2 neutralisation titres. From an inventory of 13 ImmuneSpace COVID studies, **SDY1764** (Distinct antibody responses to SARS-CoV-2 in children and adults across the clinical spectrum) is the one carrying an **ordered-titre** assay (serum neutralisation ID50 + ELISA) together with clean subpopulation strata. It supports two contrasts from its four clinical arms (adult ARDS, pediatric MIS-C, pediatric non-MIS-C, adult convalescent): **age** (pediatric $<18$ vs adult) and **severity** (severe $\{$ARDS, MIS-C$\}$ vs mild $\{$non-MIS-C, convalescent$\}$). (The severity-focused SDY1669 was inspected and **dropped** — it has only flow-cytometry / RNA-seq, no antibody titre, so it cannot drive the titre-PCM; SDY1764's own severity arms cover that contrast.)
 
 | field | value |
-|-----------|-------------------------------------------------------------|
+|------------|------------------------------------------------------------|
 | Problem | COVID-19 humoral immunity **by subpopulation** — is the neutralising response higher in one group than another (a genuine, decision-relevant contrast for risk stratification / trial design) |
 | Setting | ImmuneSpace/ImmPort HIPC COVID cohort SDY1764 (Mount Sinai); 79 subjects with serum neutralisation |
 | Groups | **between-subpopulation** (no paired baseline): age (pediatric 47 / adult 32) or severity (severe 29 / mild 50); encoded MYCELIUM-style (group A $=$ `Baseline`, group B $=$ `Endline`) |
@@ -2038,6 +2034,6 @@ A **between-subpopulation** immune-response application: rather than a within-pa
 | Cohort / interims | 79 subjects, shuffled accrual so both groups present at each of 8 interims |
 | **Application target** | the **between-subpopulation** amortiser on real SARS-CoV-2 neutralisation titres — a third instance of the group-contrast estimand (after MYCELIUM food and HVTN-505 vaccine arms), now on disease/age strata |
 | Data access | **ImmuneSpace/ImmPort** (DUA + API, same as §3.18); pulled to `ImmuneSpace_COVID19_v260920.xlsx` (13 COVID SDYs) |
-| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | 'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ `scripts-py/IMMPORT_covid_interim_svi.py` (mirrors `CAVD_bama_interim_svi.py`) |
-| Status | **implemented — SDY1764, SVI + amortiser.** Directionally coherent: **age** $\rho(\text{pediatric vs adult})\approx-0.38$ (children neutralise \$\sim\$40% lower); **severity** $\rho(\text{severe vs mild})\approx+0.32$ (severe higher). SVI grids $\to$ `py-immport-covid-SDY1764-{age,severity}_260920` (with the `p_rho_x_by_item` contraction plot). **J64 amortiser deployed** (between-group, scalar-mean token, head BvM, no warp — signed relative-change endpoint) via `deploy_IMMPORT_covid_amortiser.sh`: calibration to the SVI reference **age PIT-KS 0.135 / marg 0.115, severity 0.122 / 0.104**; PPS(severe$>$mild) $=0.94$ at $\eta_0{=}0$. Note the SDY1764 severity axis is confounded with age/phenotype (severe $=$ adult-ARDS $+$ pediatric-MIS-C); a within-age contrast or IMPACC (SDY1760) de-confounds. Next: ELISA items; other titre-bearing COVID SDYs |
+| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'|'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ the startme pipeline `scripts-py/IMMPORT-covid-SDY1764_startme.py` (SVI + federated deploy + diagnostics, both contrasts) |
+| Status | **implemented — SDY1764, SVI + federated amortiser.** Directionally coherent: **age** $\rho(\text{pediatric vs adult})\approx-0.38$ (children neutralise \$\sim\$40% lower); **severity** $\rho(\text{severe vs mild})\approx+0.32$ (severe higher). SVI grids $\to$ `py-immport-covid-SDY1764-{age,severity}_260920`; the between-group J64 amortiser (scalar-mean token, head BvM, no warp — signed relative-change endpoint) is deployed as a federated amortiser per contrast, calibrating to the SVI reference at **age PIT-KS 0.096 / marg 0.134, severity 0.057 / 0.112** (both improving on the earlier non-federated 0.135 / 0.122); PPS(severe$>$mild)$=0.94$ at $\eta_0{=}0$, P(pediatric$>$adult)$=0$. Note the SDY1764 severity axis is confounded with age/phenotype (severe $=$ adult-ARDS $+$ pediatric-MIS-C); a within-age contrast or IMPACC (SDY1760) de-confounds. Next: ELISA items; other titre-bearing COVID SDYs |
 | Reference | SDY1764 (Mount Sinai; PMID 33154590); IMPACC SDY1760/2112 (severity-trajectory cohort, larger follow-on); ImmuneSpace/ImmPort |
