@@ -69,7 +69,8 @@ import pandas as pd
 from plotnine import (
     ggplot, aes, coord_flip, geom_boxplot, geom_col, geom_errorbar, geom_hline,
     geom_text, facet_grid, facet_wrap,
-    scale_colour_manual, scale_fill_manual, scale_y_continuous, scale_y_sqrt,
+    scale_colour_manual, scale_fill_manual, scale_x_discrete,
+    scale_y_continuous, scale_y_sqrt,
     position_dodge, position_stack, theme_bw, theme,
     element_text, element_blank, labs, guides, guide_legend,
 )
@@ -77,6 +78,7 @@ from plotnine import (
 warnings.filterwarnings('ignore')
 
 from utils import _futurama_palette
+from amortiser_io import load_interim_data
 
 print("Imports successful")
 
@@ -131,7 +133,7 @@ DIR_RGDX = os.path.join(
 # §13.8: deepsetXcompAtt with the §14.4.6/§14.4.7 deployment calibration stack
 # (expanding head-ft + affine shift; parametric A power-law / C floor heads +
 # BvM self-consistency correction). Deepset J=20 only.
-DIR_BVM = os.path.join(_sandbox, "py-mvn-interim-amortise-deepsetXcompAtt-bvm-260914")
+DIR_BVM = os.path.join(_sandbox, "py-mvn-interim-amortise-deepsetXcompAtt-ragged-bvm-260914")
 DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
@@ -236,6 +238,8 @@ sim_data = pd.read_pickle(os.path.join(DIR_SIM, 'mvn_sim_data.pkl'))
 simu_params = sim_data['simu_params']
 di = sim_data['interim_grid']
 J_GRID = list(simu_params['J_grid'])
+if os.environ.get('MVN_J_GRID'):                                # optional subset (e.g. skip J with no deepset deploy)
+    J_GRID = [int(x) for x in os.environ['MVN_J_GRID'].split(',') if int(x) in J_GRID]
 K_levels = simu_params['K_levels']
 pps_ProbH1_target_lwr_quantile = float(simu_params.get(
     'pps_ProbH1_target_lwr_quantile',
@@ -255,6 +259,17 @@ hmc_timing_all  = hmc_artifacts['timing']
 
 print(f"Loaded analytic ({len(pps_cf)}) + HMC nested-MC artifacts."
       f" J_GRID = {J_GRID}.")
+
+# Per-interim participant count n (constant across J; read from the interim-data blocks), used to
+# relabel every interim-date x-axis as 'Interim\n<date>\n(n=xxx)'.
+_idat = load_interim_data(os.path.join(DIR_SIM, f'mvn_J{J_GRID[0]}_interim_data.pkl'))
+INTERIM_N = {str(b['interim_month_year']): int(b['n_obs']) for b in _idat.values()}
+
+
+def _interim_lab(cats):
+    """scale_x_discrete labeller -> 'Interim\\n<date>\\n(n=xxx)' (a leading 'training' slot is kept)."""
+    return [str(c) if str(c) == 'training'
+            else f"Interim\n{c}\n(n={INTERIM_N.get(str(c), '?')})" for c in cats]
 
 
 # =============================================================================
@@ -289,6 +304,7 @@ def _boxplot_p_h1_xz(box_stats, methods, response_label_cats,
             labels=['0%', '20%', '40%', '60%', '80%', '100%'],
         )
         + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
+        + scale_x_discrete(labels=_interim_lab)
         + guides(fill=guide_legend(ncol=1))
         + theme_bw()
         + theme(
@@ -299,7 +315,7 @@ def _boxplot_p_h1_xz(box_stats, methods, response_label_cats,
             strip_background=element_blank(),
             strip_text=element_text(face='bold'),
         )
-        + labs(x='Interim', y='p(H_1j | x, z) for predicted z samples',
+        + labs(x='', y='p(H_1j | x, z) for predicted z samples',
                fill='method')
     )
     p.save(pdf_path, verbose=False, limitsize=False)
@@ -355,6 +371,7 @@ def _pps_bars(pps_g_ci, methods, n_per_level, pdf_path, width_scale=1.0):
             labels=['0%', '20%', '40%', '60%', '80%', '100%'],
         )
         + facet_wrap('~ response_label', ncol=n_per_level, dir='h')
+        + scale_x_discrete(labels=_interim_lab)
         + guides(
             fill=guide_legend(ncol=1),
             colour=guide_legend(ncol=1),
@@ -369,7 +386,7 @@ def _pps_bars(pps_g_ci, methods, n_per_level, pdf_path, width_scale=1.0):
             strip_background=element_blank(),
             strip_text=element_text(face='bold'),
         )
-        + labs(x='Interim',
+        + labs(x='',
                y='PPS = int P(p(H_1j | x, z) > eta) dz', fill='method')
     )
     p.save(pdf_path, verbose=False, limitsize=False)
@@ -420,6 +437,7 @@ def _timing_bars(timing_df, methods, interim_order_local, pdf_path,
         )
         + scale_fill_manual(values=method_colours,
                             breaks=methods, limits=methods)
+        + scale_x_discrete(labels=_interim_lab)
         + scale_y_sqrt(expand=(0, 0, 0.15, 0))
         + guides(fill=guide_legend(ncol=1))
         + theme_bw()
@@ -488,6 +506,75 @@ def _train_deploy_stacked_bars(timing_df, methods, pdf_path,
     )
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"Saved train + deploy stacked timing plot to {pdf_path}")
+
+
+def _nice_step(mx, n=4):
+    """Nice tick step so the pyramid axis has ~n ticks per side."""
+    if not (mx > 0):
+        return 1.0
+    raw = mx / n
+    mag = 10.0 ** np.floor(np.log10(raw))
+    for m in (1.0, 2.0, 2.5, 5.0, 10.0):
+        if raw <= m * mag:
+            return m * mag
+    return 10.0 * mag
+
+
+def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 6)):
+    """Population-pyramid timing plot: one-off *training* as blue bars to the
+    LEFT (negative axis) and total *deployment* (summed across all interims) as
+    orange bars to the RIGHT (positive axis), one method per row. The x tick
+    labels report positive walltimes on both sides; the minute value is printed
+    to the left of each blue bar and to the right of each orange bar."""
+    d = timing_df[timing_df['method'].isin(methods)].copy()
+    deploy_total = (d.groupby('method', observed=True)['mins'].sum()
+                    .reindex(methods).fillna(0.0))
+    train_total = pd.Series({m: training_mins_by_method.get(m, 0.0)
+                             for m in methods}).reindex(methods).fillna(0.0)
+    rows = []
+    for m in methods:
+        rows.append({'method': m, 'segment': 'train (one-off)',
+                     'signed': -float(train_total[m]),
+                     'mins': float(train_total[m])})
+        rows.append({'method': m, 'segment': 'deploy (all interims)',
+                     'signed': float(deploy_total[m]),
+                     'mins': float(deploy_total[m])})
+    long = pd.DataFrame(rows)
+    long['method'] = pd.Categorical(
+        long['method'], categories=list(reversed(methods)), ordered=True)
+    long['segment'] = pd.Categorical(
+        long['segment'],
+        categories=['train (one-off)', 'deploy (all interims)'], ordered=True)
+    long['value_label'] = long['mins'].map(lambda v: f"{v:.2f}" if v > 0 else "")
+    _mx = float(np.nanmax(np.abs(long['signed']))) if len(long) else 1.0
+    _mx = _mx * 1.18 if _mx > 0 else 1.0
+    _step = _nice_step(_mx)
+    _pos = np.arange(_step, _mx, _step)
+    _brk = np.unique(np.concatenate([[-p for p in _pos[::-1]], [0.0], _pos]))
+    _nud = 0.01 * _mx
+    left = long[long['signed'] < 0]
+    right = long[long['signed'] > 0]
+    p = (
+        ggplot(long, aes(x='method', y='signed', fill='segment'))
+        + geom_col(width=0.7)
+        + geom_hline(yintercept=0, colour='#666666', size=0.4)
+        + geom_text(left, aes(label='value_label'), ha='right', va='center',
+                    nudge_y=-_nud, size=7, colour='black')
+        + geom_text(right, aes(label='value_label'), ha='left', va='center',
+                    nudge_y=_nud, size=7, colour='black')
+        + scale_fill_manual(values=_TRAIN_DEPLOY_COLOURS,
+                            breaks=['train (one-off)', 'deploy (all interims)'])
+        + scale_y_continuous(limits=(-_mx, _mx), breaks=list(_brk),
+                             labels=[f"{abs(b):g}" for b in _brk],
+                             expand=(0, 0))
+        + coord_flip()
+        + theme_bw()
+        + theme(legend_position='bottom', legend_direction='horizontal',
+                figure_size=figure_size)
+        + labs(x='method', y='time (mins)', fill='')
+    )
+    p.save(pdf_path, verbose=False, limitsize=False)
+    print(f"Saved timing pyramid to {pdf_path}")
 
 
 # %%
@@ -749,8 +836,9 @@ for J in J_GRID:
     )
 
     # ---- Amortiser-focus plots (best regression + amortiser variants) ----
+    #   p_h1_xz adds nested-MC HMC as the ground-truth reference (shared global colour).
     _boxplot_p_h1_xz(
-        box_stats, amort_focus_methods, response_label_cats, n_per_level,
+        box_stats, [LBL_HMC] + amort_focus_methods, response_label_cats, n_per_level,
         os.path.join(
             DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_all_amortised.pdf',
         ),
@@ -787,6 +875,12 @@ for J in J_GRID:
             DIR_OUT, f'mvn_J{J}_compare_methods_timing_amortised.pdf',
         ),
     )
+    _timing_pyramid(
+        timing, amort_focus_methods,
+        os.path.join(
+            DIR_OUT, f'mvn_J{J}_compare_methods_timing_pyramid.pdf',
+        ),
+    )
 
     # ---- IS ESS / particle per interim ----
     is_ess = (
@@ -802,6 +896,7 @@ for J in J_GRID:
         ggplot(is_ess, aes(x='interim_month_year', y='value', fill='method'))
         + geom_col(width=0.7)
         + scale_fill_manual(values=method_colours)
+        + scale_x_discrete(labels=_interim_lab)
         + guides(fill=guide_legend(ncol=1))
         + theme_bw()
         + theme(
@@ -812,7 +907,7 @@ for J in J_GRID:
             strip_background=element_blank(),
             strip_text=element_text(face='bold'),
         )
-        + labs(x='Interim', y='ESS / particle', fill='method')
+        + labs(x='', y='ESS / particle', fill='method')
     )
     pdf_path = os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_ess.pdf')
     p.save(pdf_path, verbose=False, limitsize=False)
@@ -878,8 +973,9 @@ p = (
     + facet_wrap('~ J_label', ncol=1, scales='free_y')
     + scale_fill_manual(values=method_colours,
                         breaks=_all_methods, limits=_all_methods)
+    + scale_x_discrete(labels=_interim_lab)
     + scale_y_sqrt(expand=(0, 0, 0.05, 0))
-    + guides(fill=guide_legend(ncol=1))
+    + guides(fill=guide_legend(ncol=2))
     + theme_bw()
     + theme(
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
@@ -889,7 +985,7 @@ p = (
         strip_background=element_blank(),
         strip_text=element_text(face='bold'),
     )
-    + labs(x='Interim date',
+    + labs(x='',
            y='MSE of PPS vs analytic (mean over responses j; sqrt-scale)',
            fill='method')
 )
@@ -937,9 +1033,11 @@ if rge_stats_parts:
         value_vars=['r2', 'rho'],
         var_name='metric', value_name='value',
     )
+    _rge_lab = {'r2': 'R²  (variance of the\nendpoint explained by w)',
+                'rho': 'correlation\n(endpoint vs w)'}
     long['metric'] = pd.Categorical(
-        long['metric'].map({'r2': 'R^2', 'rho': 'rho'}),
-        categories=['R^2', 'rho'], ordered=True,
+        long['metric'].map(_rge_lab),
+        categories=[_rge_lab['r2'], _rge_lab['rho']], ordered=True,
     )
     rge_box_stats = (
         long.groupby(['J_label', 'metric', 'interim_month_year'],
@@ -971,18 +1069,17 @@ if rge_stats_parts:
                        fill='#197EC0', alpha=0.6,
                        colour='#404040', size=0.3)
         + facet_grid('metric ~ J_label', scales='free_y')
+        + scale_x_discrete(labels=_interim_lab)
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            axis_title_y=element_blank(),
             legend_position='none',
             figure_size=(5 * len(J_GRID), 8),
             strip_background=element_blank(),
             strip_text=element_text(face='bold'),
         )
-        + labs(
-            x='Interim date',
-            y='regression statistic (across responses j)',
-        )
+        + labs(x='')
     )
     pdf_path = os.path.join(
         DIR_OUT, 'mvn_compare_methods_rge_stats_box.pdf',

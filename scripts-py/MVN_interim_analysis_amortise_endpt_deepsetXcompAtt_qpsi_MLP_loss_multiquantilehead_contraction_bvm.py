@@ -34,7 +34,7 @@ writes, in ``dir_out``:
 Usage:
     cd /Users/or105/git/bIRTistic
     pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py
-Env: MVN_STEPS (train steps, 4000), MVN_S (deploy draws, 200), MVN_J (20),
+Env: MVN_STEPS (train steps, 4000), MVN_S (deploy draws, 2000), MVN_J (20),
      MVN_CONFIGS ('plain,powerlaw,floor'), MVN_SMOKE (1 -> tiny steps/S/interims).
 """
 
@@ -71,6 +71,7 @@ from model_mvn import MVNModel
 from amortiser_common import train, save_trained_model, load_fitted_model, _pinball_loss
 import amortiser_diag_plots as adp
 import amortiser_calibration as cal
+from amortiser_io import load_interim_data, load_interim_zi
 import model_mvn_common as mc        # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
 
 # §14.4.3 ragged encoder switch. MVN_RAGGED=1 uses the ragged-participant-axis
@@ -97,24 +98,26 @@ print(f"Imports successful (RAGGED={RAGGED})")
 # =============================================================================
 
 _sandbox = "/Users/or105/sandbox/bIRTistic"
-DIR_SIM = os.path.join(_sandbox, "py-mvn-interim-simulations-260609")
+DIR_SIM = os.environ.get(
+    'MVN_SIM_DIR', os.path.join(_sandbox, "py-mvn-interim-simulations-260609"))
 DIR_PLAIN = os.path.join(                       # existing plain-head deepsetXcompAtt net
     _sandbox,
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
     "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803",
 )
-dir_out = os.path.join(
+dir_out = os.environ.get('MVN_BVM_DIR', os.path.join(
     _sandbox,
     "py-mvn-interim-amortise-deepsetXcompAtt-ragged-bvm-260914" if RAGGED
-    else "py-mvn-interim-amortise-deepsetXcompAtt-bvm-260914")
+    else "py-mvn-interim-amortise-deepsetXcompAtt-bvm-260914"))
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")
 
 SMOKE = os.environ.get('MVN_SMOKE', '0') == '1'
 NET_STEPS = int(os.environ.get('MVN_STEPS', '20' if SMOKE else '4000'))
-PPS_Z_TOTAL = int(os.environ.get('MVN_S', '12' if SMOKE else '200'))
+PPS_Z_TOTAL = int(os.environ.get('MVN_S', '12' if SMOKE else '2000'))  # 200 under-sampled: biased BvM law p low + noisy PPS
 J_DEPLOY = int(os.environ.get('MVN_J', '20'))
 CONFIGS = os.environ.get('MVN_CONFIGS', 'plain,powerlaw,floor').split(',')
+SHRINK = os.environ.get('MVN_BVM_SHRINK', '1') == '1'          # James-Stein/EB shrink of per-item (C,p)
 
 TAUS = (0.05, 0.25, 0.5, 0.75, 0.95)
 ZQ = np.array([-1.6449, -0.6745, 0.0, 0.6745, 1.6449])
@@ -151,7 +154,8 @@ ETAH = float(simu_params.get('pps_ProbH1_target_lwr_quantile',
                              simu_params.get('pps_ProbH1_thresh', 0.89)))
 TRAIN_J = 20
 
-interim_pkl = pd.read_pickle(os.path.join(DIR_SIM, f'mvn_J{J_DEPLOY}_interim_data.pkl'))
+INTERIM_PATH = os.path.join(DIR_SIM, f'mvn_J{J_DEPLOY}_interim_data.pkl')
+interim_pkl = load_interim_data(INTERIM_PATH, with_zi=False)   # meta+mu_draws only; zi streamed per interim
 pps_cf = pd.read_pickle(os.path.join(DIR_SIM, 'mvn_pps_closed_form.pkl'))['pps_cf']
 
 cell = sim_data['cells'][J_DEPLOY]
@@ -162,6 +166,11 @@ labels = dit['item_label'].to_numpy()
 item_types = dit['item_type'].to_numpy()
 item_highs = dit['item_high_label'].to_numpy()
 sig = np.ones(J_DEPLOY, dtype=np.float64)              # MVN rho is unscaled
+# contraction-law facet subset: K_levels x 5 components (a readable 4x5 grid at large J,
+# matching the components shown by the compare-methods p_h1_xz plot).
+_KL = int(simu_params.get('K_levels', 4)); _bs = max(J_DEPLOY // _KL, 1); _npl = min(5, _bs)
+CL_ITEMS = [labels[k * _bs + c] for k in range(_KL) for c in range(_npl) if k * _bs + c < J_DEPLOY]
+CL_NCOL = _npl
 
 INTERIMS = sorted(int(k) for k in interim_pkl.keys())
 if SMOKE:
@@ -210,11 +219,13 @@ def build_forward(fit, head_mode):
     QS, HD, TGT = {}, {}, {}
     for k in INTERIMS:
         blk = interim_pkl[k]
-        dpi = blk['dpi']; zi_full = blk['zi']; n_obs = NOBS[k]; m = MFUT[k]
+        dpi = blk['dpi']; n_obs = NOBS[k]; m = MFUT[k]
+        zi_full = load_interim_zi(INTERIM_PATH, k)                    # lazy: one interim's zi
         mu_draws = np.asarray(blk['mu_draws'][:S], dtype=np.float64)   # (S,J)
         TGT[k] = (mu_draws - MU0).astype(np.float64)                  # rho^(s)
 
         x_wide, ypred_arr = mc.xz_arrays(dpi, zi_full, J_DEPLOY, S, m)   # (n,J), (S,m,J)
+        del zi_full                                                   # free the wide table now
 
         qs = np.empty((S, J_DEPLOY, 5), np.float64); hd = None
         if RAGGED:
@@ -267,7 +278,7 @@ def calibrate(fit, head_mode, use_bvm, QS, HD, TGT):
     HK = cal.affine_median_shift(HK, TGT, INTERIMS, taus=TAUS)
     if not use_bvm:
         return HK, HK
-    HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_FULL, verbose=True)
+    HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_FULL, verbose=True, shrink=SHRINK)
     return HK, HKV
 
 
@@ -443,9 +454,11 @@ for cfg in CONFIGS:
     mse = emit_pps(PPSSRC, suf, mins_deploy, mins_train)
     # diagnostics (§14.4.5): calibrated (deployed) + raw-network base
     adp.all_plots(lambda k: PPSSRC[k], lambda k: TGT[k], lambda k: NOBS[k],
-                  labels, INTERIMS, qs_taus, dir_out, f'mvn_J{J_DEPLOY}', suf, None)
+                  labels, INTERIMS, qs_taus, dir_out, f'mvn_J{J_DEPLOY}', suf, None,
+                  cl_items=CL_ITEMS, cl_ncol=CL_NCOL)
     adp.all_plots(lambda k: QS[k], lambda k: TGT[k], lambda k: NOBS[k],
-                  labels, INTERIMS, qs_taus, dir_out, f'mvn_J{J_DEPLOY}', f'{suf}base', None)
+                  labels, INTERIMS, qs_taus, dir_out, f'mvn_J{J_DEPLOY}', f'{suf}base', None,
+                  cl_items=CL_ITEMS, cl_ncol=CL_NCOL)
     # scalar summary for §13.8
     ss = scalar_summary(PPSSRC, TGT, label, suf)
     summaries.append(ss)
@@ -459,7 +472,8 @@ for cfg in CONFIGS:
 # =============================================================================
 
 allss = pd.concat(summaries, ignore_index=True)
-allss.to_csv(os.path.join(dir_out, 'mvn_calibration_detail.csv'), index=False)
+allss['J'] = J_DEPLOY
+allss.to_csv(os.path.join(dir_out, f'mvn_J{J_DEPLOY}_calibration_detail.csv'), index=False)
 
 
 def _band(n):
@@ -471,7 +485,8 @@ tbl = (allss.groupby(['suf', 'config'], observed=True)
        .agg(pit_ks=('pit_ks', 'mean'), marg_ks=('marg_ks', 'mean')).reset_index())
 band = (allss.groupby(['suf', 'band'], observed=True)['marg_ks'].mean().unstack().reset_index())
 summary = tbl.merge(band, on='suf', how='left')
-summary.to_csv(os.path.join(dir_out, 'mvn_calibration_summary.csv'), index=False)
+summary['J'] = J_DEPLOY
+summary.to_csv(os.path.join(dir_out, f'mvn_J{J_DEPLOY}_calibration_summary.csv'), index=False)
 print("\n===== §13.8 calibration summary =====")
 print(summary.to_string(index=False))
 print(f"\nAll configs done -> {dir_out}")

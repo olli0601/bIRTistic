@@ -191,12 +191,21 @@ def affine_median_shift(HK, TGT, interims, *, taus=TAUS_DEFAULT):
 # ---------------------------------------------------------------------------
 
 
-def bvm_correction(HK, TGT, NOBS, interims, N_ref, *, verbose=False):
+def bvm_correction(HK, TGT, NOBS, interims, N_ref, *, verbose=False, shrink=False):
     """Per item fit the marginal power law SD=C n^-p to the reference SD, then
     reshape each interim's per-draw quantiles so the mixture variance equals the
-    law read at n (T) with the conditional pinned at n+m=N_ref. Returns HKV."""
+    law read at n (T) with the conditional pinned at n+m=N_ref. Returns HKV.
+
+    ``shrink=True`` applies James-Stein / empirical-Bayes shrinkage of the per-item exponent p
+    toward the pooled median before use: the per-item power-law is a 2-param fit from only a few
+    per-interim SDs, so its p is high-variance; noisy items (e.g. decision-boundary components) then
+    over-pin the width at large n. Shrinking each p by an EB weight w_j = between-item var /
+    (between-item var + fit var_j) borrows strength across the (exchangeable) items, then C_j is
+    re-anchored at the shrunk p. It is adaptive (clean fits barely move; noisy ones pull to the pool)
+    and self-calibrates (pure-noise spread -> full pooling; real spread -> little), so it beats
+    hard-pinning p to a fixed value that only holds in special cases."""
     J = TGT[interims[0]].shape[1]
-    Cj = np.full(J, np.nan); pj = np.full(J, np.nan)
+    Cj = np.full(J, np.nan); pj = np.full(J, np.nan); se2 = np.full(J, np.nan); fit = {}
     for j in range(J):
         ns, sds = [], []
         for k in interims:
@@ -204,7 +213,22 @@ def bvm_correction(HK, TGT, NOBS, interims, N_ref, *, verbose=False):
             if yv.size >= 10 and np.std(yv) > 1e-9:
                 ns.append(NOBS[k]); sds.append(np.std(yv))
         if len(ns) >= 3:
-            b = np.polyfit(np.log(ns), np.log(sds), 1); pj[j] = -b[0]; Cj[j] = float(np.exp(b[1]))
+            x, y = np.log(ns), np.log(sds)
+            b = np.polyfit(x, y, 1); pj[j] = -b[0]; Cj[j] = float(np.exp(b[1]))
+            resid = y - np.polyval(b, x); sxx = float(np.sum((x - x.mean()) ** 2))
+            se2[j] = (float(np.sum(resid ** 2)) / max(len(x) - 2, 1)) / sxx if sxx > 0 else np.nan
+            fit[j] = (x, y)
+    if shrink:
+        ok = np.isfinite(pj) & np.isfinite(se2)
+        if ok.sum() >= 3:
+            p_pool = float(np.nanmedian(pj[ok]))
+            vb = max(float(np.nanvar(pj[ok]) - np.nanmean(se2[ok])), 1e-6)   # between-item var, noise-removed
+            w = vb / (vb + se2)                                              # EB / James-Stein weight per item
+            for j in np.where(ok)[0]:
+                pj[j] = w[j] * pj[j] + (1.0 - w[j]) * p_pool
+                x, y = fit[j]; Cj[j] = float(np.exp(np.mean(y + pj[j] * x)))  # re-anchor C at the shrunk p
+            if verbose:
+                print(f"    BvM shrink: p_pool={p_pool:.3f}  mean w={np.nanmean(w[ok]):.2f}")
     if verbose:
         print(f"    BvM law fit: median p={np.nanmedian(pj):.3f}")
     HKV = {}

@@ -147,12 +147,18 @@ def contraction_factor(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, 
         f"{out}/{prefix}_pps_{suf}_posterior-contraction-factor.pdf", verbose=False, limitsize=False)
 
 
-def contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow):
+def contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow,
+                    items=None, ncol=4):
     """Power-law fit SD = C n^-p: SVI (blue) vs amortiser (red) SD vs sqrt(n),
-    with the fitted power law and per-item p / R2 annotated."""
+    with the fitted power law and per-item p / R2 annotated. ``items`` (a subset of item_labels,
+    in display order) + ``ncol`` restrict/lay out the facet grid — used when there are too many
+    items to read (e.g. the MVN J=100 case shows a 4x5 component subset)."""
     d = _sdrows(qs_of, tgt_of, n_of, labels, interims, blow)
     long = pd.concat([d[['item_label', 'n', 'sd_svi']].rename(columns={'sd_svi': 'sd'}).assign(source='SVI'),
                       d[['item_label', 'n', 'sd_amo']].rename(columns={'sd_amo': 'sd'}).assign(source='amortiser')])
+    if items is not None:
+        long = long[long['item_label'].isin(items)].copy()
+        long['item_label'] = pd.Categorical(long['item_label'], categories=list(items), ordered=True)
     long['sqrt_n'] = np.sqrt(long.n)
     curves, ann = [], []
     for (j, src), g in long.groupby(['item_label', 'source']):
@@ -169,10 +175,12 @@ def contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blo
         ann.append(dict(item_label=j, source=src, txt=f"p={p:.2f} (R2={r2:.2f})",
                         x=np.sqrt(gp.n.min()), y=(0.95 if src == 'SVI' else 0.05)))
     cdf = pd.concat(curves) if curves else pd.DataFrame(columns=['item_label', 'source', 'sqrt_n', 'sd'])
+    _nit = long['item_label'].nunique()
+    _fs = (3.0 * ncol, 3.0 * int(np.ceil(_nit / ncol))) if items is not None else (16, 20)
     (ggplot(long, aes('sqrt_n', 'sd', colour='source'))
      + geom_point(size=.7, alpha=.6) + geom_line(data=cdf, size=.6)
-     + facet_wrap('~ item_label', ncol=4, scales='free')
-     + theme_bw() + theme(figure_size=(16, 20), legend_position='top', panel_spacing=0.02,
+     + facet_wrap('~ item_label', ncol=ncol, scales='free')
+     + theme_bw() + theme(figure_size=_fs, legend_position='top', panel_spacing=0.02,
        strip_background=element_blank(), strip_text=element_text(face='bold', size=8))
      + labs(x='sqrt(number of participants)  sqrt(n)', y='posterior SD of rho', colour='',
        title=f'Trained (amortiser) vs actual (SVI) contraction — {suf}  (power-law SD=C n^-p)')).save(
@@ -238,11 +246,13 @@ def eta0_sweep(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, et
     print(f"  saved eta0-sweep (3 plots, grid={[int(round(e*100)) for e in eta_raw]}%) ({suf}) -> {out}")
 
 
-def all_plots(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, blow):
+def all_plots(qs_of, tgt_of, n_of, labels, interims, taus, out, prefix, suf, blow,
+              cl_items=None, cl_ncol=4):
     contraction_cdf(qs_of, tgt_of, labels, interims, taus, out, prefix, suf)
     pit_box(qs_of, tgt_of, labels, interims, taus, out, prefix, suf)
     contraction_factor(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow)
-    contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow)
+    contraction_law(qs_of, tgt_of, n_of, labels, interims, out, prefix, suf, blow,
+                    items=cl_items, ncol=cl_ncol)
     print(f"  saved 4 comparison plots ({suf}) -> {out}")
 
 

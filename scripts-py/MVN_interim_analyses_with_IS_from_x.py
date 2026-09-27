@@ -62,6 +62,7 @@ from plotnine import (
 warnings.filterwarnings('ignore')
 
 from model_mvn import MVNModel
+from amortiser_io import load_interim_data, interim_data_exists
 from utils import _material_palette
 
 print("Imports successful")
@@ -101,12 +102,12 @@ pps_cf = pd.read_pickle(os.path.join(DIR_SIM, 'mvn_pps_closed_form.pkl'))['pps_c
 interim_data_by_J = {}
 for J in J_GRID:
     pkl_path = os.path.join(DIR_SIM, f'mvn_J{J}_interim_data.pkl')
-    if not os.path.exists(pkl_path):
+    if not interim_data_exists(pkl_path):
         raise FileNotFoundError(
             f"{pkl_path} missing; "
             f"run MVN_interim_analyses_make_interim_data.py first."
         )
-    interim_data_by_J[J] = pd.read_pickle(pkl_path)
+    interim_data_by_J[J] = load_interim_data(pkl_path)
 
 print(f"Loaded sim_data + {len(J_GRID)} interim_data J cells + pps_cf "
       f"({len(pps_cf)} rows).")

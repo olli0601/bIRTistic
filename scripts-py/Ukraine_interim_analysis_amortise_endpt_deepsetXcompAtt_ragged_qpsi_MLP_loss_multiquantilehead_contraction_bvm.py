@@ -401,12 +401,11 @@ if WARP != 'none':                               # §16.3: back to natural units
 # Correct it with one scalar per item, fit on the SAME SVI 1..k the head-ft uses:
 # Delta_j(k) = mean_{i<=k}(SVI marginal median - amortiser marginal median). Shifting ALL
 # quantiles by Delta_j is a pure location move -> removes the offset without touching the
-# (already-good) spread. On by default; RAGD_MEDSHIFT=0 disables it (ablation).
-if os.environ.get('RAGD_MEDSHIFT', '1') == '1':
-    HK = cal.affine_median_shift(HK, TGT, INTERIMS, taus=TAUS)   # shared §14.4.6 shift
-    print("  applied per-item expanding median-shift (default; RAGD_MEDSHIFT=0 to disable)")
-else:
-    HLABEL = HLABEL.replace('(ragged)', '-noshift(ragged)')
+# (already-good) spread. It is an INTEGRAL part of the head-ft recipe (fthead => affine): always
+# applied whenever the head is fine-tuned, not separately disableable. (The historical
+# RAGD_MEDSHIFT=0 ablation showing the shift's contribution is in §14.2.7 / git history.)
+HK = cal.affine_median_shift(HK, TGT, INTERIMS, taus=TAUS)       # shared §14.4.6 shift
+print("  applied per-item expanding affine median-shift (integral to the head-ft recipe)")
 
 # §14.4.25 Option A: effect-size marginal p(rho|x) from the EMPTY-z forward (no z^s mixing,
 # so no finite-m Monte-Carlo inflation). Per-item expanding median-shift, then broadcast to

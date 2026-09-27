@@ -46,6 +46,7 @@ import pandas as pd
 warnings.filterwarnings('ignore')
 
 from model_mvn import MVNModel
+from amortiser_io import InterimDataWriter, interim_data_exists
 
 print("Imports successful")
 
@@ -57,8 +58,9 @@ print("Imports successful")
 # HMC zarrs live there.
 # =============================================================================
 
-DIR_OUT = os.path.join(
-    "/Users/or105/sandbox/bIRTistic", "py-mvn-interim-simulations-260609",
+DIR_OUT = os.environ.get(
+    'MVN_SIM_DIR',
+    os.path.join("/Users/or105/sandbox/bIRTistic", "py-mvn-interim-simulations-260609"),
 )
 SIM_PKL = os.path.join(DIR_OUT, 'mvn_sim_data.pkl')
 
@@ -91,7 +93,7 @@ print(f"Loaded sim_data ({len(simu_params['J_grid'])} J cells) from {SIM_PKL}")
 
 for J in simu_params['J_grid']:
     pkl_path = os.path.join(DIR_OUT, f'mvn_J{J}_interim_data.pkl')
-    if os.path.exists(pkl_path):
+    if interim_data_exists(pkl_path):
         print(f"J={J}: cached interim data at {pkl_path}; skipping.")
         continue
 
@@ -105,7 +107,8 @@ for J in simu_params['J_grid']:
     dir_J = os.path.join(DIR_OUT, f"nested_mc_J{J}")
     os.makedirs(dir_J, exist_ok=True)
 
-    zi_by_interim = {}
+    writer = InterimDataWriter(pkl_path)                 # stream: ~1 interim in RAM
+    n_written = 0
     for i in range(len(di)):
         interim_id = int(di.iloc[i]['interim_id'])
         interim_date = di.iloc[i]['interim_date']
@@ -136,7 +139,8 @@ for J in simu_params['J_grid']:
         )
         mu_draws_all = fit_x['posterior_samples']['mu']      # (S_total, J)
         mu_draws = np.asarray(mu_draws_all[:PPS_Z_TOTAL, :], dtype=np.float64)
-        zi_by_interim[interim_id] = {
+        nrows = len(zi)
+        writer.add(interim_id, {
             'zi':                 zi,
             'mu_draws':           mu_draws,
             'n_obs':              n_obs,
@@ -144,10 +148,12 @@ for J in simu_params['J_grid']:
             'interim_date':       interim_date,
             'interim_month_year': interim_month_year,
             'dpi':                dpi,
-        }
+        })
+        del zi                                            # release the wide table now
+        n_written += 1
         print(f"  J={J} interim {interim_id} ({interim_date.date()}):"
-              f" zi has {len(zi)} rows, m={interim_m},"
+              f" zi has {nrows} rows, m={interim_m},"
               f" S={PPS_Z_TOTAL}; mu_draws {mu_draws.shape}.")
 
-    pd.to_pickle(zi_by_interim, pkl_path)
-    print(f"J={J}: saved {len(zi_by_interim)} interim zi blocks to {pkl_path}")
+    out = writer.close()                                  # parquet-backed dir
+    print(f"J={J}: saved {n_written} interim zi blocks to {out}")

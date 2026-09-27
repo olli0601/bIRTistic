@@ -25,6 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # this file lives in 
 import numpy as np, pandas as pd
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model, predict_amortised_p_h1_for_one_xz
+from amortiser_io import load_interim_data
 import amortiser_calibration as cal
 import model_mvn_common as mc
 
@@ -104,6 +105,7 @@ def deploy(fit, kind, dpi, zi, K, Kd, n, m, J, S, taus):
 
 
 rows = []
+pit_rows = []                          # per (arch, J, interim) PIT-KS / marg-KS
 for label, suf, ddir, kind, jlist in ARCHS:
     ckpt = f"{ddir}/mvn_interim_amortised_pps_net.pkl"
     if not os.path.exists(ckpt):
@@ -111,7 +113,7 @@ for label, suf, ddir, kind, jlist in ARCHS:
     fit = load_fitted_model(ckpt); taus = np.asarray(fit['pps_ProbH1_lwr_quantiles_mesh'])
     for J in [j for j in jlist if j in J_GRID]:
         t0 = time.time()
-        ipkl = pd.read_pickle(f"{DIR_SIM}/mvn_J{J}_interim_data.pkl")
+        ipkl = load_interim_data(f"{DIR_SIM}/mvn_J{J}_interim_data.pkl")
         cell = sim['cells'][J]; K = (cell['R_chol'] @ cell['R_chol'].T); Kd = np.diag(K)
         labels = cell['dit']['item_label'].to_numpy()
         interims = sorted(ipkl.keys())
@@ -127,6 +129,11 @@ for label, suf, ddir, kind, jlist in ARCHS:
             TGT[k] = (np.asarray(blk['mu_draws'][:S]) - MU0)
             NOBS[k] = n
         summ = cal.calibration_summary(QS, TGT, NOBS, interims, labels, taus=taus)
+        _pi = summ.groupby('interim_id', as_index=False)[['pit_ks', 'marg_ks']].mean()   # per-interim PIT
+        _pi['arch'] = label; _pi['suf'] = suf; _pi['J'] = J
+        _pi['interim_date'] = _pi['interim_id'].map({k: ipkl[k]['interim_date'] for k in interims})
+        _pi['interim_month_year'] = _pi['interim_id'].map({k: ipkl[k]['interim_month_year'] for k in interims})
+        pit_rows.append(_pi)
         _, ref_p = cal.contraction_slope(TGT, NOBS, interims, labels)
         _, amo_p = cal.contraction_slope_amortiser(QS, NOBS, interims, J)
         # PPS-MSE vs closed form (recomputed from captured quantiles, this S)
@@ -148,6 +155,8 @@ for label, suf, ddir, kind, jlist in ARCHS:
 
 res = pd.DataFrame(rows)
 res.to_csv(f"{OUT}/mvn_arch_diagnostics.csv", index=False)
+pd.concat(pit_rows, ignore_index=True).to_csv(f"{OUT}/mvn_arch_pit_by_interim.csv", index=False)
+print(f"Saved per-interim PIT-KS -> {OUT}/mvn_arch_pit_by_interim.csv")
 print("\n===== architecture diagnostics (RAW, prior-trained) =====")
 print(res.to_string(index=False))
 print(f"\nSaved -> {OUT}/mvn_arch_diagnostics.csv")

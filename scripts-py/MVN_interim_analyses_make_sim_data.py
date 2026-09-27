@@ -44,8 +44,9 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm as _norm
 from plotnine import (
-    ggplot, aes, geom_col, geom_errorbar, geom_hline, geom_point, geom_tile,
-    facet_grid, facet_wrap,
+    ggplot, aes, geom_col, geom_errorbar, geom_errorbarh, geom_hline, geom_vline,
+    geom_point, geom_tile,
+    facet_grid, facet_wrap, coord_equal,
     scale_fill_gradient2, scale_fill_manual,
     scale_x_continuous, scale_y_continuous, scale_y_discrete,
     position_dodge2, theme_bw, theme,
@@ -68,7 +69,8 @@ print("Imports successful")
 
 simu_params = {
     'seed':              123,
-    'J_grid':            [20, 60, 100],
+    'J_grid':            [int(_x) for _x in
+                          os.environ.get('MVN_J_GRID', '20,60,100').split(',')],
     'K_levels':          4,
     'rho_w':             0.8,
     'rho_b':             0.1,
@@ -79,10 +81,13 @@ simu_params = {
     'pps_H1_min_effect_size_thresh':        0.0,
     'pps_ProbH1_target_lwr_quantile': 0.89,
     'N_full':            1050,
-    'N_interims':        7,
+    'N_interims':        int(os.environ.get('MVN_N_INTERIMS', '7')),
 }
 
-DIR_OUT = os.path.join("/Users/or105/sandbox/bIRTistic", "py-mvn-interim-simulations-260609")
+DIR_OUT = os.environ.get(
+    'MVN_SIM_DIR',
+    os.path.join("/Users/or105/sandbox/bIRTistic", "py-mvn-interim-simulations-260609"),
+)
 os.makedirs(DIR_OUT, exist_ok=True)
 
 J_LABEL_CATS = [f'J={J}' for J in sorted(simu_params['J_grid'])]
@@ -99,10 +104,13 @@ dates = pd.date_range(
 interim_dates = pd.date_range(
     '2025-01-01', '2025-12-31', periods=simu_params['N_interims'] + 2,
 )[1:-1]
+_iml = pd.to_datetime(interim_dates).strftime('%Y-%b')
+if len(set(_iml)) < len(_iml):                      # months collide (dense grid) -> day-unique
+    _iml = pd.to_datetime(interim_dates).strftime('%Y-%b-%d')
 di = pd.DataFrame({
     'interim_id':         np.arange(1, simu_params['N_interims'] + 1, dtype=int),
     'interim_date':       interim_dates,
-    'interim_month_year': pd.to_datetime(interim_dates).strftime('%Y-%b'),
+    'interim_month_year': _iml,
 })
 interim_order = di['interim_month_year'].tolist()
 
@@ -215,33 +223,42 @@ for J in simu_params['J_grid']:
             'crI_hi':             mom['mu_n'] + 1.96 * sd,
         }))
 diag_a = pd.concat(diag_a_parts, ignore_index=True)
+# Keep J=20 and J=100 only (drop the middle J=60).
+_PC_J = [J for J in sorted(simu_params['J_grid']) if J in (20, 100)]
+diag_a = diag_a[diag_a['J'].isin(_PC_J)].copy()
 diag_a['J_label'] = pd.Categorical(
     'J=' + diag_a['J'].astype(str),
-    categories=J_LABEL_CATS, ordered=True,
+    categories=[f'J={J}' for J in _PC_J], ordered=True,
 )
-diag_a['interim_month_year'] = pd.Categorical(
-    diag_a['interim_month_year'],
-    categories=interim_order, ordered=True,
+# Column facet = interim (time); strip carries the participant count n ('Interim\n<date>\n(n=xxx)').
+_pc_n = diag_a.drop_duplicates('interim_month_year').set_index('interim_month_year')['n_obs'].to_dict()
+_pc_lab = {c: f"Interim\n{c}\n(n={int(_pc_n[c])})" for c in interim_order}
+diag_a['interim_lab'] = pd.Categorical(
+    diag_a['interim_month_year'].map(_pc_lab),
+    categories=[_pc_lab[c] for c in interim_order], ordered=True,
 )
 diag_a.to_pickle(os.path.join(DIR_OUT, 'mvn_diag_per_component.pkl'))
 
+# Transposed layout: effect size on x, component j stacked on y; time (interim) across columns,
+# J down rows with space='free_y' so the J=20 row is short and J=100 tall -> the components are
+# equally densely stacked in both.
 p_a = (
-    ggplot(diag_a, aes(x='j'))
-    + geom_errorbar(aes(ymin='crI_lo', ymax='crI_hi'),
-                    colour='#1f77b4', width=0.4, size=0.4)
-    + geom_point(aes(y='mu_post'), colour='#1f77b4', size=1.4)
-    + geom_point(aes(y='y_bar'), colour='black', fill='black', size=1.0)
-    + geom_point(aes(y='mu_true'), colour='red', shape='x', size=2.0)
-    + geom_hline(yintercept=simu_params['mu_0_baseline'], linetype='dashed',
+    ggplot(diag_a, aes(y='j'))
+    + geom_vline(xintercept=simu_params['mu_0_baseline'], linetype='dashed',
                  colour='#808080', size=0.3)
-    + facet_grid('interim_month_year ~ J_label', scales='free_x')
+    + geom_errorbarh(aes(xmin='crI_lo', xmax='crI_hi'),
+                     colour='#1f77b4', height=0.4, size=0.4)
+    + geom_point(aes(x='mu_post'), colour='#1f77b4', size=1.4)
+    + geom_point(aes(x='y_bar'), colour='black', fill='black', size=1.0)
+    + geom_point(aes(x='mu_true'), colour='red', shape='x', size=2.0)
+    + facet_grid('J_label ~ interim_lab', scales='free_y', space='free_y')
+    + scale_y_continuous(expand=(0, 0.6))          # kill vertical whitespace (tight, no clipping)
     + theme_bw()
-    + theme(figure_size=(5 * len(simu_params['J_grid']),
-                         2.4 * simu_params['N_interims']),
-            axis_text_x=element_text(angle=0),
+    + theme(figure_size=(2.6 * len(_pc_lab) + 2, 0.09 * sum(_PC_J) + 1.2),   # compact for a multi-panel figure
+            panel_spacing=0.01,
             strip_background=element_blank(),
             strip_text=element_text(face='bold'))
-    + labs(x='component j', y='effect size')
+    + labs(x='effect size', y='component j')
 )
 p_a.save(os.path.join(DIR_OUT, 'mvn_diag_per_component.pdf'),
          verbose=False, limitsize=False)
@@ -279,22 +296,23 @@ heat['method'] = pd.Categorical(
 )
 heat.to_pickle(os.path.join(DIR_OUT, 'mvn_diag_cov_heatmap.pkl'))
 
+# Empirical J=100 covariance matrix only; square (coord_equal) + compact for a multi-panel figure.
+heat_e100 = heat[(heat['J'] == 100) & (heat['method'] == 'empirical')]
 p_b = (
-    ggplot(heat, aes(x='j', y='i', fill='value'))
+    ggplot(heat_e100, aes(x='j', y='i', fill='value'))
     + geom_tile()
-    + facet_grid('J_label ~ method', scales='free', space='free')
     + scale_fill_gradient2(low='#3b4cc0', mid='white', high='#b40426',
                            midpoint=0.0)
     + scale_x_continuous(expand=(0, 0))
     + scale_y_continuous(expand=(0, 0))
+    + coord_equal()                        # square cells -> square 100x100 matrix
     + theme_bw()
-    + theme(figure_size=(10, 18),
-            axis_text_x=element_text(angle=0),
+    + theme(figure_size=(4.2, 4.2),
             panel_grid_major=element_blank(),
             panel_grid_minor=element_blank(),
-            strip_background=element_blank(),
-            strip_text=element_text(face='bold'))
-    + labs(x='component j', y='component i', fill='cov(y_i, y_j)')
+            strip_background=element_blank())
+    + labs(x='component j', y='component i', fill='cov(y_i, y_j)',
+           title='empirical covariance (J=100)')
 )
 p_b.save(os.path.join(DIR_OUT, 'mvn_diag_cov_heatmap.pdf'),
          verbose=False, limitsize=False)
@@ -434,12 +452,20 @@ print(f"Saved closed-form posterior + PPS to {cf_pkl}: "
 # y=interim, fill=P(H_1j | x). TealRose divergingx midpoint 0.5.
 # =============================================================================
 
+# Interim participant count n for the heatmap y-axis labels (item: add n to interim-date axes).
+_hm_n = post.drop_duplicates('interim_month_year').set_index('interim_month_year')['n_obs'].to_dict()
+
+
+def _hm_ylab(cats):
+    return [f"{c}  (n={int(_hm_n[c])})" if c in _hm_n else str(c) for c in cats]
+
+
 p_4a = (
     ggplot(post, aes(x='j', y='interim_month_year', fill='p_h1_x'))
     + geom_tile()
     + facet_wrap('~ J_label', ncol=1)
     + scale_x_continuous(expand=(0, 0))
-    + scale_y_discrete(expand=(0, 0))
+    + scale_y_discrete(expand=(0, 0), labels=_hm_ylab)
     + scale_fill_gradient2(low='#009392', mid='#F1EAC8', high='#A5006A',
                            midpoint=0.5, limits=[0.0, 1.0])
     + theme_bw()
@@ -467,7 +493,7 @@ p_4b = (
     + geom_tile()
     + facet_wrap('~ J_label', ncol=1)
     + scale_x_continuous(expand=(0, 0))
-    + scale_y_discrete(expand=(0, 0))
+    + scale_y_discrete(expand=(0, 0), labels=_hm_ylab)
     + scale_fill_gradient2(low='#009392', mid='#F1EAC8', high='#A5006A',
                            midpoint=0.5, limits=[0.0, 1.0])
     + theme_bw()
@@ -483,3 +509,40 @@ p_4b.save(os.path.join(DIR_OUT, 'mvn_pps_closed_form.pdf'),
           verbose=False, limitsize=False)
 print(f"Saved closed-form PPS heatmap to "
       f"{os.path.join(DIR_OUT, 'mvn_pps_closed_form.pdf')}")
+
+# %%
+
+# =============================================================================
+# Phase 4c. PPS heatmap, J=20 (left) | J=100 (right) side-by-side for a multi-panel
+# figure: columns = J with space='free_x' so J=20 is narrow / J=100 wide (equal cell
+# width), no whitespace (expand=(0, 0)); n on the interim y-axis.
+# =============================================================================
+
+_PPS_J = [J for J in sorted(simu_params['J_grid']) if J in (20, 100)]
+pps_2 = pps_cf[pps_cf['J'].isin(_PPS_J)].copy()
+pps_2['J_label'] = pd.Categorical(
+    'J=' + pps_2['J'].astype(str),
+    categories=[f'J={J}' for J in _PPS_J], ordered=True,
+)
+p_4c = (
+    ggplot(pps_2, aes(x='j', y='interim_month_year', fill='pps'))
+    + geom_tile()
+    + facet_grid('. ~ J_label', scales='free_x', space='free_x')
+    + scale_x_continuous(expand=(0, 0))
+    + scale_y_discrete(expand=(0, 0), labels=_hm_ylab)
+    + scale_fill_gradient2(low='#009392', mid='#F1EAC8', high='#A5006A',
+                           midpoint=0.5, limits=[0.0, 1.0])
+    + theme_bw()
+    + theme(figure_size=(0.05 * sum(_PPS_J) + 2.5, 0.5 * len(interim_order) + 1.2),
+            panel_spacing=0.02,
+            axis_text_y=element_text(size=8),
+            panel_grid_major=element_blank(),
+            panel_grid_minor=element_blank(),
+            strip_background=element_blank(),
+            strip_text=element_text(face='bold'))
+    + labs(x='component j', y='interim', fill='PPS')
+)
+p_4c.save(os.path.join(DIR_OUT, 'mvn_diag_pps_J20_J100.pdf'),
+          verbose=False, limitsize=False)
+print(f"Saved side-by-side PPS heatmap to "
+      f"{os.path.join(DIR_OUT, 'mvn_diag_pps_J20_J100.pdf')}")
