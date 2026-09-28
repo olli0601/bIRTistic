@@ -73,7 +73,7 @@ AMORTISER = dict(
         build='svi',                       # reference build strategy: reuse the whole SVI fit as-is
         net='scale-feat', widetok=0, case_c=2,   # trained net + its token/caseness settings
         warp='none',                       # target warp (none for a signed relative change)
-        eta0=0.5, grid='0.0,0.25,0.5,0.75')])    # eta0 success sweep (default anchor + grid, endpoint units)
+        eta0=0.5, grid='0.25,0.5,0.75,1.0')])    # eta0 success sweep (default anchor + grid, endpoint units)
 
 
 def _fit_svi():

@@ -79,6 +79,15 @@ warnings.filterwarnings('ignore')
 
 from utils import _futurama_palette
 from amortiser_io import load_interim_data
+from mizani.transforms import trans_new
+
+# signed square-root axis for the diverging timing pyramid: bars still emanate
+# from 0, but large walltimes keep more length than log10 (which over-squashes).
+_signed_sqrt_trans = trans_new(
+    'signed_sqrt',
+    lambda x: np.sign(x) * np.sqrt(np.abs(x)),
+    lambda x: np.sign(x) * np.asarray(x, dtype=float) ** 2,
+)
 
 print("Imports successful")
 
@@ -178,6 +187,28 @@ method_colours = dict(zip(_all_methods, _futurama_palette(len(_all_methods))))
 pps_colours = {'analytic': '#FFFFFF', **method_colours}
 pps_outline_colours = {'analytic': '#000000',
                        **{m: c for m, c in method_colours.items()}}
+
+# Methods removed from ALL figures (palette/categoricals keep the full set for stable colours;
+# only the *plotted* method lists are filtered).
+_REMOVE_FROM_FIGS = {LBL_RGE, LBL_RGEQ, LBL_RGED, LBL_RGEF, LBL_RGDS, LBL_RGDX, LBL_RGXC}
+_keep = lambda ms: [m for m in ms if m not in _REMOVE_FROM_FIGS]
+non_amort_methods = _keep(non_amort_methods)
+amort_focus_methods = _keep(amort_focus_methods)
+bvm_focus_methods = _keep(bvm_focus_methods)
+timing_methods = _keep(timing_methods)
+_display_methods = _keep(_all_methods)
+
+# Display labels shown in every figure (data/keys stay the raw LBL_* for a stable pkl interface).
+_DLABEL = {
+    LBL_HMC:  'nested-SVI\nof theta',
+    LBL_IS:   'importance-sampling\nof theta',
+    LBL_RGEM: 'rho-regression\n(known features)',
+    LBL_RGEA: 'ADM (known features,\nfixed N and J)',
+    LBL_RGEC: 'ADM (MLP features,\nfixed N and J)',
+    LBL_RGXP: 'ADM (XAttention features,\nany N, any J)',
+    LBL_RGXA: 'ADM (XAttention features,\nBvM architecture, any N, any J)',
+}
+_dl = lambda ms: [_DLABEL.get(m, m) for m in ms]      # remap a breaks list -> display labels
 
 # Fill colours for the stacked train / deploy timing bar.
 _TRAIN_DEPLOY_COLOURS = {
@@ -296,8 +327,8 @@ def _boxplot_p_h1_xz(box_stats, methods, response_label_cats,
         )
         + geom_hline(yintercept=pps_ProbH1_target_lwr_quantile,
                      colour='black', size=1.0)
-        + scale_fill_manual(values=method_colours,
-                            breaks=keep, limits=keep)
+        + scale_fill_manual(values=pps_colours,               # incl 'analytic' -> white
+                            breaks=keep, limits=keep, labels=_dl)
         + scale_y_continuous(
             limits=[0, 1],
             breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -309,6 +340,7 @@ def _boxplot_p_h1_xz(box_stats, methods, response_label_cats,
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_text=element_text(ma='left'),
             legend_position='bottom',
             legend_direction='vertical',
             figure_size=(3.0 * n_per_level, 2.5 * K_levels + 2),
@@ -360,11 +392,11 @@ def _pps_bars(pps_g_ci, methods, n_per_level, pdf_path, width_scale=1.0):
         + scale_fill_manual(values=pps_colours,
                             breaks=keep_with_analytic,
                             limits=keep_with_analytic,
-                            name='method')
+                            labels=_dl, name='method')
         + scale_colour_manual(values=pps_outline_colours,
                               breaks=keep_with_analytic,
                               limits=keep_with_analytic,
-                              name='method')
+                              labels=_dl, name='method')
         + scale_y_continuous(
             limits=[0, 1.05],
             breaks=[0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -379,6 +411,7 @@ def _pps_bars(pps_g_ci, methods, n_per_level, pdf_path, width_scale=1.0):
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_text=element_text(ma='left'),
             legend_position='bottom',
             legend_direction='vertical',
             figure_size=(3.0 * n_per_level * width_scale,
@@ -436,13 +469,14 @@ def _timing_bars(timing_df, methods, interim_order_local, pdf_path,
             size=6, angle=30, ha='left', va='bottom',
         )
         + scale_fill_manual(values=method_colours,
-                            breaks=methods, limits=methods)
+                            breaks=methods, limits=methods, labels=_dl)
         + scale_x_discrete(labels=_interim_lab)
         + scale_y_sqrt(expand=(0, 0, 0.15, 0))
         + guides(fill=guide_legend(ncol=1))
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_text=element_text(ma='left'),
             legend_position='bottom',
             legend_direction='vertical',
             figure_size=figure_size,
@@ -492,12 +526,14 @@ def _train_deploy_stacked_bars(timing_df, methods, pdf_path,
             size=8, colour='black',
         )
         + scale_fill_manual(values=_TRAIN_DEPLOY_COLOURS)
+        + scale_x_discrete(labels=_dl)
         + guides(fill=guide_legend(ncol=1))
         + coord_flip()
         + theme_bw()
         + theme(
             legend_position='bottom',
             legend_direction='vertical',
+            axis_text_y=element_text(ma='left', ha='right'),
             figure_size=figure_size,
         )
         + labs(x='method',
@@ -520,12 +556,14 @@ def _nice_step(mx, n=4):
     return 10.0 * mag
 
 
-def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 6)):
+def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 7)):
     """Population-pyramid timing plot: one-off *training* as blue bars to the
-    LEFT (negative axis) and total *deployment* (summed across all interims) as
-    orange bars to the RIGHT (positive axis), one method per row. The x tick
-    labels report positive walltimes on both sides; the minute value is printed
-    to the left of each blue bar and to the right of each orange bar."""
+    LEFT and total *deployment* (summed across all interims) as orange bars to
+    the RIGHT, one method per row. x is a signed-sqrt axis (bars still emanate
+    from 0; large walltimes keep more length than log10) with POSITIVE minute tick labels
+    on both sides. The two sides auto-range independently (not forced symmetric),
+    so there is no dead whitespace. The minute value is printed just outside each
+    bar."""
     d = timing_df[timing_df['method'].isin(methods)].copy()
     deploy_total = (d.groupby('method', observed=True)['mins'].sum()
                     .reindex(methods).fillna(0.0))
@@ -545,13 +583,14 @@ def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 6)):
     long['segment'] = pd.Categorical(
         long['segment'],
         categories=['train (one-off)', 'deploy (all interims)'], ordered=True)
-    long['value_label'] = long['mins'].map(lambda v: f"{v:.2f}" if v > 0 else "")
-    _mx = float(np.nanmax(np.abs(long['signed']))) if len(long) else 1.0
-    _mx = _mx * 1.18 if _mx > 0 else 1.0
-    _step = _nice_step(_mx)
-    _pos = np.arange(_step, _mx, _step)
-    _brk = np.unique(np.concatenate([[-p for p in _pos[::-1]], [0.0], _pos]))
-    _nud = 0.01 * _mx
+    long['value_label'] = long['mins'].map(lambda v: f"{v:.3g}" if v > 0 else "")
+    # pseudo-log breaks: decade grid on each side, filtered to that side's range.
+    mx_l = float(train_total.max()) if len(train_total) else 1.0
+    mx_r = float(deploy_total.max()) if len(deploy_total) else 1.0
+    _cand = [1, 3, 10, 30, 100, 300, 1000]        # >=1 min: sub-1 ticks crowd the centre
+    brk = sorted(set([-c for c in _cand if c <= mx_l * 1.3]
+                     + [0.0]
+                     + [c for c in _cand if c <= mx_r * 1.3]))
     left = long[long['signed'] < 0]
     right = long[long['signed'] > 0]
     p = (
@@ -559,19 +598,21 @@ def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 6)):
         + geom_col(width=0.7)
         + geom_hline(yintercept=0, colour='#666666', size=0.4)
         + geom_text(left, aes(label='value_label'), ha='right', va='center',
-                    nudge_y=-_nud, size=7, colour='black')
+                    size=6, colour='black')
         + geom_text(right, aes(label='value_label'), ha='left', va='center',
-                    nudge_y=_nud, size=7, colour='black')
+                    size=6, colour='black')
         + scale_fill_manual(values=_TRAIN_DEPLOY_COLOURS,
                             breaks=['train (one-off)', 'deploy (all interims)'])
-        + scale_y_continuous(limits=(-_mx, _mx), breaks=list(_brk),
-                             labels=[f"{abs(b):g}" for b in _brk],
-                             expand=(0, 0))
+        + scale_x_discrete(labels=_dl)
+        + scale_y_continuous(trans=_signed_sqrt_trans, breaks=brk,
+                             labels=[f"{abs(b):g}" for b in brk],
+                             expand=(0.06, 0, 0.06, 0))
         + coord_flip()
         + theme_bw()
         + theme(legend_position='bottom', legend_direction='horizontal',
+                axis_text_y=element_text(ma='left', ha='right'),
                 figure_size=figure_size)
-        + labs(x='method', y='time (mins)', fill='')
+        + labs(x='method', y='time (mins, signed-sqrt)', fill='')
     )
     p.save(pdf_path, verbose=False, limitsize=False)
     print(f"Saved timing pyramid to {pdf_path}")
@@ -584,6 +625,7 @@ def _timing_pyramid(timing_df, methods, pdf_path, figure_size=(11, 6)):
 # =============================================================================
 
 mse_rows = []                  # per (J, method, interim) MSE rows
+timing_summary_rows = []       # per (J, method) train + total-deploy mins (for figure_1 part F)
 for J in J_GRID:
     block_size_J = J // K_levels
     n_per_level = min(5, block_size_J)
@@ -855,7 +897,8 @@ for J in J_GRID:
     # ---- vs plain+affine / A power-law+BvM / C floor+BvM, against analytic+HMC ----
     if rgxa_p is not None:
         _boxplot_p_h1_xz(
-            box_stats, bvm_focus_methods, response_label_cats, n_per_level,
+            box_stats, ['analytic'] + bvm_focus_methods, response_label_cats,
+            n_per_level,
             os.path.join(DIR_OUT, f'mvn_J{J}_compare_methods_p_h1_xz_bvm.pdf'),
         )
         _pps_bars(
@@ -876,11 +919,18 @@ for J in J_GRID:
         ),
     )
     _timing_pyramid(
-        timing, amort_focus_methods,
+        timing, _display_methods,
         os.path.join(
             DIR_OUT, f'mvn_J{J}_compare_methods_timing_pyramid.pdf',
         ),
     )
+    _dt = timing.groupby('method', observed=True)['mins'].sum()
+    for _m in _display_methods:
+        timing_summary_rows.append({
+            'J': J, 'method': _m,
+            'train': float(training_mins_by_method.get(_m, 0.0)),
+            'deploy': float(_dt.get(_m, 0.0)),
+        })
 
     # ---- IS ESS / particle per interim ----
     is_ess = (
@@ -895,12 +945,13 @@ for J in J_GRID:
     p = (
         ggplot(is_ess, aes(x='interim_month_year', y='value', fill='method'))
         + geom_col(width=0.7)
-        + scale_fill_manual(values=method_colours)
+        + scale_fill_manual(values=method_colours, labels=_dl)
         + scale_x_discrete(labels=_interim_lab)
         + guides(fill=guide_legend(ncol=1))
         + theme_bw()
         + theme(
             axis_text_x=element_text(angle=45, vjust=1, hjust=1),
+            legend_text=element_text(ma='left'),
             legend_position='bottom',
             legend_direction='vertical',
             figure_size=(12, 6),
@@ -946,6 +997,9 @@ for J in J_GRID:
 # fill = method, facet = J.
 # =============================================================================
 
+pd.DataFrame(timing_summary_rows).to_pickle(
+    os.path.join(DIR_OUT, 'mvn_compare_methods_timing_summary.pkl'))
+
 mse_all = pd.concat(mse_rows, ignore_index=True)
 mse_all['method'] = pd.Categorical(
     mse_all['method'], categories=_all_methods, ordered=True,
@@ -963,21 +1017,25 @@ mse_all['interim_month_year'] = pd.Categorical(
     mse_all['interim_month_year'],
     categories=_mse_interim_order, ordered=True,
 )
-mse_all.to_pickle(os.path.join(DIR_OUT, 'mvn_compare_methods_mse.pkl'))
+mse_all.to_pickle(os.path.join(DIR_OUT, 'mvn_compare_methods_mse.pkl'))  # full set saved
 
+mse_plot = mse_all[mse_all['method'].astype(str).isin(_display_methods)].copy()
+mse_plot['method'] = pd.Categorical(mse_plot['method'].astype(str),
+                                    categories=_display_methods, ordered=True)
 p = (
-    ggplot(mse_all,
+    ggplot(mse_plot,
            aes(x='interim_month_year', y='mse', fill='method'))
     + geom_col(position=position_dodge(width=0.8, preserve='single'),
                width=0.7)
     + facet_wrap('~ J_label', ncol=1, scales='free_y')
     + scale_fill_manual(values=method_colours,
-                        breaks=_all_methods, limits=_all_methods)
+                        breaks=_display_methods, limits=_display_methods, labels=_dl)
     + scale_x_discrete(labels=_interim_lab)
     + scale_y_sqrt(expand=(0, 0, 0.05, 0))
     + guides(fill=guide_legend(ncol=2))
     + theme_bw()
     + theme(
+        legend_text=element_text(ma='left'),
         axis_text_x=element_text(angle=45, vjust=1, hjust=1),
         legend_position='bottom',
         legend_direction='vertical',

@@ -149,7 +149,7 @@ Computationally, the PCM involves direct evaluations of category specific events
 The primary real-time case study of this document. Hope Groups is a 12-session, peer-facilitated psychosocial, mental-health and parenting-support programme for Ukrainian parents and caregivers affected by war and displacement (externally displaced, internally displaced, and living in war-affected areas), evaluated in a pragmatic cluster-randomised controlled trial [@tucker2026hopegroups; @tucker2024hopeprotocol]. Caregivers self-report a battery of ordinal items at baseline and endline; the estimand is the item-level endpoint effect $\rho_j$, and enrolment accrues over time, so the decision of interest is whether the accumulated evidence already predicts success — the PPS — at each weekly interim.
 
 | field | value |
-|-------------|----------------------------------------------------------|
+|--------------|----------------------------------------------------------|
 | Problem | psychosocial / mental-health / parenting support for Ukrainian caregivers in war and displacement |
 | Arms | Hope Groups intervention vs waitlist control (cluster-randomised, 90 clusters) |
 | Timepoints | baseline and endline (1-week post-intervention); later follow-ups |
@@ -195,7 +195,7 @@ A single-centre longitudinal study of a nurse-led psychoeducational self-managem
 Questionnaires administered to refugee and migrant children and young people across six countries under the EC Horizon 2020 REFUGE-ED project, at baseline and endline, at the item level [@refugeed2024youth]. A second humanitarian cohort — the largest linked pre/post sample of the set — with no treatment arm, so the estimand is the within-cohort endpoint effect.
 
 | field | value |
-|------------|------------------------------------------------------------|
+|------------|-----------------------------------------------------------|
 | Problem | education / psychosocial support and integration of refugee and migrant youth (6 countries) |
 | Arms | none (multi-site practices pilot); **paired** pre/post |
 | Items (built) | **MSPSS perceived social support**, its **12 items grouped into the three subscales** — Family / Friends / Significant Other ($1$–$7$, `out-of-7` expected-score endpoint) |
@@ -274,7 +274,7 @@ Parenting for Lifelong Health (PLH) — the parenting-programme family of our di
 Of the seven pooled trials, the amortiser needs $N>200$ paired cohorts; three qualify, four are pilots / small feasibility trials:
 
 | trial (programme) | design | $N$ | fit |
-|--------------------------|--------------|--------------|-------------------|
+|--------------------------|--------------|--------------|------------------|
 | **RISE** — N. Macedonia / Moldova / Romania (NCT04721730), PLH-YC | cluster-RCT | **823** | ✅ largest; SE-Europe, also in the §B.2 PISA set |
 | **Sinovuyo Teen** — South Africa (PACTR201507001119966), PLH-Teen | cluster-RCT, 40 clusters | **552** | ✅ published flagship |
 | **Sinovuyo Kids** — South Africa (NCT02165371), PLH-YC | RCT | **296** | ✅ full efficacy RCT |
@@ -284,7 +284,7 @@ Of the seven pooled trials, the amortiser needs $N>200$ paired cohorts; three qu
 | South Africa — pilot (NCT01802294), PLH-YC | pilot RCT | 68 | ✗ pilot |
 
 | field | value |
-|-------------|-----------------------------------------------------------|
+|-------------|----------------------------------------------------------|
 | Problem | parenting support to reduce violence against children and improve caregiver / child wellbeing (LMIC) |
 | Arms | two-arm cluster-RCT (PLH programme vs usual care / control), **paired** baseline$\to$follow-up |
 | Items | harmonised PLH tools — parenting practices, **child maltreatment (ICAST)**, child behaviour, caregiver depression, adolescent-report violence — item-level ordinal, PCM-ready, **shared with §3.6 / Colombia** |
@@ -729,7 +729,7 @@ All Binomial deployment scripts (regression, IS, both amortised variants; nested
 Five variants of the features-fixed amortiser exercised to probe whether the default `hidden_dims = (256, 256, 128)` config from §12.1 was over-parameterised and whether other training knobs move the MSE floor. Each variant differs from the default in one dimension; all use the same analytic joint `zi` path of §12.3 and the same deployment cohort. Selectable at run time via the `AMORTISER_VARIANT` environment variable on the deployment script:
 
 | Variant | Change vs default | MSE | $\sqrt{\text{MSE}}$ | Training (min) |
-|------------|---------------------------|-----------:|-----------:|-----------:|
+|-----------|---------------------------|----------:|----------:|----------:|
 | default `(256, 256, 128)` | — | 0.00277 | 0.053 | 5.90 |
 | **`64x64`** | `hidden_dims = (64, 64)` | **0.00119** | **0.035** | **1.94** |
 | `num_quantile_levels_5` | `taus = (0.05, 0.25, 0.5, 0.75, 0.95)` | 0.00019 | 0.014 | 5.26 |
@@ -833,7 +833,7 @@ Setup. `pixi run -e mps-experimental install-jax-mps` provisions the Metal backe
 A batch element is a single triple $(j^*, s, \text{interim})$ — one queried component, one posterior draw of the future cohort, one interim. The observed cohort $x$ has $n$ participants; the future cohort $z^{(s)}$ has $m = N - n$ participants, drawn at training from the prior predictive and at deployment from the closed-form posterior predictive $p(z \mid x)$ (§3.3.1). At deployment all $J \cdot S$ batch elements are forward-passed per interim.
 
 | symbol | value | description |
-|------------|------------|-------------------------------------------------|
+|-----------|-----------|-------------------------------------------------|
 | $J$ | 20 / 60 / 100 | components presented to the amortiser (one token per component); amortised over $J \in [2,100]$ in §13.2 |
 | $n$ | interim-specific | observed participants at the interim, each an $\mathbb{R}^J$ response vector |
 | $m$ | $N - n$ | future participants per posterior draw $s$ |
@@ -999,7 +999,7 @@ Two axes must not be conflated: the **cohort axis** ($x^{\text{obs}}$ vs $z^{(s)
 What is reused, what is trained, what is adapted:
 
 | piece | status | detail |
-|--------------|--------------|-------------------------------------------|
+|---------------|---------------|-------------------------------------------|
 | network classes ($q_{\text{tok}}, q_{\text{query}}$ or $\alpha$, $q_\psi$) | **reused** from §13.2 | identical Flax modules, identical attention math |
 | network weights | **trained from scratch** | \~12k parameters, multi-quantile pinball loss |
 | per-item token $t^{(j^*, s)}_j$ | **adapted** | $F = 8$: x-side + z-side summaries, empirical $\hat K$-row, item metadata (see below) |
@@ -1210,7 +1210,7 @@ Synthesising the diagnostics (§14.1.7 conditional calibration, §14.1.8 margina
 The diagnostics of §14.1.7–14.1.8 leave one defect: the prior-trained amortiser is well-calibrated on the prior-predictive (held-out-prior coverage nominal, §14.1.7) but its deployment predictive is **mis-located** on the posterior-predictive slice — coverage far below nominal, PIT-KS $\approx 0.61$, marginal-KS $\approx 0.47$ — while ranking stays strong (correlation $\approx 0.8/0.7$, §14.1.10). This section reports a remedy sweep. Goal: near-nominal calibration **without** losing correlation or the §8 generality. Decision metrics: coverage at $\eta^{\text{inpol}} = 0.5, 0.95$, PIT-KS, marginal-KS, and correlation (out-of-7 / CG-MH; `CG-VIO_ph-punish` blow-up item excluded). Guardrail: held-out-prior coverage must stay nominal. Every configuration writes the full diagnostic PDFs (coverage curves, PIT histograms, marginal-CDF overlays) into its own `…_260808`/`_260809` sandbox dir.
 
 | config | corr (o7/cat) | cov\@.5 | cov\@.95 | PIT-KS | marg-KS |
-|---------------------|-----------|----------:|----------:|----------:|----------:|
+|---------------------|----------|---------:|---------:|---------:|---------:|
 | baseline (§14.1) | 0.53/0.42 | 0.15 | 0.44 | 0.61 | 0.47 |
 | S=256/step (§14.2.1) | 0.52/0.41 | 0.14 | 0.48 | 0.60 | 0.47 |
 | thresh=2.0 (§14.2.2) | 0.53/0.42 | 0.14 | 0.40 | 0.64 | 0.50 |
@@ -1336,7 +1336,7 @@ The trial structure is unchanged: two cohorts ($x^{\text{obs}}$ vs $z^{(s)}$), t
 Symbol deltas from the §14.1.1 table:
 
 | symbol | item-level (§14.1) | deepset (§14.4) | note |
-|------------|------------|------------------------|-------------------------|
+|------------|------------|-----------------------|-------------------------|
 | inputs | $F = 8$ hand token | raw tensors `x_responses`, `z_responses` $\in \mathbb{R}^{N \times J \times 2}$ + masks | pooling now learned |
 | $R$ | — | 2 | response features per (participant, item): baseline, endline |
 | $M$ | (in token) | 2 | item metadata (type, direction) appended to every participant token |
@@ -2025,7 +2025,7 @@ A waitlist-controlled randomised trial of a digital, data-driven therapeutic int
 A **between-subpopulation** immune-response application: rather than a within-participant pre/post effect or a vaccine-arm contrast, compare the antibody response between two *subpopulations* of a COVID-19 cohort — the same **group-contrast** estimand as MYCELIUM/CAVD-BAMA (§3.14/§3.19), on SARS-CoV-2 neutralisation titres. From an inventory of 13 ImmuneSpace COVID studies, **SDY1764** (Distinct antibody responses to SARS-CoV-2 in children and adults across the clinical spectrum) is the one carrying an **ordered-titre** assay (serum neutralisation ID50 + ELISA) together with clean subpopulation strata. It supports two contrasts from its four clinical arms (adult ARDS, pediatric MIS-C, pediatric non-MIS-C, adult convalescent): **age** (pediatric $<18$ vs adult) and **severity** (severe $\{$ARDS, MIS-C$\}$ vs mild $\{$non-MIS-C, convalescent$\}$). (The severity-focused SDY1669 was inspected and **dropped** — it has only flow-cytometry / RNA-seq, no antibody titre, so it cannot drive the titre-PCM; SDY1764's own severity arms cover that contrast.)
 
 | field | value |
-|------------|------------------------------------------------------------|
+|-----------|-------------------------------------------------------------|
 | Problem | COVID-19 humoral immunity **by subpopulation** — is the neutralising response higher in one group than another (a genuine, decision-relevant contrast for risk stratification / trial design) |
 | Setting | ImmuneSpace/ImmPort HIPC COVID cohort SDY1764 (Mount Sinai); 79 subjects with serum neutralisation |
 | Groups | **between-subpopulation** (no paired baseline): age (pediatric 47 / adult 32) or severity (severe 29 / mild 50); encoded MYCELIUM-style (group A $=$ `Baseline`, group B $=$ `Endline`) |
@@ -2034,6 +2034,6 @@ A **between-subpopulation** immune-response application: rather than a within-pa
 | Cohort / interims | 79 subjects, shuffled accrual so both groups present at each of 8 interims |
 | **Application target** | the **between-subpopulation** amortiser on real SARS-CoV-2 neutralisation titres — a third instance of the group-contrast estimand (after MYCELIUM food and HVTN-505 vaccine arms), now on disease/age strata |
 | Data access | **ImmuneSpace/ImmPort** (DUA + API, same as §3.18); pulled to `ImmuneSpace_COVID19_v260920.xlsx` (13 COVID SDYs) |
-| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'|'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ the startme pipeline `scripts-py/IMMPORT-covid-SDY1764_startme.py` (SVI + federated deploy + diagnostics, both contrasts) |
+| Loader + producer (implemented) | `read_data_immport_covid_neut(xlsx, study='SDY1764', group='age'                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | 'severity')` in `python/data_loading.py` (neut $\log_{10}\to$ ordered $k$, subpopulation $\to$ group axis) $+$ the startme pipeline `scripts-py/IMMPORT-covid-SDY1764_startme.py` (SVI + federated deploy + diagnostics, both contrasts) |
 | Status | **implemented — SDY1764, SVI + federated amortiser.** Directionally coherent: **age** $\rho(\text{pediatric vs adult})\approx-0.38$ (children neutralise \$\sim\$40% lower); **severity** $\rho(\text{severe vs mild})\approx+0.32$ (severe higher). SVI grids $\to$ `py-immport-covid-SDY1764-{age,severity}_260920`; the between-group J64 amortiser (scalar-mean token, head BvM, no warp — signed relative-change endpoint) is deployed as a federated amortiser per contrast, calibrating to the SVI reference at **age PIT-KS 0.096 / marg 0.134, severity 0.057 / 0.112** (both improving on the earlier non-federated 0.135 / 0.122); PPS(severe$>$mild)$=0.94$ at $\eta_0{=}0$, P(pediatric$>$adult)$=0$. Note the SDY1764 severity axis is confounded with age/phenotype (severe $=$ adult-ARDS $+$ pediatric-MIS-C); a within-age contrast or IMPACC (SDY1760) de-confounds. Next: ELISA items; other titre-bearing COVID SDYs |
 | Reference | SDY1764 (Mount Sinai; PMID 33154590); IMPACC SDY1760/2112 (severity-trajectory cohort, larger follow-on); ImmuneSpace/ImmPort |
