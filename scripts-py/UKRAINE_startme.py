@@ -78,7 +78,7 @@ AMORTISER = dict(
         rho='rel_change',                   # federated subdir + rho_label
         instance='S3 rel-change',           # registry net-family label (the DEFAULT Ukraine instance)
         build='svi',                        # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat', widetok=0, case_c=2,     # the default Ukraine-trained scalar-mean net
+        net='scale-feat-paired', widetok=0, case_c=2,     # the default Ukraine-trained scalar-mean net
         warp='none',                        # signed relative change -> no warp
         eta0=0.5, grid='0,0.25,0.5,0.75,1.0')])   # eta0 sweep over the full 0-100% range
 

@@ -72,7 +72,7 @@ def _contrast(name, long):
             long=long,                          # explicit facet-strip label (the covid pkl carries no rho_label_long)
             instance='S3 rel-change',           # registry net-family label
             build='svi',                        # reference build strategy: reuse the whole SVI fit as-is
-            net='scale-feat', widetok=0, case_c=2,     # the default scalar-mean net + token/caseness settings
+            net='scale-feat-paired', widetok=0, case_c=2,     # the default scalar-mean net + token/caseness settings
             warp='none',                        # signed relative change -> no warp
             eta0=0.0, grid='-0.4,-0.2,0,0.2,0.4')])   # signed eta0 sweep (0 = group-B > group-A)
 

@@ -50,6 +50,11 @@ ALLCASE = os.environ.get('PP_ALLCASE', '0') == '1'
 GROUPDIFF = os.environ.get('PP_GROUPDIFF', '0') == '1'
 if GROUPDIFF:
     WIDETOK = True                                         # per-group CDF token
+# BETWEEN-ARM relative change (UkraineRCT). Keeps the scale-feat target rho = we/wb - 1 (rho_ex), but the
+# observed cohort is BETWEEN-SUBJECTS: each participant is in ONE arm and its own-arm slot carries the scale
+# token k/(K-1) (the other arm's slot is 0), exactly as the deploy 0-fills the absent arm. Distinct from
+# scale-feat (paired: both slots per participant) and from groupdiff (Cohen's-d target). widetok=0.
+BETWEEN = os.environ.get('PP_BETWEEN', '0') == '1'
 if CASEENDLINE:
     META4 = True                                          # SPR needs the caseness threshold in metadata
 META_DIM = 4 if META4 else 3
@@ -130,6 +135,29 @@ def sim_cohort(ex, nab, rng):
     return Y
 
 
+def sim_cohort_between(ex, nab, rng):
+    """Between-SUBJECTS cohort with the SCALE (widetok=0) token: each participant is in ONE arm; its
+    own-arm slot carries k/(K-1), the other arm's slot is 0 (as the deploy 0-fills the absent arm).
+    Same population profiles as sim_cohort, so the rho_ex target (we/wb-1) is unchanged; only the
+    observed encoding is unpaired. Requires R_TOK == 2 (widetok=0)."""
+    Jb = len(ex['K']); Y = np.zeros((nab, Jb, R_TOK), np.float32); th = rng.standard_normal(nab)
+    grp = (rng.random(nab) < 0.5).astype(int)                        # participant's arm 0/1
+    for Kval in np.unique(ex['K']):
+        idx, tau, lam = _bucket(ex, Kval)
+        p = _probs(th, ex['beta'], tau, lam, Kval)                   # (nab, nK, 2, K)
+        cdf = np.cumsum(p, -1); u = rng.random((nab, len(idx), 2))
+        k = (cdf < u[..., None]).sum(-1)                             # (nab, nK, 2) category
+        gk = k[np.arange(nab)[:, None], np.arange(len(idx))[None, :], grp[:, None]]   # own-arm cat (nab,nK)
+        val = gk.astype(np.float32) / (Kval - 1)
+        full = np.zeros((nab, len(idx), 2), np.float32)
+        for g in (0, 1):
+            m = grp == g
+            if m.any():
+                full[m, :, g] = val[m]
+        Y[:, idx, :] = full.reshape(nab, len(idx), R_TOK)
+    return Y
+
+
 def rho_ex_groupdiff(ex):
     """S5 target: standardised between-group difference d = (g_1 - g_0)/s per item, g the per-group
     functional (mean E[y] for typ 0, caseness rate P(y>=c) for typ 1), s the pooled within-group SD
@@ -175,7 +203,9 @@ def sim_cohort_gd(ex, nab, rng):
 
 
 RHO_FN = rho_ex_groupdiff if GROUPDIFF else rho_ex        # S5 uses the standardised group-difference
-SIM_FN = sim_cohort_gd if GROUPDIFF else sim_cohort        # ... and the between-subjects cohort
+# cohort encoding: groupdiff -> between-subjects wide token; BETWEEN -> between-subjects scale token
+# (UkraineRCT rel-change); else paired scale token (default scale-feat)
+SIM_FN = sim_cohort_gd if GROUPDIFF else (sim_cohort_between if BETWEEN else sim_cohort)
 
 # ---- global sigma pilot (single scalar; power-law head learns per-item C_j) ----
 _pr = np.random.default_rng(1)

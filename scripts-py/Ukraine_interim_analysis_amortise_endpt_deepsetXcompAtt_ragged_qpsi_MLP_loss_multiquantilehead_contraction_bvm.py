@@ -465,10 +465,12 @@ if os.environ.get('RAGD_SPLITB', '0') == '1':
 # shrink the per-draw medians toward their mean by beta=sqrt(B*/B); then the mixture variance =
 # W_true + B* = T exactly. Intrinsically justified for the power-law/floor heads. RAGD_BVM=1.
 if os.environ.get('RAGD_BVM', '0') == '1':
-    print("  §14.4.26 BvM between-first correction (per-item SVI power-law targets) ...")
-    HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_REF)   # shared §14.4.7 correction
+    BVM_SHRINK = os.environ.get('RAGD_BVM_SHRINK', '0') == '1'    # James-Stein/EB shrink of per-item exponent p
+    print(f"  §14.4.26 BvM between-first correction (per-item SVI power-law targets"
+          f"{', James-Stein shrink' if BVM_SHRINK else ''}) ...")
+    HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_REF, shrink=BVM_SHRINK)   # shared §14.4.7
     MARGSRC = HKV
-    HLABEL = HLABEL.replace('(ragged)', '+bvm(ragged)')
+    HLABEL = HLABEL.replace('(ragged)', ('+bvm-stein(ragged)' if BVM_SHRINK else '+bvm(ragged)'))
 
 
 # --- PPS across items/interims (§14.1.6): P(H1|x,z^s) = P(rho>eta0|x,z^s) via CDF interp;

@@ -14,7 +14,7 @@ The panels are built with plotnine from the saved simulation pickles (no re-simu
 rendered to PNG at their FINAL composite size (so point font sizes are consistent across
 panels -> homogeneous), then placed with matplotlib imshow at equal aspect (no warping).
 
-Run:  pixi run python paper_adm/MVN_figure_1.py   (figure -> sandbox/paper-adm/mvn_figure_1.{pdf,png})
+Run:  pixi run python paper_adm/MVN_figure_2.py   (figure -> paper_adm/mvn_figure_2.{pdf,png})
 """
 import os
 import sys
@@ -363,10 +363,10 @@ for ax, img, lett in _placements:
     ax.text(0.003, 0.997, lett, transform=ax.transAxes, fontsize=18, fontweight='bold',
             va='top', ha='left')
 
-PAPER_OUT = os.environ.get('PAPER_ADM_OUT', "/Users/or105/sandbox/bIRTistic/paper-adm")
+PAPER_OUT = os.environ.get('PAPER_ADM_OUT', os.path.dirname(os.path.abspath(__file__)))
 os.makedirs(PAPER_OUT, exist_ok=True)
-out = os.path.join(PAPER_OUT, 'mvn_figure_1')
+out = os.path.join(PAPER_OUT, 'mvn_figure_2')
 fig.savefig(out + '.pdf', dpi=DPI, bbox_inches='tight', pad_inches=0.02)
 fig.savefig(out + '.png', dpi=DPI, bbox_inches='tight', pad_inches=0.02)
 plt.close(fig)
-print(f"Saved figure 1 -> {out}.pdf / .png")
+print(f"Saved figure 2 -> {out}.pdf / .png")

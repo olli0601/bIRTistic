@@ -294,7 +294,11 @@ class FederatedDiagnostics:
         self.INST = {e['rho']: e['instance'] for e in self.eps}
         self.LONG = {e['rho']: e['long'] for e in self.eps}
         self.LONG_ORDER = [self.LONG[r] for r in self.RHO]
-        self.ITEMS = list(pd.read_csv(f"{self.SRC}/{self.pfx}_1_data_dit.csv").item_label)
+        _dit = pd.read_csv(f"{self.SRC}/{self.pfx}_1_data_dit.csv")
+        self.ITEMS = list(_dit.item_label)
+        # item_label -> item_label_long facet labeller (descriptive names, as in the ordered-logit plots)
+        self.ITEMLONG = (dict(zip(_dit.item_label.astype(str), _dit.item_label_long.astype(str)))
+                         if 'item_label_long' in _dit.columns else {})
         self.ILAB = self._ilab(); self.IORDER = [self.ILAB[k] for k in sorted(self.ILAB)]
 
     # ---- config / label resolution -------------------------------------------------------
@@ -318,11 +322,21 @@ class FederatedDiagnostics:
         return out
 
     def _ilab(self):
+        # interim -> calendar date (from the SVI interim index) for 'date\n(n=xxx)' x-axis tick labels
+        dates = {}
+        ii = f"{self.SRC}/{self.pfx}_interim_index.csv"
+        if _os.path.exists(ii):
+            di = pd.read_csv(ii)
+            dcol = next((c for c in ('interim_date', 'date') if c in di.columns), None)
+            icol = 'interim' if 'interim' in di.columns else di.columns[0]
+            if dcol:
+                dates = dict(zip(di[icol].astype(int), di[dcol].astype(str)))
         for r in self.RHO:
             p = f"{self.DIR[r]}/{self.pfx}_pps_RAGD_pps_by_item.csv"
             if _os.path.exists(p):
                 m = pd.read_csv(p)[['interim_id', 'n']].drop_duplicates().set_index('interim_id')['n'].to_dict()
-                return {int(k): f"interim {int(k)}\n(n={int(vv)})" for k, vv in m.items()}
+                return {int(k): (f"{dates[int(k)]}\n(n={int(vv)})" if int(k) in dates
+                                 else f"interim {int(k)}\n(n={int(vv)})") for k, vv in m.items()}
         return {}
 
     # ---- small helpers -------------------------------------------------------------------
@@ -343,9 +357,12 @@ class FederatedDiagnostics:
     def _rot(self):
         return theme(axis_text_x=element_text(rotation=60, ha='right', size=6))
 
+    def _itemlab(self, s):
+        return self.ITEMLONG.get(str(s), str(s))          # item_label -> item_label_long (rho strips pass through)
+
     def _grid(self, scales='fixed'):
         from plotnine import facet_grid
-        return facet_grid('item_label ~ rho_label_long', scales=scales)
+        return facet_grid('item_label ~ rho_label_long', scales=scales, labeller=self._itemlab)
 
     def _theme(self, h=None, w=None):
         h = 1.95 * len(self.ITEMS) if h is None else h
@@ -620,11 +637,11 @@ class FederatedDiagnostics:
         rhos = self._rhos_in(rdf)
         if not self.mixed:
             d = self._xcat(rdf, 'interim')
-            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_size=.15, fill='#d9d9d9', size=.3)
+            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_alpha=0, fill='#d9d9d9', size=.3)
                  + geom_hline(ldf, aes(yintercept='rho_pct', colour='eta0'), size=.5)
                  + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
                  + self._grid('free_y') + self._theme(w=3.6 * len(self.RHO)) + self._rot()
-                 + labs(x='interim', y=f'rho  ({self.eta_units})',
+                 + labs(x='interim analysis date', y=f'rho  ({self.eta_units})',
                    title=f'{self.title} — SVI rho predictive vs eta0 thresholds'))
             p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
             return
@@ -634,12 +651,12 @@ class FederatedDiagnostics:
             rw = wl[r]
             d = self._fill(rdf[rdf.rho_label_long == r].copy(), r).assign(rho_label_long=rw)
             l = ldf[ldf.rho_label_long == r].assign(rho_label_long=rw)
-            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_size=.15, fill='#d9d9d9', size=.3)
+            p = (ggplot(d, aes('xlab', 'rho_pct')) + geom_boxplot(outlier_alpha=0, fill='#d9d9d9', size=.3)
                  + geom_hline(l, aes(yintercept='rho_pct', colour='eta0'), size=.5)
                  + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
                  + self._grid('free_y') + self._theme(w=4.7) + self._rot() + self._strip(i, len(rhos))
                  + theme(legend_position='none')
-                 + labs(x='interim', y=(f'rho  ({self.eta_units})' if i == 0 else '')))
+                 + labs(x='interim analysis date', y=(f'rho  ({self.eta_units})' if i == 0 else '')))
             subs.append(p)
         self._stitch_save(subs, out, 2.6 * len(self.ITEMS),
                           title=f'{self.title} — SVI rho predictive (grey box) vs eta0 thresholds',
@@ -655,7 +672,7 @@ class FederatedDiagnostics:
         p = (ggplot(pdf, aes('eta0_pct', 'pps', colour='ilab', group='ilab'))
              + geom_line(size=.5) + geom_point(size=1.1)
              + scale_color_manual(values=_fed_pal(self.IORDER), name='interim')
-             + facet_grid('item_label ~ rho_label_long', scales='free_x') + self._theme()
+             + facet_grid('item_label ~ rho_label_long', scales='free_x', labeller=self._itemlab) + self._theme()
              + labs(x=f'success threshold eta0 ({self.eta_units}, %)', y='PPS:  P( P(rho > eta0 | x) > 0.89 )',
                title=f'{self.title} — PPS decay vs eta0 threshold'))
         p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_eta0_sweep_compare.pdf", verbose=False, limitsize=False)
@@ -676,8 +693,8 @@ class FederatedDiagnostics:
              + geom_line() + geom_point(size=1.3)
              + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units}; darker = harder)')
              + scale_y_continuous(limits=[0, 1], labels=lambda l: [f'{v:.0%}' for v in l])
-             + facet_grid('item_label ~ rho_label_long') + self._theme() + self._rot()
-             + labs(x='interim', y='amortised PPS',
+             + facet_grid('item_label ~ rho_label_long', labeller=self._itemlab) + self._theme() + self._rot()
+             + labs(x='interim analysis date', y='amortised PPS',
                title=f'{self.title} — amortised PPS trajectory (dashed 10%/90% go/no-go guides)'))
         p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.pdf", verbose=False, limitsize=False)
         p.save(f"{self.OUT}/{self.pfx}_pps_RAGD_trajectory.png", dpi=110, verbose=False, limitsize=False)

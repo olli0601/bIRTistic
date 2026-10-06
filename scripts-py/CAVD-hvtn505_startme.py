@@ -71,7 +71,7 @@ AMORTISER = dict(
         rho='vaccine_vs_placebo',          # federated subdir + rho_label the deploy filters on
         instance='S3 rel-change',          # registry net-family label (shown in the calibration plot)
         build='svi',                       # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat', widetok=0, case_c=2,   # trained net + its token/caseness settings
+        net='scale-feat-paired', widetok=0, case_c=2,   # trained net + its token/caseness settings
         warp='none',                       # target warp (none for a signed relative change)
         eta0=0.5, grid='0.25,0.5,0.75,1.0')])    # eta0 success sweep (default anchor + grid, endpoint units)
 

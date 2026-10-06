@@ -54,7 +54,7 @@ SVI = dict(
 #    free-quantile skew head). Each entry is passed to federated_deploy + FederatedDiagnostics.
 # =====================================================================================
 _spr = dict(net='widetok-spr', widetok=1, case_c=3, eta0=0.70, grid='0.5,0.6,0.7,0.8')   # SPR net + eta0 sweep
-_gmfr = dict(net='scale-feat', widetok=0, case_c=2, eta0=2.5, grid='2.0,2.5,3.0,3.5')     # GMFR net + eta0 sweep
+_gmfr = dict(net='scale-feat-paired', widetok=0, case_c=2, eta0=2.5, grid='2.0,2.5,3.0,3.5')     # GMFR net + eta0 sweep
 
 
 def _variant(variant, tag, warp_spr, warp_gmfr, headmode=''):

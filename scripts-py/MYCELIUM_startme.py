@@ -71,7 +71,7 @@ AMORTISER = dict(
         rho='powder_vs_burger',          # federated subdir + rho_label the deploy filters on
         instance='S3 rel-change',        # registry net-family label
         build='svi',                     # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat', widetok=0, case_c=2,     # scalar-mean net + token/caseness settings
+        net='scale-feat-paired', widetok=0, case_c=2,     # scalar-mean net + token/caseness settings
         warp='none',                     # signed relative change -> no warp
         eta0=0.10, grid='0,0.10,0.20,0.30')])   # eta0 sweep over the modest observed effect range
 

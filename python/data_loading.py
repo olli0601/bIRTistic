@@ -570,6 +570,98 @@ def read_data_ukraine(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp, 'dit': dit, 'dmeta': dmeta}
 
 
+def get_data_ukraine_rct(file_data: str, max_endline_gap_days: int = 21,
+                         drop_gap_violators: bool = False, verbose: bool = True
+                         ) -> Dict[str, object]:
+    """Ukraine Hope Groups as the RANDOMISED-TRIAL between-arm design (UkraineRCT).
+
+    Corrects the earlier pre->post / cross-arm framings: the control arm received NO
+    intervention between baseline and endline, so a within-participant change is not an
+    intervention effect. The scientific estimand is the GROUP-MEAN comparison AT ENDLINE
+    of the intervention arm vs the control arm, per item j, as a direction-aware relative
+    percent improvement (higher = better). The two arms are randomised WITHIN facilitator
+    (`fid`): every facilitator runs both an intervention group and a control group whose
+    endline surveys are close in calendar time, so the between-arm contrast is unconfounded
+    by facilitator and by secular timing (which the pooled pre->post estimand conflates).
+
+    Encoding (mirrors the mycelium / CAVD between-arm 'arm=time' S3 pattern, so the whole
+    get_endpoints / PCM machinery applies unchanged): keep ONLY the endline records of both
+    arms — disjoint participants, unpaired between-group PCM — and re-map the PCM `group`
+    level from timepoint to ARM:
+        group 0  'Control (endline)'       <- control arm, endline survey   (reference)
+        group 1  'Intervention (endline)'  <- intervention arm, endline survey (treated)
+    Endpoint rho_j = direction-aware ( w_intervention,j / w_control,j - 1 ), same
+    ``get_endpoints_per_draw`` call as every other item application.
+
+    The date-proximity design assumption is checked here: per facilitator, |median endline
+    date(intervention) - median endline date(control)|. Facilitators exceeding
+    ``max_endline_gap_days`` are reported (and dropped when ``drop_gap_violators``).
+
+    Parameters
+    ----------
+    file_data : str
+        The Ukraine Hope Groups baseline/endline wide CSV (same file as read_data_ukraine).
+    max_endline_gap_days : int, default 21
+        Threshold (~3 weeks) for the per-facilitator control-vs-intervention endline gap.
+    drop_gap_violators : bool, default False
+        If True, drop facilitators whose endline gap exceeds ``max_endline_gap_days``.
+    verbose : bool, default True
+        Print the accrual + date-proximity summary.
+
+    Returns
+    -------
+    dict
+        - 'dp'         : endline long-form responses, BOTH arms, ``group`` re-encoded to arm.
+        - 'dit'        : item metadata (unchanged from read_data_ukraine).
+        - 'dmeta'      : participant metadata (unchanged).
+        - 'date_check' : per-facilitator endline-date gap table (fid, ctrl/intv median, gap_days).
+    """
+    raw = read_data_ukraine(file_data)
+    dp, dit, dmeta = raw['dp'].copy(), raw['dit'].copy(), raw['dmeta'].copy()
+
+    # keep endline records only (raw `group`==1 is the 'Endline' timepoint), both arms present
+    dp = dp[(dp['group'] == 1) & (dp['treat'].isin([0, 1]))].copy()
+    dp['submission_date'] = pd.to_datetime(dp['submission_date'])
+
+    # design check: per-facilitator control-vs-intervention endline-date proximity
+    med = (dp.drop_duplicates('pid_label').groupby(['fid', 'f_label', 'treat'])['submission_date']
+           .median().unstack('treat'))
+    med.columns = ['ctrl_date', 'intv_date']
+    med['gap_days'] = (med['intv_date'] - med['ctrl_date']).abs().dt.days
+    med = med.reset_index()
+    viol = med.loc[med['gap_days'] > max_endline_gap_days, 'fid'].tolist()
+    if verbose:
+        print(f"##### UkraineRCT endline date-proximity check ({med['fid'].nunique()} facilitators): "
+              f"median gap {med['gap_days'].median():.0f}d, 75th pct {med['gap_days'].quantile(.75):.0f}d, "
+              f"max {med['gap_days'].max():.0f}d")
+        if viol:
+            bad = med[med['fid'].isin(viol)][['f_label', 'gap_days']]
+            print(f"      {len(viol)} facilitator(s) exceed {max_endline_gap_days}d "
+                  f"({'DROPPED' if drop_gap_violators else 'kept, flagged'}): "
+                  + ", ".join(f"{r.f_label} ({int(r.gap_days)}d)" for r in bad.itertuples()))
+    if drop_gap_violators and viol:
+        dp = dp[~dp['fid'].isin(viol)].copy()
+        med['dropped'] = med['fid'].isin(viol)
+
+    # re-encode the PCM group level: timepoint -> ARM (control = reference 0, intervention = 1). The
+    # group_label doubles as the prob-fit facet-column title (Ukraine refugee RCT arm descriptions).
+    dp['group'] = dp['treat'].astype(int)
+    dp['group_label'] = dp['group'].map({0: 'Ukraine refugees\nwaitlist control arm',
+                                         1: 'Ukraine refugees\nHope Group\nintervention arm'})
+    # item_label_long = construct_long + short (as in the ordered-logit analysis) -> descriptive facet/legend
+    dit['item_label_long'] = (dit['construct_long'].astype(str)
+                              + np.where(dit['item_label_short'].notna(),
+                                         '\n' + dit['item_label_short'].astype(str), ''))
+    dp = dp.reset_index(drop=True)
+
+    if verbose:
+        nb = dp[dp.group == 0].pid_label.nunique(); ne = dp[dp.group == 1].pid_label.nunique()
+        print(f"##### UkraineRCT between-arm endline: control n={nb}, intervention n={ne}, "
+              f"{dp.item_label.nunique()} items over {dp.merge(dit, on='item_label').item_type.nunique()} "
+              f"item types; endline span {dp.submission_date.min().date()} -> {dp.submission_date.max().date()}")
+    return {'dp': dp, 'dit': dit, 'dmeta': dmeta, 'date_check': med}
+
+
 def _common_dit(items, item_type, high_low, group_of, group_long, endpoint, cat_length):
     """Assemble a `dit` item-metadata table in the common bIRTistic format."""
     dit = pd.DataFrame({'item_label': list(items)})

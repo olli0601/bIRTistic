@@ -67,6 +67,8 @@ RAWPOOL = os.environ.get('PP_RAWPOOL', '0') == '1'       # explicit raw plug-in 
 PERPART = os.environ.get('PP_PERPART', '0') == '1'       # per-participant rho-mapping channels
 LINTAU = os.environ.get('PP_LINTAU', '0') == '1'         # linear (identity-capable) q_tau
 HEADRAW = os.environ.get('PP_HEADRAW', '0') == '1'       # inject raw (wb,we,ratio) at the head
+QFT = os.environ.get('PP_QFT', '1') == '1'               # §14.5.2: query reads the TOKEN (pools), not h (DEFAULT; PP_QFT=0 for legacy embedding-query)
+SEPV = os.environ.get('PP_SEPV', '1') == '1'             # §14.5.3: separate attention values v=q_values(token) (DEFAULT; PP_SEPV=0 for legacy tied V=K)
 # arbitrary decision-threshold experiments:
 #   PP_NQ    : number of quantile levels (Option 3: dense quantiles; default 5 = baseline)
 #   PP_ETA0  : 1 => Option 4, amortise eta_0 with a success-prob head P(rho>eta0|x,z),
@@ -84,7 +86,8 @@ NET_KW = dict(num_quantiles=_num_q, embed_dim=EMBED_DIM,
               q_tau_hidden=(EMBED_DIM, EMBED_DIM), q_tok_hidden=(EMBED_DIM, EMBED_DIM),
               q_query_hidden=(EMBED_DIM, EMBED_DIM), hidden_dims=HEAD_HIDDEN,
               head_mode=_head_mode, precision_pool=PREC_POOL, z_contrast=ZCON,
-              raw_pool=RAWPOOL, perpart_map=PERPART, linear_tau=LINTAU, head_raw=HEADRAW)
+              raw_pool=RAWPOOL, perpart_map=PERPART, linear_tau=LINTAU, head_raw=HEADRAW,
+              query_from_token=QFT, separate_values=SEPV)
 print(f"CONFIG tag={OUT_TAG} sched={SCHEDULE} E={EMBED_DIM} head={HEAD_HIDDEN} "
       f"mode={HEAD_MODE} prec_pool={PREC_POOL} zcon={ZCON} dr={DR}")
 TAUS = (np.linspace(0.05, 0.95, NQ).astype(np.float32) if (NQ != 5 and not ETA0AM)

@@ -183,14 +183,23 @@ def load_fitted_model(path: str) -> dict:
         payload = pickle.load(f)
     module = importlib.import_module(payload['net_class_module'])
     net_class = getattr(module, payload['net_class_name'])
-    net = net_class(**payload['net_kwargs'])
+    net_kwargs = dict(payload['net_kwargs'])
+    # §14.5.2 backward-compat: query_from_token now defaults True (token-query) for new builds,
+    # but pre-field checkpoints were trained with embedding-query (q_query: E->E). Pin them to False
+    # so their params still match; new nets store the flag explicitly so this never touches them.
+    _fields = getattr(net_class, '__dataclass_fields__', {})
+    if 'query_from_token' in _fields:
+        net_kwargs.setdefault('query_from_token', False)
+    if 'separate_values' in _fields:                     # §14.5.3: pre-field checkpoints used tied V=K
+        net_kwargs.setdefault('separate_values', False)
+    net = net_class(**net_kwargs)
     return {
         'params': jax.tree_util.tree_map(jnp.asarray, payload['params']),
         'apply_fn': net.apply,
         'pps_ProbH1_lwr_quantiles_mesh': np.asarray(payload['pps_ProbH1_lwr_quantiles_mesh']),
         'net_class_module': payload['net_class_module'],
         'net_class_name':   payload['net_class_name'],
-        'net_kwargs':       dict(payload['net_kwargs']),
+        'net_kwargs':       dict(net_kwargs),
         'loss_history':     list(payload.get('loss_history', [])),
         'training_mins':    float(payload.get('training_mins', float('nan'))),
     }
@@ -252,7 +261,11 @@ DEPLOY_SCRATCH = "/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d1
 # registry net-instance key -> (trained net dir under SB, widetok, case_c). warp is per-endpoint (cfg).
 _NET = {
     'widetok-spr': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-widetok-spr-260919", 1, 3),
-    'scale-feat':  ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-260831",  0, 2),
+    # scale-feat rel-change net (rho = we/wb - 1), scalar token. TWO cohort variants: -paired trains on the
+    # PAIRED cohort (both group slots per participant, the original §14 net); -between trains on the
+    # BETWEEN-ARM cohort (one slot per participant, for RCT / disjoint-arm apps like UkraineRCT).
+    'scale-feat-paired':  ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-260831",  0, 2),
+    'scale-feat-between': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-between-260929", 0, 2),
     'groupdiff':   ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
 }
 _DP_COLS = ['pid', 'pid_label', 'group', 'group_label', 'item_label', 'y', 'y_stan',
@@ -391,8 +404,11 @@ def federated_deploy(sb, cfg, driver=DEFAULT_DRIVER, scratch=DEPLOY_SCRATCH,
                    RAGD_ETA0=str(ep['eta0']), RAGD_ETAH='0.89', RAGD_ETA0GRID='1', RAGD_ETA0GRID_VALS=ep['grid'])
         if headmode:
             env['RAGD_HEADMODE'] = headmode
+        if cfg.get('bvm_shrink') or ep.get('bvm_shrink'):        # Stein BvM: James-Stein/EB shrink of per-item p
+            env['RAGD_BVM_SHRINK'] = '1'
         if verbose:
             print(f"\n===== deploy {ep['rho']} (net={ep['net']}, warp={ep['warp']}, head={headmode or 'plain'}, "
+                  f"bvm={'stein' if (cfg.get('bvm_shrink') or ep.get('bvm_shrink')) else 'plain'}, "
                   f"eta0={ep['eta0']}, NREF={nref}) -> {out}")
         _subprocess.run([_sys.executable, driver], env=env, cwd=_REPO)
     if verbose:

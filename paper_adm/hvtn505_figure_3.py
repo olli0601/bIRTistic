@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Composite results figure 2 for the HVTN 505 BAMA amortised-PPS application (§3.19).
+"""Composite results figure 3 for the HVTN 505 BAMA amortised-PPS application (§3.19).
 
     +---------------------------------------------------------------+
     | (a) participant-accrual timeline (vaccine red | placebo blue) |
@@ -15,7 +15,7 @@ Parts c/d are reproduced inline from the federated eta0 CSVs (items on COLUMNS,
 unlike FederatedDiagnostics which puts them on rows); part b reuses the existing
 prob_by_question_fit PNGs; part a is built from the per-interim subject tables.
 
-Run:  pixi run python paper_adm/hvtn505_figure_2.py
+Run:  pixi run python paper_adm/hvtn505_figure_3.py
 """
 import os
 import sys
@@ -286,10 +286,10 @@ for ax, lett in ((axA, 'a'), (axBleg, 'b'), (axC, 'c'), (axD, 'd'), (axE, 'e')):
     fig.text(_LETX, ax.get_position().y1 - 0.002, lett, fontsize=18, fontweight='bold',
              va='top', ha='left')
 
-PAPER_OUT = os.environ.get('PAPER_ADM_OUT', "/Users/or105/sandbox/bIRTistic/paper-adm")
+PAPER_OUT = os.environ.get('PAPER_ADM_OUT', os.path.dirname(os.path.abspath(__file__)))
 os.makedirs(PAPER_OUT, exist_ok=True)
-out = os.path.join(PAPER_OUT, 'hvtn505_figure_2')
+out = os.path.join(PAPER_OUT, 'hvtn505_figure_3')
 fig.savefig(out + '.pdf', dpi=DPI, pad_inches=0.02)
 fig.savefig(out + '.png', dpi=DPI, pad_inches=0.02)
 plt.close(fig)
-print(f"Saved figure 2 -> {out}.pdf / .png")
+print(f"Saved figure 3 -> {out}.pdf / .png")

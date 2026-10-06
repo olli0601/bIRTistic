@@ -87,6 +87,15 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
     #   head itself (raw_pool routes it through the token; this routes it direct).
     head_raw: bool = False
     head_scale: bool = False   # §14.4.9: inject a data-driven per-item scale (endpoint-change SD) at the head
+    # §14.5.2: build the query from the item TOKEN (the deepset pools, concat dim 2E) rather than from
+    #   the key embedding h=q_tok(tok). Makes q_query an independent read of the pools (as in §14.1.4),
+    #   instead of sharing the q_tok representation with the keys. DEFAULT (conceptually cleaner); the
+    #   embedding-query variant is False (pre-field checkpoints are pinned False in load_fitted_model).
+    query_from_token: bool = True
+    # §14.5.3: encode attention VALUES separately, v^{j,s}=q_values(token), instead of tying V=K=h.
+    #   DEFAULT (small consistent calibration win); False = legacy tied V=K (pre-field checkpoints
+    #   are pinned False in load_fitted_model).
+    separate_values: bool = True
     default_pps_ProbH1_lwr_quantiles_mesh: tuple = (0.05, 0.25, 0.5, 0.75, 0.95)
 
     def setup(self):
@@ -94,6 +103,8 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
                       else _MLP(dims=(*self.q_tau_hidden, self.embed_dim)))
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
         self.q_query = _MLP(dims=(*self.q_query_hidden, self.embed_dim))
+        if self.separate_values:                              # §14.5.3: independent value projection
+            self.q_values = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
         if self.head_mode == 'factored':          # width-scaling head g(1/sqrt n)
             self.g_head = _MLP(dims=(16, 1))
@@ -164,15 +175,22 @@ class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantileh
         qidx = batch['query_idx'].astype(jnp.int32)          # (B, Q)
         Q = qidx.shape[1]
         E = h.shape[-1]
-        # gather the queried item's embedding per (b, q): (B, Q, E)
+        # gather the queried item's embedding per (b, q): (B, Q, E) — used as the head skip, and (default)
+        # as the query input
         gather_idx = jnp.broadcast_to(qidx[:, :, None], (B, Q, E))
         h_query = jnp.take_along_axis(h, gather_idx, axis=1)  # (B, Q, E)
-        q = self.q_query(h_query)                            # (B, Q, E)
+        if self.query_from_token:                            # §14.5.2: query reads the token (pools), not h
+            Et = tok.shape[-1]
+            q_src = jnp.take_along_axis(tok, jnp.broadcast_to(qidx[:, :, None], (B, Q, Et)), axis=1)  # (B,Q,2E)
+        else:
+            q_src = h_query
+        q = self.q_query(q_src)                              # (B, Q, E)
 
         # cross-attention: 1 query per (b, q) vs the J item embeddings of b
+        v = self.q_values(tok) if self.separate_values else h  # §14.5.3: V=q_values(token) or tied V=K=h
         scores = jnp.einsum('bqe,bje->bqj', q, h) / jnp.sqrt(float(self.embed_dim))
         w = jax.nn.softmax(scores, axis=-1)                  # (B, Q, J)
-        attn_out = jnp.einsum('bqj,bje->bqe', w, h)          # (B, Q, E)
+        attn_out = jnp.einsum('bqj,bje->bqe', w, v)          # (B, Q, E)
 
         parts = [attn_out, h_query]
         aux = batch.get('aux', None)

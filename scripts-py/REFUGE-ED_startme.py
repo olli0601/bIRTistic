@@ -68,7 +68,7 @@ AMORTISER = dict(
         rho='support_gain',                  # federated subdir + rho_label the deploy filters on
         instance='S3 rel-change',            # registry net-family label
         build='svi',                         # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat', widetok=0, case_c=2,     # scalar-mean net + token/caseness settings
+        net='scale-feat-paired', widetok=0, case_c=2,     # scalar-mean net + token/caseness settings
         warp='none',                         # signed relative change -> no warp
         eta0=0.10, grid='0,0.05,0.10,0.15,0.20')])  # eta0 sweep 0-20% (REFUGE effects are modest)
 
