@@ -88,7 +88,9 @@ kmax = items.cat_length.to_numpy(np.float32)
 META = np.stack([itype, ihigh], -1).astype(np.float32)
 fit = load_fitted_model(f"{BASE}/{BASE_PREFIX}_amortised_pps_net.pkl")
 sig = np.load(f"{BASE}/{BASE_PREFIX}_item_std.npy").astype(np.float32)
-net = Net(**dict(fit['net_kwargs']))             # respect head_mode / precision_pool
+import importlib as _il                            # use the net class the checkpoint recorded (post-pool
+_NetCls = getattr(_il.import_module(fit['net_class_module']), fit['net_class_name'])  # or §14.6 pre-pool)
+net = _NetCls(**dict(fit['net_kwargs']))         # respect head_mode / precision_pool / prepool_attn
 _mdf = f"{BASE}/{BASE_PREFIX}_meta_dim.npy"       # §14.4.9 item-amortised-family net
 if os.path.exists(_mdf) or sig.size != J:
     _KM = 10; _Md = int(np.load(_mdf)[0]) if os.path.exists(_mdf) else 3

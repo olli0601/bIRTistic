@@ -69,6 +69,8 @@ LINTAU = os.environ.get('PP_LINTAU', '0') == '1'         # linear (identity-capa
 HEADRAW = os.environ.get('PP_HEADRAW', '0') == '1'       # inject raw (wb,we,ratio) at the head
 QFT = os.environ.get('PP_QFT', '1') == '1'               # §14.5.2: query reads the TOKEN (pools), not h (DEFAULT; PP_QFT=0 for legacy embedding-query)
 SEPV = os.environ.get('PP_SEPV', '1') == '1'             # §14.5.3: separate attention values v=q_values(token) (DEFAULT; PP_SEPV=0 for legacy tied V=K)
+PREPOOL = os.environ.get('PP_PREPOOL', '0') == '1'       # §14.6.1: per-participant self-attention BEFORE the pool
+POSTPOOL = os.environ.get('PP_POSTPOOL', '1') == '1'     # §14.6.2: keep post-pool cross-attention (0 = pre-pool-only)
 # arbitrary decision-threshold experiments:
 #   PP_NQ    : number of quantile levels (Option 3: dense quantiles; default 5 = baseline)
 #   PP_ETA0  : 1 => Option 4, amortise eta_0 with a success-prob head P(rho>eta0|x,z),
@@ -88,6 +90,10 @@ NET_KW = dict(num_quantiles=_num_q, embed_dim=EMBED_DIM,
               head_mode=_head_mode, precision_pool=PREC_POOL, z_contrast=ZCON,
               raw_pool=RAWPOOL, perpart_map=PERPART, linear_tau=LINTAU, head_raw=HEADRAW,
               query_from_token=QFT, separate_values=SEPV)
+if PREPOOL:   # §14.6: pre-pool self-attention lives in its own module (post-pool module untouched)
+    from amortiser_pps_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead import (
+        Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead as Net)
+    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL)
 print(f"CONFIG tag={OUT_TAG} sched={SCHEDULE} E={EMBED_DIM} head={HEAD_HIDDEN} "
       f"mode={HEAD_MODE} prec_pool={PREC_POOL} zcon={ZCON} dr={DR}")
 TAUS = (np.linspace(0.05, 0.95, NQ).astype(np.float32) if (NQ != 5 and not ETA0AM)
