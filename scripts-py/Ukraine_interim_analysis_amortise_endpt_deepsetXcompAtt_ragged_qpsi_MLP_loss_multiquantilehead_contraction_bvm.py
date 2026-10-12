@@ -406,6 +406,7 @@ if WARP != 'none':                               # §16.3: back to natural units
 # (already-good) spread. It is an INTEGRAL part of the head-ft recipe (fthead => affine): always
 # applied whenever the head is fine-tuned, not separately disableable. (The historical
 # RAGD_MEDSHIFT=0 ablation showing the shift's contribution is in §14.2.7 / git history.)
+HK_RAW = {k: HK[k].copy() for k in INTERIMS}                     # §14.4.8: raw head-ft HK (pre-affine) for the combined one-pass
 HK = cal.affine_median_shift(HK, TGT, INTERIMS, taus=TAUS)       # shared §14.4.6 shift
 print("  applied per-item expanding affine median-shift (integral to the head-ft recipe)")
 
@@ -471,6 +472,11 @@ if os.environ.get('RAGD_BVM', '0') == '1':
     print(f"  §14.4.26 BvM between-first correction (per-item SVI power-law targets"
           f"{', James-Stein shrink' if BVM_SHRINK else ''}) ...")
     HKV, _law = cal.bvm_correction(HK, TGT, NOBS, INTERIMS, N_REF, shrink=BVM_SHRINK)   # shared §14.4.7
+    if os.environ.get('RAGD_COMBINED', '0') == '1':      # §14.4.8: one-pass combined (affine + reshape)
+        HKC, _ = cal.combined_calibration(HK_RAW, TGT, NOBS, INTERIMS, N_REF, shrink=BVM_SHRINK)
+        _md = max(float(np.abs(HKC[k] - HKV[k]).max()) for k in INTERIMS)
+        print(f"  §14.4.8 combined one-pass vs sequential affine+BvM: max|diff|={_md:.2e}")
+        HKV = HKC
     MARGSRC = HKV
     HLABEL = HLABEL.replace('(ragged)', ('+bvm-stein(ragged)' if BVM_SHRINK else '+bvm(ragged)'))
 
@@ -672,7 +678,7 @@ def save_contraction_cdf(getq, suf):
     unreadable CDF-facet plot. SVI quantiles are of the SVI draws; amortiser
     quantiles are read off the inverted mixture CDF Fmix (mean over z^(s) draws)."""
     QL = np.array([0.10, 0.25, 0.50, 0.75, 0.90])
-    rows = []
+    rows, mu = [], []
     for j in range(J):
         for k in INTERIMS:
             y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
@@ -684,6 +690,7 @@ def save_contraction_cdf(getq, suf):
             lo, hi = float(min(yv.min(), qs.min())), float(max(yv.max(), qs.max()))
             gr = np.linspace(lo, hi, 400); Fm = _marg_cdf(qs, gr)
             aq = np.interp(QL, Fm, gr)                                # amortiser mixture quantiles
+            mu.append(dict(item_label=labels[j], u=np.interp(yv, gr, Fm)))  # marginal PIT: marg CDF (BvM-corrected) at SVI draws
             for src, q in (('SVI', sq), ('amortiser', aq)):
                 rows.append(dict(interim_id=int(k), item_label=labels[j], source=src,
                                  ymin=float(q[0]), lower=float(q[1]), middle=float(q[2]),
@@ -691,6 +698,7 @@ def save_contraction_cdf(getq, suf):
     df = pd.DataFrame(rows)
     df.to_csv(f"{OUT}/{file_prefix}_pps_{suf}_contraction_cdf_by_item.csv", index=False)  # box data (calibrated marginal)
     _stash(suf, 'contbox', df)
+    _stash(suf, 'marg_u', pd.concat([pd.DataFrame({'item_label': r['item_label'], 'u': r['u']}) for r in mu]))
     df['interim_id'] = pd.Categorical(df.interim_id, categories=sorted(df.interim_id.unique()), ordered=True)
     (ggplot(df, aes('interim_id', ymin='ymin', lower='lower', middle='middle',
                     upper='upper', ymax='ymax', fill='source'))

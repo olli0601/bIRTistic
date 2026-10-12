@@ -63,6 +63,12 @@ NET_KW = dict(num_quantiles=5, embed_dim=EMBED_DIM,
               q_tau_hidden=(EMBED_DIM, EMBED_DIM), q_tok_hidden=(EMBED_DIM, EMBED_DIM),
               q_query_hidden=(EMBED_DIM, EMBED_DIM), hidden_dims=HEAD_HIDDEN, head_mode='powerlaw',
               head_scale=HEAD_SCALE, head_raw=HEAD_RAW)
+PREPOOL = os.environ.get('PP_PREPOOL', '0') == '1'       # §14.6: per-participant self-attention before pool
+POSTPOOL = os.environ.get('PP_POSTPOOL', '1') == '1'     # §14.6.2: keep post-pool cross-attention (0=pre-only)
+if PREPOOL:   # §14.6: item-general any-J BvM pre-pool amortiser (apple-to-apple vs the post-pool default)
+    from amortiser_pps_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead import (
+        Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead as Net)
+    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL)
 net = Net(**NET_KW)
 TH_REF = np.random.default_rng(0).standard_normal(M_REF).astype(np.float64)   # fixed reference abilities
 print(f"ITEM-AMORTISE tag={OUT_TAG} JMAX={JMAX} KMAX={KMAX} B={B} steps={NET_STEPS}")

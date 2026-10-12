@@ -72,7 +72,7 @@ AMORTISER = dict(
         build='svi',                       # reference build strategy: reuse the whole SVI fit as-is
         net='scale-feat-paired', widetok=0, case_c=2,   # scalar-mean net + token/caseness settings
         warp='none',                       # signed relative change -> no warp
-        eta0=0.50, grid='0,0.50,0.70,0.85,0.95')])   # eta0 sweep (large DASS severity shifts)
+        eta0=0.50, grid='0.25,0.50,0.75,1.0')])   # eta0 sweep (rel-reduction thresholds 25/50/75/100%)
 
 
 def _fit_svi():

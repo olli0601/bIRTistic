@@ -184,14 +184,16 @@ def load_fitted_model(path: str) -> dict:
     module = importlib.import_module(payload['net_class_module'])
     net_class = getattr(module, payload['net_class_name'])
     net_kwargs = dict(payload['net_kwargs'])
-    # §14.5.2 backward-compat: query_from_token now defaults True (token-query) for new builds,
-    # but pre-field checkpoints were trained with embedding-query (q_query: E->E). Pin them to False
-    # so their params still match; new nets store the flag explicitly so this never touches them.
+    # §14.5.2/14.5.3 backward-compat: in the POST-pool module query_from_token/separate_values defaults
+    # flipped True AFTER the early checkpoints were trained (embedding-query, tied V=K), so pin those to
+    # False when the key is absent. This applies ONLY to the post-pool module — the §14.6 pre-pool module
+    # was born with True defaults, so a missing key there must take the module default, not False.
     _fields = getattr(net_class, '__dataclass_fields__', {})
-    if 'query_from_token' in _fields:
-        net_kwargs.setdefault('query_from_token', False)
-    if 'separate_values' in _fields:                     # §14.5.3: pre-field checkpoints used tied V=K
-        net_kwargs.setdefault('separate_values', False)
+    if payload['net_class_name'].endswith('deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead'):
+        if 'query_from_token' in _fields:
+            net_kwargs.setdefault('query_from_token', False)
+        if 'separate_values' in _fields:
+            net_kwargs.setdefault('separate_values', False)
     net = net_class(**net_kwargs)
     return {
         'params': jax.tree_util.tree_map(jnp.asarray, payload['params']),
@@ -265,6 +267,11 @@ _NET = {
     # PAIRED cohort (both group slots per participant, the original §14 net); -between trains on the
     # BETWEEN-ARM cohort (one slot per participant, for RCT / disjoint-arm apps like UkraineRCT).
     'scale-feat-paired':  ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-260831",  0, 2),
+    # §14.6: pre-pool-SAB twin of scale-feat-paired (identical config + prepool_attn, post_pool_attn off) —
+    #   the any-J BvM pre-pool amortiser for apple-to-apple pre-vs-post comparison through the manifests.
+    'scale-feat-paired-prepool': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-prepool-261006", 0, 2),
+    # §14.6 "both": pre-pool SAB AND post-pool cross-attention, same scale-feat config.
+    'scale-feat-paired-both': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-both-261006", 0, 2),
     'scale-feat-between': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-between-260929", 0, 2),
     'groupdiff':   ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
 }
@@ -399,7 +406,7 @@ def federated_deploy(sb, cfg, driver=DEFAULT_DRIVER, scratch=DEPLOY_SCRATCH,
         _shutil.rmtree(f"{scratch}/ragged_deploy_cells_{ctag}", ignore_errors=True)
         env = dict(_os.environ, RAGD_BASE=f"{sb}/{netdir}", RAGD_RGE=ref, RAGD_OUT=out,
                    RAGD_WARP=ep['warp'], RAGD_WIDETOK=str(widetok), RAGD_KMAX='10', RAGD_CASE_C=str(case_c),
-                   RAGD_BVM='1', RAGD_HEADFT='expand', RAGD_NREF=str(nref), RAGD_CTAG=ctag,
+                   RAGD_BVM=str(cfg.get('bvm', 1)), RAGD_HEADFT='expand', RAGD_NREF=str(nref), RAGD_CTAG=ctag,
                    RAG_S='200', RAGD_PDFS='1', RAGD_PERINTERIM='0', RAGD_PLOTDATA='1',
                    RAGD_ETA0=str(ep['eta0']), RAGD_ETAH='0.89', RAGD_ETA0GRID='1', RAGD_ETA0GRID_VALS=ep['grid'])
         if headmode:

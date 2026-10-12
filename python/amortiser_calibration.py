@@ -252,6 +252,73 @@ def bvm_correction(HK, TGT, NOBS, interims, N_ref, *, verbose=False, shrink=Fals
 
 
 # ---------------------------------------------------------------------------
+# §14.4.8 Combined location + contraction correction in ONE per-item affine pass.
+# ---------------------------------------------------------------------------
+
+
+def combined_calibration(HK, TGT, NOBS, interims, N_ref, *, taus=TAUS_DEFAULT, shrink=False, verbose=False):
+    """§14.4.8: the §14.4.6 affine median-shift and the §14.4.7 BvM reshape as ONE per-item affine pass
+    over the raw head-ft quantiles,
+        q'_{s,i} = mub + beta*(mu_s - mub) + alpha*(q_{s,i} - mu_s) + Delta_j(k),
+    with Delta_j the expanding median residual (location), alpha=sqrt(Wtrue/W), beta=sqrt(B*/B) the law-
+    pinned scale factors, all read from the SAME raw HK. The shift (translation) and the reshape (centred
+    rescale) are commuting affine maps, so this is numerically identical to affine_median_shift followed by
+    bvm_correction -- one deployment-time line instead of two sequential passes."""
+    J = TGT[interims[0]].shape[1]; taus_a = np.asarray(taus)
+    # --- fit the item power law SD = C n^-p to the SVI reference SDs (as bvm_correction) ---
+    Cj = np.full(J, np.nan); pj = np.full(J, np.nan); se2 = np.full(J, np.nan); fit = {}
+    for j in range(J):
+        ns, sds = [], []
+        for k in interims:
+            yv = TGT[k][:, j]; yv = yv[np.isfinite(yv)]
+            if yv.size >= 10 and np.std(yv) > 1e-9:
+                ns.append(NOBS[k]); sds.append(np.std(yv))
+        if len(ns) >= 3:
+            x, y = np.log(ns), np.log(sds); b = np.polyfit(x, y, 1)
+            pj[j] = -b[0]; Cj[j] = float(np.exp(b[1]))
+            resid = y - np.polyval(b, x); sxx = float(np.sum((x - x.mean()) ** 2))
+            se2[j] = (float(np.sum(resid ** 2)) / max(len(x) - 2, 1)) / sxx if sxx > 0 else np.nan
+            fit[j] = (x, y)
+    if shrink:
+        ok = np.isfinite(pj) & np.isfinite(se2)
+        if ok.sum() >= 3:
+            p_pool = float(np.nanmedian(pj[ok]))
+            vb = max(float(np.nanvar(pj[ok]) - np.nanmean(se2[ok])), 1e-6)
+            w = vb / (vb + se2)
+            for j in np.where(ok)[0]:
+                pj[j] = w[j] * pj[j] + (1.0 - w[j]) * p_pool
+                x, y = fit[j]; Cj[j] = float(np.exp(np.mean(y + pj[j] * x)))
+    # --- per-item median residual at each interim (location target, from the raw HK) ---
+    resid_k = {}
+    for k in interims:
+        rj = np.full(J, np.nan)
+        for j in range(J):
+            y = TGT[k][:, j]; ok = np.isfinite(y); yv = y[ok]
+            if yv.size >= 10:
+                rj[j] = np.median(yv) - _marg_median(HK[k][ok, j, :], taus_a)
+        resid_k[k] = rj
+    # --- single combined per-item affine pass ---
+    out = {}
+    for k in interims:
+        n = NOBS[k]; Hk = HK[k].copy()
+        dj = np.nan_to_num(np.nanmean(np.stack([resid_k[i] for i in interims if i <= k]), 0))
+        for j in range(J):
+            if not np.isfinite(Cj[j]):            # law-undefined item: location only (matches sequential)
+                Hk[:, j, :] = HK[k][:, j, :] + dj[j]
+                continue
+            C, p = Cj[j], pj[j]
+            T = (C * n ** (-p)) ** 2; Wt = (C * N_ref ** (-p)) ** 2; Bs = max(T - Wt, 0.0)
+            qs = HK[k][:, j, :]; mu = qs[:, 2]; mub = float(mu.mean())
+            sg = (qs[:, 4] - qs[:, 0]) / 3.2897
+            W = float(np.mean(sg ** 2)); B = float(np.var(mu))
+            a = np.sqrt(Wt / W) if W > 1e-12 else 1.0
+            be = np.sqrt(Bs / B) if B > 1e-12 else 0.0
+            Hk[:, j, :] = (mub + be * (mu - mub))[:, None] + a * (qs - mu[:, None]) + dj[j]
+        out[k] = Hk
+    return out, dict(Cj=Cj, pj=pj)
+
+
+# ---------------------------------------------------------------------------
 # Scalar diagnostics: PIT-KS (conditional) + marg-KS (marginal vs reference).
 # ---------------------------------------------------------------------------
 
