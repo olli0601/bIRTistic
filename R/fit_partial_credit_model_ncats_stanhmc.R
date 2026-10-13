@@ -8,11 +8,16 @@
 #' @param dcati data.table. Pre-processed data with observations for analysis. Must include
 #'   item_type, y_stan, item_time_id, pid, and oidt columns.
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
-#' @param stan_file Character. Path to Stan model file (.stan). Default: partial_credit_model_ncats_v260413.stan
+#' @param stan_file Character. Path to Stan model file (.stan). Default: partial_credit_model_ncats_v261012.stan
+#'   (supersedes v260413: additionally emits per-participant PAIRED reduced effect sizes
+#'   participant_reduced_rho_by_cat_qu_fit/_pr via reduction_functions.stan).
 #' @param x_formula Formula. Formula specifying predictors for the design matrix
 #' @param x_formula_ignore_regex Character. Regular expression pattern to identify X columns to exclude 
 #'   from posterior predictive probability calculations (ordered_prob_by_cat_qu_pr). Columns matching this 
 #'   pattern will be excluded. If NA (default), all X columns are used for both fitted and predictive probabilities.
+#' @param categorical_threshold Integer. For the per-participant reduced effect sizes, the y-cut (0-indexed) used
+#'   for categorical items: their rel-% / diff reductions act on P(y >= categorical_threshold); out-of-7 items
+#'   use the expected level E[y]. Default 3 (matches get_endpoints). Does not affect the PCM fit itself.
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
 #' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
@@ -36,9 +41,10 @@ fit_partial_credit_model_ncats_stanhmc <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+  stan_file = here::here("src", "stan", "partial_credit_model_ncats_v261012.stan"),
   x_formula = ~ time - 1,
   x_formula_ignore_regex = NA_character_,
+  categorical_threshold = 3L,
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -56,7 +62,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- NULL
+        iqr_upper <- prob <- item_type_id <- stat <- q1 <- q2 <- NULL
 
     require(data.table)
     require(ggplot2)
@@ -162,6 +168,26 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     cat("N per category:", paste(stan_data$N, collapse = ", "), "\n")
     cat("Q per category:", paste(stan_data$Q, collapse = ", "), "\n")
     cat("K per category:", paste(stan_data$K, collapse = ", "), "\n")
+
+    # --- per-participant PAIRED reduced effect sizes: relative % change + difference (baseline - endline) ---
+    # Request both reductions for every item measured at BOTH Baseline and Endline. Each comparison pairs the
+    # item's baseline question (item_time_id) with its endline question within its category type; the reductions
+    # run inside the Stan generated quantities, yielding participant_reduced_rho_by_cat_qu_fit/_pr (R x Qcmp).
+    cmp_base <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, item_type, q1 = item_time_id)])
+    cmp_end  <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q2 = item_time_id)])
+    cmp <- merge(cmp_base, cmp_end, by = c("item_type_id", "item_label"))
+    setkey(cmp, item_type_id, item_label)
+    stan_data$R <- 2L
+    stan_data$red_fn <- c(3L, 4L)                               # 3 = rel % change, 4 = diff (baseline - endline)
+    stan_data$Qcmp <- nrow(cmp)
+    stan_data$cmp_cat_type <- as.integer(cmp$item_type_id)
+    stan_data$question_cmp <- matrix(as.integer(c(cmp$q1, cmp$q2)), ncol = 2) # Qcmp x 2: [,1]=baseline, [,2]=endline
+    # family per comparison: out-of-7 -> expected level E[y] (thr 0); categorical -> P(y>=categorical_threshold)
+    stan_data$cmp_reduce_thr <- as.integer(ifelse(cmp$item_type == "categorical", categorical_threshold, 0L))
+    cat("Reduced effect sizes: R =", stan_data$R, "(red_fn =", paste(stan_data$red_fn, collapse = ","),
+        "); Qcmp =", stan_data$Qcmp, "pre/post item comparisons;",
+        sum(stan_data$cmp_reduce_thr > 0), "categorical (thr =", categorical_threshold, "),",
+        sum(stan_data$cmp_reduce_thr == 0), "expected-level\n")
 
     # Check if resuming from existing outputs
     if (can_resume) {

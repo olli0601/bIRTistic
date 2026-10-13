@@ -102,7 +102,14 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     if (!param_name %in% c("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit")) {
         stop("param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'")
     }
-    
+
+    # For endpoint_type = "items", the pre/post change (diff/ratio/diff2/ratio2) is read from the per-participant
+    # PAIRED reduced effect sizes emitted by the PCM generated quantities (reduction done inside the model, so the
+    # pre/post pairing is exact), named by swapping ordered_prob_by_cat_qu_* -> participant_reduced_rho_by_cat_qu_*.
+    # Baseline/Endline LEVELS still come from <param_name>. endpoint_type = "item_groups" keeps the group-level
+    # ordered_prob computation throughout (no per-item reduced quantity to aggregate).
+    reduced_param <- sub("ordered_prob_by_cat_qu", "participant_reduced_rho_by_cat_qu", param_name)
+
     # =========================================================================
     # Part 1: Categorical items - aggregate probabilities for high categories
     # =========================================================================
@@ -379,6 +386,70 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # =========================================================================
     
     pos <- rbind(pos_cat1, pos_cat2, fill = TRUE)
-    
+
+    # =========================================================================
+    # Part 3: replace pre/post change (items) with per-participant reduced sizes
+    # =========================================================================
+    # Baseline/Endline LEVELS stay as computed above (from param_name). For endpoint_type = "items" the
+    # diff/ratio/diff2/ratio2 rows are re-derived from participant_reduced_rho_by_cat_qu_* (relpct = slot r=1,
+    # diff = slot r=2, per comparison jc). diff2 = -diff, ratio2 = -ratio; categorical items are not direction-
+    # aware (always Baseline-Endline), out-of-7 items respect item_high_label (as in Parts 1-2).
+    if (endpoint_type == "items") {
+        rp <- readRDS(draws_file)
+        rp <- rp[,, grepl(reduced_param, dimnames(rp)[[3]]), drop = FALSE]
+        rp <- posterior::as_draws_df(rp)
+        rp <- data.table::as.data.table(rp)
+        rp <- data.table::melt(rp,
+            id.vars = c(".draw", ".chain", ".iteration"), value.name = "rho")
+        rp[, r  := as.integer(gsub(paste0(reduced_param, "\\[([0-9]+),([0-9]+)\\]"), "\\1", variable))]
+        rp[, jc := as.integer(gsub(paste0(reduced_param, "\\[([0-9]+),([0-9]+)\\]"), "\\2", variable))]
+        data.table::set(rp, NULL, "variable", NULL)
+        rp <- data.table::dcast(rp, .draw + jc ~ r, value.var = "rho")
+        data.table::setnames(rp, c("1", "2"), c("relpct", "difflvl"))
+
+        # Rebuild jc in the SAME order fit_partial_credit_model_ncats_stanhmc builds question_cmp: items present
+        # at BOTH Baseline and Endline, keyed by (item_type_id, item_label).
+        cmp_base <- unique(dp1[time_label == "Baseline", .(item_type_id, item_label, item_type, item_time_id)])
+        cmp_end  <- unique(dp1[time_label == "Endline",  .(item_type_id, item_label)])
+        cmp <- merge(cmp_base, cmp_end, by = c("item_type_id", "item_label"))
+        data.table::setkey(cmp, item_type_id, item_label)
+        cmp[, jc := seq_len(.N)]
+        cmp <- merge(cmp,
+            unique(subset(dit, select = c(item_type_id, item_label, item_high_label,
+                                          item_label_short, group_label, group_label_long))),
+            by = c("item_type_id", "item_label"))
+
+        rp <- merge(rp, cmp, by = "jc")
+        rp[, ratio_lb := relpct / 100]                                   # (Baseline-Endline)/Baseline as a fraction
+        rp[, is_cat := item_type == "categorical"]
+        rp[, lb := item_high_label == "lower_is_better"]
+        rp[, diff   := data.table::fifelse(is_cat | lb,  difflvl, -difflvl)]
+        rp[, ratio  := data.table::fifelse(is_cat | lb, ratio_lb, -ratio_lb)]
+        rp[, diff2  := -difflvl]
+        rp[, ratio2 := -ratio_lb]
+        rp <- data.table::melt(rp,
+            id.vars = c("item_type_id", "item_time_id", "item_label", "item_type",
+                        "group_label", "group_label_long", "item_label_short", "item_high_label"),
+            measure.vars = c("diff", "ratio", "diff2", "ratio2"))
+        pos_change <- rp[,
+            list(
+                summary_value = quantile(value, prob = c(0.025, 0.25, 0.5, 0.75, 0.975)),
+                summary_name  = c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
+            ),
+            by = c("item_type_id", "item_time_id", "item_label", "item_type",
+                   "group_label", "group_label_long", "item_label_short", "item_high_label", "variable")
+        ]
+        pos_change <- data.table::dcast(pos_change,
+            item_type_id + item_time_id + item_label + item_type + group_label +
+                group_label_long + item_label_short + item_high_label + variable ~ summary_name,
+            value.var = "summary_value")
+        # mirror Parts 1-2 schema: out-of-7 rows carry no item_type_id / item_time_id
+        pos_change[item_type != "categorical", c("item_type_id", "item_time_id") := NA_integer_]
+
+        # keep Baseline/Endline levels, swap in the reduced-quantity change rows
+        pos <- pos[!variable %in% c("diff", "ratio", "diff2", "ratio2")]
+        pos <- rbind(pos, pos_change, fill = TRUE)
+    }
+
     return(pos)
 }

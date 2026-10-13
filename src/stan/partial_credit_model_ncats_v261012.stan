@@ -51,7 +51,8 @@ data {
   int<lower=0> Qcmp; // number of pairwise question comparisons
   array[Qcmp] int<lower=1, upper=C> cmp_cat_type; // category type of each comparison pair
   array[Qcmp, 2] int<lower=1> question_cmp; // [,1] = baseline question, [,2] = endline question (local ids)
-  array[R] int<lower=1> red_fn; // reduction fn per r: 1 = GMFR (2^mean log2-fold), 2 = SCR (seroconversion), 3 = rel % change (1-indexed Likert)
+  array[R] int<lower=1> red_fn; // reduction fn per r: 1 = GMFR (2^mean log2-fold), 2 = SCR (seroconversion), 3 = rel % change, 4 = diff (baseline - endline)
+  array[Qcmp] int<lower=0> cmp_reduce_thr; // per-comparison threshold for the level/threshold family (ids 3/4): 0 = expected level E[y], >=1 = P(y>=thr); ignored by GMFR/SCR
 }
 transformed data {
   real s2z_sd_unit;
@@ -350,8 +351,9 @@ generated quantities {
     participant_reduced_rho_by_cat_qu_fit = compute_reduced_rho(
                                               this_cat_prob_obs, R, Qcmp, U,
                                               question_cmp, cmp_cat_type,
-                                              red_fn, K, N, cat_obs_start,
-                                              unit_of_obs, question_of_obs);
+                                              red_fn, cmp_reduce_thr, K, N,
+                                              cat_obs_start, unit_of_obs,
+                                              question_of_obs);
     // 4. free the buffer before reusing it for the _pr pass
     for (c in 1 : C) {
       this_cat_prob_obs[c] = rep_matrix(-1., N_max, K_max);
@@ -423,8 +425,9 @@ generated quantities {
       participant_reduced_rho_by_cat_qu_pr = compute_reduced_rho(
                                                this_cat_prob_obs, R, Qcmp, U,
                                                question_cmp, cmp_cat_type,
-                                               red_fn, K, N, cat_obs_start,
-                                               unit_of_obs, question_of_obs);
+                                               red_fn, cmp_reduce_thr, K, N,
+                                               cat_obs_start, unit_of_obs,
+                                               question_of_obs);
     }
   }
 }

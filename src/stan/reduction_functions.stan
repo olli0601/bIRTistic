@@ -42,22 +42,49 @@ real reduce_scr(matrix p1, matrix p2) {
   return s / M;
 }
 
-// Relative % change in expected level, mean over participants, for 1-INDEXED Likert scales (category value
-// = k, NOT the k-1 titre ladder; e.g. Ukraine). E[y] = sum_k k p[k]; per unit rel = (E[y1]-E[y2])/E[y1].
-real reduce_relpct(matrix p1, matrix p2) {
+// Per-participant scalar summary of a (participants x K) prob matrix, mirroring the R get_endpoints pipeline
+// (y is 0-INDEXED: category k carries value k-1). thr == 0 -> expected level E[y] = sum_k (k-1) p[k] (out-of-7
+// means); thr >= 1 -> P(y >= thr) = sum_{k: k-1 >= thr} p[k] (categorical high-category aggregation).
+vector unit_summary(matrix p, int thr) {
+  int K = cols(p);
+  if (thr == 0) {
+    return p * linspaced_vector(K, 0, K - 1); // E[y], 0-indexed values
+  }
+  vector[K] mask = rep_vector(0., K);
+  for (k in 1 : K) {
+    if (k - 1 >= thr) {
+      mask[k] = 1;
+    }
+  }
+  return p * mask; // P(y >= thr)
+}
+
+// Relative % change, mean over participants: per unit (s1 - s2) / s1 * 100 (baseline - endline over baseline,
+// so LOWER-is-better items read positive -- match reduce_diff's orientation; flip in R for higher-is-better).
+// s = unit_summary(., thr). softmax probs are strictly positive so s1 > 0 (no divide-by-zero).
+real reduce_relpct(matrix p1, matrix p2, int thr) {
   int M = rows(p1);
-  int K = cols(p1);
   if (M == 0) {
     return 0;
   }
-  vector[K] lvls = linspaced_vector(K, 1, K); // category levels [1, 2, ..., K]
-  vector[M] e1 = p1 * lvls;
-  vector[M] e2 = p2 * lvls;
-  return mean((e1 - e2) ./ e1) * 100;
+  vector[M] s1 = unit_summary(p1, thr);
+  vector[M] s2 = unit_summary(p2, thr);
+  return mean((s1 - s2) ./ s1) * 100;
 }
 
-// Dispatch the reduction by id (Stan has no function-pointer / function-name data).
-real reduce_apply(int red_fn, matrix p1, matrix p2) {
+// Difference, mean over participants: per unit s1 - s2 (baseline - endline). LINEAR, so per-participant mean
+// equals the group difference. s = unit_summary(., thr).
+real reduce_diff(matrix p1, matrix p2, int thr) {
+  int M = rows(p1);
+  if (M == 0) {
+    return 0;
+  }
+  return mean(unit_summary(p1, thr) - unit_summary(p2, thr));
+}
+
+// Dispatch the reduction by id (Stan has no function-pointer / function-name data). thr is the per-comparison
+// threshold for the level/threshold family (ids 3/4); ids 1/2 (GMFR/SCR) ignore it.
+real reduce_apply(int red_fn, matrix p1, matrix p2, int thr) {
   if (red_fn == 1) {
     return reduce_gmfr(p1, p2);
   }
@@ -65,7 +92,10 @@ real reduce_apply(int red_fn, matrix p1, matrix p2) {
     return reduce_scr(p1, p2);
   }
   if (red_fn == 3) {
-    return reduce_relpct(p1, p2);
+    return reduce_relpct(p1, p2, thr);
+  }
+  if (red_fn == 4) {
+    return reduce_diff(p1, p2, thr);
   }
   reject("reduce_apply: unknown red_fn = ", red_fn);
 }
@@ -75,7 +105,8 @@ real reduce_apply(int red_fn, matrix p1, matrix p2) {
 // reduction once. prob_obs[c][n, 1:K[c]] = category probs for observation n of category type c.
 matrix compute_reduced_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
                            array[,] int question_cmp, array[] int cmp_cat_type,
-                           array[] int red_fn, array[] int K, array[] int N,
+                           array[] int red_fn, array[] int cmp_reduce_thr,
+                           array[] int K, array[] int N,
                            array[] int cat_obs_start, array[] int unit_of_obs,
                            array[] int question_of_obs) {
   matrix[R, Qcmp] out = rep_matrix(0., R, Qcmp);
@@ -119,7 +150,7 @@ matrix compute_reduced_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
       }
     }
     for (r in 1 : R) {
-      out[r, jc] = reduce_apply(red_fn[r], p1, p2);
+      out[r, jc] = reduce_apply(red_fn[r], p1, p2, cmp_reduce_thr[jc]);
     }
   }
   return out;
