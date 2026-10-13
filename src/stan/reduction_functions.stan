@@ -141,15 +141,6 @@ real reduce_dispatch(int red_fn, matrix p1, matrix p2, real g1, real g2, int thr
   reject("reduce_dispatch: unknown red_fn = ", red_fn);
 }
 
-// Which representations does a given red_fn id need? ids 1-4 (per-participant) need the paired matrices;
-// ids 5-9 (group-mean / levels) need the group means. Used to skip unrequested work in compute_rho.
-int red_needs_unit(int red_fn) {
-  return (red_fn >= 1 && red_fn <= 4) ? 1 : 0;
-}
-int red_needs_group(int red_fn) {
-  return (red_fn >= 5 && red_fn <= 9) ? 1 : 0;
-}
-
 // Orchestrator: for each comparison jc, build BOTH the paired per-participant matrices (units present at both
 // questions) and the two group means (over ALL participants at cmp1 / cmp2), then dispatch each reduction r.
 // prob_obs[c][n, 1:K[c]] = category probs for observation n of category type c. Returns R x Qcmp.
@@ -159,12 +150,17 @@ matrix compute_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
                    array[] int K, array[] int N, array[] int cat_obs_start,
                    array[] int unit_of_obs, array[] int question_of_obs) {
   matrix[R, Qcmp] out = rep_matrix(0., R, Qcmp);
-  // decide ONCE (red_fn is the same for every jc) which representations are actually requested
+  // decide ONCE (red_fn is the same for every jc) which representations are actually requested:
+  // ids 1-4 (per-participant) need the paired matrices; ids 5-9 (levels / group-mean) need the group means
   int need_unit = 0;
   int need_group = 0;
   for (r in 1 : R) {
-    need_unit += red_needs_unit(red_fn[r]);
-    need_group += red_needs_group(red_fn[r]);
+    if (red_fn[r] >= 1 && red_fn[r] <= 4) {
+      need_unit = 1;
+    }
+    if (red_fn[r] >= 5 && red_fn[r] <= 9) {
+      need_group = 1;
+    }
   }
   for (jc in 1 : Qcmp) {
     int c = cmp_cat_type[jc];

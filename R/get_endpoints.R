@@ -26,7 +26,7 @@
 #'   Default is "ordered_prob_by_cat_qu_pr".
 #' @param red_fn Integer vector. The reduction-id vector used in the fit (maps rho_by_cat_qu_* slot r ->
 #'   reduction id; see reduction_functions.stan). Only used for endpoint_type="items"; must contain the
-#'   group-mean ids 5,6,7,8. Default c(5,6,7,8,3,4) matches fit_partial_credit_model_ncats_stanhmc.
+#'   group-mean ids 5,6,7,8. Default c(5,6,4,8,3,7) matches fit_partial_credit_model_ncats_stanhmc.
 #'
 #' @return A data.table containing endpoint summaries with columns:
 #'   - item_type, group_label, group_label_long: Item type and groupings
@@ -95,7 +95,7 @@
 #' @importFrom data.table copy merge setkey dcast melt set rbind data.table as.data.table setnames setorder
 #' @importFrom posterior as_draws_df
 #' @export
-get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items", param_name = "ordered_prob_by_cat_qu_pr", red_fn = c(5L, 6L, 7L, 8L, 3L, 4L)) {
+get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items", param_name = "ordered_prob_by_cat_qu_pr", red_fn = c(5L, 6L, 4L, 8L, 3L, 7L)) {
     
     # Ensure data.table is available
     if (!requireNamespace("data.table", quietly = TRUE)) {
