@@ -59,25 +59,6 @@ vector unit_summary(matrix p, int thr) {
   return p * mask; // P(y >= thr)
 }
 
-// Scalar summary of ONE participant's probs (a single row): E[y] (thr == 0) or P(y >= thr). Used to build
-// group means for the group-mean reduction family (summary then mean over the group's participants).
-real summary_scalar(row_vector p, int thr) {
-  int K = num_elements(p);
-  real s = 0;
-  if (thr == 0) {
-    for (k in 1 : K) {
-      s += (k - 1) * p[k];
-    }
-  } else {
-    for (k in 1 : K) {
-      if (k - 1 >= thr) {
-        s += p[k];
-      }
-    }
-  }
-  return s;
-}
-
 // Relative % change, mean over participants: per unit (s1 - s2) / s1 * 100 (baseline - endline over baseline,
 // so LOWER-is-better items read positive -- match reduce_diff's orientation; flip in R for higher-is-better).
 // s = unit_summary(., thr). softmax probs are strictly positive so s1 > 0 (no divide-by-zero).
@@ -207,23 +188,42 @@ matrix compute_group_means(array[] matrix prob_obs, int Qcmp,
     int Kc = K[c];
     int thr = cmp_reduce_thr[jc];
     int s = cat_obs_start[c];
-    real sum1 = 0;
-    real sum2 = 0;
     int n1 = 0;
     int n2 = 0;
     for (n in 1 : N[c]) {
       int obs = s + n - 1;
       if (question_of_obs[obs] == question_cmp[jc, 1]) {
-        sum1 += summary_scalar(prob_obs[c][n, 1 : Kc], thr);
         n1 += 1;
       }
       if (question_of_obs[obs] == question_cmp[jc, 2]) {
-        sum2 += summary_scalar(prob_obs[c][n, 1 : Kc], thr);
         n2 += 1;
       }
     }
-    gm[jc, 1] = n1 > 0 ? sum1 / n1 : 0;
-    gm[jc, 2] = n2 > 0 ? sum2 / n2 : 0;
+    if (n1 > 0) {
+      // stack the cmp1 group's rows, then group mean = mean over participants of unit_summary
+      matrix[n1, Kc] g1 = rep_matrix(0., n1, Kc);
+      int m = 0;
+      for (n in 1 : N[c]) {
+        int obs = s + n - 1;
+        if (question_of_obs[obs] == question_cmp[jc, 1]) {
+          m += 1;
+          g1[m,  : ] = prob_obs[c][n, 1 : Kc];
+        }
+      }
+      gm[jc, 1] = mean(unit_summary(g1, thr));
+    }
+    if (n2 > 0) {
+      matrix[n2, Kc] g2 = rep_matrix(0., n2, Kc);
+      int m = 0;
+      for (n in 1 : N[c]) {
+        int obs = s + n - 1;
+        if (question_of_obs[obs] == question_cmp[jc, 2]) {
+          m += 1;
+          g2[m,  : ] = prob_obs[c][n, 1 : Kc];
+        }
+      }
+      gm[jc, 2] = mean(unit_summary(g2, thr));
+    }
   }
   return gm;
 }
