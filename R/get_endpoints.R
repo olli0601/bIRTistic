@@ -24,6 +24,9 @@
 #'   - "ordered_prob_by_cat_qu_pr": Posterior predictions
 #'   - "ordered_prob_by_cat_qu_fit": Fitted values
 #'   Default is "ordered_prob_by_cat_qu_pr".
+#' @param red_fn Integer vector. The reduction-id vector used in the fit (maps rho_by_cat_qu_* slot r ->
+#'   reduction id; see reduction_functions.stan). Only used for endpoint_type="items"; must contain the
+#'   group-mean ids 5,6,7,8. Default c(5,6,7,8,3,4) matches fit_partial_credit_model_ncats_stanhmc.
 #'
 #' @return A data.table containing endpoint summaries with columns:
 #'   - item_type, group_label, group_label_long: Item type and groupings
@@ -53,11 +56,11 @@
 #' For out-of-7 items, direction of diff/ratio respects item_high_label when endpoint_type="items".
 #'
 #' Source of the reductions:
-#' - endpoint_type="items": Baseline/Endline and diff/ratio/diff2/ratio2 are read directly from the PCM Stan
-#'   generated quantities group_mean_by_cat_qu_* (group levels) and group_reduced_rho_by_cat_qu_* (ratio-/diff-
-#'   of-group-means), i.e. the reductions are computed inside the model (matching the legacy group-mean pos).
-#'   The per-participant paired version is also emitted as participant_reduced_rho_by_cat_qu_* (correct pre/post
-#'   estimand) and can be read the same way. param_name selects the _pr or _fit variant.
+#' - endpoint_type="items": Baseline/Endline and diff/ratio/diff2/ratio2 are read from the single PCM Stan
+#'   output rho_by_cat_qu_* [r, jc], where red_fn[r] names the reduction. The legacy group-mean pos uses ids
+#'   5 (baseline level), 6 (endline level), 7 (rel %, ratio-of-means), 8 (diff-of-means); the per-participant
+#'   pre/post estimand (ids 3 rel %, 4 diff) is in the same matrix. param_name selects the _pr or _fit variant;
+#'   red_fn must match the vector used in the fit.
 #' - endpoint_type="item_groups": still computed in R from ordered_prob_by_cat_qu_* (cross-item aggregation is
 #'   not done inside the model).
 #'
@@ -92,7 +95,7 @@
 #' @importFrom data.table copy merge setkey dcast melt set rbind data.table as.data.table setnames setorder
 #' @importFrom posterior as_draws_df
 #' @export
-get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items", param_name = "ordered_prob_by_cat_qu_pr") {
+get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpoint_type = "items", param_name = "ordered_prob_by_cat_qu_pr", red_fn = c(5L, 6L, 7L, 8L, 3L, 4L)) {
     
     # Ensure data.table is available
     if (!requireNamespace("data.table", quietly = TRUE)) {
@@ -115,17 +118,20 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # =========================================================================
     # endpoint_type = "items": read ALL reductions straight from the Stan model
     # =========================================================================
-    # The PCM generated quantities compute the reductions inside the model (per comparison jc = one item paired
-    # Baseline->Endline). We read the GROUP-MEAN family to reproduce the legacy ratio-/diff-of-group-means pos:
-    #   group_mean_by_cat_qu_*   [jc, 1|2]  -> Baseline (col 1) / Endline (col 2) group levels (E[y] or P(y>=thr))
-    #   group_reduced_rho_by_cat_qu_* [r,jc] -> r=1 rel % change, r=2 diff (both baseline - endline)
-    # Baseline/Endline levels come from the same group means (no separate ordered_prob reduction in R). The
-    # per-participant paired version is also emitted (participant_reduced_rho_by_cat_qu_*) for the correct
-    # pre/post estimand -- read it the same way if wanted. (endpoint_type = "item_groups" keeps the legacy
-    # ordered_prob path below, since the per-item reduced quantities are not cross-item aggregated in Stan.)
+    # The PCM generated quantities compute every reduction inside the model and emit one matrix
+    # rho_by_cat_qu_* [r, jc] (r = reduction slot, jc = item paired Baseline->Endline). red_fn[r] names the
+    # reduction (see reduction_functions.stan). To reproduce the legacy ratio-/diff-of-group-means pos we read
+    # the GROUP-MEAN ids 5 (baseline level), 6 (endline level), 7 (rel %), 8 (diff). diff2 = -diff, ratio2 =
+    # -ratio; categorical items are not direction-aware, out-of-7 respect item_high_label. The per-participant
+    # ids (3 rel %, 4 diff) are in the same matrix for the correct pre/post estimand -- select them via red_fn.
+    # (endpoint_type = "item_groups" keeps the legacy ordered_prob path below -- no cross-item aggregation in Stan.)
     if (endpoint_type == "items") {
-        gm_param <- sub("ordered_prob_by_cat_qu", "group_mean_by_cat_qu", param_name)
-        gr_param <- sub("ordered_prob_by_cat_qu", "group_reduced_rho_by_cat_qu", param_name)
+        need <- c(5L, 6L, 7L, 8L)
+        if (!all(need %in% red_fn)) {
+            stop("red_fn must contain the group-mean ids 5,6,7,8 to build the items pos; got: ",
+                 paste(red_fn, collapse = ","))
+        }
+        rho_param <- sub("ordered_prob_by_cat_qu", "rho_by_cat_qu", param_name)
         draws <- readRDS(draws_file)
 
         # comparison index jc in the SAME order fit_partial_credit_model_ncats_stanhmc built question_cmp:
@@ -140,32 +146,30 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
                                           item_label_short, group_label, group_label_long))),
             by = c("item_type_id", "item_label"))
 
-        # --- Baseline / Endline group levels ---
-        gm <- draws[,, grepl(gm_param, dimnames(draws)[[3]]), drop = FALSE]
-        gm <- data.table::as.data.table(posterior::as_draws_df(gm))
-        gm <- data.table::melt(gm, id.vars = c(".draw", ".chain", ".iteration"), value.name = "value")
-        gm[, jc  := as.integer(gsub(paste0(gm_param, "\\[([0-9]+),([0-9]+)\\]"), "\\1", variable))]
-        gm[, col := as.integer(gsub(paste0(gm_param, "\\[([0-9]+),([0-9]+)\\]"), "\\2", variable))]
-        data.table::set(gm, NULL, "variable", NULL)
-        gm[, variable := data.table::fifelse(col == 1L, "Baseline", "Endline")]
-        gm <- gm[, .(.draw, jc, variable, value)]
+        # --- read rho_by_cat_qu_*[r, jc], map slot r -> reduction id via red_fn, pivot id -> column ---
+        rho <- draws[,, grepl(rho_param, dimnames(draws)[[3]]), drop = FALSE]
+        rho <- data.table::as.data.table(posterior::as_draws_df(rho))
+        rho <- data.table::melt(rho, id.vars = c(".draw", ".chain", ".iteration"), value.name = "val")
+        rho[, r  := as.integer(gsub(paste0(rho_param, "\\[([0-9]+),([0-9]+)\\]"), "\\1", variable))]
+        rho[, jc := as.integer(gsub(paste0(rho_param, "\\[([0-9]+),([0-9]+)\\]"), "\\2", variable))]
+        data.table::set(rho, NULL, "variable", NULL)
+        rho[, red := red_fn[r]]
+        w <- data.table::dcast(rho[red %in% need], .draw + jc ~ red, value.var = "val")
+        data.table::setnames(w, c("5", "6", "7", "8"), c("base", "end", "grp_relpct", "grp_diff"))
 
-        # --- diff / ratio / diff2 / ratio2 from group-mean reductions ---
-        gr <- draws[,, grepl(gr_param, dimnames(draws)[[3]]), drop = FALSE]
-        gr <- data.table::as.data.table(posterior::as_draws_df(gr))
-        gr <- data.table::melt(gr, id.vars = c(".draw", ".chain", ".iteration"), value.name = "rho")
-        gr[, r  := as.integer(gsub(paste0(gr_param, "\\[([0-9]+),([0-9]+)\\]"), "\\1", variable))]
-        gr[, jc := as.integer(gsub(paste0(gr_param, "\\[([0-9]+),([0-9]+)\\]"), "\\2", variable))]
-        data.table::set(gr, NULL, "variable", NULL)
-        gr <- data.table::dcast(gr, .draw + jc ~ r, value.var = "rho")
-        data.table::setnames(gr, c("1", "2"), c("relpct", "difflvl"))
-        gr <- merge(gr, cmp[, .(jc, item_type, item_high_label)], by = "jc")
-        gr[, ratio_lb := relpct / 100]                                 # (Baseline-Endline)/Baseline as a fraction
+        # --- Baseline / Endline group levels (ids 5, 6) ---
+        gm <- data.table::melt(w[, .(.draw, jc, Baseline = base, Endline = end)],
+            id.vars = c(".draw", "jc"), variable.name = "variable", value.name = "value")
+        gm[, variable := as.character(variable)]
+
+        # --- diff / ratio / diff2 / ratio2 from the group-mean reductions (ids 7, 8) ---
+        gr <- merge(w[, .(.draw, jc, grp_relpct, grp_diff)], cmp[, .(jc, item_type, item_high_label)], by = "jc")
+        gr[, ratio_lb := grp_relpct / 100]                             # (Baseline-Endline)/Baseline as a fraction
         gr[, is_cat := item_type == "categorical"]
         gr[, lb := item_high_label == "lower_is_better"]
-        gr[, diff   := data.table::fifelse(is_cat | lb,  difflvl, -difflvl)]
+        gr[, diff   := data.table::fifelse(is_cat | lb,  grp_diff, -grp_diff)]
         gr[, ratio  := data.table::fifelse(is_cat | lb, ratio_lb, -ratio_lb)]
-        gr[, diff2  := -difflvl]
+        gr[, diff2  := -grp_diff]
         gr[, ratio2 := -ratio_lb]
         gr <- data.table::melt(gr, id.vars = c(".draw", "jc"),
             measure.vars = c("diff", "ratio", "diff2", "ratio2"))

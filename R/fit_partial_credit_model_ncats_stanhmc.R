@@ -9,8 +9,8 @@
 #'   item_type, y_stan, item_time_id, pid, and oidt columns.
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
 #' @param stan_file Character. Path to Stan model file (.stan). Default: partial_credit_model_ncats_v261012.stan
-#'   (supersedes v260413: additionally emits per-participant PAIRED reduced effect sizes
-#'   participant_reduced_rho_by_cat_qu_fit/_pr via reduction_functions.stan).
+#'   (supersedes v260413: additionally emits reduced effect sizes rho_by_cat_qu_fit/_pr
+#'   via reduction_functions.stan; red_fn selects per-participant and/or group-mean reductions).
 #' @param x_formula Formula. Formula specifying predictors for the design matrix
 #' @param x_formula_ignore_regex Character. Regular expression pattern to identify X columns to exclude 
 #'   from posterior predictive probability calculations (ordered_prob_by_cat_qu_pr). Columns matching this 
@@ -172,13 +172,16 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     # --- per-participant PAIRED reduced effect sizes: relative % change + difference (baseline - endline) ---
     # Request both reductions for every item measured at BOTH Baseline and Endline. Each comparison pairs the
     # item's baseline question (item_time_id) with its endline question within its category type; the reductions
-    # run inside the Stan generated quantities, yielding participant_reduced_rho_by_cat_qu_fit/_pr (R x Qcmp).
+    # run inside the Stan generated quantities, yielding rho_by_cat_qu_fit/_pr (R x Qcmp; red_fn[r] names each).
     cmp_base <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, item_type, q1 = item_time_id)])
     cmp_end  <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q2 = item_time_id)])
     cmp <- merge(cmp_base, cmp_end, by = c("item_type_id", "item_label"))
     setkey(cmp, item_type_id, item_label)
-    stan_data$R <- 2L
-    stan_data$red_fn <- c(3L, 4L)                               # 3 = rel % change, 4 = diff (baseline - endline)
+    # one id per reduction (see reduction_functions.stan): group-mean 5=baseline level, 6=endline level,
+    # 7=rel% (ratio-of-means), 8=diff-of-means (these reproduce the legacy get_endpoints pos); plus the
+    # per-participant 3=rel%, 4=diff (correct pre/post estimand, available alongside).
+    stan_data$red_fn <- c(5L, 6L, 7L, 8L, 3L, 4L)
+    stan_data$R <- length(stan_data$red_fn)
     stan_data$Qcmp <- nrow(cmp)
     stan_data$cmp_cat_type <- as.integer(cmp$item_type_id)
     stan_data$question_cmp <- matrix(as.integer(c(cmp$q1, cmp$q2)), ncol = 2) # Qcmp x 2: [,1]=baseline, [,2]=endline

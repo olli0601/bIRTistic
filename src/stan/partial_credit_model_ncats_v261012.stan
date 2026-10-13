@@ -1,6 +1,6 @@
 // Partial Credit Model with Arbitrary Number of Category Types
-// Version: v261012  (adds per-participant PAIRED reduced effect sizes: participant_reduced_rho_qu_pr,
-//   R x Qcmp, e.g. GMFR + SCR for influenza HAI; reduction done INSIDE the model so output stays tiny)
+// Version: v261012  (adds reduced effect sizes rho_by_cat_qu_fit/_pr, R x Qcmp; red_fn[r] selects one
+//   reduction -- per-participant paired OR group-mean -- done INSIDE the model so output stays tiny)
 //
 // This model extends partial_credit_model_2cats_v251224.stan to handle an arbitrary
 // number of category types (C >= 1).
@@ -51,7 +51,7 @@ data {
   int<lower=0> Qcmp; // number of pairwise question comparisons
   array[Qcmp] int<lower=1, upper=C> cmp_cat_type; // category type of each comparison pair
   array[Qcmp, 2] int<lower=1> question_cmp; // [,1] = baseline question, [,2] = endline question (local ids)
-  array[R] int<lower=1> red_fn; // reduction fn per r: 1 = GMFR (2^mean log2-fold), 2 = SCR (seroconversion), 3 = rel % change, 4 = diff (baseline - endline)
+  array[R] int<lower=1> red_fn; // reduction per r (one id = one reduction; see reduction_functions.stan). per-participant: 1=GMFR, 2=SCR, 3=rel%, 4=diff; group-mean: 5=baseline level, 6=endline level, 7=rel% (ratio-of-means), 8=diff-of-means, 9=GMFR
   array[Qcmp] int<lower=0> cmp_reduce_thr; // per-comparison threshold for the level/threshold family (ids 3/4): 0 = expected level E[y], >=1 = P(y>=thr); ignored by GMFR/SCR
 }
 transformed data {
@@ -282,12 +282,8 @@ generated quantities {
   array[N_total] int<lower=0> ypred;
   array[N_total] real log_lik;
   array[C] vector[Q_max] ordinal_brier_score;
-  matrix[R, Qcmp] participant_reduced_rho_by_cat_qu_fit; // per-participant paired reduced effect sizes (R x Qcmp)
-  matrix[R, Qcmp] participant_reduced_rho_by_cat_qu_pr; // per-participant paired reduced effect sizes (R x Qcmp)
-  matrix[Qcmp, 2] group_mean_by_cat_qu_fit; // group-mean levels: Baseline (col 1, cmp1), Endline (col 2, cmp2)
-  matrix[Qcmp, 2] group_mean_by_cat_qu_pr;
-  matrix[R, Qcmp] group_reduced_rho_by_cat_qu_fit; // group-mean reductions (ratio-/diff-of-group-means; R x Qcmp)
-  matrix[R, Qcmp] group_reduced_rho_by_cat_qu_pr;
+  matrix[R, Qcmp] rho_by_cat_qu_fit; // reduced effect sizes (R x Qcmp); red_fn[r] selects the reduction (see reduction_functions.stan)
+  matrix[R, Qcmp] rho_by_cat_qu_pr;
 
   {
     // Per-observation category probs, reused across the FIT then PR passes (reset to -1 between).
@@ -351,22 +347,10 @@ generated quantities {
                                            q_start_c, q_end_c, sorted_idx_c);
       }
     }
-    // 3. participant_reduced_rho_by_cat_qu_fit: compute effect sizes on per-participant paired joint questions
-    participant_reduced_rho_by_cat_qu_fit = compute_reduced_rho(
-                                              this_cat_prob_obs, R, Qcmp, U,
-                                              question_cmp, cmp_cat_type,
-                                              red_fn, cmp_reduce_thr, K, N,
-                                              cat_obs_start, unit_of_obs,
-                                              question_of_obs);
-    // 3b. group-mean levels + group-mean reductions (legacy ratio-/diff-of-group-means)
-    group_mean_by_cat_qu_fit = compute_group_means(this_cat_prob_obs, Qcmp,
-                                                   question_cmp, cmp_cat_type,
-                                                   cmp_reduce_thr, K, N,
-                                                   cat_obs_start,
-                                                   question_of_obs);
-    group_reduced_rho_by_cat_qu_fit = compute_group_reduced(
-                                        group_mean_by_cat_qu_fit, R, Qcmp,
-                                        red_fn);
+    // 3. rho_by_cat_qu_fit: all reduced effect sizes (per-participant + group-mean), red_fn[r] selects each
+    rho_by_cat_qu_fit = compute_rho(this_cat_prob_obs, R, Qcmp, U, question_cmp,
+                                    cmp_cat_type, red_fn, cmp_reduce_thr, K, N,
+                                    cat_obs_start, unit_of_obs, question_of_obs);
     // 4. free the buffer before reusing it for the _pr pass
     for (c in 1 : C) {
       this_cat_prob_obs[c] = rep_matrix(-1., N_max, K_max);
@@ -376,9 +360,7 @@ generated quantities {
     if (P_pr == P) {
       // all predictors kept -> PR == FIT
       ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit;
-      participant_reduced_rho_by_cat_qu_pr = participant_reduced_rho_by_cat_qu_fit;
-      group_mean_by_cat_qu_pr = group_mean_by_cat_qu_fit;
-      group_reduced_rho_by_cat_qu_pr = group_reduced_rho_by_cat_qu_fit;
+      rho_by_cat_qu_pr = rho_by_cat_qu_fit;
     } else {
       // 5. precompute this_cat_prob_obs from eta_pr (only Xpr_id columns of X)
       for (c in 1 : C) {
@@ -436,22 +418,10 @@ generated quantities {
                                                                 / count_by_question[q];
         }
       }
-      // 7. participant_reduced_rho_by_cat_qu_pr from the same confounding-adjusted probs
-      participant_reduced_rho_by_cat_qu_pr = compute_reduced_rho(
-                                               this_cat_prob_obs, R, Qcmp, U,
-                                               question_cmp, cmp_cat_type,
-                                               red_fn, cmp_reduce_thr, K, N,
-                                               cat_obs_start, unit_of_obs,
-                                               question_of_obs);
-      // 8. group-mean levels + group-mean reductions on the confounding-adjusted probs
-      group_mean_by_cat_qu_pr = compute_group_means(this_cat_prob_obs, Qcmp,
-                                                    question_cmp, cmp_cat_type,
-                                                    cmp_reduce_thr, K, N,
-                                                    cat_obs_start,
-                                                    question_of_obs);
-      group_reduced_rho_by_cat_qu_pr = compute_group_reduced(
-                                         group_mean_by_cat_qu_pr, R, Qcmp,
-                                         red_fn);
+      // 7. rho_by_cat_qu_pr: all reduced effect sizes on the confounding-adjusted probs
+      rho_by_cat_qu_pr = compute_rho(this_cat_prob_obs, R, Qcmp, U, question_cmp,
+                                     cmp_cat_type, red_fn, cmp_reduce_thr, K, N,
+                                     cat_obs_start, unit_of_obs, question_of_obs);
     }
   }
 }
