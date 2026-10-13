@@ -284,7 +284,11 @@ generated quantities {
   array[C] vector[Q_max] ordinal_brier_score;
   matrix[R, Qcmp] participant_reduced_rho_by_cat_qu_fit; // per-participant paired reduced effect sizes (R x Qcmp)
   matrix[R, Qcmp] participant_reduced_rho_by_cat_qu_pr; // per-participant paired reduced effect sizes (R x Qcmp)
-  
+  matrix[Qcmp, 2] group_mean_by_cat_qu_fit; // group-mean levels: Baseline (col 1, cmp1), Endline (col 2, cmp2)
+  matrix[Qcmp, 2] group_mean_by_cat_qu_pr;
+  matrix[R, Qcmp] group_reduced_rho_by_cat_qu_fit; // group-mean reductions (ratio-/diff-of-group-means; R x Qcmp)
+  matrix[R, Qcmp] group_reduced_rho_by_cat_qu_pr;
+
   {
     // Per-observation category probs, reused across the FIT then PR passes (reset to -1 between).
     array[C] matrix[N_max, K_max] this_cat_prob_obs;
@@ -354,6 +358,15 @@ generated quantities {
                                               red_fn, cmp_reduce_thr, K, N,
                                               cat_obs_start, unit_of_obs,
                                               question_of_obs);
+    // 3b. group-mean levels + group-mean reductions (legacy ratio-/diff-of-group-means)
+    group_mean_by_cat_qu_fit = compute_group_means(this_cat_prob_obs, Qcmp,
+                                                   question_cmp, cmp_cat_type,
+                                                   cmp_reduce_thr, K, N,
+                                                   cat_obs_start,
+                                                   question_of_obs);
+    group_reduced_rho_by_cat_qu_fit = compute_group_reduced(
+                                        group_mean_by_cat_qu_fit, R, Qcmp,
+                                        red_fn);
     // 4. free the buffer before reusing it for the _pr pass
     for (c in 1 : C) {
       this_cat_prob_obs[c] = rep_matrix(-1., N_max, K_max);
@@ -364,6 +377,8 @@ generated quantities {
       // all predictors kept -> PR == FIT
       ordered_prob_by_cat_qu_pr = ordered_prob_by_cat_qu_fit;
       participant_reduced_rho_by_cat_qu_pr = participant_reduced_rho_by_cat_qu_fit;
+      group_mean_by_cat_qu_pr = group_mean_by_cat_qu_fit;
+      group_reduced_rho_by_cat_qu_pr = group_reduced_rho_by_cat_qu_fit;
     } else {
       // 5. precompute this_cat_prob_obs from eta_pr (only Xpr_id columns of X)
       for (c in 1 : C) {
@@ -428,6 +443,15 @@ generated quantities {
                                                red_fn, cmp_reduce_thr, K, N,
                                                cat_obs_start, unit_of_obs,
                                                question_of_obs);
+      // 8. group-mean levels + group-mean reductions on the confounding-adjusted probs
+      group_mean_by_cat_qu_pr = compute_group_means(this_cat_prob_obs, Qcmp,
+                                                    question_cmp, cmp_cat_type,
+                                                    cmp_reduce_thr, K, N,
+                                                    cat_obs_start,
+                                                    question_of_obs);
+      group_reduced_rho_by_cat_qu_pr = compute_group_reduced(
+                                         group_mean_by_cat_qu_pr, R, Qcmp,
+                                         red_fn);
     }
   }
 }

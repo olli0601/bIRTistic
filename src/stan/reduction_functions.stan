@@ -59,6 +59,25 @@ vector unit_summary(matrix p, int thr) {
   return p * mask; // P(y >= thr)
 }
 
+// Scalar summary of ONE participant's probs (a single row): E[y] (thr == 0) or P(y >= thr). Used to build
+// group means for the group-mean reduction family (summary then mean over the group's participants).
+real summary_scalar(row_vector p, int thr) {
+  int K = num_elements(p);
+  real s = 0;
+  if (thr == 0) {
+    for (k in 1 : K) {
+      s += (k - 1) * p[k];
+    }
+  } else {
+    for (k in 1 : K) {
+      if (k - 1 >= thr) {
+        s += p[k];
+      }
+    }
+  }
+  return s;
+}
+
 // Relative % change, mean over participants: per unit (s1 - s2) / s1 * 100 (baseline - endline over baseline,
 // so LOWER-is-better items read positive -- match reduce_diff's orientation; flip in R for higher-is-better).
 // s = unit_summary(., thr). softmax probs are strictly positive so s1 > 0 (no divide-by-zero).
@@ -98,6 +117,25 @@ real reduce_apply(int red_fn, matrix p1, matrix p2, int thr) {
     return reduce_diff(p1, p2, thr);
   }
   reject("reduce_apply: unknown red_fn = ", red_fn);
+}
+
+// GROUP-MEAN family: reduce two pre-formed group means g1 (cmp1 group) and g2 (cmp2 group). This matches the
+// legacy get_endpoints ratio-/diff-of-group-means. For a paired pre/post design this is NOT the right estimand
+// (use the per-participant reduce_apply); it is the correct one for a disjoint between-group comparison.
+real reduce_group(int red_fn, real g1, real g2) {
+  if (red_fn == 1) {
+    return pow(2.0, g2 - g1); // GMFR fold rise (g = group-mean log2 level)
+  }
+  if (red_fn == 2) {
+    reject("reduce_group: SCR (red_fn 2) is a joint functional, not defined on group means");
+  }
+  if (red_fn == 3) {
+    return (g1 - g2) / g1 * 100; // rel % change (baseline - endline)/baseline
+  }
+  if (red_fn == 4) {
+    return g1 - g2; // diff (baseline - endline)
+  }
+  reject("reduce_group: unknown red_fn = ", red_fn);
 }
 
 // Orchestrator: for each comparison pair jc, find units present at BOTH question_cmp[jc,1] and [jc,2]
@@ -151,6 +189,52 @@ matrix compute_reduced_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
     }
     for (r in 1 : R) {
       out[r, jc] = reduce_apply(red_fn[r], p1, p2, cmp_reduce_thr[jc]);
+    }
+  }
+  return out;
+}
+
+// GROUP-MEAN levels: for each comparison jc, the mean over ALL participants at question_cmp[jc,1] (col 1) and
+// at question_cmp[jc,2] (col 2) of the per-participant summary (E[y] or P(y>=thr)). These are the Baseline /
+// Endline group levels. No pairing, so this also serves a disjoint between-group comparison.
+matrix compute_group_means(array[] matrix prob_obs, int Qcmp,
+                           array[,] int question_cmp, array[] int cmp_cat_type,
+                           array[] int cmp_reduce_thr, array[] int K, array[] int N,
+                           array[] int cat_obs_start, array[] int question_of_obs) {
+  matrix[Qcmp, 2] gm = rep_matrix(0., Qcmp, 2);
+  for (jc in 1 : Qcmp) {
+    int c = cmp_cat_type[jc];
+    int Kc = K[c];
+    int thr = cmp_reduce_thr[jc];
+    int s = cat_obs_start[c];
+    real sum1 = 0;
+    real sum2 = 0;
+    int n1 = 0;
+    int n2 = 0;
+    for (n in 1 : N[c]) {
+      int obs = s + n - 1;
+      if (question_of_obs[obs] == question_cmp[jc, 1]) {
+        sum1 += summary_scalar(prob_obs[c][n, 1 : Kc], thr);
+        n1 += 1;
+      }
+      if (question_of_obs[obs] == question_cmp[jc, 2]) {
+        sum2 += summary_scalar(prob_obs[c][n, 1 : Kc], thr);
+        n2 += 1;
+      }
+    }
+    gm[jc, 1] = n1 > 0 ? sum1 / n1 : 0;
+    gm[jc, 2] = n2 > 0 ? sum2 / n2 : 0;
+  }
+  return gm;
+}
+
+// GROUP-MEAN reductions: apply reduce_group to the pre-formed group means (gmean[jc,1], gmean[jc,2]) for each
+// reduction r and comparison jc. Mirrors the legacy ratio-/diff-of-group-means in get_endpoints.
+matrix compute_group_reduced(matrix gmean, int R, int Qcmp, array[] int red_fn) {
+  matrix[R, Qcmp] out = rep_matrix(0., R, Qcmp);
+  for (jc in 1 : Qcmp) {
+    for (r in 1 : R) {
+      out[r, jc] = reduce_group(red_fn[r], gmean[jc, 1], gmean[jc, 2]);
     }
   }
   return out;
