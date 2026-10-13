@@ -1,20 +1,26 @@
 // reduction_functions.stan — reduction catalog for rho_by_cat_qu (per-participant paired + group-mean).
 // Included inside the model's `functions` block (alongside credit_model_functions.stan).
-// Each reduction takes the SET of participants present at BOTH paired questions:
-//   p1 = baseline category probs (rows = participants, cols = K categories), p2 = endline (same rows/cols).
-// It averages the per-participant functional over participants AND applies the final transform (finalise).
-// Reduction-specific constants (e.g. SCR cut/floor) are defined INTERNALLY here, NOT exposed as data.
+// Each reduction takes BOTH representations and a by_unit flag:
+//   p1/p2 = PAIRED per-participant category probs (rows = units present at both questions, cols = K);
+//   g1/g2 = the two GROUP MEANS of unit_summary (over all participants at cmp1 / cmp2).
+// by_unit = 1 uses p1/p2 (g1/g2 ignored); by_unit = 0 uses g1/g2 (p1/p2 ignored). Stan has no null, so the
+// caller passes both and the unused side is ignored. Reduction-specific constants (e.g. SCR cut/floor) are
+// defined INTERNALLY here, NOT exposed as data.
 
-// GMFR: 2^( mean_u (E[y2_u] - E[y1_u]) ), E[y] = sum_k (k-1) p[k] over the 0-INDEXED log2-titre ladder
-// (category k is 1-indexed in Stan but carries ladder value k-1: 1:5->0, 1:10->1, 1:40->3).
-real reduce_gmfr(matrix p1, matrix p2) {
-  int M = rows(p1);
-  int K = cols(p1);
-  if (M == 0) {
-    return 0;
+// GMFR = 2^(Δ mean log2 level), E[y] = sum_k (k-1) p[k] over the 0-INDEXED log2-titre ladder (category k is
+// 1-indexed in Stan but carries ladder value k-1: 1:5->0, 1:10->1, 1:40->3). by_unit: Δ = mean_u (E[y2_u]-
+// E[y1_u]) from the paired matrices p1/p2 (g1/g2 unused); else Δ = g2 - g1 from the group means (p1/p2 unused).
+real reduce_gmfr(matrix p1, matrix p2, real g1, real g2, int by_unit) {
+  if (by_unit) {
+    int M = rows(p1);
+    int K = cols(p1);
+    if (M == 0) {
+      return 0;
+    }
+    vector[K] cats = linspaced_vector(K, 0, K - 1); // ladder values [0, 1, ..., K-1]
+    return pow(2.0, mean((p2 - p1) * cats));
   }
-  vector[K] cats = linspaced_vector(K, 0, K - 1); // ladder values [0, 1, ..., K-1]
-  return pow(2.0, mean((p2 - p1) * cats)); // E[y2]-E[y1] per unit, mean over units, then 2^(.)
+  return pow(2.0, g2 - g1);
 }
 
 // SCR: mean_u P(seroconversion_u) = mean_u P(d >= scr_cut), d = (post - pre) - 1{pre == scr_floor}
@@ -59,27 +65,34 @@ vector unit_summary(matrix p, int thr) {
   return p * mask; // P(y >= thr)
 }
 
-// Relative % change, mean over participants: per unit (s1 - s2) / s1 * 100 (baseline - endline over baseline,
-// so LOWER-is-better items read positive -- match reduce_diff's orientation; flip in R for higher-is-better).
-// s = unit_summary(., thr). softmax probs are strictly positive so s1 > 0 (no divide-by-zero).
-real reduce_relpct(matrix p1, matrix p2, int thr) {
-  int M = rows(p1);
-  if (M == 0) {
-    return 0;
+// Relative % change = (s1 - s2)/s1 * 100 (baseline - endline over baseline; LOWER-is-better reads positive --
+// flip in R for higher-is-better). by_unit: mean over participants of the per-unit ratio (s = unit_summary(.,
+// thr) of the paired matrices; softmax probs > 0 so s1 > 0, no divide-by-zero); else ratio of the group means
+// g1/g2 (already summarised, thr unused). p1/p2 unused when !by_unit, g1/g2 unused when by_unit.
+real reduce_relpct(matrix p1, matrix p2, real g1, real g2, int by_unit, int thr) {
+  if (by_unit) {
+    int M = rows(p1);
+    if (M == 0) {
+      return 0;
+    }
+    vector[M] s1 = unit_summary(p1, thr);
+    vector[M] s2 = unit_summary(p2, thr);
+    return mean((s1 - s2) ./ s1) * 100;
   }
-  vector[M] s1 = unit_summary(p1, thr);
-  vector[M] s2 = unit_summary(p2, thr);
-  return mean((s1 - s2) ./ s1) * 100;
+  return (g1 - g2) / g1 * 100;
 }
 
-// Difference, mean over participants: per unit s1 - s2 (baseline - endline). LINEAR, so per-participant mean
-// equals the group difference. s = unit_summary(., thr).
-real reduce_diff(matrix p1, matrix p2, int thr) {
-  int M = rows(p1);
-  if (M == 0) {
-    return 0;
+// Difference = s1 - s2 (baseline - endline). by_unit: mean over participants (= group diff, LINEAR) of
+// unit_summary(., thr) of the paired matrices; else g1 - g2 from the group means. Unused args as above.
+real reduce_diff(matrix p1, matrix p2, real g1, real g2, int by_unit, int thr) {
+  if (by_unit) {
+    int M = rows(p1);
+    if (M == 0) {
+      return 0;
+    }
+    return mean(unit_summary(p1, thr) - unit_summary(p2, thr));
   }
-  return mean(unit_summary(p1, thr) - unit_summary(p2, thr));
+  return g1 - g2;
 }
 
 // Unified reduction catalog. One red_fn id = ONE specific reduction. p1/p2 are the PAIRED per-participant
@@ -99,33 +112,42 @@ real reduce_diff(matrix p1, matrix p2, int thr) {
 //     9 GMFR   2^(g2 - g1)                            (group-mean fold rise)
 real reduce_dispatch(int red_fn, matrix p1, matrix p2, real g1, real g2, int thr) {
   if (red_fn == 1) {
-    return reduce_gmfr(p1, p2);
+    return reduce_gmfr(p1, p2, g1, g2, 1); // per-participant
   }
   if (red_fn == 2) {
-    return reduce_scr(p1, p2);
+    return reduce_scr(p1, p2); // per-participant only (joint)
   }
   if (red_fn == 3) {
-    return reduce_relpct(p1, p2, thr);
+    return reduce_relpct(p1, p2, g1, g2, 1, thr); // per-participant
   }
   if (red_fn == 4) {
-    return reduce_diff(p1, p2, thr);
+    return reduce_diff(p1, p2, g1, g2, 1, thr); // per-participant
   }
   if (red_fn == 5) {
-    return g1;
+    return g1; // baseline group level
   }
   if (red_fn == 6) {
-    return g2;
+    return g2; // endline group level
   }
   if (red_fn == 7) {
-    return (g1 - g2) / g1 * 100;
+    return reduce_relpct(p1, p2, g1, g2, 0, thr); // group-mean (ratio-of-means)
   }
   if (red_fn == 8) {
-    return g1 - g2;
+    return reduce_diff(p1, p2, g1, g2, 0, thr); // group-mean (diff-of-means)
   }
   if (red_fn == 9) {
-    return pow(2.0, g2 - g1);
+    return reduce_gmfr(p1, p2, g1, g2, 0); // group-mean
   }
   reject("reduce_dispatch: unknown red_fn = ", red_fn);
+}
+
+// Which representations does a given red_fn id need? ids 1-4 (per-participant) need the paired matrices;
+// ids 5-9 (group-mean / levels) need the group means. Used to skip unrequested work in compute_rho.
+int red_needs_unit(int red_fn) {
+  return (red_fn >= 1 && red_fn <= 4) ? 1 : 0;
+}
+int red_needs_group(int red_fn) {
+  return (red_fn >= 5 && red_fn <= 9) ? 1 : 0;
 }
 
 // Orchestrator: for each comparison jc, build BOTH the paired per-participant matrices (units present at both
@@ -137,6 +159,13 @@ matrix compute_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
                    array[] int K, array[] int N, array[] int cat_obs_start,
                    array[] int unit_of_obs, array[] int question_of_obs) {
   matrix[R, Qcmp] out = rep_matrix(0., R, Qcmp);
+  // decide ONCE (red_fn is the same for every jc) which representations are actually requested
+  int need_unit = 0;
+  int need_group = 0;
+  for (r in 1 : R) {
+    need_unit += red_needs_unit(red_fn[r]);
+    need_group += red_needs_group(red_fn[r]);
+  }
   for (jc in 1 : Qcmp) {
     int c = cmp_cat_type[jc];
     int Kc = K[c];
@@ -144,54 +173,65 @@ matrix compute_rho(array[] matrix prob_obs, int R, int Qcmp, int U,
     int q1 = question_cmp[jc, 1];
     int q2 = question_cmp[jc, 2];
     int s = cat_obs_start[c];
-    int n1 = 0;
-    int n2 = 0;
     real g1 = 0;
     real g2 = 0;
     array[U] int row1 = rep_array(0, U);
     array[U] int row2 = rep_array(0, U);
     int M = 0;
-    for (n in 1 : N[c]) {
-      int obs = s + n - 1;
-      int u = unit_of_obs[obs];
-      if (question_of_obs[obs] == q1) {
-        row1[u] = n;
-        n1 += 1;
-      }
-      if (question_of_obs[obs] == q2) {
-        row2[u] = n;
-        n2 += 1;
-      }
-    }
-    // group means: mean over ALL participants at q1 / q2 of unit_summary
-    if (n1 > 0) {
-      matrix[n1, Kc] m1 = rep_matrix(0., n1, Kc);
-      int m = 0;
+    // group means (only if a group-mean reduction is requested): mean over ALL participants at q1 / q2
+    if (need_group > 0) {
+      int n1 = 0;
+      int n2 = 0;
       for (n in 1 : N[c]) {
         int obs = s + n - 1;
         if (question_of_obs[obs] == q1) {
-          m += 1;
-          m1[m,  : ] = prob_obs[c][n, 1 : Kc];
+          n1 += 1;
+        }
+        if (question_of_obs[obs] == q2) {
+          n2 += 1;
         }
       }
-      g1 = mean(unit_summary(m1, thr));
+      if (n1 > 0) {
+        matrix[n1, Kc] m1 = rep_matrix(0., n1, Kc);
+        int m = 0;
+        for (n in 1 : N[c]) {
+          int obs = s + n - 1;
+          if (question_of_obs[obs] == q1) {
+            m += 1;
+            m1[m,  : ] = prob_obs[c][n, 1 : Kc];
+          }
+        }
+        g1 = mean(unit_summary(m1, thr));
+      }
+      if (n2 > 0) {
+        matrix[n2, Kc] m2 = rep_matrix(0., n2, Kc);
+        int m = 0;
+        for (n in 1 : N[c]) {
+          int obs = s + n - 1;
+          if (question_of_obs[obs] == q2) {
+            m += 1;
+            m2[m,  : ] = prob_obs[c][n, 1 : Kc];
+          }
+        }
+        g2 = mean(unit_summary(m2, thr));
+      }
     }
-    if (n2 > 0) {
-      matrix[n2, Kc] m2 = rep_matrix(0., n2, Kc);
-      int m = 0;
+    // paired per-participant matrices (only if a per-participant reduction is requested): units at BOTH q1, q2
+    if (need_unit > 0) {
       for (n in 1 : N[c]) {
         int obs = s + n - 1;
+        int u = unit_of_obs[obs];
+        if (question_of_obs[obs] == q1) {
+          row1[u] = n;
+        }
         if (question_of_obs[obs] == q2) {
-          m += 1;
-          m2[m,  : ] = prob_obs[c][n, 1 : Kc];
+          row2[u] = n;
         }
       }
-      g2 = mean(unit_summary(m2, thr));
-    }
-    // paired per-participant matrices: units present at BOTH q1 and q2
-    for (u in 1 : U) {
-      if (row1[u] > 0 && row2[u] > 0) {
-        M += 1;
+      for (u in 1 : U) {
+        if (row1[u] > 0 && row2[u] > 0) {
+          M += 1;
+        }
       }
     }
     {
