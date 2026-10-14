@@ -36,7 +36,9 @@ fit_ordered_logit_model_ncats_stanhmc <- function(
   dit,
   dcati,
   output_file_prefix,
-  stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
+  stan_file = here::here("src", "stan", "ordered_logit_ncats_v261012.stan"),
+  categorical_threshold = 3L,
+  effect_sizes = NULL,
   x_formula = ~ time - 1,
   x_formula_ignore_regex = NA_character_,
   chains = 2L,
@@ -56,7 +58,8 @@ fit_ordered_logit_model_ncats_stanhmc <- function(
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- NULL
+        iqr_upper <- prob <- item_type_id <- stat <- group_label <-
+        jc <- scope <- cmp_key <- q <- r <- red_fn <- NULL
 
     require(data.table)
     require(ggplot2)
@@ -163,6 +166,47 @@ fit_ordered_logit_model_ncats_stanhmc <- function(
     cat("N per category:", paste(stan_data$N, collapse = ", "), "\n")
     cat("Q per category:", paste(stan_data$Q, collapse = ", "), "\n")
     cat("K per category:", paste(stan_data$K, collapse = ", "), "\n")
+
+    # --- reduced effect sizes from the manifest `effect_sizes` (drho; see R/define_effect_sizes.R) ---
+    if (is.null(effect_sizes)) {
+        effect_sizes <- define_effect_sizes_colombia(dcati, dit, categorical_threshold = categorical_threshold)
+    }
+    drho <- data.table::as.data.table(effect_sizes)
+    ucmp <- unique(drho[, .(jc, scope, item_type_id, cmp_key)])
+    data.table::setorder(ucmp, jc)
+    ured <- unique(drho[, .(r, red_fn)])
+    data.table::setorder(ured, r)
+    stan_data$Qcmp <- nrow(ucmp)
+    stan_data$R <- nrow(ured)
+    stan_data$red_fn <- as.integer(ured$red_fn)
+    stan_data$cmp_cat_type <- as.integer(ucmp$item_type_id)
+    iqb <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, q = item_time_id)])
+    iqe <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q = item_time_id)])
+    item_rows <- unique(drho[scope == "item", .(item_type_id, item_label, group_label)])
+    q1_list <- vector("list", stan_data$Qcmp)
+    q2_list <- vector("list", stan_data$Qcmp)
+    for (i in 1:stan_data$Qcmp) {
+        ct <- ucmp$item_type_id[i]
+        labs <- if (ucmp$scope[i] == "item") ucmp$cmp_key[i]
+                else item_rows[item_type_id == ct & group_label == ucmp$cmp_key[i], item_label]
+        q1_list[[i]] <- as.integer(iqb[item_type_id == ct & item_label %in% labs, q])
+        q2_list[[i]] <- as.integer(iqe[item_type_id == ct & item_label %in% labs, q])
+    }
+    stan_data$Scmp <- max(1L, max(vapply(q1_list, length, 1L)), max(vapply(q2_list, length, 1L)))
+    qc <- array(0L, dim = c(stan_data$Qcmp, 2L, stan_data$Scmp))
+    for (i in 1:stan_data$Qcmp) {
+        qc[i, 1, seq_along(q1_list[[i]])] <- q1_list[[i]]
+        qc[i, 2, seq_along(q2_list[[i]])] <- q2_list[[i]]
+    }
+    stan_data$question_cmp <- qc
+    thr_mat <- matrix(0L, nrow = stan_data$R, ncol = stan_data$Qcmp)
+    for (k in 1:nrow(drho)) {
+        thr_mat[match(drho$r[k], ured$r), match(drho$jc[k], ucmp$jc)] <- as.integer(drho$thr[k])
+    }
+    stan_data$cmp_reduce_thr <- thr_mat
+    cat("Reduced effect sizes: R =", stan_data$R, "(red_fn", paste(stan_data$red_fn, collapse = ","),
+        "); Qcmp =", stan_data$Qcmp, "(", sum(ucmp$scope == "item"), "items +",
+        sum(ucmp$scope == "item_group"), "item-groups ); Scmp =", stan_data$Scmp, "\n")
 
     # Check if resuming from existing outputs
     if (can_resume) {
