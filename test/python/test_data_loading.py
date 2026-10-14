@@ -156,7 +156,7 @@ class TestReadDataColombia:
         dmeta = colombia_data['dmeta']
         
         # dp: Check key integer columns use nullable Int64
-        int_cols_dp = ['time', 'pid', 'fid']
+        int_cols_dp = ['group', 'pid', 'fid']
         for col in int_cols_dp:
             assert pd.api.types.is_integer_dtype(dp[col]), \
                 f"dp['{col}'] should be integer dtype, got {dp[col].dtype}"
@@ -166,10 +166,10 @@ class TestReadDataColombia:
             f"dp['y'] should be float dtype, got {dp['y'].dtype}"
         
         # dp: Check string columns
-        string_cols_dp = ['time_label', 'pid_label', 'f_label', 'item_label', 'y_label']
+        string_cols_dp = ['group_label', 'pid_label', 'f_label', 'item_label', 'y_label']
         for col in string_cols_dp:
             # Pandas represents strings as 'object' dtype
-            assert dp[col].dtype == 'object', \
+            assert dp[col].dtype == 'object' or pd.api.types.is_string_dtype(dp[col]), \
                 f"dp['{col}'] should be object dtype (string), got {dp[col].dtype}"
         
         # dp: Check datetime column
@@ -184,9 +184,9 @@ class TestReadDataColombia:
         
         # dit: Check string columns
         string_cols_dit = ['item_label', 'item_type', 'item_high_label', 
-                          'group_label', 'group_label_long', 'endpoint_measure']
+                          'construct', 'construct_long', 'endpoint_measure']
         for col in string_cols_dit:
-            assert dit[col].dtype == 'object', \
+            assert dit[col].dtype == 'object' or pd.api.types.is_string_dtype(dit[col]), \
                 f"dit['{col}'] should be object dtype (string), got {dit[col].dtype}"
     
     # ------------------------------------------------------------------------
@@ -205,7 +205,7 @@ class TestReadDataColombia:
             df_r['submission_date'] = df_r['submission_date'].astype(str)
         
         # Sort both DataFrames by key columns for consistent comparison
-        sort_cols = ['pid', 'time', 'item_label']
+        sort_cols = ['pid', 'group', 'item_label']
         df_python_sorted = df_python.sort_values(sort_cols).reset_index(drop=True)
         df_r_sorted = df_r.sort_values(sort_cols).reset_index(drop=True)
         
@@ -243,8 +243,8 @@ class TestReadDataColombia:
         df_python = colombia_data['dmeta']
         df_r = r_baselines_colombia['dmeta']
         
-        # Sort by pid_label and time_label for consistent comparison
-        sort_cols = ['pid_label', 'time_label']
+        # Sort by pid_label and group_label for consistent comparison
+        sort_cols = ['pid_label', 'group_label']
         df_python_sorted = df_python.sort_values(sort_cols).reset_index(drop=True)
         df_r_sorted = df_r.sort_values(sort_cols).reset_index(drop=True)
         
@@ -275,11 +275,11 @@ class TestReadDataColombia:
             "Participant IDs should be sequential from 1 to n"
         
         # dp: Check timepoints
-        timepoints = sorted(dp['time'].unique())
+        timepoints = sorted(dp['group'].unique())
         assert timepoints == [0, 1], f"Expected timepoints [0, 1], got {timepoints}"
         
         # dp: Check each participant has both timepoints
-        counts = dp.groupby('pid')['time'].nunique()
+        counts = dp.groupby('pid')['group'].nunique()
         assert (counts == 2).all(), "All participants should have both timepoints"
         
         # dp: Check y values in valid range
@@ -309,7 +309,7 @@ class TestReadDataColombia:
         # dmeta: Check metadata completeness
         assert len(dmeta) > 0, "dmeta should not be empty"
         assert 'pid_label' in dmeta.columns, "dmeta should have pid_label"
-        assert 'time_label' in dmeta.columns, "dmeta should have time_label"
+        assert 'group_label' in dmeta.columns, "dmeta should have group_label"
     
     def test_read_data_colombia_no_duplicates(self, colombia_data):
         """Test that there are no duplicate records in key DataFrames."""
@@ -318,7 +318,7 @@ class TestReadDataColombia:
         dmeta = colombia_data['dmeta']
         
         # dp: No duplicates on (pid, time, item_label)
-        dp_key = ['pid', 'time', 'item_label']
+        dp_key = ['pid', 'group', 'item_label']
         n_rows = len(dp)
         n_unique = dp.groupby(dp_key).size().shape[0]
         assert n_rows == n_unique, f"dp has duplicate records on {dp_key}"
@@ -326,9 +326,9 @@ class TestReadDataColombia:
         # dit: No duplicate item_labels
         assert dit['item_label'].nunique() == len(dit), "dit has duplicate item_labels"
         
-        # dmeta: Check for duplicates on (pid_label, time_label)
+        # dmeta: Check for duplicates on (pid_label, group_label)
         # Note: Source data has one known duplicate (otmar20231963, Endline)
-        dmeta_key = ['pid_label', 'time_label']
+        dmeta_key = ['pid_label', 'group_label']
         n_dmeta = len(dmeta)
         n_unique_dmeta = dmeta.groupby(dmeta_key).size().shape[0]
         n_duplicates = n_dmeta - n_unique_dmeta
@@ -427,14 +427,14 @@ class TestReadDataUkraine:
     def test_read_data_ukraine_column_names(self, ukraine_data):
         """Verify column names match expected."""
         # dp columns (Ukraine doesn't have 'item' column - uses item_label directly)
-        expected_dp_cols = ['time', 'time_label', 'pid', 'pid_label', 'fid', 'f_label', 
+        expected_dp_cols = ['group', 'group_label', 'pid', 'pid_label', 'fid', 'f_label', 
                            'submission_date', 'treat', 'item_label', 'y', 'y_label']
         assert list(ukraine_data['dp'].columns) == expected_dp_cols, \
             f"dp columns mismatch. Expected: {expected_dp_cols}, Got: {list(ukraine_data['dp'].columns)}"
         
         # dit columns (order may vary, check set equality)
-        expected_dit_cols = {'item_type', 'item_label', 'item_high_label', 'group_label', 
-                            'item_label_short', 'group_label_long', 'endpoint_measure', 
+        expected_dit_cols = {'item_type', 'item_label', 'item_high_label', 'construct', 
+                            'item_label_short', 'construct_long', 'endpoint_measure', 
                             'cat_length', 'item_type_id'}
         actual_dit_cols = set(ukraine_data['dit'].columns)
         assert actual_dit_cols == expected_dit_cols, \
@@ -457,7 +457,7 @@ class TestReadDataUkraine:
         dit = ukraine_data['dit']
         
         # dp: Check integer columns (y is Float64 with NaN support)
-        int_cols_dp = ['time', 'pid', 'fid']
+        int_cols_dp = ['group', 'pid', 'fid']
         for col in int_cols_dp:
             assert pd.api.types.is_integer_dtype(dp[col]), \
                 f"dp['{col}'] should be integer dtype, got {dp[col].dtype}"
@@ -467,9 +467,9 @@ class TestReadDataUkraine:
             f"dp['y'] should be numeric dtype, got {dp['y'].dtype}"
         
         # dp: Check string columns
-        string_cols_dp = ['y_label', 'item_label', 'time_label', 'pid_label', 'f_label']
+        string_cols_dp = ['y_label', 'item_label', 'group_label', 'pid_label', 'f_label']
         for col in string_cols_dp:
-            assert dp[col].dtype == 'object', \
+            assert dp[col].dtype == 'object' or pd.api.types.is_string_dtype(dp[col]), \
                 f"dp['{col}'] should be object dtype (string), got {dp[col].dtype}"
         
         # dit: Check integer column
@@ -502,7 +502,7 @@ class TestReadDataUkraine:
         df_r_common = df_r_common.drop(columns=[c for c in cols_to_drop if c in df_r_common.columns])
         
         # Sort for comparison - use pid_label not pid (integer pids assigned differently)
-        sort_cols = ['pid_label', 'time', 'item_label']
+        sort_cols = ['pid_label', 'group', 'item_label']
         df_python_sorted = df_python_common.sort_values(sort_cols).reset_index(drop=True)
         df_r_sorted = df_r_common.sort_values(sort_cols).reset_index(drop=True)
         
@@ -556,7 +556,7 @@ class TestReadDataUkraine:
             df_r_common['submission_date'] = df_r_common['submission_date'].astype(str)
         
         # Sort for comparison (using 'pid' - string identifier)
-        sort_cols = ['pid', 'time_label']
+        sort_cols = ['pid', 'group_label']
         df_python_sorted = df_python_common.sort_values(sort_cols).reset_index(drop=True)
         df_r_sorted = df_r_common.sort_values(sort_cols).reset_index(drop=True)
         
@@ -586,11 +586,11 @@ class TestReadDataUkraine:
         assert dp['pid'].min() == 1, "Participant IDs should start at 1"
         
         # dp: Check timepoints (Ukraine has 2: baseline=0, endline=1)
-        timepoints = sorted(dp['time'].unique())
+        timepoints = sorted(dp['group'].unique())
         assert timepoints == [0, 1], f"Expected timepoints [0, 1], got {timepoints}"
         
         # dp: Check most participants have both timepoints (some may have only one due to missingness)
-        counts = dp.groupby('pid')['time'].nunique()
+        counts = dp.groupby('pid')['group'].nunique()
         pct_both = (counts == 2).mean()
         assert pct_both > 0.95, \
             f"At least 95% of participants should have both timepoints, got {pct_both:.1%}"
@@ -626,7 +626,7 @@ class TestReadDataUkraine:
         dmeta = ukraine_data['dmeta']
         
         # dp: No duplicates on (pid, time, item_label) - no 'item' column
-        dp_key = ['pid', 'time', 'item_label']
+        dp_key = ['pid', 'group', 'item_label']
         n_rows = len(dp)
         n_unique = dp.groupby(dp_key).size().shape[0]
         assert n_rows == n_unique, f"dp has duplicate records on {dp_key}"
@@ -634,9 +634,9 @@ class TestReadDataUkraine:
         # dit: No duplicate item_labels
         assert dit['item_label'].nunique() == len(dit), "dit has duplicate item_labels"
         
-        # dmeta: No duplicates on (pid, time_label) - 'pid' is string identifier
+        # dmeta: No duplicates on (pid, group_label) - 'pid' is string identifier
         # Note: Ukraine data may have some duplicate participant records
-        dmeta_key = ['pid', 'time_label']
+        dmeta_key = ['pid', 'group_label']
         n_dmeta = len(dmeta)
         n_unique_dmeta = dmeta.groupby(dmeta_key).size().shape[0]
         # Allow up to 1% duplicates (data quality issue)
