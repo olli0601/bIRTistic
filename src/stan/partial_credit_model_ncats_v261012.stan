@@ -49,10 +49,11 @@ data {
   // constants (e.g. SCR cut/floor) live INSIDE reduction_functions.stan, NOT in this data block.
   int<lower=0> R; // number of reduced individual effect sizes (0 = disabled)
   int<lower=0> Qcmp; // number of pairwise question comparisons
-  array[Qcmp] int<lower=1, upper=C> cmp_cat_type; // category type of each comparison pair
-  array[Qcmp, 2] int<lower=1> question_cmp; // [,1] = baseline question, [,2] = endline question (local ids)
+  int<lower=1> Scmp; // max number of questions combined per comparison side (1 = single item; >1 = item-group)
+  array[Qcmp] int<lower=1, upper=C> cmp_cat_type; // category type of each comparison
+  array[Qcmp, 2, Scmp] int<lower=0> question_cmp; // [jc,1,:] baseline questions, [jc,2,:] endline questions (local ids; 0 = padding, combined element-wise)
   array[R] int<lower=1> red_fn; // reduction per r (one id = one reduction; see reduction_functions.stan). per-participant: 1=GMFR, 2=SCR, 3=rel%, 4=diff; group-mean: 5=baseline level, 6=endline level, 7=rel% (ratio-of-means), 8=diff-of-means, 9=GMFR
-  array[Qcmp] int<lower=0> cmp_reduce_thr; // per-comparison threshold for the level/threshold family (ids 3/4): 0 = expected level E[y], >=1 = P(y>=thr); ignored by GMFR/SCR
+  array[R, Qcmp] int<lower=0> cmp_reduce_thr; // threshold per (reduction r, comparison jc) for the level/threshold family (ids 3/4/5/6/7/8): 0 = expected level E[y], >=1 = P(y>=thr); ignored by GMFR/SCR
 }
 transformed data {
   real s2z_sd_unit;
@@ -74,7 +75,14 @@ transformed data {
   array[C, Q_max] int cat_question_start;
   array[C, Q_max] int cat_question_end;
   array[C, N_max] int cat_sorted_indices;
-  
+  array[U, C, Q_max] int obs_of_unit; // local obs index (1..N[c]) of unit u at question q of cat c; 0 = absent
+  array[Qcmp, U] int Qcmp_units_have_q1; // per comparison: unit ids answering >=1 baseline question (0-padded)
+  array[Qcmp, U] int Qcmp_units_have_q2; // per comparison: unit ids answering >=1 endline question (0-padded)
+  array[Qcmp, U] int Qcmp_units_have_q12; // per comparison: unit ids answering >=1 on BOTH sides (0-padded)
+  array[Qcmp] int n_q1; // counts for the three sets above
+  array[Qcmp] int n_q2;
+  array[Qcmp] int n_q12;
+
   // Check that cat_type is ordered (all cat_type[i]==1, then all ==2, etc.)
   for (i in 2 : N_total) {
     if (cat_type[i] < cat_type[i - 1]) {
@@ -96,7 +104,54 @@ transformed data {
     }
     cat_obs_end[C] = N_total;
   }
-  
+
+  // Lookup of each unit's observation per (category type, question), for the reduction pooling in compute_rho
+  obs_of_unit = rep_array(0, U, C, Q_max);
+  for (c in 1 : C) {
+    int s = cat_obs_start[c];
+    for (n in 1 : N[c]) {
+      int obs = s + n - 1;
+      obs_of_unit[unit_of_obs[obs], c, question_of_obs[obs]] = n;
+    }
+  }
+
+  // Per-comparison participant sets for compute_rho: unit ids answering >=1 baseline / endline / both question
+  Qcmp_units_have_q1 = rep_array(0, Qcmp, U);
+  Qcmp_units_have_q2 = rep_array(0, Qcmp, U);
+  Qcmp_units_have_q12 = rep_array(0, Qcmp, U);
+  n_q1 = rep_array(0, Qcmp);
+  n_q2 = rep_array(0, Qcmp);
+  n_q12 = rep_array(0, Qcmp);
+  for (jc in 1 : Qcmp) {
+    int c = cmp_cat_type[jc];
+    for (u in 1 : U) {
+      int hb = 0;
+      int he = 0;
+      for (j in 1 : Scmp) {
+        int q1 = question_cmp[jc, 1, j];
+        int q2 = question_cmp[jc, 2, j];
+        if (q1 > 0 && obs_of_unit[u, c, q1] > 0) {
+          hb = 1;
+        }
+        if (q2 > 0 && obs_of_unit[u, c, q2] > 0) {
+          he = 1;
+        }
+      }
+      if (hb == 1) {
+        n_q1[jc] += 1;
+        Qcmp_units_have_q1[jc, n_q1[jc]] = u;
+      }
+      if (he == 1) {
+        n_q2[jc] += 1;
+        Qcmp_units_have_q2[jc, n_q2[jc]] = u;
+      }
+      if (hb == 1 && he == 1) {
+        n_q12[jc] += 1;
+        Qcmp_units_have_q12[jc, n_q12[jc]] = u;
+      }
+    }
+  }
+
   // Derive question offsets for each category type
   cat_question_offset[1] = 0;
   for (c in 2 : C) {
@@ -348,9 +403,11 @@ generated quantities {
       }
     }
     // 3. rho_by_cat_qu_fit: all reduced effect sizes (per-participant + group-mean), red_fn[r] selects each
-    rho_by_cat_qu_fit = compute_rho(this_cat_prob_obs, R, Qcmp, U, question_cmp,
-                                    cmp_cat_type, red_fn, cmp_reduce_thr, K, N,
-                                    cat_obs_start, unit_of_obs, question_of_obs);
+    rho_by_cat_qu_fit = compute_rho(this_cat_prob_obs, R, Qcmp, question_cmp,
+                                    cmp_cat_type, red_fn, cmp_reduce_thr,
+                                    obs_of_unit, K, Qcmp_units_have_q1,
+                                    Qcmp_units_have_q2, Qcmp_units_have_q12,
+                                    n_q1, n_q2, n_q12);
     // 4. free the buffer before reusing it for the _pr pass
     for (c in 1 : C) {
       this_cat_prob_obs[c] = rep_matrix(-1., N_max, K_max);
@@ -419,9 +476,11 @@ generated quantities {
         }
       }
       // 7. rho_by_cat_qu_pr: all reduced effect sizes on the confounding-adjusted probs
-      rho_by_cat_qu_pr = compute_rho(this_cat_prob_obs, R, Qcmp, U, question_cmp,
-                                     cmp_cat_type, red_fn, cmp_reduce_thr, K, N,
-                                     cat_obs_start, unit_of_obs, question_of_obs);
+      rho_by_cat_qu_pr = compute_rho(this_cat_prob_obs, R, Qcmp, question_cmp,
+                                     cmp_cat_type, red_fn, cmp_reduce_thr,
+                                     obs_of_unit, K, Qcmp_units_have_q1,
+                                     Qcmp_units_have_q2, Qcmp_units_have_q12,
+                                     n_q1, n_q2, n_q12);
     }
   }
 }

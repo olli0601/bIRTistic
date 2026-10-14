@@ -18,6 +18,9 @@
 #' @param categorical_threshold Integer. For the per-participant reduced effect sizes, the y-cut (0-indexed) used
 #'   for categorical items: their rel-% / diff reductions act on P(y >= categorical_threshold); out-of-7 items
 #'   use the expected level E[y]. Default 3 (matches get_endpoints). Does not affect the PCM fit itself.
+#' @param effect_sizes data.table. The reduced-effect-size manifest (drho) from define_effect_sizes_*; one row
+#'   per (comparison jc, reduction r). Drives the Stan reduction data (R, Qcmp, Scmp, cmp_cat_type, question_cmp,
+#'   cmp_reduce_thr) and is consumed by get_endpoints. If NULL (default), built via define_effect_sizes_colombia.
 #' @param chains Integer. Number of MCMC chains to run (default: 2)
 #' @param parallel_chains Integer. Number of chains to run in parallel (default: 2)
 #' @param threads_per_chain Integer. Number of threads to use per chain (default: 1)
@@ -45,6 +48,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
   x_formula = ~ time - 1,
   x_formula_ignore_regex = NA_character_,
   categorical_threshold = 3L,
+  effect_sizes = NULL,
   chains = 2L,
   parallel_chains = 2L,
   threads_per_chain = 1L,
@@ -62,7 +66,8 @@ fit_partial_credit_model_ncats_stanhmc <- function(
         ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
         n <- total <- p_emp <- group_label_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- q1 <- q2 <- NULL
+        iqr_upper <- prob <- item_type_id <- stat <- q1 <- q2 <- group_label <-
+        scope <- cmp_key <- q <- r <- red_fn <- jc <- NULL
 
     require(data.table)
     require(ggplot2)
@@ -169,29 +174,53 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     cat("Q per category:", paste(stan_data$Q, collapse = ", "), "\n")
     cat("K per category:", paste(stan_data$K, collapse = ", "), "\n")
 
-    # --- per-participant PAIRED reduced effect sizes: relative % change + difference (baseline - endline) ---
-    # Request both reductions for every item measured at BOTH Baseline and Endline. Each comparison pairs the
-    # item's baseline question (item_time_id) with its endline question within its category type; the reductions
-    # run inside the Stan generated quantities, yielding rho_by_cat_qu_fit/_pr (R x Qcmp; red_fn[r] names each).
-    cmp_base <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, item_type, q1 = item_time_id)])
-    cmp_end  <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q2 = item_time_id)])
-    cmp <- merge(cmp_base, cmp_end, by = c("item_type_id", "item_label"))
-    setkey(cmp, item_type_id, item_label)
-    # one id per reduction (see reduction_functions.stan). The GROUP-MEAN set 5=baseline level, 6=endline level,
-    # 7=rel% (ratio-of-group-means), 8=diff-of-group-means reproduces the legacy get_endpoints_from_probs_by_cat_qu
-    # pos EXACTLY (this is the undesirable-for-pre/post ratio-of-means). Append the within-participant ids 4=diff,
-    # 3=rel% (the correct pre/post estimand) when wanted -- keep get_endpoints' red_fn argument in sync.
-    stan_data$red_fn <- c(5L, 6L, 7L, 8L)
-    stan_data$R <- length(stan_data$red_fn)
-    stan_data$Qcmp <- nrow(cmp)
-    stan_data$cmp_cat_type <- as.integer(cmp$item_type_id)
-    stan_data$question_cmp <- matrix(as.integer(c(cmp$q1, cmp$q2)), ncol = 2) # Qcmp x 2: [,1]=baseline, [,2]=endline
-    # family per comparison: out-of-7 -> expected level E[y] (thr 0); categorical -> P(y>=categorical_threshold)
-    stan_data$cmp_reduce_thr <- as.integer(ifelse(cmp$item_type == "categorical", categorical_threshold, 0L))
-    cat("Reduced effect sizes: R =", stan_data$R, "(red_fn =", paste(stan_data$red_fn, collapse = ","),
-        "); Qcmp =", stan_data$Qcmp, "pre/post item comparisons;",
-        sum(stan_data$cmp_reduce_thr > 0), "categorical (thr =", categorical_threshold, "),",
-        sum(stan_data$cmp_reduce_thr == 0), "expected-level\n")
+    # --- reduced effect sizes from the manifest `effect_sizes` (drho; see R/define_effect_sizes.R) ---
+    # drho is long: one row per (comparison jc, reduction r). We derive the Stan entries from it and resolve
+    # each comparison's baseline/endline question SET (item_time_id) from dcati -- items use their own
+    # Baseline/Endline question; item-groups pool their member items (the item rows sharing group_label).
+    if (is.null(effect_sizes)) {
+        effect_sizes <- define_effect_sizes_colombia(dcati, dit, categorical_threshold = categorical_threshold)
+    }
+    drho <- data.table::as.data.table(effect_sizes)
+    ucmp <- unique(drho[, .(jc, scope, item_type_id, cmp_key)])
+    data.table::setorder(ucmp, jc)
+    ured <- unique(drho[, .(r, red_fn)])
+    data.table::setorder(ured, r)
+    stan_data$Qcmp <- nrow(ucmp)
+    stan_data$R <- nrow(ured)
+    stan_data$red_fn <- as.integer(ured$red_fn)
+    stan_data$cmp_cat_type <- as.integer(ucmp$item_type_id)
+
+    # resolve baseline / endline question sets per comparison
+    iqb <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, q = item_time_id)])
+    iqe <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q = item_time_id)])
+    item_rows <- unique(drho[scope == "item", .(item_type_id, item_label, group_label)])
+    q1_list <- vector("list", stan_data$Qcmp)
+    q2_list <- vector("list", stan_data$Qcmp)
+    for (i in 1:stan_data$Qcmp) {
+        ct <- ucmp$item_type_id[i]
+        labs <- if (ucmp$scope[i] == "item") ucmp$cmp_key[i]
+                else item_rows[item_type_id == ct & group_label == ucmp$cmp_key[i], item_label]
+        q1_list[[i]] <- as.integer(iqb[item_type_id == ct & item_label %in% labs, q])
+        q2_list[[i]] <- as.integer(iqe[item_type_id == ct & item_label %in% labs, q])
+    }
+    stan_data$Scmp <- max(1L, max(vapply(q1_list, length, 1L)), max(vapply(q2_list, length, 1L)))
+    qc <- array(0L, dim = c(stan_data$Qcmp, 2L, stan_data$Scmp))
+    for (i in 1:stan_data$Qcmp) {
+        qc[i, 1, seq_along(q1_list[[i]])] <- q1_list[[i]]
+        qc[i, 2, seq_along(q2_list[[i]])] <- q2_list[[i]]
+    }
+    stan_data$question_cmp <- qc
+
+    # cmp_reduce_thr[r, jc] from drho (threshold per reduction x comparison)
+    thr_mat <- matrix(0L, nrow = stan_data$R, ncol = stan_data$Qcmp)
+    for (k in 1:nrow(drho)) {
+        thr_mat[match(drho$r[k], ured$r), match(drho$jc[k], ucmp$jc)] <- as.integer(drho$thr[k])
+    }
+    stan_data$cmp_reduce_thr <- thr_mat
+    cat("Reduced effect sizes: R =", stan_data$R, "(red_fn", paste(stan_data$red_fn, collapse = ","),
+        "); Qcmp =", stan_data$Qcmp, "(", sum(ucmp$scope == "item"), "items +",
+        sum(ucmp$scope == "item_group"), "item-groups ); Scmp =", stan_data$Scmp, "\n")
 
     # Check if resuming from existing outputs
     if (can_resume) {

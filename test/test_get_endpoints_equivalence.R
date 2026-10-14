@@ -13,6 +13,7 @@ suppressMessages({
 })
 
 root <- here::here()
+source(file.path(root, "R", "define_effect_sizes.R"))
 source(file.path(root, "R", "fit_partial_credit_model_ncats_stanhmc.R"))
 source(file.path(root, "R", "get_endpoints.R"))
 source(file.path(root, "old", "get_endpoints_from_probs_by_cat_qu.R"))
@@ -39,6 +40,12 @@ tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
 setkey(dp1, pid, time, item_label)
 
+# ---- effect-size manifest: GROUP-MEAN reductions (5,6,7,8) to validate exactly vs the legacy group-mean pos
+# (production Colombia uses the per-participant default c(5,6,3,4), which has no legacy equivalent for ratio) ----
+drho <- define_effect_sizes_colombia(dp1, dit_col, categorical_threshold = CAT_THR,
+    reductions = data.table(r = 1:4, red_fn = c(5L, 6L, 7L, 8L),
+                            rho = c("Baseline", "Endline", "ratio", "diff")))
+
 # ---- fit v261012 (few iters; equivalence is per-draw so convergence is irrelevant) ----
 outdir <- file.path(tempdir(), "colombia_pcm_equivtest")
 dir.create(outdir, showWarnings = FALSE, recursive = TRUE)
@@ -49,7 +56,7 @@ if (!file.exists(draws_file)) {
     fit_partial_credit_model_ncats_stanhmc(
         dit = dit_col, dcati = dp1, output_file_prefix = prefix,
         stan_file = file.path(root, "src", "stan", "partial_credit_model_ncats_v261012.stan"),
-        x_formula = ~ time - 1, categorical_threshold = CAT_THR,
+        x_formula = ~ time - 1, categorical_threshold = CAT_THR, effect_sizes = drho,
         chains = 2L, parallel_chains = 2L, iter_warmup = 150L, iter_sampling = 150L, seed = 1L,
         with_core_analyses = FALSE, with_additional_analyses = FALSE,
         show_messages = FALSE, show_exceptions = TRUE
@@ -57,38 +64,52 @@ if (!file.exists(draws_file)) {
 }
 stopifnot(file.exists(draws_file))
 
-# ---- run both endpoint functions (endpoint_type = "items") ----
-pos_new <- get_endpoints(dp1 = dp1, dit = dit_col, draws_file = draws_file,
-                         categorical_threshold = CAT_THR, endpoint_type = "items")
-pos_old <- get_endpoints_from_probs_by_cat_qu(dp1 = dp1, dit = dit_col, draws_file = draws_file,
-                         categorical_threshold = CAT_THR, endpoint_type = "items")
-
-# ---- compare the quantile summaries ----
-keys    <- c("item_label", "item_type", "variable")
+# ---- compare new (reads rho_by_cat_qu_*) vs old (reads ordered_prob_by_cat_qu_*) for BOTH endpoint types ----
 valcols <- c("q_lower", "iqr_lower", "median", "iqr_upper", "q_upper")
-m <- merge(pos_new[, c(keys, valcols), with = FALSE],
-           pos_old[, c(keys, valcols), with = FALSE],
-           by = keys, suffixes = c(".new", ".old"))
+tol <- 1e-6
 
-cat(sprintf("\nrows: new=%d old=%d matched=%d\n", nrow(pos_new), nrow(pos_old), nrow(m)))
-cat("variables:", paste(sort(unique(pos_new$variable)), collapse = ", "), "\n\n")
-
-maxdiff <- 0
-for (v in valcols) {
-    d <- max(abs(m[[paste0(v, ".new")]] - m[[paste0(v, ".old")]]), na.rm = TRUE)
-    cat(sprintf("  %-10s max|new-old| = %.3e\n", v, d))
-    maxdiff <- max(maxdiff, d)
+compare_one <- function(etype, keys, gate = TRUE) {
+    pos_new <- get_endpoints(dp1 = dp1, dit = dit_col, draws_file = draws_file,
+                             categorical_threshold = CAT_THR, endpoint_type = etype, effect_sizes = drho)
+    pos_old <- get_endpoints_from_probs_by_cat_qu(dp1 = dp1, dit = dit_col, draws_file = draws_file,
+                             categorical_threshold = CAT_THR, endpoint_type = etype)
+    m <- merge(pos_new[, c(keys, valcols), with = FALSE],
+               pos_old[, c(keys, valcols), with = FALSE],
+               by = keys, suffixes = c(".new", ".old"))
+    cat(sprintf("\n[%s] rows: new=%d old=%d matched=%d | variables: %s\n",
+                etype, nrow(pos_new), nrow(pos_old), nrow(m),
+                paste(sort(unique(pos_new$variable)), collapse = ", ")))
+    maxdiff <- 0
+    for (v in valcols) {
+        d <- max(abs(m[[paste0(v, ".new")]] - m[[paste0(v, ".old")]]), na.rm = TRUE)
+        cat(sprintf("    %-10s max|new-old| = %.3e\n", v, d))
+        maxdiff <- max(maxdiff, d)
+    }
+    ok <- nrow(m) == nrow(pos_new) && nrow(m) == nrow(pos_old) && is.finite(maxdiff) && maxdiff < tol
+    if (!ok && gate) {
+        cat(sprintf("    -> MISMATCH: maxdiff=%.3e tol=%.1e; unmatched new=%d old=%d\n",
+                    maxdiff, tol, nrow(pos_new) - nrow(m), nrow(pos_old) - nrow(m)))
+        m[, dmax := pmax(abs(median.new - median.old), abs(q_lower.new - q_lower.old),
+                         abs(q_upper.new - q_upper.old))]
+        print(head(m[order(-dmax)], 12))
+    }
+    list(ok = ok, maxdiff = maxdiff)
 }
 
-tol <- 1e-6
-ok  <- nrow(m) == nrow(pos_new) && nrow(m) == nrow(pos_old) && is.finite(maxdiff) && maxdiff < tol
-if (ok) {
-    cat(sprintf("\nPASS: new get_endpoints == old within tol %.1e (max diff %.3e)\n", tol, maxdiff))
+# items: the new rho-based reader must reproduce the legacy ordered_prob computation EXACTLY (single question
+# per side -> no pooling). item_groups: the new reader pools each participant's probs across the construct's
+# items (participant-weighted) whereas legacy is item-weighted; these diverge under item-level missingness
+# (Colombia is unbalanced), so item_groups is reported for information only and is NOT required to match legacy.
+r_items  <- compare_one("items",       c("item_label", "item_type", "variable"))
+r_groups <- compare_one("item_groups", c("item_type", "group_label", "variable"), gate = FALSE)
+
+cat(sprintf("\nitem_groups: new (participant-weighted pooling) vs legacy (item-weighted) max diff = %.3e",
+            r_groups$maxdiff))
+cat(" -- expected non-zero under item-level missingness; informational only.\n")
+
+if (r_items$ok) {
+    cat(sprintf("\nPASS: items new == legacy within tol %.1e (max diff %.3e)\n", tol, r_items$maxdiff))
 } else {
-    cat(sprintf("\nFAIL: maxdiff=%.3e tol=%.1e; unmatched new=%d old=%d\n",
-                maxdiff, tol, nrow(pos_new) - nrow(m), nrow(pos_old) - nrow(m)))
-    m[, dmax := pmax(abs(median.new - median.old), abs(q_lower.new - q_lower.old),
-                     abs(q_upper.new - q_upper.old))]
-    print(head(m[order(-dmax)], 12))
+    cat(sprintf("\nFAIL: items new != legacy (max diff %.3e, tol %.1e)\n", r_items$maxdiff, tol))
     quit(status = 1L)
 }
