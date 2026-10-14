@@ -3,7 +3,7 @@
 Ukraine interim analyses, Python implementation.
 
 Mirrors ``scripts-py/Colombia_interim_analyses.py`` but on the Ukraine data:
-- ncats partial credit model (``src/numpyro/partial_credit_model_ncats_v260413.pyro``);
+- ncats partial credit model (``src/numpyro/partial_credit_model_ncats_v261012.pyro``);
 - NumPyro SVI with ``AutoLowRankMultivariateNormal``;
 - ``get_endpoints`` for primary endpoint summaries (``categorical_threshold = 2`` for Ukraine);
 - cross-interim plots in plotnine.

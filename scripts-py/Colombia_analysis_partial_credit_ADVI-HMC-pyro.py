@@ -4,9 +4,10 @@ Investigate ADVI vs HMC for partial credit model on Colombia data
 
 Date: 2026-04-30
 
-This script applies the partial credit model (ncats v260413) to the Colombia data 
-for comparison with other IRT models. It generates plots and tables for the Hope 
-Groups paper using the partial credit model v260413.
+This script applies the partial credit model (ncats v261012) to the Colombia data
+for comparison with other IRT models. It generates plots and tables for the Hope
+Groups paper using the partial credit model v261012, which additionally emits the
+in-model reduced effect sizes rho_by_cat_qu_fit/_pr (compared across methods below).
 
 Ported from: Colombia_analysis_partial_credit_ADVI_vs_HMC.Rmd
 
@@ -64,7 +65,7 @@ warnings.filterwarnings('ignore')
 # Import bIRTistic functions
 from data_loading import read_data_colombia
 from model_pcm import PartialCreditModel
-from utils import _summarize_ordered_prob_quantiles
+from utils import _summarize_ordered_prob_quantiles, define_effect_sizes
 
 print("✓ Imports successful")
 
@@ -77,6 +78,9 @@ print("✓ Imports successful")
 # Set random seed
 np.random.seed(42)
 seed = 123
+# Categorical response threshold: P(y >= categorical_threshold) is the categorical "level"
+# (shared by the model, the effect-size manifest, and the endpoint reader).
+categorical_threshold = 3
 
 # Define directories
 dir_data = "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/data"
@@ -166,14 +170,23 @@ print(f"  Participants: {dp1_col['pid'].nunique()}")
 print(f"  Items: {dp1_col['item_label'].nunique()}")
 print(f"  Item types: {sorted(dp1_col['item_type'].unique())}")
 
+# Reduced-effect-size manifest `drho`, defined ONCE here (mirrors the R side's
+# define_effect_sizes_colombia): one row per (comparison jc, reduction r). It is saved alongside
+# the data, injected into the model (so make_stan_data builds the Stan/pyro reduction block from it
+# rather than recomputing), and reused by the get_endpoints rho reader + the cross-method comparison.
+drho = define_effect_sizes(dp1_col, dit_col, categorical_threshold=categorical_threshold)
+print(f"\nEffect-size manifest drho: {drho['jc'].nunique()} comparisons x {drho['r'].nunique()} reductions")
+
 # Save data for model fitting
 tmp = os.path.join(dir_out_pcm, "pcm_1_data.pkl")
 print(f"\nSaved preprocessed data to: {tmp}")
-pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col}, tmp)
+pd.to_pickle( {'dp1': dp1_col, 'dit': dit_col, 'dmeta': dmeta_col, 'drho': drho}, tmp)
 
-# Build the Model instance once; all fit_* calls below dispatch through it.
+# Build the Model instance once; all fit_* calls below dispatch through it. `drho=drho`
+# makes the model consume the manifest defined above instead of rebuilding its own.
 _pcm = PartialCreditModel(
     dit=dit_col, dcati=dp1_col, x_formula="~ group - 1", seed=seed,
+    categorical_threshold=categorical_threshold, drho=drho,
 )
 
 # %%
@@ -184,7 +197,7 @@ _pcm = PartialCreditModel(
 
 result_hmc = _pcm.fit_stan_hmc(
     output_file_prefix=output_file_prefix_hmc,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v261012.stan",
     chains=4,
     parallel_chains=4,
     threads_per_chain=1,
@@ -208,7 +221,7 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 
 result_advi = _pcm.fit_stan_svi(
     output_file_prefix=output_file_prefix_advi,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/partial_credit_model_ncats_v261012.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,
@@ -339,6 +352,7 @@ tmp = pd.read_pickle(f"{output_file_prefix}_data.pkl")
 dp1_col = tmp['dp1']
 dit_col = tmp['dit']
 dmeta_col = tmp['dmeta']
+drho = tmp['drho']  # the single effect-size manifest defined up front
 
 # Collect all fitted methods in one place and compute endpoints uniformly.
 method_cfg = {
@@ -651,6 +665,55 @@ print(pos.head(10)[['item_label', 'group_label', 'y'] + tmp + ['Empirical', 'abs
 tmp = os.path.join(dir_out_pcm, "comparison_pcm_prob_all_methods.csv")
 pos.to_csv(tmp, index=False)
 print(f"\nSaved ordered_prob comparison to: {tmp}")
+
+# %%
+
+# =============================================================================
+# Compare reduced effect sizes rho_by_cat_qu across methods (v261012)
+# =============================================================================
+# v261012 additionally emits the in-model reduced effect sizes rho_by_cat_qu_fit/_pr
+# (R reductions x Qcmp comparisons; red_fn[r] selects the reduction). Every method
+# (stan HMC/ADVI + the numpyro SVI guides) now carries them, so we compare the
+# per-(reduction, comparison) posterior medians directly. Labels come from the same
+# define_effect_sizes manifest that make_stan_data used to build the stan_data.
+
+print("\n" + "="*70)
+print("COMPARING REDUCED EFFECT SIZES rho_by_cat_qu")
+print("="*70)
+
+_rho_methods = [m for m in method_order if 'rho_by_cat_qu_pr' in posterior_by_method[m]]
+if not _rho_methods:
+    print("No method emitted rho_by_cat_qu_pr (needs the v261012 model); skipping rho comparison.")
+else:
+    # drho = the one manifest defined up front (reloaded with the data); its (jc, r) index aligns
+    # with the rho_by_cat_qu[r, jc] matrix every method emitted.
+    _rho_rows = []
+    for method in _rho_methods:
+        arr = np.asarray(posterior_by_method[method]['rho_by_cat_qu_pr'].values)
+        # dims (chain, draw, R, Qcmp) -> posterior median over chain+draw -> (R, Qcmp)
+        med = np.median(arr.reshape(-1, arr.shape[-2], arr.shape[-1]), axis=0)
+        R_, Qcmp_ = med.shape
+        for ri in range(R_):
+            for jci in range(Qcmp_):
+                _rho_rows.append({'r': ri + 1, 'jc': jci + 1,
+                                  'median': float(med[ri, jci]), 'method': method})
+    rho_long = pd.DataFrame(_rho_rows).merge(
+        drho[['jc', 'r', 'red_fn', 'rho', 'scope', 'item_type', 'cmp_key']].drop_duplicates(),
+        on=['jc', 'r'], how='left')
+
+    rho_wide = rho_long.pivot_table(
+        index=['jc', 'r', 'red_fn', 'rho', 'scope', 'item_type', 'cmp_key'],
+        columns='method', values='median', aggfunc='first').reset_index()
+    _mcols = [m for m in _rho_methods if m in rho_wide.columns]
+    rho_wide['abs_median_range'] = rho_wide[_mcols].max(axis=1) - rho_wide[_mcols].min(axis=1)
+    rho_wide = rho_wide.sort_values('abs_median_range', ascending=False)
+
+    print("\nTop 10 reductions with largest median rho differences across methods:")
+    print(rho_wide.head(10)[['scope', 'cmp_key', 'rho'] + _mcols + ['abs_median_range']])
+
+    tmp = os.path.join(dir_out_pcm, "comparison_pcm_rho_all_methods.csv")
+    rho_wide.to_csv(tmp, index=False)
+    print(f"\nSaved rho_by_cat_qu comparison to: {tmp}")
 
 # %%
 

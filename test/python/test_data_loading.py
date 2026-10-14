@@ -8,12 +8,21 @@ This module contains comprehensive test suites for:
 Tests validate against R baselines for equivalence checking.
 """
 
+import sys
 import pytest
 import pandas as pd
 import numpy as np
 from pathlib import Path
+
+# Make both the project modules (repo/python) and the test-helper package (test/python/testlib)
+# importable regardless of collection order.
+_repo_root = Path(__file__).resolve().parents[2]
+for _p in (_repo_root / 'python', Path(__file__).resolve().parent):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
 from data_loading import read_data_colombia, read_data_ukraine
-from utils.comparison import compare_dataframes
+from testlib.comparison import compare_dataframes
 
 
 # ============================================================================

@@ -144,7 +144,7 @@ def _hessian_min_eigval(model_callable, stan_data, num_steps=400, lr=0.05, seed=
 @pytest.mark.integration
 def test_partial_credit_model_hessian_has_nonzero_eigenvalues():
     """Hessian of pcm_ncats under AutoLaplaceApproximation has no zero eigenvalues."""
-    pyro_path = project_root / 'src' / 'numpyro' / 'partial_credit_model_ncats_v260413.pyro'
+    pyro_path = project_root / 'src' / 'numpyro' / 'partial_credit_model_ncats_v261012.pyro'
     mod = _load_pyro_module(pyro_path, 'pcm_ncats_laplace')
     data = _build_pcm_credit_test_case()
     min_eig, cov_eigvals = _hessian_min_eigval(mod.partial_credit_model_ncats, data)
@@ -158,7 +158,7 @@ def test_partial_credit_model_hessian_has_nonzero_eigenvalues():
 @pytest.mark.integration
 def test_credit_model_hessian_has_nonzero_eigenvalues():
     """Hessian of credit_model_ncats under AutoLaplaceApproximation has no zero eigenvalues."""
-    pyro_path = project_root / 'src' / 'numpyro' / 'credit_model_ncats_v260413.pyro'
+    pyro_path = project_root / 'src' / 'numpyro' / 'credit_model_ncats_v261012.pyro'
     mod = _load_pyro_module(pyro_path, 'cm_ncats_laplace')
     data = _build_pcm_credit_test_case()
     min_eig, cov_eigvals = _hessian_min_eigval(mod.credit_model_ncats, data)
@@ -172,7 +172,7 @@ def test_credit_model_hessian_has_nonzero_eigenvalues():
 @pytest.mark.integration
 def test_ordered_logit_model_hessian_has_nonzero_eigenvalues():
     """Hessian of ordered_logit_ncats under AutoLaplaceApproximation has no zero eigenvalues."""
-    pyro_path = project_root / 'src' / 'numpyro' / 'ordered_logit_ncats_v260413.pyro'
+    pyro_path = project_root / 'src' / 'numpyro' / 'ordered_logit_ncats_v261012.pyro'
     mod = _load_pyro_module(pyro_path, 'ol_ncats_laplace')
     data = _build_ordered_logit_test_case()
     min_eig, cov_eigvals = _hessian_min_eigval(mod.ordered_logit_ncats, data)

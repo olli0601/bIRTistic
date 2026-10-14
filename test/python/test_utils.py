@@ -1,8 +1,20 @@
 """Test the testing utilities themselves."""
+import sys
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import pytest
-from utils.comparison import (
+
+# Make both the project modules (repo/python) and the test-helper package (test/python/testlib)
+# importable regardless of collection order. testlib is named distinctly from the project's
+# python/utils.py to avoid shadowing it on sys.path.
+_repo_root = Path(__file__).resolve().parents[2]
+for _p in (_repo_root / 'python', Path(__file__).resolve().parent):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
+
+from testlib.comparison import (
     compare_dataframes,
     compare_scalars,
     compare_posteriors,

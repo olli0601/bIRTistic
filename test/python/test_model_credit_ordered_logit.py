@@ -129,7 +129,7 @@ def _ol_param_shapes(stan_data) -> dict:
 
 
 def test_credit_param_names_match_pyro_model():
-    """Sample sites in src/numpyro/credit_model_ncats_v260413.pyro are
+    """Sample sites in src/numpyro/credit_model_ncats_v261012.pyro are
     latent_factor_unit / latent_factor_beta / skill_thresholds /
     loadings_questions_m1 -- declared in the subclass."""
     assert set(CreditModel.param_names) == {
@@ -200,7 +200,7 @@ def test_credit_eval_log_prior_matches_pyro_namespace(credit_model):
 
 
 def test_ordered_logit_param_names_match_pyro_model():
-    """Sample sites in src/numpyro/ordered_logit_ncats_v260413.pyro are
+    """Sample sites in src/numpyro/ordered_logit_ncats_v261012.pyro are
     latent_factor_unit / latent_factor_beta / skill_thresholds_1 /
     skill_thresholds_incs / loadings_questions_m1."""
     assert set(OrderedLogit.param_names) == {

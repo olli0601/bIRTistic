@@ -790,3 +790,207 @@ def _material_palette(name: str, n: int) -> list[str]:
         return [base[i] for i in idx]
     cmap = LinearSegmentedColormap.from_list(f'material_{name}_x', base, N=n)
     return [to_hex(cmap(i / max(n - 1, 1))) for i in range(n)]
+
+
+#%% ------- in-model reductions (rho_by_cat_qu): effect-size manifest + Stan data -------
+# Python port of the R Colombia-analysis-pcm reduction machinery (see memory project_reductions_r_to_py_port
+# and src/stan/reduction_functions.stan). `define_effect_sizes` builds the long `drho` manifest (one row per
+# comparison jc x reduction r); `reduction_stan_data` turns it into the Stan data-block entries R, Qcmp, Scmp,
+# cmp_cat_type, question_cmp, red_fn, cmp_reduce_thr for the v261012 models. Python schema: question_of_obs =
+# item_group_id (local question within a category type), group_label = Baseline/Endline condition, construct =
+# the item-group, item_type / item_high_label on dit. Reduction ids (reduction_functions.stan): per-participant
+# 1 GMFR, 2 SCR, 3 rel%, 4 diff; group-mean 5 baseline level, 6 endline level, 7 rel%, 8 diff, 9 GMFR.
+
+#: Colombia production default: Baseline/Endline LEVELS (5,6) + the correct per-participant pre/post change
+#: rel% (3) and diff (4). Pass reductions=[(5,'Baseline'),(6,'Endline'),(7,'ratio'),(8,'diff')] for the legacy
+#: group-mean (ratio-of-group-means) behaviour instead.
+_DEFAULT_REDUCTIONS = [(5, 'Baseline'), (6, 'Endline'), (3, 'ratio'), (4, 'diff')]
+
+
+def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=None):
+    """Build the long effect-size manifest `drho` for the PCM / credit / ordered-logit ncats models.
+
+    One row per (comparison jc, reduction r). Comparisons are ordered: each item present at BOTH Baseline and
+    Endline (jc = 1..n_item), then each (item_type, construct) item-group. red_fn is constant per r across
+    comparisons (cartesian). No list columns -- a group's member items are the item rows sharing its construct.
+    Returns a pandas DataFrame with columns jc, r, scope, item_type_id, item_type, cmp_key, red_fn, rho, thr,
+    item_label, construct, item_high_label.
+    """
+    import pandas as pd
+    import numpy as np
+    if reductions is None:
+        reductions = _DEFAULT_REDUCTIONS
+
+    iq = dcati[['item_type_id', 'item_label', 'item_group_id', 'group_label']].drop_duplicates()
+    base = (iq[iq['group_label'] == 'Baseline'][['item_type_id', 'item_label']])
+    end = (iq[iq['group_label'] == 'Endline'][['item_type_id', 'item_label']])
+    it = base.merge(end, on=['item_type_id', 'item_label'])  # items at BOTH timepoints
+    meta = dit[['item_type_id', 'item_label', 'item_type', 'construct',
+                'item_high_label']].drop_duplicates()
+    it = it.merge(meta, on=['item_type_id', 'item_label'])
+    it = it.sort_values(['item_type_id', 'item_label']).reset_index(drop=True)
+    it['jc'] = np.arange(1, len(it) + 1)
+    n_item = len(it)
+
+    gr = (it[['item_type_id', 'item_type', 'construct', 'item_high_label']]
+          .drop_duplicates().sort_values(['item_type_id', 'construct']).reset_index(drop=True))
+    gr['jc'] = np.arange(n_item + 1, n_item + 1 + len(gr))
+
+    comps_item = it.assign(scope='item', cmp_key=it['item_label'])
+    comps_grp = gr.assign(scope='item_group', cmp_key=gr['construct'],
+                          item_label=pd.NA)
+    cols = ['jc', 'scope', 'item_type_id', 'item_type', 'cmp_key', 'item_label',
+            'construct', 'item_high_label']
+    cmp = pd.concat([comps_item[cols], comps_grp[cols]], ignore_index=True)
+    cmp['thr'] = np.where(cmp['item_type'] == 'categorical', int(categorical_threshold), 0)
+
+    reds = pd.DataFrame(reductions, columns=['red_fn', 'rho'])
+    reds['r'] = np.arange(1, len(reds) + 1)
+    drho = cmp.merge(reds, how='cross')
+    return drho.sort_values(['jc', 'r']).reset_index(drop=True)
+
+
+def _reduce_unit_summary(P, thr: int):
+    """Per-participant summary of a (M, K) prob matrix. 0-INDEXED y (column k carries value k).
+    thr == 0 -> E[y] = sum_k k p[k]; thr >= 1 -> P(y >= thr) = sum_{k>=thr} p[k]. Mirrors
+    reduction_functions.stan summarize_probs_py_participants_for_one_item."""
+    import numpy as np
+    K = P.shape[1]
+    if thr == 0:
+        return P @ np.arange(K, dtype=float)
+    return P @ (np.arange(K) >= thr).astype(float)
+
+
+def _reduce_one(red_fn: int, p1, p2, g1: float, g2: float, thr: int) -> float:
+    """Dispatch one reduction (mirrors reduction_functions.stan reduce_dispatch). p1/p2 = pooled paired
+    per-participant prob matrices (M, K); g1/g2 = scalar group means. ids: 1 GMFR, 2 SCR, 3 rel%, 4 diff
+    (per-participant); 5 baseline level, 6 endline level, 7 rel%, 8 diff, 9 GMFR (group-mean)."""
+    import numpy as np
+    if red_fn in (1, 3, 4) and p1.shape[0] == 0:
+        return 0.0
+    if red_fn == 1:  # GMFR per-participant: 2^(mean_u (E[y2]-E[y1]))
+        K = p1.shape[1]
+        return float(2.0 ** np.mean((p2 - p1) @ np.arange(K, dtype=float)))
+    if red_fn == 2:  # SCR per-participant: mean_u P(d>=2), d=(b-a)-1{a==0}
+        M, K = p1.shape
+        if M == 0:
+            return 0.0
+        G = p1.T @ p2
+        s = 0.0
+        for a in range(K):
+            for b in range(K):
+                d = (b - a) - (1 if a == 0 else 0)
+                if d >= 2:
+                    s += G[a, b]
+        return float(s / M)
+    if red_fn == 3:  # rel% per-participant
+        s1 = _reduce_unit_summary(p1, thr); s2 = _reduce_unit_summary(p2, thr)
+        return float(np.mean((s1 - s2) / s1) * 100.0)
+    if red_fn == 4:  # diff per-participant
+        return float(np.mean(_reduce_unit_summary(p1, thr) - _reduce_unit_summary(p2, thr)))
+    if red_fn == 5:
+        return float(g1)
+    if red_fn == 6:
+        return float(g2)
+    if red_fn == 7:
+        return float((g1 - g2) / g1 * 100.0)
+    if red_fn == 8:
+        return float(g1 - g2)
+    if red_fn == 9:
+        return float(2.0 ** (g2 - g1))
+    raise ValueError(f"unknown red_fn {red_fn}")
+
+
+def compute_rho_from_probs(prob_by_cat, data) -> "object":
+    """NumPy port of reduction_functions.stan compute_rho. `prob_by_cat[c]` = (N[c], K[c]) per-obs category
+    probs for category type c (same obs order as dcati within the cat). `data` carries the reduction manifest
+    (R, Qcmp, cmp_cat_type, question_cmp, red_fn, cmp_reduce_thr) + indexing (unit_of_obs, question_of_obs,
+    cat_type, N, K). Pooling = average a participant's probs over the questions (in the set) they answered;
+    group means over participants with that side; paired = participants with BOTH sides. Returns (R, Qcmp)."""
+    import numpy as np
+    R = int(data['R']); Qcmp = int(data['Qcmp'])
+    out = np.zeros((R, Qcmp))
+    if R == 0 or Qcmp == 0:
+        return out
+    cmp_cat_type = np.asarray(data['cmp_cat_type'], dtype=int)
+    question_cmp = np.asarray(data['question_cmp'], dtype=int)      # (Qcmp, 2, Scmp), 1-indexed local q, 0=pad
+    red_fn = np.asarray(data['red_fn'], dtype=int)
+    thr = np.asarray(data['cmp_reduce_thr'], dtype=int)            # (R, Qcmp)
+    N = np.asarray(data['N'], dtype=int)
+    uobs = np.asarray(data['unit_of_obs'], dtype=int) - 1          # 0-indexed unit
+    qobs = np.asarray(data['question_of_obs'], dtype=int)          # 1-indexed local question (matches question_cmp)
+    cat_starts = np.concatenate([[0], np.cumsum(N)])               # global obs offset per cat (length C+1)
+
+    for jc in range(Qcmp):
+        c = int(cmp_cat_type[jc]) - 1
+        Nc = int(N[c]); s = int(cat_starts[c])
+        pc = np.asarray(prob_by_cat[c])                            # (Nc, Kc)
+        u_c = uobs[s:s + Nc]; q_c = qobs[s:s + Nc]
+        ou = {(int(u_c[n]), int(q_c[n])): n for n in range(Nc)}    # (unit, local q) -> local obs row
+        Qb = [int(q) for q in question_cmp[jc, 0] if q > 0]
+        Qe = [int(q) for q in question_cmp[jc, 1] if q > 0]
+
+        def pooled(u, Qs):
+            rows = [pc[ou[(u, q)]] for q in Qs if (u, q) in ou]
+            return np.mean(rows, axis=0) if rows else None
+
+        units = np.unique(u_c)
+        pb = {u: pooled(u, Qb) for u in units}; pb = {u: v for u, v in pb.items() if v is not None}
+        pe = {u: pooled(u, Qe) for u in units}; pe = {u: v for u, v in pe.items() if v is not None}
+        paired = [u for u in units if u in pb and u in pe]
+        p1 = np.array([pb[u] for u in paired]) if paired else np.zeros((0, pc.shape[1]))
+        p2 = np.array([pe[u] for u in paired]) if paired else np.zeros((0, pc.shape[1]))
+
+        for r in range(R):
+            t = int(thr[r, jc]); rid = int(red_fn[r])
+            g1 = float(np.mean(_reduce_unit_summary(np.array(list(pb.values())), t))) if pb else 0.0
+            g2 = float(np.mean(_reduce_unit_summary(np.array(list(pe.values())), t))) if pe else 0.0
+            out[r, jc] = _reduce_one(rid, p1, p2, g1, g2, t)
+    return out
+
+
+def reduction_stan_data(drho, dcati) -> dict:
+    """Turn the `drho` manifest into the v261012 Stan data-block entries. Resolves each comparison's baseline /
+    endline question SETS (item_group_id) from dcati -- items use their own question, item-groups pool their
+    member items (item rows sharing construct). Returns dict(R, Qcmp, Scmp, cmp_cat_type, question_cmp, red_fn,
+    cmp_reduce_thr)."""
+    import pandas as pd
+    ucmp = drho[['jc', 'scope', 'item_type_id', 'cmp_key']].drop_duplicates().sort_values('jc')
+    ured = drho[['r', 'red_fn']].drop_duplicates().sort_values('r')
+    R = int(len(ured))
+    Qcmp = int(len(ucmp))
+    red_fn = ured['red_fn'].astype(int).tolist()
+    cmp_cat_type = ucmp['item_type_id'].astype(int).tolist()
+
+    iq = dcati[['item_type_id', 'item_label', 'item_group_id', 'group_label']].drop_duplicates()
+    base = {(int(r.item_type_id), r.item_label): int(r.item_group_id)
+            for r in iq[iq['group_label'] == 'Baseline'].itertuples()}
+    end = {(int(r.item_type_id), r.item_label): int(r.item_group_id)
+           for r in iq[iq['group_label'] == 'Endline'].itertuples()}
+    item_rows = drho[drho['scope'] == 'item'][['item_type_id', 'item_label', 'construct']].drop_duplicates()
+
+    q1_sets, q2_sets = [], []
+    for row in ucmp.itertuples():
+        ct = int(row.item_type_id)
+        if row.scope == 'item':
+            labs = [row.cmp_key]
+        else:
+            labs = item_rows[(item_rows['item_type_id'] == ct)
+                             & (item_rows['construct'] == row.cmp_key)]['item_label'].tolist()
+        q1_sets.append([base[(ct, l)] for l in labs if (ct, l) in base])
+        q2_sets.append([end[(ct, l)] for l in labs if (ct, l) in end])
+
+    Scmp = max(1, max((len(s) for s in q1_sets), default=1), max((len(s) for s in q2_sets), default=1))
+    question_cmp = [[[0] * Scmp, [0] * Scmp] for _ in range(Qcmp)]  # [jc][side][s]
+    for i, (a, b) in enumerate(zip(q1_sets, q2_sets)):
+        for s, q in enumerate(a):
+            question_cmp[i][0][s] = int(q)
+        for s, q in enumerate(b):
+            question_cmp[i][1][s] = int(q)
+
+    thr_by_jc = {int(r.jc): int(r.thr) for r in drho[['jc', 'thr']].drop_duplicates().itertuples()}
+    jc_order = ucmp['jc'].astype(int).tolist()
+    cmp_reduce_thr = [[thr_by_jc[jc] for jc in jc_order] for _ in range(R)]
+
+    return dict(R=R, Qcmp=Qcmp, Scmp=int(Scmp), cmp_cat_type=cmp_cat_type,
+                question_cmp=question_cmp, red_fn=red_fn, cmp_reduce_thr=cmp_reduce_thr)

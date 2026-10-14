@@ -53,14 +53,14 @@ pytest -m "not slow"
 
 ## Comparison Utilities
 
-Located in `tests/utils/comparison.py`:
+Located in `testlib/comparison.py`:
 
 ### `compare_dataframes()`
 
 Compares Python and R DataFrames with configurable tolerances:
 
 ```python
-from tests.utils.comparison import compare_dataframes
+from testlib.comparison import compare_dataframes
 
 matches, message = compare_dataframes(
     df_python,
@@ -77,7 +77,7 @@ assert matches, message
 Compares individual scalar values:
 
 ```python
-from tests.utils.comparison import compare_scalars
+from testlib.comparison import compare_scalars
 
 matches, message = compare_scalars(
     value_python,
@@ -93,7 +93,7 @@ assert matches, message
 Compares MCMC posterior outputs with user-specified tolerances:
 
 ```python
-from tests.utils.comparison import compare_posteriors
+from testlib.comparison import compare_posteriors
 
 posterior_py = {
     'means': {'alpha': 0.5, 'beta': 1.2},
@@ -119,7 +119,7 @@ assert matches, message
 Compares NumPy arrays:
 
 ```python
-from tests.utils.comparison import compare_arrays
+from testlib.comparison import compare_arrays
 
 matches, message = compare_arrays(
     arr_python,
@@ -160,7 +160,7 @@ Create `test_<module>.py`:
 import pandas as pd
 import pytest
 from birtistic.data_loading import read_data_colombia
-from tests.utils.comparison import compare_dataframes
+from testlib.comparison import compare_dataframes
 
 
 def test_read_data_colombia(r_baseline_dir):

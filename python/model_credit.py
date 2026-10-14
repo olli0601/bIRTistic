@@ -45,6 +45,7 @@ from utils import (
     _get_autoguide_factory,
     _make_idata_from_svi_posterior,
     _pdf_or_parts_exist,
+    reduction_stan_data,
 )
 from model_irt import IRTModel
 
@@ -56,7 +57,7 @@ def _model_namespace():
     """Lazily load + cache the NumPyro model namespace from the .pyro source."""
     global _MODEL_NS
     if _MODEL_NS is None:
-        model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "credit_model_ncats_v260413.pyro"
+        model_file = Path(__file__).resolve().parents[1] / "src" / "numpyro" / "credit_model_ncats_v261012.pyro"
         if not model_file.exists():
             raise FileNotFoundError(f"NumPyro model file not found: {model_file}")
         _MODEL_NS = runpy.run_path(str(model_file))
@@ -112,12 +113,12 @@ class CreditModel(IRTModel):
         ``get_ordered_prob_of_credit_model_ncats`` callable; raising loudly
         so MM / SMC fail explicitly rather than silently scoring with
         wrong outputs. Add the function in
-        src/numpyro/credit_model_ncats_v260413.pyro and update this method
+        src/numpyro/credit_model_ncats_v261012.pyro and update this method
         once MM / SMC are needed for credit."""
         raise NotImplementedError(
             "CreditModel does not yet expose"
             " get_ordered_prob_of_credit_model_ncats. Add it to"
-            " credit_model_ncats_v260413.pyro before using MM / SMC."
+            " credit_model_ncats_v261012.pyro before using MM / SMC."
         )
 
     # ------------------------------------------------------------------
@@ -186,6 +187,11 @@ class CreditModel(IRTModel):
         vprint(f"N per category: {', '.join(map(str, stan_data['N']))}")
         vprint(f"Q per category: {', '.join(map(str, stan_data['Q']))}")
         vprint(f"K per category: {', '.join(map(str, stan_data['K']))}")
+
+        # In-model reduced effect sizes (rho_by_cat_qu) for v261012; see utils.define_effect_sizes.
+        drho = self.drho  # defined once in IRTModel.__init__ (mirrors the R drho arg)
+        stan_data.update(reduction_stan_data(drho, dcati))
+        vprint(f"Reduced effect sizes: R = {stan_data['R']}; Qcmp = {stan_data['Qcmp']}; Scmp = {stan_data['Scmp']}")
 
         return stan_data
 
@@ -301,7 +307,7 @@ class CreditModel(IRTModel):
             if "credit_model_ncats" not in model_ns:
                 raise AttributeError(
                     "Function 'credit_model_ncats' not found in"
-                    " credit_model_ncats_v260413.pyro"
+                    " credit_model_ncats_v261012.pyro"
                 )
             credit_model_ncats = model_ns["credit_model_ncats"]
 
@@ -392,6 +398,26 @@ class CreditModel(IRTModel):
             predictions = predictive(subkey, stan_data)
             pred_minutes = (time.time() - t_pred0) / 60.0
             vprint(f"  Posterior predictive generation completed in {pred_minutes:.2f} minutes")
+
+            # Reduced effect sizes rho_by_cat_qu_fit/_pr (v261012). Numpy reduction of the per-obs probs
+            # (reduction_functions.stan compute_rho twin: get_rho_by_cat_qu in the .pyro), computed per draw.
+            if int(stan_data.get('R', 0)) > 0 and int(stan_data.get('Qcmp', 0)) > 0:
+                vprint("Computing reduced effect sizes rho_by_cat_qu (fit/pr) per draw...")
+                t_rho0 = time.time()
+                get_rho_by_cat_qu = model_ns["get_rho_by_cat_qu"]
+                n_draws_rho = next(iter(posterior_samples_dict.values())).shape[0]
+                rho_fit_draws = []
+                rho_pr_draws = []
+                for d in range(n_draws_rho):
+                    params_d = {k: v[d] for k, v in posterior_samples_dict.items()}
+                    rf, rp = get_rho_by_cat_qu(stan_data, params_d)
+                    rho_fit_draws.append(rf)
+                    rho_pr_draws.append(rp)
+                predictions = dict(predictions)
+                predictions['rho_by_cat_qu_fit'] = np.stack(rho_fit_draws, axis=0)
+                predictions['rho_by_cat_qu_pr'] = np.stack(rho_pr_draws, axis=0)
+                rho_minutes = (time.time() - t_rho0) / 60.0
+                vprint(f"  rho_by_cat_qu computed in {rho_minutes:.2f} minutes")
 
             vprint("Converting to ArviZ format...")
             t_idata0 = time.time()
@@ -542,7 +568,7 @@ class CreditModel(IRTModel):
 
         vprint = print if verbose else (lambda *args, **kwargs: None)
         if stan_file is None:
-            stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "credit_model_ncats_v260413.stan")
+            stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "credit_model_ncats_v261012.stan")
 
         vprint("\n" + "=" * 40)
         vprint("Credit Model (ncats) ADVI Analysis Configuration")
@@ -781,7 +807,7 @@ class CreditModel(IRTModel):
 
         vprint = print if verbose else (lambda *args, **kwargs: None)
         if stan_file is None:
-            stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "credit_model_ncats_v260413.stan")
+            stan_file = str(Path(__file__).parents[2] / "src" / "stan" / "credit_model_ncats_v261012.stan")
 
         vprint("\n" + "=" * 40)
         vprint("Credit Model (ncats) Analysis Configuration")

@@ -23,7 +23,7 @@ import numpy as np
 import pandas as pd
 
 from model import Model
-from utils import _map_cq_id_to_item_structure
+from utils import _map_cq_id_to_item_structure, define_effect_sizes
 
 
 class IRTModel(Model):
@@ -32,8 +32,17 @@ class IRTModel(Model):
 
     def __init__(self, dit: pd.DataFrame, dcati: pd.DataFrame,
                  x_formula: str = "~ group - 1", *,
-                 seed: int = 123, categorical_threshold: int = 3):
+                 seed: int = 123, categorical_threshold: int = 3,
+                 drho: Optional[pd.DataFrame] = None):
         self.categorical_threshold = int(categorical_threshold)
+        # Mirror the R side: the reduced-effect-size manifest `drho` is defined ONCE, up front,
+        # and then consumed by both make_stan_data (-> the Stan/pyro reduction data block) and the
+        # get_endpoints rho reader -- never recomputed inside a fit. Built from (dcati, dit) here so
+        # it exists before super().__init__ triggers make_stan_data; callers may pass their own.
+        if drho is None:
+            drho = define_effect_sizes(
+                dcati, dit, categorical_threshold=self.categorical_threshold)
+        self.drho = drho
         super().__init__(dit=dit, dcati=dcati, x_formula=x_formula, seed=seed)
 
     # ------------------------------------------------------------------
@@ -225,6 +234,65 @@ class IRTModel(Model):
         cq_map = _map_cq_id_to_item_structure(dp1, dit)
         return po.merge(cq_map, on='cq_id')
 
+    def _rho_by_cat_qu_endpoints_per_draw(self, draws, draws_file, param_name: str,
+                                          endpoint_type: str, verbose: bool = False) -> pd.DataFrame:
+        """Per-draw endpoints read from the in-model reductions ``rho_by_cat_qu_*`` (R x Qcmp) -- the
+        Python twin of R ``get_endpoints``. ``self.drho`` is the single source of
+        truth: each (reduction r, comparison jc) carries its label ``rho`` in {Baseline, Endline,
+        ratio, diff}, its ``scope`` (item / item_group) and item metadata. We read ``rho[r, jc]``,
+        join the labels, pivot the four per (draw, jc), then form the directional endpoints exactly
+        as R does: ``ratio`` is emitted by the model as a PERCENT (converted to a fraction here);
+        ``diff``/``ratio`` keep the Baseline-Endline orientation for categorical OR lower-is-better
+        items and flip (Endline-Baseline) for out-of-7 higher-is-better; ``diff2``/``ratio2`` are the
+        unconditional negatives. group1 = Baseline level, group2 = Endline level (same schema as the
+        ordered-prob path, so :meth:`get_endpoints` consumes it unchanged)."""
+        drho = self.drho
+        need = {'Baseline', 'Endline', 'ratio', 'diff'}
+        have = set(drho['rho'].unique())
+        if not need.issubset(have):
+            raise ValueError(
+                f"effect_sizes must contain reductions labelled {sorted(need)}; got {sorted(have)}")
+
+        arr = np.asarray(self._resolve_draws(draws, draws_file, param_name, verbose=verbose))
+        arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])          # (chain, draw, R, Qcmp) -> (ndraws, R, Qcmp)
+        ndraws, R, Qcmp = arr.shape
+
+        rr, jj = np.meshgrid(np.arange(1, R + 1), np.arange(1, Qcmp + 1), indexing='ij')
+        long = pd.DataFrame({
+            'draw': np.repeat(np.arange(ndraws), R * Qcmp),
+            'r': np.tile(rr.ravel(), ndraws),
+            'jc': np.tile(jj.ravel(), ndraws),
+            'val': arr.ravel(),
+        })
+        long = long.merge(drho[['jc', 'r', 'rho']].drop_duplicates(), on=['jc', 'r'])
+        long = long[long['rho'].isin(need)]
+        w = long.pivot_table(index=['draw', 'jc'], columns='rho', values='val').reset_index()
+        w.columns.name = None
+
+        cmpmeta = drho[['jc', 'scope', 'item_type_id', 'item_type', 'item_label',
+                        'construct', 'item_high_label']].drop_duplicates('jc')
+        w = w.merge(cmpmeta, on='jc')
+        scope = 'item' if endpoint_type == 'items' else 'item_group'
+        w = w[w['scope'] == scope].copy()
+
+        raw_diff = w['diff'].to_numpy(float)                          # Baseline - Endline (red_fn 4)
+        raw_ratio = w['ratio'].to_numpy(float) / 100.0               # (Baseline-Endline)/Baseline (red_fn 3, percent)
+        dir_pos = ((w['item_type'] == 'categorical')
+                   | (w['item_high_label'] == 'lower_is_better')).to_numpy()
+        w['group1'] = w['Baseline']
+        w['group2'] = w['Endline']
+        w['diff'] = np.where(dir_pos, raw_diff, -raw_diff)
+        w['ratio'] = np.where(dir_pos, raw_ratio, -raw_ratio)
+        w['diff2'] = -raw_diff
+        w['ratio2'] = -raw_ratio
+
+        if endpoint_type == 'items':
+            keep = ['draw', 'item_type_id', 'item_type', 'item_label', 'construct', 'item_high_label']
+        else:
+            keep = ['draw', 'item_type', 'construct', 'item_high_label']
+        keep += ['group1', 'group2', 'diff', 'ratio', 'diff2', 'ratio2']
+        return w[keep].reset_index(drop=True)
+
     # ------------------------------------------------------------------
     # Public endpoint methods
     # ------------------------------------------------------------------
@@ -271,10 +339,17 @@ class IRTModel(Model):
         ``diff``/``ratio`` behaviour used by every existing caller."""
         if endpoint_type not in ("items", "item_groups"):
             raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
-        if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit"):
+        if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit",
+                              "rho_by_cat_qu_pr", "rho_by_cat_qu_fit"):
             raise ValueError(
-                "param_name must be either 'ordered_prob_by_cat_qu_pr' or 'ordered_prob_by_cat_qu_fit'"
+                "param_name must be one of 'ordered_prob_by_cat_qu_pr', "
+                "'ordered_prob_by_cat_qu_fit', 'rho_by_cat_qu_pr', 'rho_by_cat_qu_fit'"
             )
+        # rho_by_cat_qu_* are the in-model reductions (R x Qcmp): read + label-decode them directly
+        # from self.drho (the R get_endpoints path), bypassing the ordered-prob reduction.
+        if param_name in ("rho_by_cat_qu_pr", "rho_by_cat_qu_fit"):
+            return self._rho_by_cat_qu_endpoints_per_draw(
+                draws, draws_file, param_name, endpoint_type, verbose=verbose)
         if categorical_threshold is None:
             categorical_threshold = self.categorical_threshold
         po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)

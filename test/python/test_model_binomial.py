@@ -17,6 +17,7 @@ Coverage:
 import sys
 from pathlib import Path
 
+import arviz as az
 import jax.numpy as jnp
 import numpy as np
 import pandas as pd
@@ -387,9 +388,12 @@ def test_fit_stan_svi_has_ypred_and_log_lik(model):
 
 
 def test_get_interim_z_from_ypredi_links_y_s_to_theta_s(tmp_path, model):
-    """For every Monte-Carlo sample s, the m rows of zi['ypred_s'] must
-    be reconstructable from a single posterior draw of ``ypred``. Locks
-    the 'y_s linked to theta_s' invariant from dev/OO_refactor.md item 5.
+    """BinomialModel.get_interim_z_from_ypredi draws each future column s as FRESH Bernoulli(p_s)
+    from ONE selected posterior p-sample (its docstring contract -- NOT by resampling the interim
+    cohort's observed ypred, which would inflate the per-draw variance when m > n). This locks the
+    'y_s linked to theta_s' invariant for that fresh-Bernoulli scheme: reproducing the helper's exact
+    RNG stream -- default_rng(seed), choose pps_z_total p-sample indices, then Bernoulli at interim_m
+    positions (consumed before the src_pid choice) -- reconstructs every zi['ypred_s'] column.
     """
     prefix = str(tmp_path / "binomial_z_link")
     fit = model.fit_pyro_svi(
@@ -400,25 +404,28 @@ def test_get_interim_z_from_ypredi_links_y_s_to_theta_s(tmp_path, model):
     draws_file = f"{prefix}_draws.zarr"
     interim_m = 5
     pps_z_total = 4
+    seed = 7
     zi = model.get_interim_z_from_ypredi(
         draws_file, interim_m=interim_m,
-        pps_z_total=pps_z_total, seed=7,
+        pps_z_total=pps_z_total, seed=seed,
     )
 
-    # Pull the same posterior block the helper saw (seed=7, keep_order=False).
-    rng = np.random.default_rng(7)
-    ypred_block = BinomialModel._load_ypred(
-        draws_file, pps_z_total, rng, keep_order=False,
-    )  # (pps_z_total, N_total)
+    # Reproduce the helper's RNG stream exactly (p-sample selection, then the fresh Bernoulli draws).
+    p_all = np.asarray(az.from_zarr(draws_file).posterior['p'].values).reshape(-1)
+    rng = np.random.default_rng(seed)
+    sel = rng.choice(p_all.shape[0], size=pps_z_total, replace=False)
+    p_sel = p_all[sel]
+    ypred_expected = rng.binomial(
+        1, np.broadcast_to(p_sel[:, None], (pps_z_total, interim_m)),
+    ).astype(np.int8).T  # (interim_m, pps_z_total)
 
-    # For each s, every row of zi[ypred_s] equals
-    # ypred_block[s, source_obs_oid - 1] -- i.e. row j inherits the same
-    # posterior draw index s as every other row j'.
-    src_oids = zi['oid'].to_numpy() - 1
-    for s in range(pps_z_total):
+    assert ypred_expected.shape == (interim_m, pps_z_total)
+    ypred_cols = [f'ypred_{s}' for s in range(pps_z_total)]
+    assert set(np.unique(zi[ypred_cols].to_numpy())).issubset({0, 1})   # binary outcomes
+    for s in range(pps_z_total):                                        # column s drawn from p_sel[s]
         np.testing.assert_array_equal(
             zi[f'ypred_{s}'].to_numpy(),
-            ypred_block[s, src_oids],
+            ypred_expected[:, s],
         )
 
     assert fit['draws'].posterior.sizes['draw'] >= pps_z_total

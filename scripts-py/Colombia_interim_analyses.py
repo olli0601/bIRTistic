@@ -4,7 +4,7 @@ Colombia interim analyses, Python refactor.
 
 Mirrors ``scripts-R/Colombia_interim_analyses_v251007.Rmd``, but:
 - replaces the 2cats Stan credit model with the ncats partial credit model
-  (``src/numpyro/partial_credit_model_ncats_v260413.pyro``);
+  (``src/numpyro/partial_credit_model_ncats_v261012.pyro``);
 - replaces the Stan HMC fits with NumPyro SVI using
   ``AutoLowRankMultivariateNormal`` via
   ``fit_partial_credit_model_ncats_pyrosvi``;

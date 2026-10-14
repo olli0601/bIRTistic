@@ -186,7 +186,7 @@ _ol = OrderedLogit(
 
 result_hmc = _ol.fit_stan_hmc(
     output_file_prefix=output_file_prefix_hmc,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v261012.stan",
     chains=4,
     parallel_chains=4,
     threads_per_chain=1,
@@ -210,7 +210,7 @@ print(f"  Draws file: {output_file_prefix_hmc}_draws.zarr")
 
 result_advi = _ol.fit_stan_svi(
     output_file_prefix=output_file_prefix_advi,
-    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v260413.stan",
+    stan_file="/Users/or105/git/bIRTistic/src/stan/ordered_logit_ncats_v261012.stan",
     iter=10000,
     grad_samples=1,
     elbo_samples=100,

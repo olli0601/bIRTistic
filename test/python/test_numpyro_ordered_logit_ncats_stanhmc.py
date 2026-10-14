@@ -2,8 +2,8 @@
 Parity tests for NumPyro ncats ordered logit model against Stan.
 
 Compares deterministic generated quantities between:
-- Stan: src/stan/ordered_logit_ncats_v260413.stan
-- NumPyro: src/numpyro/ordered_logit_ncats_v260413.pyro
+- Stan: src/stan/ordered_logit_ncats_v261012.stan
+- NumPyro: src/numpyro/ordered_logit_ncats_v261012.pyro
 
 The test uses fixed parameters and validates both values and flattened formats.
 """
@@ -27,7 +27,7 @@ numpyro_path = str(project_root / 'src' / 'numpyro')
 if numpyro_path not in sys.path:
     sys.path.insert(0, numpyro_path)
 
-pyro_file = project_root / 'src' / 'numpyro' / 'ordered_logit_ncats_v260413.pyro'
+pyro_file = project_root / 'src' / 'numpyro' / 'ordered_logit_ncats_v261012.pyro'
 loader = SourceFileLoader("ol_ncats_stanhmc", str(pyro_file))
 spec = importlib.util.spec_from_loader("ol_ncats_stanhmc", loader)
 ol_ncats_stanhmc = importlib.util.module_from_spec(spec)
@@ -111,6 +111,15 @@ def _build_test_case():
         'cat_type': cat_type,
         'X': X,
         'Xpr_id': Xpr_id,
+        # Minimal reduction block (v261012 requires it): one group-level baseline comparison on
+        # cat1 q1-vs-q2. This parity test validates only the deterministic GQ (log_lik /
+        # ordered_prob / brier / ypred); rho_by_cat_qu is computed but ignored. A zero-size
+        # question_cmp would collapse in JSON (dims[3] out of range), so keep it non-empty.
+        'R': 1, 'Qcmp': 1, 'Scmp': 1,
+        'cmp_cat_type': np.array([1], dtype=np.int32),
+        'question_cmp': np.array([[[1], [2]]], dtype=np.int32),
+        'red_fn': np.array([5], dtype=np.int32),
+        'cmp_reduce_thr': np.array([[0]], dtype=np.int32),
     }
 
     # skill_thresholds_1: one per question, Q_total = 7.
@@ -166,7 +175,7 @@ def test_numpyro_ordered_logit_ncats_stanhmc_parity_with_stan_generated_quantiti
     stan_data, stan_params, numpyro_sub = _build_test_case()
 
     stan_model = CmdStanModel(
-        stan_file=str(project_root / 'src' / 'stan' / 'ordered_logit_ncats_v260413.stan'),
+        stan_file=str(project_root / 'src' / 'stan' / 'ordered_logit_ncats_v261012.stan'),
         stanc_options={'include-paths': str(project_root / 'src' / 'stan')},
     )
 
