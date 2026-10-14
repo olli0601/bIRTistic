@@ -51,7 +51,7 @@
 The notebook requires **ordered logit** model functions (not partial credit):
 
 1. **`fit_ordered_logit_model_ncats()`** - HMC version
-   - Stan file: `src/stan/ordered_logit_ncats_v260413.stan`
+   - Stan file: `old/stan/ordered_logit_ncats_v260413.stan`
    - Port from: `R/fit_ordered_logit_model_ncats.R`
    
 2. **`fit_ordered_logit_model_ncats_advi()`** - ADVI version

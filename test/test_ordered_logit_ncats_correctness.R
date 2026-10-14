@@ -31,7 +31,7 @@ test_that("Ordered logit ncats model produces identical log_lik to 2cats model w
   )
   
   model_ncats <- cmdstan_model(
-    "src/stan/ordered_logit_ncats_v260413.stan",
+    "old/stan/ordered_logit_ncats_v260413.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )

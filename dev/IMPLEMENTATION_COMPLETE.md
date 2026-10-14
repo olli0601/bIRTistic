@@ -21,7 +21,7 @@
 2. **`fit_ordered_logit_model_ncats()`** ✅ NEW
    - Lines: 327-598
    - Features: HMC sampling with ordered logit model
-   - Stan file: `src/stan/ordered_logit_ncats_v260413.stan`
+   - Stan file: `old/stan/ordered_logit_ncats_v260413.stan`
    - Outputs: draws.pkl, timing.csv, convergence diagnostics
    - Status: Fully implemented
 

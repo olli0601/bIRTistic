@@ -8,7 +8,7 @@
 #' @param dcati data.table. Pre-processed data with observations for analysis. Must include
 #'   item_type, y_stan, item_time_id, pid, and oidt columns.
 #' @param output_file_prefix Character. Full path prefix for output files (without extension)
-#' @param stan_file Character. Path to Stan model file (.stan). Default: ordered_logit_ncats_v260413.stan
+#' @param stan_file Character. Path to Stan model file (.stan). Default: ordered_logit_ncats_v261012.stan
 #' @param x_formula Formula. Formula specifying predictors for the design matrix
 #' @param x_formula_ignore_regex Character. Regular expression pattern to identify X columns to exclude 
 #'   from posterior predictive probability calculations (ordered_prob_by_cat_qu_pr). Columns matching this 

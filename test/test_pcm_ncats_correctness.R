@@ -31,7 +31,7 @@ test_that("PCM ncats model produces identical log_lik to 2cats model with fixed 
   )
   
   model_ncats <- cmdstan_model(
-    "src/stan/partial_credit_model_ncats_v260413.stan",
+    "old/stan/partial_credit_model_ncats_v260413.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )

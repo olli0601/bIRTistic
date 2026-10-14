@@ -301,7 +301,7 @@ output_file_prefix <- file.path(dir_out, "ordlog_1")
 ```
 
 ```{r compile-stan-model, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "ordered_logit_ncats_v260413.stan")
+stan_file <- here::here("old", "stan", "ordered_logit_ncats_v260413.stan")
 ol_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -323,7 +323,7 @@ for (seed in seeds) {
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "ordered_logit_ncats_v260413.stan"),
+            stan_file = here::here("old", "stan", "ordered_logit_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -361,7 +361,7 @@ output_file_prefix_cm <- file.path(dir_out_cm, "cm_2")
 ```
 
 ```{r compile-stan-model-v251223, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "credit_model_ncats_v260413.stan")
+stan_file <- here::here("old", "stan", "credit_model_ncats_v260413.stan")
 cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -383,7 +383,7 @@ for (seed in seeds) {
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
+            stan_file = here::here("old", "stan", "credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -421,7 +421,7 @@ output_file_prefix_cm <- file.path(dir_out_cm, "cm_3")
 ```
 
 ```{r compile-stan-model-3, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "credit_model_ncats_v260413.stan")
+stan_file <- here::here("old", "stan", "credit_model_ncats_v260413.stan")
 cm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -443,7 +443,7 @@ for (seed in seeds) {
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "credit_model_ncats_v260413.stan"),
+            stan_file = here::here("old", "stan", "credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,
@@ -481,7 +481,7 @@ output_file_prefix_pcm <- file.path(dir_out_pcm, "pcm_1")
 ```
 
 ```{r compile-stan-model-pcm-v251224, include=FALSE, eval=FALSE, message=FALSE, echo=FALSE, warning=FALSE, tidy=TRUE}
-stan_file <- here::here("src", "stan", "partial_credit_model_ncats_v260413.stan")
+stan_file <- here::here("old", "stan", "partial_credit_model_ncats_v260413.stan")
 pcm_compiled <- cmdstanr::cmdstan_model(
         stan_file,
         include_paths = dirname(stan_file),
@@ -503,7 +503,7 @@ for (seed in seeds) {
             dit,
             dp1,
             output_file_prefix = paste0(output_file_prefix_seed, "_fit_alldata"),
-            stan_file = here::here("src", "stan", "partial_credit_model_ncats_v260413.stan"),
+            stan_file = here::here("old", "stan", "partial_credit_model_ncats_v260413.stan"),
             chains = 4L,
             parallel_chains = 4L,
             threads_per_chain = 1L,

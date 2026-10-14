@@ -31,7 +31,7 @@ test_that("Credit model ncats produces identical log_lik to 2cats model with fix
   )
   
   model_ncats <- cmdstan_model(
-    "src/stan/credit_model_ncats_v260413.stan",
+    "old/stan/credit_model_ncats_v260413.stan",
     include_paths = "src/stan",
     quiet = TRUE
   )
