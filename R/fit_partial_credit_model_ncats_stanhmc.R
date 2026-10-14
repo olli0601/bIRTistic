@@ -177,11 +177,11 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     cmp_end  <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q2 = item_time_id)])
     cmp <- merge(cmp_base, cmp_end, by = c("item_type_id", "item_label"))
     setkey(cmp, item_type_id, item_label)
-    # one id per reduction (see reduction_functions.stan), ordered levels then each change type's unit+group
-    # pair: 5=baseline level, 6=endline level, 4=diff within-participant, 8=diff-of-group-means, 3=rel% within-
-    # participant, 7=rel% ratio-of-group-means. 5/6/7/8 reproduce the legacy get_endpoints pos; 3/4 are the
-    # correct pre/post (within-participant) estimand, available alongside.
-    stan_data$red_fn <- c(5L, 6L, 4L, 8L, 3L, 7L)
+    # one id per reduction (see reduction_functions.stan). The GROUP-MEAN set 5=baseline level, 6=endline level,
+    # 7=rel% (ratio-of-group-means), 8=diff-of-group-means reproduces the legacy get_endpoints_from_probs_by_cat_qu
+    # pos EXACTLY (this is the undesirable-for-pre/post ratio-of-means). Append the within-participant ids 4=diff,
+    # 3=rel% (the correct pre/post estimand) when wanted -- keep get_endpoints' red_fn argument in sync.
+    stan_data$red_fn <- c(5L, 6L, 7L, 8L)
     stan_data$R <- length(stan_data$red_fn)
     stan_data$Qcmp <- nrow(cmp)
     stan_data$cmp_cat_type <- as.integer(cmp$item_type_id)
