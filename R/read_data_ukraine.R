@@ -28,9 +28,9 @@
 read_data_ukraine <- function(file_data_Ukraine) {
     require(data.table)
     # Suppress R CMD check notes about data.table's non-standard evaluation
-    submission_date <- time_label <- pid <- n <- pid_new <- f_label <- fid <-
+    submission_date <- group_label <- pid <- n <- pid_new <- f_label <- fid <-
         time <- y <- y_label <- item_label <- item_type <- item_high_label <-
-        group_label <- item_label_short <- group_label_long <- endpoint_measure <- NULL
+        construct <- item_label_short <- construct_long <- endpoint_measure <- NULL
 
     # Read in data from Ukraine
     dp <- as.data.table(read.csv(file_data_Ukraine))
@@ -59,7 +59,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     setnames(
         dp,
         c("UniqueID", "Timepoint", "f_name", "SubmissionDate"),
-        c("pid", "time_label", "f_label", "submission_date")
+        c("pid", "group_label", "f_label", "submission_date")
     )
 
     # Separate out meta data/ covariates
@@ -70,7 +70,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
         "partner_sharing", "partner_conflict", "facilitator_relationship",
         "spillover_frequency", "spillover_book", "past_programs", "spiritual_strength", "resources_afterHG", 
         "life_worse_me", "life_worse_family", "shelter_now_clean", "training", "training_type")
-    dmeta <- subset(dp, select = c("pid", "time_label", col_meta))
+    dmeta <- subset(dp, select = c("pid", "group_label", col_meta))
 
     # Remove non primary outcome data
     set(dp, NULL, col_meta, NULL)
@@ -148,7 +148,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     )
 
     # Set time id
-    dp[, time := as.integer(time_label == "Endline")]
+    dp[, group := as.integer(group_label == "Endline")]
 
     # Remove participants with only baseline records
     # as we are interested in pre-post comparison
@@ -179,7 +179,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
     dp <- data.table::melt(
         dp,
         id.vars = c(
-            "time", "time_label", "pid", "pid_label", "fid",
+            "group", "group_label", "pid", "pid_label", "fid",
             "f_label", "submission_date", "treat"
         ),
         variable.name = "item_label",
@@ -218,11 +218,11 @@ read_data_ukraine <- function(file_data_Ukraine) {
         "lower_is_better",
         "higher_is_better"
     )]
-    dit[, group_label := factor(gsub("([^_]+)_([^_]+)", "\\1", item_label))]
+    dit[, construct := factor(gsub("([^_]+)_([^_]+)", "\\1", item_label))]
     dit[, item_label_short := gsub("([^_]+)_([^_]+)", "\\2", item_label)]
     set(dit, dit[, which(grepl("^CG", item_label_short))], "item_label_short", "")
-    dit[, group_label_long := group_label]
-    tmp <- dit[, levels(group_label_long)]
+    dit[, construct_long := construct]
+    tmp <- dit[, levels(construct_long)]
     tmp <- sapply(tmp, function(x) {
         switch(x,
             "CG-MH" = "Caregiver mental health",
@@ -239,7 +239,7 @@ read_data_ukraine <- function(file_data_Ukraine) {
             x
         )
     })
-    levels(dit$group_label_long) <- tmp
+    levels(dit$construct_long) <- tmp
     dit[, endpoint_measure := sapply(item_type, function(x) {
         switch(x,
             "categorical" = "events occurring most or all of the time",

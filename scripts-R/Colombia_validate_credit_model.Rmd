@@ -83,29 +83,29 @@ dit <- copy(tmp$dit)
 dmeta <- copy(tmp$dmeta)
 
 dp1 <- subset(dp, !grepl("agg", item_label))
-dp1[, time := time + 1L]
+dp1[, group := time + 1L]
 dp1[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1$item_label)),
-    time = unique(dp1$time)
+    group = unique(dp1$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
-setkey(dp1, pid, time, item_label)
+dp1 <- merge(dp1, tmp, by = c("item_label", "group"))
+setkey(dp1, pid, group, item_label)
 dp1[, oid := .I]
 setkey(dp1, oid)
 tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
-setkey(dp1, pid, time, item_label)
+setkey(dp1, pid, group, item_label)
 ```
 
 ```{r split-test-data, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -181,7 +181,7 @@ stan_test_data$cat1_question_of_obs <- dtest[
 ]
 stan_test_data$cat1_unit_of_obs <- dtest[item_type == "categorical", pid]
 stan_test_data$cat1_X <- as.matrix(
-    dtest[item_type == "categorical", time - 1L],
+    dtest[item_type == "categorical", group - 1L],
     ncol = 1
 )
 stan_test_data$Ncat2 <- nrow(dtest[item_type == "out-of-7", ])
@@ -193,7 +193,7 @@ stan_test_data$cat2_question_of_obs <- dtest[
 ]
 stan_test_data$cat2_unit_of_obs <- dtest[item_type == "out-of-7", pid]
 stan_test_data$cat2_X <- as.matrix(
-    dtest[item_type == "out-of-7", time - 1L],
+    dtest[item_type == "out-of-7", group - 1L],
     ncol = 1
 )
 
@@ -277,7 +277,7 @@ p <- ggplot(pos, aes(x = oid, group = oid)) +
         stat = "identity"
     ) +
     geom_point(aes(y = y_stan, colour = IN_PPI)) +
-    facet_grid(item_label ~ time_label, scales = "free") +
+    facet_grid(item_label ~ group_label, scales = "free") +
     scale_x_discrete() +
     scale_y_continuous() +
     ggsci::scale_color_npg() +

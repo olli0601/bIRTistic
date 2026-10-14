@@ -6,10 +6,10 @@
 #' For categorical items the group level is P(y >= threshold); for out-of-7 items it is the expected mean.
 #'
 #' @param dp1 A data.table containing the input data with columns including:
-#'   item_type_id, item_label, item_time_id, item_type, time_label, y, y_label.
+#'   item_type_id, item_label, item_time_id, item_type, group_label, y, y_label.
 #' @param dit A data.table containing item definitions with columns including:
-#'   item_type_id, item_label, cat_length, item_type, group_label, item_label_short,
-#'   group_label_long, item_high_label.
+#'   item_type_id, item_label, cat_length, item_type, construct, item_label_short,
+#'   construct_long, item_high_label.
 #' @param draws_file Character string specifying the path to the RDS file containing
 #'   posterior draws (array format with rho_by_cat_qu_pr / rho_by_cat_qu_fit parameters from the PCM fit).
 #' @param categorical_threshold Integer specifying the threshold for aggregating
@@ -17,7 +17,7 @@
 #'   which aggregates "most" and "all of the time" categories for 5-category items.
 #' @param endpoint_type Character string specifying the aggregation level:
 #'   - "items": Keeps individual items (item_type_id, item_time_id preserved)
-#'   - "item_groups": Aggregates across items within groups (group_label level)
+#'   - "item_groups": Aggregates across items within groups (construct level)
 #'   Default is "items".
 #' @param param_name Character string specifying which rho variant to read:
 #'   - "rho_by_cat_qu_pr": posterior-predictive (confounding-adjusted) reductions
@@ -28,7 +28,7 @@
 #'   scope and metadata. MUST be the SAME manifest passed to the fit. If NULL, built via define_effect_sizes_colombia.
 #'
 #' @return A data.table containing endpoint summaries with columns:
-#'   - item_type, group_label, group_label_long: Item type and groupings
+#'   - item_type, construct, construct_long: Item type and groupings
 #'   - item_label, item_label_short (if endpoint_type="items"): Item identifiers
 #'   - item_time_id (if endpoint_type="items"): Time point identifier (categorical items only)
 #'   - item_high_label: Direction indicator (higher_is_better/lower_is_better)
@@ -60,7 +60,7 @@
 #'   level), 7 (rel %, ratio-of-means), 8 (diff-of-means); the per-participant pre/post estimand (ids 3 rel %,
 #'   4 diff) is in the same matrix. param_name selects the _pr or _fit variant; red_fn must match the fit.
 #' - endpoint_type="item_groups": read from the per-group comparisons the fit schedules for each (item_type,
-#'   group_label). The Stan reduction pools each participant's probs across the construct's items they answered
+#'   construct). The Stan reduction pools each participant's probs across the construct's items they answered
 #'   (participant-weighted), so under item-level missingness this differs from the legacy item-weighted
 #'   mean-of-per-item-group-means; it is identical when every participant answered every item in the group.
 #'
@@ -149,8 +149,8 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     w <- data.table::dcast(rho[rho %in% need_lbl], .draw + jc ~ rho, value.var = "val")
 
     # --- per-draw Baseline/Endline + diff/ratio/diff2/ratio2 (direction-aware) ---
-    cmpmeta <- unique(drho[, .(jc, scope, item_type_id, item_type, item_label, group_label,
-                               group_label_long, item_high_label, item_label_short)])
+    cmpmeta <- unique(drho[, .(jc, scope, item_type_id, item_type, item_label, construct,
+                               construct_long, item_high_label, item_label_short)])
     w <- merge(w, cmpmeta[, .(jc, item_type, item_high_label)], by = "jc")
     w[, ratio_lb := ratio / 100]                                        # Stan emits percent; (B-E)/B as fraction
     w[, is_cat := item_type == "categorical"]
@@ -167,11 +167,11 @@ get_endpoints <- function(dp1, dit, draws_file, categorical_threshold = 3, endpo
     # --- select rows for the requested endpoint, attach metadata, summarise quantiles ---
     if (endpoint_type == "items") {
         allv <- allv[jc %in% cmpmeta[scope == "item", jc]]
-        keys <- c("item_type_id", "item_label", "item_type", "group_label",
-                  "item_high_label", "item_label_short", "group_label_long", "variable")
+        keys <- c("item_type_id", "item_label", "item_type", "construct",
+                  "item_high_label", "item_label_short", "construct_long", "variable")
     } else {
         allv <- allv[jc %in% cmpmeta[scope == "item_group", jc]]
-        keys <- c("item_type", "group_label", "group_label_long", "item_high_label", "variable")
+        keys <- c("item_type", "construct", "construct_long", "item_high_label", "variable")
     }
     allv <- merge(allv, cmpmeta, by = "jc")
     pos <- allv[,

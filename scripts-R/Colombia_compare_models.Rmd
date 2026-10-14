@@ -53,7 +53,7 @@ P(Y_{i,j} \leq k) &= \text{logit}^{-1}(\eta_{i,j} - c_{j,k}) (\#eq:ordlog-cumpro
 with the conventions that for $k=1$, $P(Y_{i,j} < 1) = 0$ and for $k=K$ $P(Y_{i,j} \leq K) = 1$. Here:
 
 - $\theta_i$ is the skill (or latent factor) for participant $i$ ($i = 1, \ldots, n$)
-- $\boldsymbol{\beta}$ are covariate effects (e.g., time effects) that modify the skill of each participant
+- $\boldsymbol{\beta}$ are covariate effects (e.g., group effects) that modify the skill of each participant
 - $\lambda_{j}$ are item loadings ($j = 1, \ldots, J$), that determine how the latent participant skills map to particular behaviours/items. The conceptual idea is that each item/response has its own "difficulty" or "discrimination" in relation to the latent trait. 
 - $c_{j,k}$ must be ordered cutpoints for item $j$ and category $k$, with $c_{j,k} \geq c_{j,k-1}$. The idea is that when the item-specific skill $\eta_{i,j}$ exceeds the $k$th cutpoint, then the odds for responding in category $k$ or higher increases.
 
@@ -257,29 +257,29 @@ dmeta <- copy(tmp$dmeta)
 
 # Preprocess data
 dp1 <- subset(dp, !grepl("agg", item_label))
-dp1[, time := time + 1L]
+dp1[, group := time + 1L]
 dp1[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1$item_label)),
-    time = unique(dp1$time)
+    group = unique(dp1$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
-setkey(dp1, pid, time, item_label)
+dp1 <- merge(dp1, tmp, by = c("item_label", "group"))
+setkey(dp1, pid, group, item_label)
 dp1[, oid := .I]
 setkey(dp1, oid)
 tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
-setkey(dp1, pid, time, item_label)
+setkey(dp1, pid, group, item_label)
 ```
 
 ## Run ordered logistic model (ncats version ordered_logit_ncats_v260413)

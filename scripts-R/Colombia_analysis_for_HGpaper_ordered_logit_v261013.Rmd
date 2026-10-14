@@ -114,27 +114,27 @@ dp1_col <- subset(dp_col, !grepl("agg", item_label))
 dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_col$item_label)),
-    time = unique(dp1_col$time)
+    group = unique(dp1_col$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "group"))
 dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
-setkey(dp1_col, item_type_id, pid, time, item_label)
+setkey(dp1_col, item_type_id, pid, group, item_label)
 dp1_col[, oid := .I]
 setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 
-setkey(dp1_col, pid, time, item_label)
+setkey(dp1_col, pid, group, item_label)
 ```
 
 ```{r setup-ol-directories-v261012-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -213,10 +213,10 @@ dit_col <- copy(tmp$dit)
 dmeta_col <- copy(tmp$dmeta)
 
 #  create propensity score and time since death as fixed effects for pre-post model
-dmeta_col[, time := fifelse(time_label == "Baseline", 0, 1)]
+dmeta_col[, group := fifelse(group_label == "Baseline", 0, 1)]
 
 ps_vars <- c(
-  "time",
+  "group",
   "age",
   "sex",
   "stressmeals",
@@ -235,12 +235,12 @@ ps_vars <- c(
 )
 
 # Keep only observations with no missing values in PS variables
-tmp <- unique(dmeta_col, by = c("pid_label", "time_label"))
+tmp <- unique(dmeta_col, by = c("pid_label", "group_label"))
 tmp <- tmp[complete.cases(tmp[, ..ps_vars])]
 
 # Make propensity score
 fit_propensity <- glm(
-  time ~ age + sex + stressmeals + household_adults + household_children + 
+  group ~ age + sex + stressmeals + household_adults + household_children + 
     child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + 
     services_COUNSELING + services_CHILDCARE + education + income.per.person + 
     maritalstat, 
@@ -248,11 +248,11 @@ fit_propensity <- glm(
   data = tmp
 )
 tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
-tmp <- subset(tmp, select = c("pid_label", "time_label", "ps_score", "time_since_death"))
+tmp <- subset(tmp, select = c("pid_label", "group_label", "ps_score", "time_since_death"))
 
 # Add propensity scores and time since death to dp1_col
 dp1_col <- subset(dp_col, !grepl("agg", item_label))
-dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "time_label"))
+dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "group_label"))
 dp1_col[, time_since_death_scaled := scale(time_since_death)]
 dp1_col[, ps_score_scaled := scale(ps_score)]
 
@@ -260,26 +260,26 @@ dp1_col[, ps_score_scaled := scale(ps_score)]
 dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_col$item_label)),
-    time = unique(dp1_col$time)
+    group = unique(dp1_col$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "group"))
 dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
-setkey(dp1_col, item_type_id, pid, time, item_label)
+setkey(dp1_col, item_type_id, pid, group, item_label)
 dp1_col[, oid := .I]
 setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
-setkey(dp1_col, pid, time, item_label)
+setkey(dp1_col, pid, group, item_label)
 
 drho_col <- define_effect_sizes_colombia(dp1_col, dit_col, categorical_threshold = 3L)
 saveRDS(list(dp1 = dp1_col, dit = dit_col, drho = drho_col), paste0(output_file_prefix, "_ps_tsd_data.rds"))
@@ -332,13 +332,13 @@ tmp <- read_data_colombia(file_data)
 dp_col <- copy(tmp$dp)
 dit_col <- copy(tmp$dit)
 dmeta_col <- copy(tmp$dmeta)
-dmeta_col[, time := fifelse(time_label == "Baseline", 0, 1)]
+dmeta_col[, group := fifelse(group_label == "Baseline", 0, 1)]
 
 # Matching of study participants for quasi-experimental evaluation
-match_data <- unique(dp_col[, .(pid_label, time_label, pid, time, submission_date)])
+match_data <- unique(dp_col[, .(pid_label, group_label, pid, group, submission_date)])
 tmp <- unique(dmeta_col[, .(
   pid_label,
-  time_label,
+  group_label,
   age,
   sex,
   stressmeals,
@@ -356,8 +356,8 @@ tmp <- unique(dmeta_col[, .(
   maritalstat,
   time_since_death
 )])
-match_data <- merge(match_data, tmp, by = c("pid_label", "time_label"))
-match_data <- unique(match_data, by = c("pid_label", "time_label"))
+match_data <- merge(match_data, tmp, by = c("pid_label", "group_label"))
+match_data <- unique(match_data, by = c("pid_label", "group_label"))
 
 # Creating needed date variables
 match_data <- subset(match_data, !is.na(submission_date))
@@ -369,7 +369,7 @@ match_data[, ref_week := round(difftime(submission_date, tmp, units = "weeks"))]
 match_data <- subset(match_data, submission_date > as.Date("26/04/2024", format = "%d/%m/%Y"))
 
 # Matching
-dmatched_col <- MatchIt::match.data(MatchIt::matchit( time ~ ref_week, data = match_data, method = "exact", replacement = FALSE ), drop.unmatched = FALSE)
+dmatched_col <- MatchIt::match.data(MatchIt::matchit( group ~ ref_week, data = match_data, method = "exact", replacement = FALSE ), drop.unmatched = FALSE)
 dmatched_col <- as.data.table(dmatched_col)
 setnames(dmatched_col, "subclass", "mid")
 set(dmatched_col, NULL, 'mid', dmatched_col[, as.integer(mid)])
@@ -392,7 +392,7 @@ dmatched_col <- subset(dmatched_col, !is.na(mid))
 
 #  create propensity score and time since death as fixed effects for pre-post model
 ps_vars <- c(
-  "time",
+  "group",
   "age",
   "sex",
   "stressmeals",
@@ -415,7 +415,7 @@ tmp <- dmatched_col[complete.cases(dmatched_col[, ..ps_vars])]
 
 # Make propensity score
 fit_propensity <- glm(
-  time ~ age + sex + stressmeals + household_adults + household_children + 
+  group ~ age + sex + stressmeals + household_adults + household_children + 
     child_impairment + outfhelp + ngp + services_FOOD + services_HOUSING_SUBS + 
     services_COUNSELING + services_CHILDCARE + education + income.per.person + 
     maritalstat, 
@@ -423,11 +423,11 @@ fit_propensity <- glm(
   data = tmp
 )
 tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
-tmp <- subset(tmp, select = c("pid_label", "time_label", "mid", "ps_score", "time_since_death"))
+tmp <- subset(tmp, select = c("pid_label", "group_label", "mid", "ps_score", "time_since_death"))
 
 # Add matchgin IDs, propensity scores and time since death to dp1_col
 dp1_col <- subset(dp_col, !grepl("agg", item_label))
-dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "time_label"))
+dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "group_label"))
 dp1_col[, time_since_death_scaled := scale(time_since_death)]
 dp1_col[, ps_score_scaled := scale(ps_score)]
 
@@ -435,26 +435,26 @@ dp1_col[, ps_score_scaled := scale(ps_score)]
 dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_col$item_label)),
-    time = unique(dp1_col$time)
+    group = unique(dp1_col$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "group"))
 dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
-setkey(dp1_col, item_type_id, pid, time, item_label)
+setkey(dp1_col, item_type_id, pid, group, item_label)
 dp1_col[, oid := .I]
 setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
-setkey(dp1_col, pid, time, item_label)
+setkey(dp1_col, pid, group, item_label)
 
 drho_col <- define_effect_sizes_colombia(dp1_col, dit_col, categorical_threshold = 3L)
 saveRDS(list(dp1 = dp1_col, dit = dit_col, drho = drho_col), paste0(output_file_prefix, "_matched_ps_tsd_data.rds"))
@@ -516,26 +516,26 @@ dp1_ukr <- subset(dp_ukr, !grepl("agg", item_label))
 dp1_ukr[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_ukr$item_label)),
-    time = unique(dp1_ukr$time)
+    group = unique(dp1_ukr$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_label", "time"))
+dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_label", "group"))
 dp1_ukr <- merge(dp1_ukr, unique(subset(dit_ukr, select = c(item_type, item_type_id))), by = "item_type")
-setkey(dp1_ukr, item_type_id, pid, time, item_label)
+setkey(dp1_ukr, item_type_id, pid, group, item_label)
 dp1_ukr[, oid := .I]
 setkey(dp1_ukr, oid)
 tmp <- dp1_ukr[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_ukr <- merge(dp1_ukr, tmp, by = c("item_type", "oid"))
-setkey(dp1_ukr, pid, time, item_label)
+setkey(dp1_ukr, pid, group, item_label)
 
 drho_ukr <- define_effect_sizes_ukraine(dp1_ukr, dit_ukr, categorical_threshold = 2L)
 saveRDS(list(dp1 = dp1_ukr, dit = dit_ukr, drho = drho_ukr), paste0(output_file_prefix, "_vanilla_data.rds"))
@@ -727,11 +727,11 @@ set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
-pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
+pos[construct_long == "Caregiver exercising nonviolent discipline", construct_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression \\\\ and Anxiety']
 
 # Recode item_high_label for display
 pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
@@ -771,12 +771,12 @@ pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
 
 # Reshape for table
 pos <- dcast.data.table(pos,
-    analysis + item_type + group_label_long + item_high_label ~ variable,
+    analysis + item_type + construct_long + item_high_label ~ variable,
     value.var = "value_string"
 )
 
 # Create outcome domain with superscript for footnote
-pos[, outcome_domain := paste0('\\makecell{',group_label_long, item_type, "}")]
+pos[, outcome_domain := paste0('\\makecell{',construct_long, item_type, "}")]
 pos[, type := ""]
 
 # Save as CSV (include original columns for reference)
@@ -785,19 +785,19 @@ fwrite(pos, file = paste0(output_file_prefix, "_supp_table_1.csv"))
 
 pos1 <- subset(pos, 
     analysis == "prepost" & 
-    !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    !construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
     )
 pos2 <- subset(pos, 
     analysis == "prepost" & 
-    group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
     )
 pos3 <- subset(pos, 
     analysis == "quasiexp" & 
-    !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    !construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
     )
 pos4 <- subset(pos, 
     analysis == "quasiexp" & 
-    group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
+    construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues")
     )
 
 # Reorder and select columns for display 
@@ -943,17 +943,17 @@ pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
-pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
+pos[construct_long == "Caregiver exercising nonviolent discipline", construct_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression \\\\ and Anxiety']
 
 pos[, item_label_long := NA_character_]
 tmp <- pos[, which(item_label_short == '')]
-set(pos, tmp, 'item_label_long', pos[tmp, group_label_long])
+set(pos, tmp, 'item_label_long', pos[tmp, construct_long])
 tmp <- pos[, which(item_label_short != '')]
-set(pos, tmp, 'item_label_long', pos[tmp, paste0(group_label_long, ": \\\\ ", item_label_short)])
+set(pos, tmp, 'item_label_long', pos[tmp, paste0(construct_long, ": \\\\ ", item_label_short)])
 
 # Recode item_high_label for display
 pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
@@ -993,7 +993,7 @@ pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
 
 # Reshape for table
 pos <- dcast.data.table(pos,
-    item_type + group_label_long + item_label_long + item_high_label ~ variable,
+    item_type + construct_long + item_label_long + item_high_label ~ variable,
     value.var = "value_string"
 )
 
@@ -1005,9 +1005,9 @@ pos[, type := ""]
 fwrite(pos, file = paste0(output_file_prefix, "_supp_table_2.csv"))
 
 
-pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos1 <- subset(pos, !construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
-pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos2 <- subset(pos, construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
 # Reorder and select columns for display 
 pos1 <- pos1[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
@@ -1118,17 +1118,17 @@ set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
-pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
+pos[construct_long == "Caregiver exercising nonviolent discipline", construct_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression \\\\ and Anxiety']
 
 pos[, item_label_long := NA_character_]
 tmp <- pos[, which(item_label_short == '')]
-set(pos, tmp, 'item_label_long', pos[tmp, group_label_long])
+set(pos, tmp, 'item_label_long', pos[tmp, construct_long])
 tmp <- pos[, which(item_label_short != '')]
-set(pos, tmp, 'item_label_long', pos[tmp, paste0(group_label_long, ": \\\\ ", item_label_short)])
+set(pos, tmp, 'item_label_long', pos[tmp, paste0(construct_long, ": \\\\ ", item_label_short)])
 
 # Recode item_high_label for display
 pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
@@ -1168,7 +1168,7 @@ pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
 
 # Reshape for table
 pos <- dcast.data.table(pos,
-    item_type + group_label_long + item_label_long + item_high_label ~ variable,
+    item_type + construct_long + item_label_long + item_high_label ~ variable,
     value.var = "value_string"
 )
 
@@ -1180,9 +1180,9 @@ pos[, type := ""]
 fwrite(pos, file = paste0(output_file_prefix, "_supp_table_2.csv"))
 
 
-pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos1 <- subset(pos, !construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
-pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos2 <- subset(pos, construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
 # Reorder and select columns for display 
 pos1 <- pos1[, c("type","item_label_long", "item_high_label", "bl", "el", "diff2", "ratio2")]
@@ -1293,7 +1293,7 @@ dir_out_ol <- file.path(dir_out_base, "colombia-plots-tables-for-paper-ordered-l
 tmp <- readRDS(file.path(dir_out_ol, "ol_1_ukraine_fit_vanilla_primary_endpoints_grouped.rds"))
 tmp <- subset(tmp, variable %in% c('Baseline','Endline','ratio2','diff2'))
 tmp[, country := 'Ukraine']
-tmp <- subset(tmp, group_label_long != 'grieve')
+tmp <- subset(tmp, construct_long != 'grieve')
 
 pos <- rbind(pos, tmp, fill = TRUE)
 set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
@@ -1302,11 +1302,11 @@ set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope \\\\and Resilience"]
-pos[group_label_long == "Caregiver exercising nonviolent discipline", group_label_long := "Caregiver exercising \\\\ nonviolent discipline"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression \\\\ and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
+pos[construct_long == "Caregiver exercising nonviolent discipline", construct_long := "Caregiver exercising \\\\ nonviolent discipline"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression \\\\ and Anxiety']
 
 # Recode item_high_label for display
 pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Lower", "Higher")]
@@ -1346,21 +1346,21 @@ pos[item_type == "out-of-7", item_type := "$^\\ddagger$"]
 
 # Reshape for table
 pos <- dcast.data.table(pos,
-    item_type + group_label_long + item_high_label ~ country + variable,
+    item_type + construct_long + item_high_label ~ country + variable,
     value.var = "value_string"
 )
 
 # Create outcome domain with superscript for footnote
-pos[, outcome_domain := paste0('\\makecell{',group_label_long, item_type, "}")]
+pos[, outcome_domain := paste0('\\makecell{',construct_long, item_type, "}")]
 pos[, type := ""]
 
 # Save as CSV (include original columns for reference)
 fwrite(pos, file = paste0(output_file_prefix, "_supp_table_3.csv"))
 
 
-pos1 <- subset(pos, !group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos1 <- subset(pos, !construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
-pos2 <- subset(pos, group_label_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
+pos2 <- subset(pos, construct_long %in% c("Caregiver Hope \\\\and Resilience", "Caregiver self-care", "Child behavioural issues"))
 
 # Reorder and select columns for display 
 pos1 <- pos1[, c("type","outcome_domain", "item_high_label", 
@@ -1482,30 +1482,30 @@ output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialColleg
 
 
 # Recode group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope and Resilience"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression and Anxiety']
 
 # Plot A: Categorical mental health
 tmp_cat <- subset(pos, item_type == "categorical" & 
-    group_label_long == "Caregiver Depression and Anxiety" & 
+    construct_long == "Caregiver Depression and Anxiety" & 
     variable %in% c( "Baseline", "Endline")
     )
-tmp_cat[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
+tmp_cat[, group_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Get ratio data for labels
 tmp_ratio_cat <- subset(pos, item_type == "categorical" & 
-    group_label_long == "Caregiver Depression and Anxiety" & 
+    construct_long == "Caregiver Depression and Anxiety" & 
     variable == "ratio2"
     )
 tmp_ratio_cat[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
-tmp_mean_cat <- tmp_cat[, list(y_pos = mean(median)), by = c("group_label_long")]
-tmp_ratio_cat <- merge(tmp_ratio_cat, tmp_mean_cat, by = c("group_label_long"))
+tmp_mean_cat <- tmp_cat[, list(y_pos = mean(median)), by = c("construct_long")]
+tmp_ratio_cat <- merge(tmp_ratio_cat, tmp_mean_cat, by = c("construct_long"))
 tmp_ratio_cat[, y_pos_adjusted := y_pos]
 
 # Create plot A without faceting (or with fixed width)
-plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
+plot_a <- ggplot(tmp_cat, aes(x = group_label, y = median)) +
     geom_errorbar(
         aes(ymin = q_lower, ymax = q_upper),
         width = 0.05,
@@ -1529,7 +1529,7 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
         x = "",
         y = "Frequency per week of categories\n'most of the time' + 'all of the time'"
     ) +
-    facet_wrap(~ group_label_long, ncol = 2) +
+    facet_wrap(~ construct_long, ncol = 2) +
     coord_cartesian(clip = "off") +
     theme_bw() +
     theme(
@@ -1542,7 +1542,7 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
 tmp <- subset(pos, item_type == "out-of-7" & 
     variable %in% c("Baseline", "Endline")
     )
-tmp[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
+tmp[, group_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Recode item_high_label for display
 tmp[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
@@ -1556,12 +1556,12 @@ tmp_ratio[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100,
 # Recode item_high_label for display in ratio data too
 tmp_ratio[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
 tmp_ratio[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
-tmp_mean <- tmp[, list(y_pos = mean(median)), by = c("group_label_long", "item_high_label")]
-tmp_ratio <- merge(tmp_ratio, tmp_mean, by = c("group_label_long", "item_high_label"))
+tmp_mean <- tmp[, list(y_pos = mean(median)), by = c("construct_long", "item_high_label")]
+tmp_ratio <- merge(tmp_ratio, tmp_mean, by = c("construct_long", "item_high_label"))
 tmp_ratio[, y_pos_adjusted := y_pos]
 
 # Create plot B
-plot_b <- ggplot(tmp, aes(x = time_label, y = median, color = item_high_label)) +
+plot_b <- ggplot(tmp, aes(x = group_label, y = median, color = item_high_label)) +
     geom_errorbar(
         aes(ymin = q_lower, ymax = q_upper),
         width = 0.05,
@@ -1580,7 +1580,7 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, color = item_high_label)) 
         label.size = 0.5,
         show.legend = FALSE
     ) +
-    facet_wrap(~ group_label_long, ncol = 3, scales = "free_y") +
+    facet_wrap(~ construct_long, ncol = 3, scales = "free_y") +
     scale_color_manual(
         values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
         name = "Direction"
@@ -1639,10 +1639,10 @@ pos <- subset(pos, variable == 'ratio2')
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Recode group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope and Resilience"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression and Anxiety']
 
 pos[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
 pos[, item_high_label := factor(item_high_label, levels = c("Positive outcomes improving", "Negative outcomes improving"))]
@@ -1667,7 +1667,7 @@ p <- ggplot(pos, aes(x = analysis_label)) +
         limits = c(-1.9, 1.9),
         expand = c(0,0)
     ) +
-    facet_wrap(group_label_long ~ ., ncol = 3) +
+    facet_wrap(construct_long ~ ., ncol = 3) +
     labs(
         x = "Analysis type", 
         y = "Percent change (Endline vs Baseline)"
@@ -1702,28 +1702,28 @@ pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
 output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
 
 # Rename group labels for display
-pos[group_label_long == "Caregiver resilience", group_label_long := "Caregiver Hope and Resilience"]
-pos[group_label_long == "Caregiver monitoring child", group_label_long := "Caregiver monitoring"]
-pos[group_label_long == "Caregiver exercising physical or emotional violence", group_label_long := "Violence against children"]
-pos[group_label_long == "Caregiver mental health", group_label_long := 'Caregiver Depression and Anxiety']
+pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope and Resilience"]
+pos[construct_long == "Caregiver monitoring child", construct_long := "Caregiver monitoring"]
+pos[construct_long == "Caregiver exercising physical or emotional violence", construct_long := "Violence against children"]
+pos[construct_long == "Caregiver mental health", construct_long := 'Caregiver Depression and Anxiety']
 
 # Plot A: Categorical mental health items
 tmp_cat <- subset(pos, item_type == "categorical" & 
-    group_label_long == "Caregiver Depression and Anxiety" & 
+    construct_long == "Caregiver Depression and Anxiety" & 
     variable %in% c("Baseline", "Endline")
     )
-tmp_cat[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
+tmp_cat[, group_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Create facet label combining group and item
-tmp_cat[, facet_label := paste0(group_label_long, "\n(", item_label_short, ")")]
+tmp_cat[, facet_label := paste0(construct_long, "\n(", item_label_short, ")")]
 
 # Get ratio data for labels and merge with median values for positioning
 tmp_ratio_cat <- subset(pos, item_type == "categorical" & 
-    group_label_long == "Caregiver Depression and Anxiety" & 
+    construct_long == "Caregiver Depression and Anxiety" & 
     variable == "ratio2"
     )
 tmp_ratio_cat[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
-tmp_ratio_cat[, facet_label := paste0(group_label_long, "\n(", item_label_short, ")")]
+tmp_ratio_cat[, facet_label := paste0(construct_long, "\n(", item_label_short, ")")]
 # Get the mean of baseline and endline for each item to position the label
 tmp_mean_cat <- tmp_cat[, list(y_pos = mean(median)), by = c("facet_label")]
 tmp_ratio_cat <- merge(tmp_ratio_cat, tmp_mean_cat, by = c("facet_label"))
@@ -1733,7 +1733,7 @@ tmp_ratio_cat[, label_offset := 0]
 tmp_ratio_cat[, y_pos_adjusted := y_pos + label_offset]
 
 # Create plot A for categorical mental health
-plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
+plot_a <- ggplot(tmp_cat, aes(x = group_label, y = median)) +
     geom_errorbar(
         aes(ymin = q_lower, ymax = q_upper),
         width = 0.05,
@@ -1770,7 +1770,7 @@ plot_a <- ggplot(tmp_cat, aes(x = time_label, y = median)) +
 tmp <- subset(pos, item_type == "out-of-7" & 
     variable %in% c("Baseline", "Endline")
     )
-tmp[, time_label := factor(variable, levels = c("Baseline", "Endline"))]
+tmp[, group_label := factor(variable, levels = c("Baseline", "Endline"))]
 
 # Recode item_high_label for display
 tmp[, item_high_label := ifelse(item_high_label == "lower_is_better", "Negative outcomes improving", "Positive outcomes improving")]
@@ -1782,15 +1782,15 @@ tmp_ratio <- subset(pos, item_type == "out-of-7" &
     )
 tmp_ratio[, ratio_pct := paste0(ifelse(median > 0, "+", ""), round(median * 100, 0), "%")]
 # Get the mean of baseline and endline for each item to position the label
-tmp_mean <- tmp[, list(y_pos = mean(median)), by = c("item_label_short", "item_high_label", "group_label_long")]
-tmp_ratio <- merge(tmp_ratio, tmp_mean, by = c("item_label_short", "item_high_label", "group_label_long"))
+tmp_mean <- tmp[, list(y_pos = mean(median)), by = c("item_label_short", "item_high_label", "construct_long")]
+tmp_ratio <- merge(tmp_ratio, tmp_mean, by = c("item_label_short", "item_high_label", "construct_long"))
 # Add vertical offset to prevent label overlap within facets
-tmp_ratio <- tmp_ratio[order(group_label_long, y_pos)]
-tmp_ratio[, label_offset := seq_len(.N) * 1.0 - mean(seq_len(.N) * 1.0), by = "group_label_long"]
+tmp_ratio <- tmp_ratio[order(construct_long, y_pos)]
+tmp_ratio[, label_offset := seq_len(.N) * 1.0 - mean(seq_len(.N) * 1.0), by = "construct_long"]
 tmp_ratio[, y_pos_adjusted := y_pos + label_offset]
 
 # Create plot B
-plot_b <- ggplot(tmp, aes(x = time_label, y = median, group = item_label_short, 
+plot_b <- ggplot(tmp, aes(x = group_label, y = median, group = item_label_short, 
                      color = item_high_label)) +
     geom_errorbar(
         aes(ymin = q_lower, ymax = q_upper),
@@ -1818,7 +1818,7 @@ plot_b <- ggplot(tmp, aes(x = time_label, y = median, group = item_label_short,
         label.size = 0.5,
         show.legend = FALSE
     ) +
-    facet_wrap(~ group_label_long, ncol = 3, scales = "free_y") +
+    facet_wrap(~ construct_long, ncol = 3, scales = "free_y") +
     scale_color_manual(
         values = c("Positive outcomes improving" = "#573B88FF", "Negative outcomes improving" = "#CE78B3FF"),
         name = "Direction"

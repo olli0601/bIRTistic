@@ -63,10 +63,10 @@ fit_partial_credit_model_ncats_stanhmc <- function(
 ) {
     # Suppress data.table NSE warnings
     item_type <- y_stan <- item_time_id <- pid <- time <- oidt <- variable <-
-        ypred <- oid <- in_ppi <- item_label <- time_label <- y_label <- y <-
-        n <- total <- p_emp <- group_label_long <- item_label_short <-
+        ypred <- oid <- in_ppi <- item_label <- group_label <- y_label <- y <-
+        n <- total <- p_emp <- construct_long <- item_label_short <-
         item_label_long <- ess_bulk <- q_lower <- q_upper <- iqr_lower <-
-        iqr_upper <- prob <- item_type_id <- stat <- q1 <- q2 <- group_label <-
+        iqr_upper <- prob <- item_type_id <- stat <- q1 <- q2 <- construct <-
         scope <- cmp_key <- q <- r <- red_fn <- jc <- NULL
 
     require(data.table)
@@ -177,7 +177,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     # --- reduced effect sizes from the manifest `effect_sizes` (drho; see R/define_effect_sizes.R) ---
     # drho is long: one row per (comparison jc, reduction r). We derive the Stan entries from it and resolve
     # each comparison's baseline/endline question SET (item_time_id) from dcati -- items use their own
-    # Baseline/Endline question; item-groups pool their member items (the item rows sharing group_label).
+    # Baseline/Endline question; item-groups pool their member items (the item rows sharing construct).
     if (is.null(effect_sizes)) {
         effect_sizes <- define_effect_sizes_colombia(dcati, dit, categorical_threshold = categorical_threshold)
     }
@@ -192,15 +192,15 @@ fit_partial_credit_model_ncats_stanhmc <- function(
     stan_data$cmp_cat_type <- as.integer(ucmp$item_type_id)
 
     # resolve baseline / endline question sets per comparison
-    iqb <- unique(dcati[time_label == "Baseline", .(item_type_id, item_label, q = item_time_id)])
-    iqe <- unique(dcati[time_label == "Endline",  .(item_type_id, item_label, q = item_time_id)])
-    item_rows <- unique(drho[scope == "item", .(item_type_id, item_label, group_label)])
+    iqb <- unique(dcati[group_label == "Baseline", .(item_type_id, item_label, q = item_time_id)])
+    iqe <- unique(dcati[group_label == "Endline",  .(item_type_id, item_label, q = item_time_id)])
+    item_rows <- unique(drho[scope == "item", .(item_type_id, item_label, construct)])
     q1_list <- vector("list", stan_data$Qcmp)
     q2_list <- vector("list", stan_data$Qcmp)
     for (i in 1:stan_data$Qcmp) {
         ct <- ucmp$item_type_id[i]
         labs <- if (ucmp$scope[i] == "item") ucmp$cmp_key[i]
-                else item_rows[item_type_id == ct & group_label == ucmp$cmp_key[i], item_label]
+                else item_rows[item_type_id == ct & construct == ucmp$cmp_key[i], item_label]
         q1_list[[i]] <- as.integer(iqb[item_type_id == ct & item_label %in% labs, q])
         q2_list[[i]] <- as.integer(iqe[item_type_id == ct & item_label %in% labs, q])
     }
@@ -273,7 +273,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
 
         # Extract chain timing information
         cat("\nExtracting timing information...\n")
-        chain_times <- pcm_fit$time()
+        chain_times <- pcm_fit$group()
         timing_data <- data.table(
             chain = pcm_fit_good_chains,
             warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
@@ -402,7 +402,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
             oid ~ summary_name,
             value.var = "summary_value"
         )
-        tmp <- dcati[, .(oid, item_type, item_type_id, oidt, y_stan, item_label, time_label)]
+        tmp <- dcati[, .(oid, item_type, item_type_id, oidt, y_stan, item_label, group_label)]
         pos <- merge(pos, tmp, by = "oid")
         pos[, in_ppi := y_stan >= q_lower & y_stan <= q_upper]
         cat("Proportion in 95% PPI:", pos[, mean(in_ppi)], "\n")
@@ -420,7 +420,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
                 stat = "identity"
             ) +
             geom_point(aes(y = y_stan, colour = in_ppi)) +
-            facet_grid(item_label ~ time_label, scales = "free") +
+            facet_grid(item_label ~ group_label, scales = "free") +
             scale_x_discrete() +
             scale_y_continuous() +
             ggsci::scale_color_npg() +
@@ -471,7 +471,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
             ),
             by = c("item_type_id", "item_time_id")
         ]
-        tmp <- unique(subset(dcati, select = c(item_type_id, item_time_id, item_type, item_label, time_label)))
+        tmp <- unique(subset(dcati, select = c(item_type_id, item_time_id, item_type, item_label, group_label)))
         brier_summary <- merge(brier_summary, tmp, by = c("item_type_id", "item_time_id"))
         brier_summary <- brier_summary[order(item_type_id, item_time_id), ]
 
@@ -533,7 +533,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
         tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
         tmp <- merge(tmp, 
                      unique(subset(dcati, 
-                                    select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                    select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "group_label")
                                     )), 
                      by = c("item_type_id", "item_time_id", "y")
                      )
@@ -542,21 +542,21 @@ fit_partial_credit_model_ncats_stanhmc <- function(
         # Compute empirical probabilities
         tmp <- dcati[,
             list(n = .N),
-            by = c("time_label", "item_label", "y_label")
+            by = c("group_label", "item_label", "y_label")
         ]
-        tmp2 <- tmp[, list(total = sum(n)), by = c("time_label", "item_label")]
-        tmp <- merge(tmp, tmp2, by = c("time_label", "item_label"))
+        tmp2 <- tmp[, list(total = sum(n)), by = c("group_label", "item_label")]
+        tmp <- merge(tmp, tmp2, by = c("group_label", "item_label"))
         tmp[, p_emp := n / total]
         pos <- merge(pos,
             subset(tmp, select = -c(n, total)),
-            by = c("time_label", "item_label", "y_label"),
+            by = c("group_label", "item_label", "y_label"),
             all.x = TRUE
         )
         set(pos, pos[, which(is.na(p_emp))], "p_emp", 0.)        
         
         # Merge with dit for plotting
         pos <- merge(pos, dit, by = c("item_type_id","item_label"))
-        pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+        pos[, item_label_long := paste0(construct_long, " --- ", item_label_short)]
 
         cat(
             "\nSaving posterior probabilities to RDS with name",
@@ -575,14 +575,14 @@ fit_partial_credit_model_ncats_stanhmc <- function(
         names(pal) <- all_items
 
         # Get unique groups and times
-        groups <- unique(pos$group_label_long)
-        times <- unique(pos$time_label)
+        groups <- unique(pos$construct_long)
+        times <- unique(pos$group_label)
         
         # Create individual plots for each group-time combination
         plot_list <- list()
         for (g in groups) {
             for (t in times) {
-                plot_data <- pos[group_label_long == g & time_label == t]
+                plot_data <- pos[construct_long == g & group_label == t]
                 
                 p_sub <- ggplot(
                     plot_data,
@@ -703,7 +703,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
             tmp <- tmp[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
             tmp <- merge(tmp, 
                          unique(subset(dcati, 
-                                        select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                        select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "group_label")
                                         )), 
                          by = c("item_type_id", "item_time_id", "y")
                          )
@@ -711,7 +711,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
             
             # Merge with dit for plotting
             pos2 <- merge(pos2, dit, by = c("item_type_id","item_label"))
-            pos2[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+            pos2[, item_label_long := paste0(construct_long, " --- ", item_label_short)]
 
             cat(
                 "\nSaving posterior predictive probabilities to RDS with name",
@@ -733,14 +733,14 @@ fit_partial_credit_model_ncats_stanhmc <- function(
             names(pal) <- all_items
 
             # Get unique groups and times
-            groups <- unique(pos$group_label_long)
-            times <- unique(pos$time_label)      
+            groups <- unique(pos$construct_long)
+            times <- unique(pos$group_label)      
             
             # Create individual comparison plots for each group-time combination
             ps <- list()
             for (g in groups) {
                 for (t in times) {
-                    tmp <- pos[group_label_long == g & time_label == t]                    
+                    tmp <- pos[construct_long == g & group_label == t]                    
                     p <- ggplot(
                         tmp,
                         aes(x = y_label, group = interaction(stat, item_label_long, y_label))

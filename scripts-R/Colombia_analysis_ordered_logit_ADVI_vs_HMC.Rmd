@@ -116,27 +116,27 @@ dp1_col <- subset(dp_col, !grepl("agg", item_label))
 dp1_col[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1_col$item_label)),
-    time = unique(dp1_col$time)
+    group = unique(dp1_col$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1_col <- merge(dp1_col, tmp, by = c("item_label", "time"))
+dp1_col <- merge(dp1_col, tmp, by = c("item_label", "group"))
 dp1_col <- merge(dp1_col, unique(subset(dit_col, select = c(item_type, item_type_id))), by = "item_type")
-setkey(dp1_col, item_type_id, pid, time, item_label)
+setkey(dp1_col, item_type_id, pid, group, item_label)
 dp1_col[, oid := .I]
 setkey(dp1_col, oid)
 tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 
-setkey(dp1_col, pid, time, item_label)
+setkey(dp1_col, pid, group, item_label)
 ```
 
 ```{r setup-ol-directories-v261012-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -386,7 +386,7 @@ endpoints_plot[item_type != "out-of-7" & variable == "ratio",
                y_label := "% change in frequency\nof categories 'most of the time' and 'all of the time'\n(1 - Endline/Baseline)"]
 
 # Create facet label combining group and y-axis description
-endpoints_plot[, facet_label := paste0(group_label_long, "\n", y_label)]
+endpoints_plot[, facet_label := paste0(construct_long, "\n", y_label)]
 
 # Create separate plots for diff and ratio
 # Plot 1: Difference (Baseline - Endline)
@@ -615,7 +615,7 @@ tmp_map[, cq_id := cumsum(cat_length) - cat_length + 1L]
 tmp_map <- tmp_map[, list(cq_id = cq_id - 1L + 1:cat_length, y = 1:cat_length - 1L), by = c("item_type_id", "item_time_id")]
 tmp_map <- merge(tmp_map, 
                  unique(subset(dp1, 
-                                select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "time_label")
+                                select = c("item_type_id", "item_time_id", "y", "y_label", "item_label", "group_label")
                                 )), 
                  by = c("item_type_id", "item_time_id", "y")
                  )
@@ -624,10 +624,10 @@ pos <- merge(tmp_map, pos, by = "cq_id")
 # Compute empirical probabilities
 tmp_emp <- dp1[,
     list(n = .N),
-    by = c("time_label", "item_label", "y_label", "item_type_id", "item_time_id", "y")
+    by = c("group_label", "item_label", "y_label", "item_type_id", "item_time_id", "y")
 ]
-tmp2 <- tmp_emp[, list(total = sum(n)), by = c("time_label", "item_label", "item_type_id", "item_time_id")]
-tmp_emp <- merge(tmp_emp, tmp2, by = c("time_label", "item_label", "item_type_id", "item_time_id"))
+tmp2 <- tmp_emp[, list(total = sum(n)), by = c("group_label", "item_label", "item_type_id", "item_time_id")]
+tmp_emp <- merge(tmp_emp, tmp2, by = c("group_label", "item_label", "item_type_id", "item_time_id"))
 tmp_emp[, median := n / total]
 tmp_emp[, q25 := NA_real_]
 tmp_emp[, q75 := NA_real_]
@@ -636,11 +636,11 @@ tmp_emp[, c("n", "total") := NULL]
 
 # Merge with dit for plotting
 pos <- merge(pos, dit, by = c("item_type_id","item_label"))
-pos[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+pos[, item_label_long := paste0(construct_long, " --- ", item_label_short)]
 
 # Add empirical data - merge with dit to get item_label_long
 tmp_emp <- merge(tmp_emp, dit, by = c("item_type_id","item_label"))
-tmp_emp[, item_label_long := paste0(group_label_long, " --- ", item_label_short)]
+tmp_emp[, item_label_long := paste0(construct_long, " --- ", item_label_short)]
 
 # Ensure tmp_emp has all columns that pos has (use common subset)
 common_cols <- intersect(names(pos), names(tmp_emp))
@@ -651,14 +651,14 @@ pos <- rbind(
     tmp_emp[, ..common_cols]
 )
 
-# Create plots: one subplot per item_label_long × time_label
+# Create plots: one subplot per item_label_long × group_label
 items <- unique(pos$item_label_long)
-times <- unique(pos$time_label)
+times <- unique(pos$group_label)
 
 plot_list <- list()
 for (item in items) {
     for (t in times) {
-        plot_data <- pos[item_label_long == item & time_label == t]
+        plot_data <- pos[item_label_long == item & group_label == t]
         
         # Set method factor levels for consistent ordering and colors
         plot_data[, method := factor(method, levels = c("Empirical", "HMC", "ADVI"))]

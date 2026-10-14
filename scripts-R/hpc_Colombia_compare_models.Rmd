@@ -113,29 +113,29 @@ dit <- copy(tmp$dit)
 dmeta <- copy(tmp$dmeta)
 
 dp1 <- subset(dp, !grepl("agg", item_label))
-dp1[, time := time + 1L]
+dp1[, group := time + 1L]
 dp1[, y_stan := y + 1L]
 tmp <- CJ(
     item_label = sort(unique(dp1$item_label)),
-    time = unique(dp1$time)
+    group = unique(dp1$group)
 )
 tmp[, item_type := ifelse(
     grepl("CG-MH", item_label), "categorical", "out-of-7"
 )]
 tmp <- tmp[
     , list(
-        item_label = item_label, time = time,
+        item_label = item_label, group = group,
         item_time_id = seq_along(item_label)
     ),
     by = "item_type"
 ]
-dp1 <- merge(dp1, tmp, by = c("item_label", "time"))
-setkey(dp1, pid, time, item_label)
+dp1 <- merge(dp1, tmp, by = c("item_label", "group"))
+setkey(dp1, pid, group, item_label)
 dp1[, oid := .I]
 setkey(dp1, oid)
 tmp <- dp1[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1 <- merge(dp1, tmp, by = c("item_type", "oid"))
-setkey(dp1, pid, time, item_label)
+setkey(dp1, pid, group, item_label)
 
 cat("Total observations read:", nrow(dp1), "\n")
 cat("Number of items:", nrow(dit), "\n\n")
