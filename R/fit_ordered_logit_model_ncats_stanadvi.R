@@ -37,7 +37,7 @@ fit_ordered_logit_model_ncats_stanadvi <- function(
   stan_file = here::here("src", "stan", "ordered_logit_ncats_v261012.stan"),
   categorical_threshold = 3L,
   effect_sizes = NULL,
-  x_formula = ~ time - 1,
+  x_formula = ~ group - 1,
   x_formula_ignore_regex = NA_character_,
   iter = 10000L,
   grad_samples = 1L,

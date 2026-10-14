@@ -39,7 +39,7 @@ fit_credit_model_ncats_stanhmc <- function(
   stan_file = here::here("src", "stan", "credit_model_ncats_v261012.stan"),
   categorical_threshold = 3L,
   effect_sizes = NULL,
-  x_formula = ~ time - 1,
+  x_formula = ~ group - 1,
   x_formula_ignore_regex = NA_character_,
   chains = 2L,
   parallel_chains = 2L,
@@ -259,7 +259,7 @@ fit_credit_model_ncats_stanhmc <- function(
 
         # Extract chain timing information
         cat("\nExtracting timing information...\n")
-        chain_times <- cm_fit$group()
+        chain_times <- cm_fit$time()
         timing_data <- data.table(
             chain = cm_fit_good_chains,
             warmup_minutes = chain_times$chains$warmup[cm_fit_good_chains] / 60,

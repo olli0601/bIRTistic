@@ -45,7 +45,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
   dcati,
   output_file_prefix,
   stan_file = here::here("src", "stan", "partial_credit_model_ncats_v261012.stan"),
-  x_formula = ~ time - 1,
+  x_formula = ~ group - 1,
   x_formula_ignore_regex = NA_character_,
   categorical_threshold = 3L,
   effect_sizes = NULL,
@@ -273,7 +273,7 @@ fit_partial_credit_model_ncats_stanhmc <- function(
 
         # Extract chain timing information
         cat("\nExtracting timing information...\n")
-        chain_times <- pcm_fit$group()
+        chain_times <- pcm_fit$time()
         timing_data <- data.table(
             chain = pcm_fit_good_chains,
             warmup_minutes = chain_times$chains$warmup[pcm_fit_good_chains] / 60,
