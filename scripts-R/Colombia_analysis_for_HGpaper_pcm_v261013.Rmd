@@ -726,7 +726,7 @@ pos <- rbind(pos, tmp, fill = TRUE)
 set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
 set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Rename group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
@@ -942,7 +942,7 @@ set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
 set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 pos <- subset(pos, variable %in% c('bl','el','ratio2','diff2'))
 
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Rename group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
@@ -1117,7 +1117,7 @@ pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
 set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
 set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Rename group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
@@ -1301,7 +1301,7 @@ pos <- rbind(pos, tmp, fill = TRUE)
 set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
 set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Rename group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope \\\\and Resilience"]
@@ -1480,7 +1480,7 @@ cat("  PDF: ", paste0(output_file_prefix, "_supp_table_3.pdf"), "\n")
 dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
 pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_grouped.rds"))
 pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 
 # Recode group labels for display
@@ -1638,7 +1638,7 @@ set(pos, NULL, "variable", pos[, gsub("Baseline", "bl", variable)])
 set(pos, NULL, "variable", pos[, gsub("Endline", "el", variable)])
 pos <- subset(pos, variable == 'ratio2')
 
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Recode group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope and Resilience"]
@@ -1701,7 +1701,7 @@ ggsave(
 dir_out_pcm <- file.path(dir_out_base, "colombia-plots-tables-for-paper-pcm-260413-ps-tsd")
 pos <- readRDS(file.path(dir_out_pcm, "pcm_1_fit_ps_tsd_primary_endpoints_detailed.rds"))
 pos <- subset(pos, variable %in% c('Baseline','Endline','ratio2','diff2'))
-output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v260417"
+output_file_prefix <- "/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/OR_Work/2025/2025_project_Hope_Groups/paper_Hope_Groups_effectiveness_Colombia/v261013"
 
 # Rename group labels for display
 pos[construct_long == "Caregiver resilience", construct_long := "Caregiver Hope and Resilience"]
