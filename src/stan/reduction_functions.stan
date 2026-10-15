@@ -69,7 +69,7 @@ real compute_rho_gmfr(matrix p1, matrix p2, real g1, real g2, int by_unit) {
     int M = rows(p1);
     int K = cols(p1);
     if (M == 0) {
-      return 0;
+      return not_a_number();
     }
     return pow(2.0, mean((p2 - p1) * linspaced_vector(K, 0, K - 1)));
   }
@@ -85,7 +85,7 @@ real compute_rho_scr(matrix p1, matrix p2) {
   int scr_cut = 2;
   int scr_floor = 1;
   if (M == 0) {
-    return 0;
+    return not_a_number();
   }
   matrix[K, K] G = p1' * p2;
   real s = 0;
@@ -107,7 +107,7 @@ real compute_rho_relpct(matrix p1, matrix p2, real g1, real g2, int by_unit, int
   if (by_unit) {
     int M = rows(p1);
     if (M == 0) {
-      return 0;
+      return not_a_number();
     }
     vector[M] s1 = summarize_probs_py_participants_for_one_item(p1, thr);
     vector[M] s2 = summarize_probs_py_participants_for_one_item(p2, thr);
@@ -122,7 +122,7 @@ real compute_rho_diff(matrix p1, matrix p2, real g1, real g2, int by_unit, int t
   if (by_unit) {
     int M = rows(p1);
     if (M == 0) {
-      return 0;
+      return not_a_number();
     }
     return mean(summarize_probs_py_participants_for_one_item(p1, thr)
                 - summarize_probs_py_participants_for_one_item(p2, thr));

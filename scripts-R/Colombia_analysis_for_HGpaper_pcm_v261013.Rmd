@@ -135,6 +135,10 @@ tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 
 setkey(dp1_col, pid, group, item_label)
+
+# effect-size manifest: each item and each item-group (construct); Baseline/Endline levels (5,6) + the
+# correct per-participant pre/post change rel% (3) and diff (4). Same manifest drives fit + get_endpoints.
+drho_col <- define_effect_sizes_colombia(dp1_col, dit_col, categorical_threshold = 3L)
 ```
 
 ```{r setup-pcm-directories-v261012-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -164,9 +168,6 @@ pcm_compiled <- cmdstanr::cmdstan_model(
 ```
 
 ```{r pcm-fit-colombia-data-vanilla-v261012-vanilla, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
-# effect-size manifest: each item and each item-group (construct); Baseline/Endline levels (5,6) + the
-# correct per-participant pre/post change rel% (3) and diff (4). Same manifest drives fit + get_endpoints.
-drho_col <- define_effect_sizes_colombia(dp1_col, dit_col, categorical_threshold = 3L)
 fit_partial_credit_model_ncats_stanhmc(
             dit_col,
             dp1_col,
@@ -427,7 +428,7 @@ fit_propensity <- glm(
 tmp[, ps_score := predict(fit_propensity, type="response", data=tmp) ]
 tmp <- subset(tmp, select = c("pid_label", "group_label", "mid", "ps_score", "time_since_death"))
 
-# Add matchgin IDs, propensity scores and time since death to dp1_col
+# Add matching IDs, propensity scores and time since death to dp1_col
 dp1_col <- subset(dp_col, !grepl("agg", item_label))
 dp1_col <- merge(dp1_col, tmp, by=  c("pid_label", "group_label"))
 dp1_col[, time_since_death_scaled := scale(time_since_death)]
@@ -458,8 +459,19 @@ tmp <- dp1_col[, list(oid = oid, oidt = seq_along(y_stan)), by = "item_type"]
 dp1_col <- merge(dp1_col, tmp, by = c("item_type", "oid"))
 setkey(dp1_col, pid, group, item_label)
 
-drho_col <- define_effect_sizes_colombia(dp1_col, dit_col, categorical_threshold = 3L)
-saveRDS(list(dp1 = dp1_col, dit = dit_col, drho = drho_col), paste0(output_file_prefix, "_matched_ps_tsd_data.rds"))
+# Quasi-experimental (between-groups) design: group 0 vs group 1 are DIFFERENT participants, so there is
+# no per-individual pre/post pairing. The per-participant paired reductions (3,4) would vacuously return 0
+# (no unit is in both groups -> empty paired set). Use the GROUP-MEAN ratio/diff (7,8) instead, which contrast
+# the two group means; levels stay 5,6. Labels are unchanged so get_endpoints reads it identically.
+drho_col_quasiexpt <- define_effect_sizes_colombia(
+    dp1_col, dit_col, categorical_threshold = 3L,
+    reductions = data.table::data.table(
+        r = 1:4,
+        red_fn = c(5L, 6L, 7L, 8L),
+        rho = c("Baseline", "Endline", "ratio", "diff")
+    )
+)
+saveRDS(list(dp1 = dp1_col, dit = dit_col, drho = drho_col_quasiexpt), paste0(output_file_prefix, "_matched_ps_tsd_data.rds"))
 ```
 
 ```{r pcm-fit-on-data-v261012-matched, include=TRUE, eval=TRUE, message=FALSE, echo=TRUE, warning=FALSE, tidy=TRUE}
@@ -468,7 +480,7 @@ fit_partial_credit_model_ncats_stanhmc(
         dp1_col,
         output_file_prefix = paste0(output_file_prefix, "_fit_matched_ps_tsd"),
         stan_file = here::here("src", "stan", "partial_credit_model_ncats_v261012.stan"),
-        effect_sizes = drho_col,
+        effect_sizes = drho_col_quasiexpt,
         x_formula = ~ group + factor(mid) + time_since_death_scaled + ps_score_scaled - 1, 
         x_formula_ignore_regex = "mid",
         chains = 4L,
