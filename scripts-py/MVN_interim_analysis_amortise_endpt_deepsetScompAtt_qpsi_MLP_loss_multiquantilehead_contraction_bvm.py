@@ -14,7 +14,7 @@ BvM correction should collapse the deepset's finite-``m`` large-``n`` marginal
 upturn exactly onto the closed-form contraction curve. This is the controlled
 check that the Ukraine PCM machinery (§14.4) is correct where the truth is known.
 
-The deepset encoder (``deepsetXcompAtt``) is reused unchanged; only the head is
+The deepset encoder (``deepsetScompAtt``) is reused unchanged; only the head is
 parametric (``head_mode``). The reference marginal + joint-draw target both come
 from the cached per-interim HMC ``mu_draws`` (aligned to ``zi.ypred_s``), i.e.
 ``rho^(s) = mu_draws[s] - mu_0_baseline`` is a valid draw from ``p(rho|x,z^s)``
@@ -33,7 +33,7 @@ writes, in ``dir_out``:
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py
+    pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py
 Env: MVN_STEPS (train steps, 4000), MVN_S (deploy draws, 2000), MVN_J (20),
      MVN_CONFIGS ('plain,powerlaw,floor'), MVN_SMOKE (1 -> tiny steps/S/interims).
 """
@@ -75,17 +75,17 @@ from amortiser_io import load_interim_data, load_interim_zi
 import model_mvn_common as mc        # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
 
 # §14.4.3 ragged encoder switch. MVN_RAGGED=1 uses the ragged-participant-axis
-# deepsetXcompAtt (no padding/mask, segmented mean-pool) instead of the padded
+# deepsetScompAtt (no padding/mask, segmented mean-pool) instead of the padded
 # variant. Same head modes; the K-row hand feature is dropped (learned instead).
 RAGGED = os.environ.get('MVN_RAGGED', '0') == '1'
 if RAGGED:
-    from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-        Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net,
+    from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+        Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net,
         _MLP,
     )
 else:
-    from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-        Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead as Net,
+    from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+        Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead as Net,
         _MLP,
     )
 
@@ -100,15 +100,15 @@ print(f"Imports successful (RAGGED={RAGGED})")
 _sandbox = "/Users/or105/sandbox/bIRTistic"
 DIR_SIM = os.environ.get(
     'MVN_SIM_DIR', os.path.join(_sandbox, "py-mvn-interim-simulations-260609"))
-DIR_PLAIN = os.path.join(                       # existing plain-head deepsetXcompAtt net
+DIR_PLAIN = os.path.join(                       # existing plain-head deepsetScompAtt net
     _sandbox,
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803",
+    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead_260803",
 )
 dir_out = os.environ.get('MVN_BVM_DIR', os.path.join(
     _sandbox,
-    "py-mvn-interim-amortise-deepsetXcompAtt-ragged-bvm-260914" if RAGGED
-    else "py-mvn-interim-amortise-deepsetXcompAtt-bvm-260914"))
+    "py-mvn-interim-amortise-deepsetScompAtt-ragged-bvm-260914" if RAGGED
+    else "py-mvn-interim-amortise-deepsetScompAtt-bvm-260914"))
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")
 

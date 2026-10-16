@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Calibration tests for the Ukraine `itemXcompAtt` amortiser (§14.2.1 of
+Calibration tests for the Ukraine `itemScompAtt` amortiser (§14.2.1 of
 ``dev/amortised_decision_making.md``): does the predictive distribution
 of rho | x, z^(s), approximated through the Q = 5 quantiles, match the
 SVI posterior?
@@ -33,7 +33,7 @@ Outputs (in the main script's output dir):
 Usage:
     cd /Users/or105/git/bIRTistic
     PYTHONUNBUFFERED=1 pixi run python -u \
-      scripts-py/Ukraine_interim_analysis_amortise_endpt_itemXcompAtt_qpsi_MLP_loss_multiquantilehead_tests.py
+      scripts-py/Ukraine_interim_analysis_amortise_endpt_itemScompAtt_qpsi_MLP_loss_multiquantilehead_tests.py
 """
 
 # %%
@@ -83,7 +83,7 @@ DIR_RGE = os.path.join(
 )
 dir_out = os.environ.get('UKR_DIR', os.path.join(
     "/Users/or105/sandbox/bIRTistic",
-    "py-ukraine-interim-amortise-itemXcompAtt-net-260716",
+    "py-ukraine-interim-amortise-itemScompAtt-net-260716",
 ))
 file_prefix = "pcm_1_interim"
 SUFFIX = "RGEG"

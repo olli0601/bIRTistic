@@ -3,7 +3,7 @@
 Same two marginal-preserving permutations as the Ukraine test
 (scripts-py/Ukraine_deepset_shuffle_test.py):
   cross-item : permute participants per item, keep each (baseline,endline) pair -> preserves every item's
-               marginal, destroys the cross-item joint. A plain deepsetXcompAtt is cross-item blind BY
+               marginal, destroys the cross-item joint. A plain deepsetScompAtt is cross-item blind BY
                CONSTRUCTION, so its output must be invariant on ANY data -- the point here is to confirm
                the blindness holds on a scale (MSPSS) with ~2x Ukraine's item correlation (mean|r| 0.52
                vs 0.26), i.e. the deepset discards substantially MORE genuine covariance here.
@@ -19,7 +19,7 @@ from amortiser_common import load_fitted_model
 from model_pcm import PartialCreditModel
 SB = "/Users/or105/sandbox/bIRTistic"
 WK = f"{SB}/py-refugee_interim_260831"                                   # REFUGE data (dp1 / draws / dit)
-BASE = f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-260831"  # item-general net
+BASE = f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-260831"  # item-general net
 PFX = "pcm_1_interim"; N_REF = 324; S = 100; KM = 10
 dit = pd.read_csv(f"{WK}/{PFX}_1_data_dit.csv")
 _wa = sorted(glob.glob(f"{WK}/{PFX}_i*_regression_training.pkl"),

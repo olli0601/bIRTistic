@@ -1,6 +1,6 @@
 """Shared MVN-benchmark deploy helpers (§13).
 
-The MVN drivers (the plain deepsetXcompAtt deploy, the contraction+BvM driver, and the by-architecture
+The MVN drivers (the plain deepsetScompAtt deploy, the contraction+BvM driver, and the by-architecture
 diagnostics) all build the SAME per-interim deploy inputs from the interim pkl: the wide x cohort +
 the (S, m, J) posterior-predictive z draws, and the padded nested-DeepSet batch fed to the amortiser.
 This module holds that construction once so the drivers don't each re-implement it.

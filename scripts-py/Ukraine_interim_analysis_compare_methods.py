@@ -67,7 +67,7 @@ dir_rge  = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-
 dir_rgeq = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-quantile-regr-260702")
 dir_rgem = os.path.join(_sandbox, "py-ukraine-interim-with-regression-on-endptx-wz-mquantile-regr-260702")
 dir_rgee = os.path.join(_sandbox, "py-ukraine-interim-amortise-itemScompAtt-net-260716")
-dir_rgef = os.path.join(_sandbox, "py-ukraine-interim-amortise-itemXcompAtt-net-260716")
+dir_rgef = os.path.join(_sandbox, "py-ukraine-interim-amortise-itemScompAtt-net-260716")
 dir_out = os.path.join(_sandbox, "py-ukraine-interim-compare-methods-260526")
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
@@ -96,7 +96,7 @@ rge_long['method'] = 'Regression endpt gauss-approx (Strong-Oakley)'
 rgee_long = rgee_long.copy()
 rgee_long['method'] = 'Regression endpt amortised itemScompAtt (Strong-Oakley)'
 rgef_long = rgef_long.copy()
-rgef_long['method'] = 'Regression endpt amortised itemXcompAtt (Strong-Oakley)'
+rgef_long['method'] = 'Regression endpt amortised itemScompAtt (Strong-Oakley)'
 
 cols = ['interim_month_year', 'metric', 'value', 'method']
 dc = pd.concat(
@@ -113,7 +113,7 @@ method_order = ['IS (reweight)', 'IS (moment-match)', 'SMC (resample-move)',
                 'Regression endpt quantile (Strong-Oakley)',
                 'Regression endpt mquantile (Strong-Oakley)',
                 'Regression endpt amortised itemScompAtt (Strong-Oakley)',
-                'Regression endpt amortised itemXcompAtt (Strong-Oakley)']
+                'Regression endpt amortised itemScompAtt (Strong-Oakley)']
 dc['interim_month_year'] = pd.Categorical(
     dc['interim_month_year'], categories=interim_order, ordered=True)
 dc['method'] = pd.Categorical(dc['method'], categories=method_order, ordered=True)
@@ -258,12 +258,12 @@ _wk = _glob.glob(f"{_sandbox}/py-ukraine-interim-weekly-svi-260811/{file_prefix}
 _lab_map = (pd.read_csv(_wk[0])[['item_label', 'item_label_long']].drop_duplicates()
             .set_index('item_label')['item_label_long'].to_dict()) if _wk else {}
 amortiser_box_paths = {
-    'Amortiser hand-token (itemXcompAtt)':
-        f"{_sandbox}/py-ukraine-interim-amortise-itemXcompAtt-monthly-260902-ftheadexpand-260809/{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pkl",
+    'Amortiser hand-token (itemScompAtt)':
+        f"{_sandbox}/py-ukraine-interim-amortise-itemScompAtt-monthly-260902-ftheadexpand-260809/{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pkl",
     'Amortiser deepset (plain, Ukraine)':
-        f"{_sandbox}/py-ukraine-interim-amortise-deepsetXcompAtt-plain-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
+        f"{_sandbox}/py-ukraine-interim-amortise-deepsetScompAtt-plain-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
     'Amortiser deepset item-general (J64)':
-        f"{_sandbox}/py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
+        f"{_sandbox}/py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-monthly-260902/{file_prefix}_pps_RAGD_p_h1_xz_boxplot.pkl",
 }
 amortiser_methods = []
 for m, bp in amortiser_box_paths.items():

@@ -37,13 +37,13 @@ import jax.numpy as jnp
 
 warnings.filterwarnings('ignore')
 from amortiser_common import train as amortiser_train, save_trained_model, load_fitted_model
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead as DSNet)
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead as DSNet)
 from model_pcm import PartialCreditModel
 
 SB = "/Users/or105/sandbox/bIRTistic"
 RGE = f"{SB}/py-ukraine-interim-with-regression-on-endptx-wz-260601"
-dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead-contraction-260811"
+dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead-contraction-260811"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 N_FULL = 503

@@ -64,7 +64,7 @@ def _contrast(name, long):
     """One contrast's amortiser config; `name` -> SVI ref + federated parent dir, `long` -> plot strip label."""
     return dict(
         svi=SVI['out'].format(contrast=name),   # reuse this contrast's existing SVI grid as the reference
-        fed=f'py-immport-covid-SDY1764-{name}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',
+        fed=f'py-immport-covid-SDY1764-{name}-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',
         title=f'COVID SDY1764 {name}', item_kind='neut readout', mixed_units=False,
         calib_prefix=f'covid_{name}_amortiser', eta0_units='relative change x100', ctag_prefix=f'covid-{name}-fed',
         endpoints=[dict(

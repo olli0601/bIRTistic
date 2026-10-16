@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Detailed calibration diagnostics + remedies for the prior-predictive-
-trained nested-DeepSets amortiser (`deepsetXcompAtt`, §14.4 of
+trained nested-DeepSets amortiser (`deepsetScompAtt`, §14.4 of
 dev/amortised_decision_making.md).
 
 Mirrors the item-level §14.1/§14.2 diagnostics (coverage curves, PIT
@@ -41,15 +41,15 @@ from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point,
 
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead as DSNet,
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead as DSNet,
     _MLP,
 )
 from model_pcm import PartialCreditModel
 
 DIR_RGE = "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-with-regression-on-endptx-wz-260601"
 SB = "/Users/or105/sandbox/bIRTistic"
-B = "py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead"
+B = "py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead"
 BASE = f"{SB}/{B}-260805"
 file_prefix = "pcm_1_interim"
 SUF = "RGDX"

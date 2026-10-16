@@ -60,7 +60,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # the reference SVI dir the amortiser is deployed against (== SVI['out'])
-    fed='py-cavd-vtn505-bama-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260923',  # parent dir
+    fed='py-cavd-vtn505-bama-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260923',  # parent dir
     title='CAVD HVTN 505 BAMA',   # figure-title prefix
     item_kind='antigen',          # the response-item word (rows of the diagnostic grid)
     mixed_units=False,            # single endpoint -> one facet_grid (no per-endpoint stitching needed)

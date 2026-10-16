@@ -1,4 +1,4 @@
-"""Shuffle test (14.5.1): does the deepsetXcompAtt summary carry cross-ITEM correlation?
+"""Shuffle test (14.5.1): does the deepsetScompAtt summary carry cross-ITEM correlation?
 
 The encoder embeds each (participant, item) independently and mean-pools over participants per item,
 so its representation is a function of the per-item (baseline,endline) MARGINALS only. Two
@@ -12,11 +12,11 @@ Run: .pixi/envs/default/bin/python scripts-py/Ukraine_deepset_shuffle_test.py
 import os, sys, glob, numpy as np, pandas as pd, jax, jax.numpy as jnp
 sys.path.insert(0, 'python')
 from amortiser_common import load_fitted_model
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
 from model_pcm import PartialCreditModel
 SB="/Users/or105/sandbox/bIRTistic"; WK=f"{SB}/py-ukraine-interim-weekly-svi-260811"
-BASE=f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-plain-260812"; PFX="pcm_1_interim"; N_REF=503; S=100
+BASE=f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-plain-260812"; PFX="pcm_1_interim"; N_REF=503; S=100
 dit=pd.read_csv(f"{WK}/{PFX}_1_data_dit.csv")
 _wa=sorted(glob.glob(f"{WK}/{PFX}_i*_regression_training.pkl"), key=lambda p:int(p.split('_i')[-1].split('_')[0]))
 items=(pd.read_pickle(_wa[0])[['item_label','item_type','item_high_label']].drop_duplicates()

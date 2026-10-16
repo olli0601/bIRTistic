@@ -73,8 +73,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 from model_pcm import PartialCreditModel
 
@@ -92,7 +92,7 @@ DIR_RGE = os.path.join(
 )
 dir_out = os.environ.get('UKR_DIR', os.path.join(
     "/Users/or105/sandbox/bIRTistic",
-    "py-ukraine-interim-amortise-itemXcompAtt-net-260716",
+    "py-ukraine-interim-amortise-itemScompAtt-net-260716",
 ))
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")
@@ -401,7 +401,7 @@ else:
           f"({NET_STEPS} steps, batch S={NET_BATCH} -> B={NET_BATCH * J}) ...")
     fit = amortiser_train(
         sample_fn,
-        Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={
             'q_tok_hidden': NET_TOK_HIDDEN,
             'embed_dim': NET_EMBED_DIM,

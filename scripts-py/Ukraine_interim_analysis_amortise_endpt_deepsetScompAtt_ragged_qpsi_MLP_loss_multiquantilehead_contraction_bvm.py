@@ -30,8 +30,8 @@ from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point, geom_smoo
                       scale_fill_manual, scale_fill_gradient2)
 from amortiser_common import load_fitted_model
 import amortiser_calibration as cal          # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net, _MLP)
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net, _MLP)
 from model_pcm import PartialCreditModel
 
 SB = "/Users/or105/sandbox/bIRTistic"
@@ -39,7 +39,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 # monthly RGE dir for the 8-interim diagnostics that match the Xcomp/Scomp PDFs.
 WK = os.environ.get('RAGD_RGE', f"{SB}/py-ukraine-interim-weekly-svi-260811")
 BASE = os.environ.get('RAGD_BASE',
-    f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-net-260812")
+    f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-net-260812")
 file_prefix = os.environ.get('RAGD_FILEPREFIX', 'pcm_1_interim')   # e.g. pcm_spr_interim to co-locate endpoints in one dir
 BASE_PREFIX = 'pcm_1_interim'                     # the trained net's fixed prefix in BASE (independent of the endpoint prefix)
 ANCHOR = int(os.environ.get('RAGD_ANCHOR', 4))   # interim used for i1-only head-ft

@@ -50,7 +50,7 @@ class _MLP(nn.Module):
         return nn.Dense(self.dims[-1])(x)
 
 
-class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
+class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
     """Nested DeepSets over participants + cross-attention over items.
 
     Cross-attention (1 query per batch elem vs J keys/values) built from

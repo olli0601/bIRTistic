@@ -13,7 +13,7 @@ SB = "/Users/or105/sandbox/bIRTistic"
 SVI_DIR = 'py-refugee_interim_260831'
 AMORTISER = dict(
     svi=SVI_DIR,
-    fed='py-refugee-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-prepool-bvm-federated_261006',
+    fed='py-refugee-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-prepool-bvm-federated_261006',
     title='REFUGE-ED MSPSS (pre-pool)', item_kind='MSPSS item', mixed_units=False,
     calib_prefix='refuge_mspss_prepool_amortiser', eta0_units='relative gain x100',
     ctag_prefix='refuge-ed-prepool',

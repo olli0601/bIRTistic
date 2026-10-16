@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Deployment-time fine-tune of the prior-predictive-trained `itemXcompAtt`
+Deployment-time fine-tune of the prior-predictive-trained `itemScompAtt`
 amortiser on cached SVI interim data (remedy workstreams B2-alt and C of
 the §14.1.12 calibration plan).
 

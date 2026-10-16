@@ -61,7 +61,7 @@ def _variant(variant, tag, warp_spr, warp_gmfr, headmode=''):
     """Build one variant's amortiser config; `tag` -> federated parent dir, warps/headmode = the §16.3 remedy."""
     return dict(
         svi='py-immport-SDY312_260918',    # shared reference SVI dir (all 3 variants deploy against it)
-        fed=f'py-immport-SDY312-amortise-deepsetXcompAtt-itemamortise-J64-{tag}-federated_260924',
+        fed=f'py-immport-SDY312-amortise-deepsetScompAtt-itemamortise-J64-{tag}-federated_260924',
         title='SDY312 flu HAI', item_kind='strain', mixed_units=False, calib_prefix='flu_amortiser',
         eta0_units='endpoint units x100', headmode=headmode, ctag_prefix=f'flu-SDY312-{variant}',
         endpoints=[dict(rho='SPR', instance='S1 rate', rho_id=1, build='rho_id', warp=warp_spr, **_spr),

@@ -2,8 +2,8 @@
 Pre-pool self-attention variant of the nested-DeepSets amortiser
 (§14.6.1 of dev/amortised_decision_making.md).
 
-This is the `deepsetXcompAtt` ragged encoder
-(`amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead`)
+This is the `deepsetScompAtt` ragged encoder
+(`amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead`)
 with ONE change: a per-participant single-head self-attention block
 (SAB) over the J items is inserted BEFORE the participant mean-pool, so
 the pooled item embedding carries cross-item (within-participant)
@@ -36,7 +36,7 @@ import jax
 import jax.numpy as jnp
 from flax import linen as nn
 
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import _MLP
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import _MLP
 
 
 class Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead(nn.Module):

@@ -60,7 +60,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-mycelium-powdervsburger-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed='py-mycelium-powdervsburger-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
     title='Mycelium powder-vs-burger',   # figure-title prefix
     item_kind='construct item',   # response-item word (rows = the 9 acceptance/disgust/naturalness items)
     mixed_units=False,            # single endpoint -> one facet_grid

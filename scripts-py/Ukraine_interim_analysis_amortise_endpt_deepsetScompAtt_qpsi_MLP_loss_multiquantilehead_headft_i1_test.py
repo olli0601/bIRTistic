@@ -27,14 +27,14 @@ import optax
 
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead as DSNet, _MLP)
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead as DSNet, _MLP)
 from model_pcm import PartialCreditModel
 
 SB = "/Users/or105/sandbox/bIRTistic"
 DIR_RGE = f"{SB}/py-ukraine-interim-with-regression-on-endptx-wz-260601"
 BASE = os.environ.get('RGDX_BASE',
-    f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead-contraction-260811")
+    f"{SB}/py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead-contraction-260811")
 AUX_SQRT = os.environ.get('AUX_SQRT', '1') == '1'
 CTAG = os.environ.get('RGDX_CTAG', 'contract')
 file_prefix = "pcm_1_interim"

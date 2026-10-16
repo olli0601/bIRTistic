@@ -33,13 +33,13 @@ import optax
 
 warnings.filterwarnings('ignore')
 from amortiser_common import save_trained_model
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
 
 SB = "/Users/or105/sandbox/bIRTistic"
 WK = f"{SB}/py-ukraine-interim-weekly-svi-260811"
 OUT_TAG = os.environ.get('PP_TAG', '260812')
-dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-{OUT_TAG}"
+dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-{OUT_TAG}"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 K_O7, K_CAT, C_CAT = 8, 4, 2

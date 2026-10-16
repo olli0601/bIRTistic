@@ -1246,7 +1246,7 @@ class PartialCreditModel(IRTModel):
     ):
         """§14.4.19 proposal-ablation variant of the item-token prior sampler.
 
-        Emits the SAME 8-feature `itemXcompAtt` hand-token and the SAME
+        Emits the SAME 8-feature `itemScompAtt` hand-token and the SAME
         theta-level endpoint target as
         :meth:`make_training_data_with_item_tokens_prior`, but decouples
         the *training proposal* so the effect of the sampling scheme on the
@@ -1376,7 +1376,7 @@ class PartialCreditModel(IRTModel):
         khat_shrink_n0: float = 50.0,
     ):
         """§8 prior-predictive sampler emitting the §14.1 ITEM-LEVEL
-        F = 8 tokens for `itemS/XcompAtt` -- no SVI fits, no cached wa
+        F = 8 tokens for `itemS/ScompAtt` -- no SVI fits, no cached wa
         frames. Same PCM simulation as
         :meth:`make_training_data_with_participant_tokens_prior`
         (prior draw -> both cohorts, both time-points), then pooled to

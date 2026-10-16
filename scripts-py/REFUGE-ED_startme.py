@@ -57,7 +57,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-refugee-interim-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed='py-refugee-interim-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
     title='REFUGE-ED MSPSS',      # figure-title prefix
     item_kind='MSPSS item',       # response-item word (rows = the 12 MSPSS items)
     mixed_units=False,            # single endpoint -> one facet_grid

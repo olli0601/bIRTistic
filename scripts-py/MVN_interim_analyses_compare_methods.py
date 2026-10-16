@@ -127,7 +127,7 @@ DIR_RGED = os.path.join(
 DIR_RGEF = os.path.join(
     _sandbox,
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "itemXcompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
+    "itemScompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716",
 )
 DIR_RGDS = os.path.join(
     _sandbox,
@@ -137,12 +137,12 @@ DIR_RGDS = os.path.join(
 DIR_RGDX = os.path.join(
     _sandbox,
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803",
+    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead_260803",
 )
-# §13.8: deepsetXcompAtt with the §14.4.6/§14.4.7 deployment calibration stack
+# §13.8: deepsetScompAtt with the §14.4.6/§14.4.7 deployment calibration stack
 # (expanding head-ft + affine shift; parametric A power-law / C floor heads +
 # BvM self-consistency correction). Deepset J=20 only.
-DIR_BVM = os.path.join(_sandbox, "py-mvn-interim-amortise-deepsetXcompAtt-ragged-bvm-260914")
+DIR_BVM = os.path.join(_sandbox, "py-mvn-interim-amortise-deepsetScompAtt-ragged-bvm-260914")
 DIR_OUT  = os.path.join(_sandbox, "py-mvn-interim-compare-methods-260609")
 os.makedirs(DIR_OUT, exist_ok=True)
 
@@ -158,13 +158,13 @@ LBL_RGEA  = 'Amortiser-features-fixed-idcomp-qpsi-MLP-loss-multiquantilehead'
 LBL_RGEB  = 'Amortiser-features-MLP-idcomp-qpsi-MLP-loss-multiquantilehead'
 LBL_RGEC  = 'Amortiser-features-MLP-xcomp-qpsi-MLP-loss-multiquantilehead'
 LBL_RGED  = 'Amortiser-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead'
-LBL_RGEF  = 'Amortiser-features-itemXcompAtt-qpsi-MLP-loss-multiquantilehead'
+LBL_RGEF  = 'Amortiser-features-itemScompAtt-qpsi-MLP-loss-multiquantilehead'
 LBL_RGDS  = 'Amortiser-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead'
-LBL_RGDX  = 'Amortiser-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead'
-# §13.8 deployment-calibrated deepsetXcompAtt (J=20 only).
-LBL_RGXP  = 'deepsetXcompAtt plain + affine (§14.4.6)'
-LBL_RGXA  = 'deepsetXcompAtt A power-law + BvM (§14.4.7)'
-LBL_RGXC  = 'deepsetXcompAtt C floor + BvM (§14.4.7)'
+LBL_RGDX  = 'Amortiser-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead'
+# §13.8 deployment-calibrated deepsetScompAtt (J=20 only).
+LBL_RGXP  = 'deepsetScompAtt plain + affine (§14.4.6)'
+LBL_RGXA  = 'deepsetScompAtt A power-law + BvM (§14.4.7)'
+LBL_RGXC  = 'deepsetScompAtt C floor + BvM (§14.4.7)'
 
 non_amort_methods = [LBL_HMC, LBL_IS, LBL_RGE, LBL_RGEQ, LBL_RGEM]
 # RGEB (features-MLP idcomp) dropped: undertrained on MVN scale (§13.2).

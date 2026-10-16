@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Amortise over the number of components J (§3.3.1 goal). ONE ragged
-``deepsetXcompAtt`` net (§14.4.3) is trained with a per-step J-curriculum over
+``deepsetScompAtt`` net (§14.4.3) is trained with a per-step J-curriculum over
 J in [J_MIN, J_MAX] = [2, 100], with the covariance structure held FIXED as
 block-equicorrelation (§3.3.1 Cell B: rho_w=0.8, rho_b=0.1, block size 10, ragged
 last block) and only J varying. The net's parameters are J-invariant by
@@ -26,7 +26,7 @@ Outputs (dir_out):
 
 Usage:
     cd /Users/or105/git/bIRTistic
-    pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py
+    pixi run python scripts-py/MVN_interim_analysis_amortise_endpt_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead_amortiseJ.py
 Env: MVNJ_STEPS (8000), MVNJ_S (200 eval draws), MVNJ_JGRID ('2,5,10,20,35,50,75,100'),
      MVNJ_JMIN (2), MVNJ_JMAX (100), MVNJ_HEADMODE (powerlaw), MVNJ_SMOKE (1).
 """
@@ -60,8 +60,8 @@ warnings.filterwarnings('ignore')
 from model_mvn import make_block_equicorr_chol_anyJ, sample_ragged_block_equicorr
 from amortiser_common import save_trained_model, load_fitted_model
 import amortiser_calibration as cal          # shared §14.4.6/§14.4.7 calibration
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net,
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net,
     _MLP,
 )
 from plotnine import (ggplot, aes, geom_line, geom_point, facet_wrap, theme_bw,
@@ -270,7 +270,7 @@ p = (ggplot(long, aes('J', 'value')) + geom_line(colour='#1f77b4') + geom_point(
                           strip_text=element_text(face='bold'),
                           axis_text_x=element_text(angle=45, hjust=1))
      + labs(x='J (number of components)', y='',
-            title=f'J-amortised deepsetXcompAtt ({HEAD_MODE}) vs closed-form — metrics by J'))
+            title=f'J-amortised deepsetScompAtt ({HEAD_MODE}) vs closed-form — metrics by J'))
 p.save(os.path.join(dir_out, 'mvn_amortiseJ_metrics_by_J.pdf'), verbose=False)
 print(f"\nSaved metrics + plot -> {dir_out}")
 print(res.to_string(index=False))

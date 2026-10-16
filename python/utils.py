@@ -842,11 +842,26 @@ def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=N
     cols = ['jc', 'scope', 'item_type_id', 'item_type', 'cmp_key', 'item_label',
             'construct', 'item_high_label']
     cmp = pd.concat([comps_item[cols], comps_grp[cols]], ignore_index=True)
-    cmp['thr'] = np.where(cmp['item_type'] == 'categorical', int(categorical_threshold), 0)
 
-    reds = pd.DataFrame(reductions, columns=['red_fn', 'rho'])
+    # Reductions may be (red_fn, rho_label) tuples [item-type-default thr] or dicts
+    # {red_fn, rho, thr}, where a reduction-specific `thr` (e.g. SPR = red_fn 6 at thr=3)
+    # overrides the item-type default. thr is therefore per (comparison jc, reduction r).
+    norm = []
+    for red in reductions:
+        if isinstance(red, dict):
+            norm.append({'red_fn': int(red['red_fn']), 'rho': red['rho'],
+                         'thr_spec': red.get('thr', None)})
+        else:
+            rf, lab = red
+            norm.append({'red_fn': int(rf), 'rho': lab, 'thr_spec': None})
+    reds = pd.DataFrame(norm)
     reds['r'] = np.arange(1, len(reds) + 1)
     drho = cmp.merge(reds, how='cross')
+    # per-(jc, r) threshold: the reduction's own thr if given, else the item-type default
+    # (categorical -> categorical_threshold = P(y>=thr); out-of-7 -> 0 = E[y]).
+    default_thr = np.where(drho['item_type'] == 'categorical', int(categorical_threshold), 0)
+    drho['thr'] = np.where(drho['thr_spec'].notna(), drho['thr_spec'], default_thr).astype(int)
+    drho = drho.drop(columns=['thr_spec'])
     return drho.sort_values(['jc', 'r']).reset_index(drop=True)
 
 
@@ -988,9 +1003,12 @@ def reduction_stan_data(drho, dcati) -> dict:
         for s, q in enumerate(b):
             question_cmp[i][1][s] = int(q)
 
-    thr_by_jc = {int(r.jc): int(r.thr) for r in drho[['jc', 'thr']].drop_duplicates().itertuples()}
+    # threshold per (reduction r, comparison jc) -- a reduction may carry its own thr (e.g. SPR).
+    thr_map = {(int(x.jc), int(x.r)): int(x.thr)
+               for x in drho[['jc', 'r', 'thr']].drop_duplicates().itertuples()}
     jc_order = ucmp['jc'].astype(int).tolist()
-    cmp_reduce_thr = [[thr_by_jc[jc] for jc in jc_order] for _ in range(R)]
+    r_order = ured['r'].astype(int).tolist()
+    cmp_reduce_thr = [[thr_map[(jc, r)] for jc in jc_order] for r in r_order]
 
     return dict(R=R, Qcmp=Qcmp, Scmp=int(Scmp), cmp_cat_type=cmp_cat_type,
                 question_cmp=question_cmp, red_fn=red_fn, cmp_reduce_thr=cmp_reduce_thr)

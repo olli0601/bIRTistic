@@ -51,9 +51,9 @@ ARCHS = [
     ('idcomp (fixed)',   'RGEA', D("fixed-idcomp-qpsi-MLP-loss-multiquantilehead-260714"),   'idcomp',  [20, 60, 100]),
     ('xcomp (MLP)',      'RGEC', D("MLP-xcomp-qpsi-MLP-loss-multiquantilehead_15k_260716"),   'xcomp',   [20, 60, 100]),
     ('itemScompAtt',     'RGED', D("itemScompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716"),'tokens',  [20, 60, 100]),
-    ('itemXcompAtt',     'RGEF', D("itemXcompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716"),'tokens',  [20, 60, 100]),
+    ('itemScompAtt',     'RGEF', D("itemScompAtt-qpsi-MLP-loss-multiquantilehead_15k_260716"),'tokens',  [20, 60, 100]),
     ('deepsetScompAtt',  'RGDS', D("deepsetScompAtt-qpsi-MLP-loss-multiquantilehead_260803"), 'deepset', [20]),
-    ('deepsetXcompAtt',  'RGDX', D("deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead_260803"), 'deepset', [20]),
+    ('deepsetScompAtt',  'RGDX', D("deepsetScompAtt-qpsi-MLP-loss-multiquantilehead_260803"), 'deepset', [20]),
 ]
 _only = os.environ.get('DIAG_ARCHS')
 if _only:

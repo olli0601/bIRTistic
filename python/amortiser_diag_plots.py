@@ -1,6 +1,6 @@
 """
 Shared amortiser calibration/contraction diagnostic plots (§14.4.22-25), so the
-deepset (`deepsetXcompAtt`) and hand-token (`itemXcompAtt`) deploys produce the
+deepset (`deepsetScompAtt`) and hand-token (`itemScompAtt`) deploys produce the
 *same* figures for a like-for-like comparison.
 
 Each function takes callables over interim ids:

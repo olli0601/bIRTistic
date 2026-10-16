@@ -16,7 +16,7 @@ The reference fit is BETWEEN-ARM (disjoint participants, unpaired PCM) with BIWE
 by UkraineRCT_interim_svi.py — NOT the weekly paired loop of UKRAINE_startme.py (get_interim_data_x's
 both-timepoint pairing does not apply here). So RUN_SVI here delegates to that script.
 
-AMORTISER deploys the amortiser (deepsetXcompAtt itemamortise J64) with the BETWEEN-ARM scale-feat net
+AMORTISER deploys the amortiser (deepsetScompAtt itemamortise J64) with the BETWEEN-ARM scale-feat net
 (scale-feat-between): the same rel-change target rho=we/wb-1 as the paired scale-feat net, but trained on
 a BETWEEN-SUBJECTS cohort (one arm slot per participant) to match this disjoint-arm design — vs the
 paired scale-feat-paired net used by the §14 within-participant apps. ftheadexpand + STEIN BvM: James-
@@ -62,7 +62,7 @@ SVI = dict(out=SVI_DIR)          # knobs live in UkraineRCT_interim_svi.py (Auto
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-ukraineRCT-endline-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-stein-federated_260929',
+    fed='py-ukraineRCT-endline-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-stein-federated_260929',
     title='Ukraine Hope Groups RCT',   # figure-title prefix
     item_kind='item',             # response-item word (rows = the Ukraine parenting/MH items)
     mixed_units=False,            # single rho (relative change) -> one facet_grid (rows span both item types)

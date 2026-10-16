@@ -1,8 +1,8 @@
 """
-§14.4.19 proposal ablation for the item-token `itemXcompAtt` amortiser.
+§14.4.19 proposal ablation for the item-token `itemScompAtt` amortiser.
 
 Question: what exactly erodes the sharp z-response of the §14.2.5 hand-token
-encoder? We hold the ARCHITECTURE fixed (itemXcompAtt) and swap only the
+encoder? We hold the ARCHITECTURE fixed (itemScompAtt) and swap only the
 TRAINING PROPOSAL, then measure the encoder's z-tracking with one fixed probe
 identical across cells.
 
@@ -53,7 +53,7 @@ M_LO = int(os.environ.get('IXC_MLO', '2')); M_HI = int(os.environ.get('IXC_MHI',
 STEPS = int(os.environ.get('IXC_STEPS', '6000'))
 BATCH = int(os.environ.get('IXC_BATCH', '64'))
 AUX_REF = 503.0
-dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-itemXcompAtt-priorproposal-{TAG}"
+dir_out = f"{SB}/py-ukraine-interim-amortise-endptx-itemScompAtt-priorproposal-{TAG}"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 NET_TAUS = (0.05, 0.25, 0.5, 0.75, 0.95)
@@ -61,7 +61,7 @@ NET_SEED = 123
 print(f"CONFIG tag={TAG} decouple={DECOUPLE} DR={DR} N=[{N_LO},{N_HI}] "
       f"m=[{M_LO},{M_HI}] steps={STEPS}")
 
-# ---------------- item metadata (mirror the itemXcompAtt script) ----------------
+# ---------------- item metadata (mirror the itemScompAtt script) ----------------
 wa0 = pd.read_pickle(f"{DIR_RGE}/{file_prefix}_i1_regression_training.pkl")
 items_df = (wa0[['item_label', 'item_type', 'item_high_label']].drop_duplicates()
             .sort_values(['item_type', 'item_label']).reset_index(drop=True))
@@ -99,9 +99,9 @@ def sample_fn(rng, S):
 
 
 # ---------------- train ----------------
-from amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead as Net)
-print(f"Training itemXcompAtt ({STEPS} steps) ...")
+from amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead as Net)
+print(f"Training itemScompAtt ({STEPS} steps) ...")
 fit = amortiser_train(sample_fn, Net,
                       net_kwargs={'q_tok_hidden': (32, 32), 'embed_dim': 32, 'hidden_dims': (64, 64)},
                       pps_ProbH1_lwr_quantiles_mesh=NET_TAUS,

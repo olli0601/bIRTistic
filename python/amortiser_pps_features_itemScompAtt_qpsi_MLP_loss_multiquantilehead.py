@@ -47,7 +47,7 @@ class _MLP(nn.Module):
         return nn.Dense(self.dims[-1])(x)
 
 
-class Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
+class Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
     """Item-axis cross-attention amortiser (data-agnostic).
 
     Attention is 1 query (built from the queried item's own token

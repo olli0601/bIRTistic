@@ -61,8 +61,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 import model_mvn_common as mc
 
@@ -80,7 +80,7 @@ DIR_SIM = os.path.join(
 _ROOT_DIR = (
     "/Users/or105/sandbox/bIRTistic/"
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead"
+    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead"
 )
 _DIR_VARIANT = os.environ.get('XCOMPATT_DIR_VARIANT', '_260716')
 dir_out = f"{_ROOT_DIR}{_DIR_VARIANT}"
@@ -180,7 +180,7 @@ else:
     )
     fit = train(
         sample_fn,
-        Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={},
         pps_ProbH1_lwr_quantiles_mesh=NET_TAUS,
         num_steps=NET_STEPS,

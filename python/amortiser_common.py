@@ -189,7 +189,7 @@ def load_fitted_model(path: str) -> dict:
     # False when the key is absent. This applies ONLY to the post-pool module — the §14.6 pre-pool module
     # was born with True defaults, so a missing key there must take the module default, not False.
     _fields = getattr(net_class, '__dataclass_fields__', {})
-    if payload['net_class_name'].endswith('deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead'):
+    if payload['net_class_name'].endswith('deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead'):
         if 'query_from_token' in _fields:
             net_kwargs.setdefault('query_from_token', False)
         if 'separate_values' in _fields:
@@ -258,22 +258,22 @@ import sys as _sys
 import pandas as pd
 
 _REPO = _os.path.dirname(_os.path.dirname(__file__))
-DEFAULT_DRIVER = "scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py"
+DEFAULT_DRIVER = "scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py"
 DEPLOY_SCRATCH = "/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-a442-d1c60bcbdfb0/scratchpad"
 # registry net-instance key -> (trained net dir under SB, widetok, case_c). warp is per-endpoint (cfg).
 _NET = {
-    'widetok-spr': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-widetok-spr-260919", 1, 3),
+    'widetok-spr': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-spr-260919", 1, 3),
     # scale-feat rel-change net (rho = we/wb - 1), scalar token. TWO cohort variants: -paired trains on the
     # PAIRED cohort (both group slots per participant, the original §14 net); -between trains on the
     # BETWEEN-ARM cohort (one slot per participant, for RCT / disjoint-arm apps like UkraineRCT).
-    'scale-feat-paired':  ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-260831",  0, 2),
+    'scale-feat-paired':  ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-260831",  0, 2),
     # §14.6: pre-pool-SAB twin of scale-feat-paired (identical config + prepool_attn, post_pool_attn off) —
     #   the any-J BvM pre-pool amortiser for apple-to-apple pre-vs-post comparison through the manifests.
-    'scale-feat-paired-prepool': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-prepool-261006", 0, 2),
+    'scale-feat-paired-prepool': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-prepool-261006", 0, 2),
     # §14.6 "both": pre-pool SAB AND post-pool cross-attention, same scale-feat config.
-    'scale-feat-paired-both': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-both-261006", 0, 2),
-    'scale-feat-between': ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-scale-feat-between-260929", 0, 2),
-    'groupdiff':   ("py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
+    'scale-feat-paired-both': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-both-261006", 0, 2),
+    'scale-feat-between': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-between-260929", 0, 2),
+    'groupdiff':   ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
 }
 _DP_COLS = ['pid', 'pid_label', 'group', 'group_label', 'item_label', 'y', 'y_stan',
             'item_type', 'item_type_id', 'item_group_id', 'oid', 'oidt']

@@ -59,7 +59,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-icrc-dass-drc-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed='py-icrc-dass-drc-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
     title='ICRC DASS-21 (DRC)',   # figure-title prefix
     item_kind='subscale',         # response-item word (rows = the 3 DASS subscales)
     mixed_units=False,            # single endpoint -> one facet_grid

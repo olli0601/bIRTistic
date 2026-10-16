@@ -61,8 +61,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 
 print("Imports successful")
@@ -79,7 +79,7 @@ DIR_SIM = os.path.join(
 _ROOT_DIR = (
     "/Users/or105/sandbox/bIRTistic/"
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "itemXcompAtt-qpsi-MLP-loss-multiquantilehead"
+    "itemScompAtt-qpsi-MLP-loss-multiquantilehead"
 )
 _DIR_VARIANT = os.environ.get('XCOMPATT_DIR_VARIANT', '_260716')
 dir_out = f"{_ROOT_DIR}{_DIR_VARIANT}"
@@ -178,7 +178,7 @@ else:
     )
     fit = train(
         sample_fn,
-        Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={
             'q_tok_hidden': NET_Q_TOK_HIDDEN,
             'embed_dim': NET_EMBED_DIM,
@@ -262,7 +262,7 @@ for J in J_GRID:
         scale = float(NET_N_MAX)
 
         # ---- Batch of J elements per posterior draw, converted to the
-        # unified itemXcompAtt schema (tokens, mask, query_idx, aux).
+        # unified itemScompAtt schema (tokens, mask, query_idx, aux).
         S = PPS_Z_TOTAL
         item_labels = dit['item_label'].to_numpy()
         item_types  = dit['item_type'].to_numpy()

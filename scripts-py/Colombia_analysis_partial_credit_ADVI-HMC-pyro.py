@@ -358,31 +358,31 @@ drho = tmp['drho']  # the single effect-size manifest defined up front
 method_cfg = {
     'stan_hmc': {
         'draws_file': f"{output_file_prefix_hmc}_draws.zarr",
-        'param_name': None,
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'stan_advi': {
         'draws_file': f"{output_file_prefix_advi}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'numpyro_svi_autodiagnormal': {
         'draws_file': f"{output_file_svi_autodiagnormal}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'numpyro_svi_autolaplaceapproximation': {
         'draws_file': f"{output_file_svi_autolaplaceapproximation}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'numpyro_svi_automultivariatenormal': {
         'draws_file': f"{output_file_svi_automultivariatenormal}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'numpyro_svi_autolowrankmultivariatenormal': {
         'draws_file': f"{output_file_svi_autolowrankmultivariatenormal}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
     'numpyro_svi_autoiafnormal': {
         'draws_file': f"{output_file_svi_autoiafnormal}_draws.zarr",
-        'param_name': 'ordered_prob_by_cat_qu_pr',
+        'param_name': 'rho_by_cat_qu_pr',
     },
 }
 

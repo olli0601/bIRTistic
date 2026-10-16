@@ -1181,7 +1181,7 @@ class MVNModel(Model):
         k_row_flat = k_rows.reshape(B, self.J).astype(np.float32)
         k_diag_flat = k_diags.reshape(B, 1).astype(np.float32)
         # Per (b, j) token: (x_sum[j], z_sum[j], K[j*, j]). The
-        # itemXcompAtt class handles query identification via a learned
+        # itemScompAtt class handles query identification via a learned
         # attention-score bias (see ``query_bias_alpha`` in the class)
         # driven by ``query_idx``, so no explicit is_query token
         # feature is needed here.
@@ -1336,7 +1336,7 @@ class MVNModel(Model):
         K_families=None,
     ):
         """RAGGED-participant-axis prior-predictive sampler for the
-        ``deepsetXcompAtt_ragged`` amortiser (§14.4.3). Same prior draws and
+        ``deepsetScompAtt_ragged`` amortiser (§14.4.3). Same prior draws and
         target as :meth:`make_training_data_with_participant_tokens_random_K`,
         but participants are concatenated into a flat segmented axis (no
         padding / no mask), and each prior draw contributes ONE batch element

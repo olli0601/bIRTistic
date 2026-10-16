@@ -16,12 +16,12 @@ import os, sys, time
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 import numpy as np, jax, jax.numpy as jnp, optax
 from amortiser_common import save_trained_model
-from amortiser_pps_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
+from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
 
 SB = "/Users/or105/sandbox/bIRTistic"
 OUT_TAG = os.environ.get('PP_TAG', f"itemamortise-J{os.environ.get('PP_JMAX','64')}-260831")
-dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetXcompAtt-{OUT_TAG}"
+dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-{OUT_TAG}"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 THRESH, M_REF, N_REF, CLIP = 3.5, 2000, 503, 20.0

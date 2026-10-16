@@ -59,7 +59,7 @@ _spr = dict(net='widetok-spr', widetok=1, case_c=3, eta0=0.70, grid='0.5,0.6,0.7
 _gmfr = dict(net='scale-feat-paired', widetok=0, case_c=2, eta0=2.5, grid='2.0,2.5,3.0,3.5')     # GMFR net + eta0 sweep
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortisers deploy against (== SVI['out'])
-    fed=f'py-immport-{DATA["study"]}-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260922',
+    fed=f'py-immport-{DATA["study"]}-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260922',
     title='SDY269 head-to-head', item_kind='strain', mixed_units=True, calib_prefix='headhead_amortiser',
     eta0_units='endpoint units x100', ctag_prefix='sdy269-fed', nref=64,   # nref fixed (small paired arms)
     endpoints=[  # build strategies: 'level' = per-arm phase subset; 'diffstd' = between-arm standardised diff

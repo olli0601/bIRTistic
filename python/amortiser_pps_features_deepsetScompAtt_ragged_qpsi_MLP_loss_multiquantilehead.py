@@ -2,7 +2,7 @@
 Ragged-participant-axis variant of the nested-DeepSets + cross-attention
 amortiser (§14.4.11 of dev/amortised_decision_making.md, component D).
 
-Unlike `..._deepsetXcompAtt_...` which pads every cohort to a fixed
+Unlike `..._deepsetScompAtt_...` which pads every cohort to a fixed
 N_max and carries a 0/1 participant mask, this variant consumes a
 **ragged** participant axis: participants from all batch elements are
 concatenated into one flat axis and pooled with a segmented mean
@@ -48,7 +48,7 @@ class _MLP(nn.Module):
         return nn.Dense(self.dims[-1])(x)
 
 
-class Amortiser_PPS_features_deepsetXcompAtt_ragged_qpsi_MLP_loss_multiquantilehead(nn.Module):
+class Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead(nn.Module):
     """Nested DeepSets (ragged participant axis) + cross-attention over items."""
 
     q_tau_hidden: tuple = (32, 32)

@@ -43,8 +43,8 @@ from plotnine import (ggplot, aes, geom_point, geom_line, geom_smooth,
 
 warnings.filterwarnings('ignore')
 from amortiser_common import load_fitted_model
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead as DSNet,
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead as DSNet,
 )
 from model_pcm import PartialCreditModel
 
@@ -52,7 +52,7 @@ DIR_RGE = os.environ.get(
     'UKR_WEEKLY_DIR',
     "/Users/or105/sandbox/bIRTistic/py-ukraine-interim-weekly-svi-260811")
 SB = "/Users/or105/sandbox/bIRTistic"
-B = "py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead"
+B = "py-ukraine-interim-amortise-endptx-on-wz-with-features-deepsetScompAtt-qpsi-MLP-loss-multiquantilehead"
 BASE = os.environ.get('RGDX_BASE', f"{SB}/{B}-260805")
 AUX_SQRT = os.environ.get('AUX_SQRT', '0') == '1'   # dim-4 aux for contraction net
 CTAG = os.environ.get('RGDX_CTAG', 'base')

@@ -67,7 +67,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-ukraine-interim-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed='py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
     title='Ukraine Hope Groups',  # figure-title prefix
     item_kind='item',             # response-item word (rows = the Ukraine parenting/MH items)
     mixed_units=False,            # single rho (relative change) -> one facet_grid (rows span both item types)

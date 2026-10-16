@@ -2,7 +2,7 @@
 """
 Ukraine interim analysis: **fully amortised** PPS per §8-10 of
 ``dev/amortised_decision_making.md`` using the nested-DeepSets +
-cross-attention amortiser (`deepsetXcompAtt`, §13.7) on the partial
+cross-attention amortiser (`deepsetScompAtt`, §13.7) on the partial
 credit model.
 
 Unlike the §14.1 item-level variant (regression-style: tokens built
@@ -34,7 +34,7 @@ Outputs (``_RGDX_`` suffix):
 Usage:
     cd /Users/or105/git/bIRTistic
     PYTHONUNBUFFERED=1 pixi run python -u \
-      scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead.py
+      scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead.py
 """
 
 # %%
@@ -75,8 +75,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 from model_pcm import PartialCreditModel
 
@@ -95,7 +95,7 @@ DIR_RGE = os.path.join(
 dir_out = os.path.join(
     "/Users/or105/sandbox/bIRTistic",
     "py-ukraine-interim-amortise-endptx-on-wz-with-features-"
-    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead-260805",
+    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead-260805",
 )
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")
@@ -188,7 +188,7 @@ if os.path.exists(NET_CKPT):
     print(f"\nLoading cached amortised net from {NET_CKPT}")
     fit = load_fitted_model(NET_CKPT)
 else:
-    print(f"\nTraining deepsetXcompAtt amortised net on PCM prior draws "
+    print(f"\nTraining deepsetScompAtt amortised net on PCM prior draws "
           f"({NET_STEPS} steps, S={NET_BATCH}, Q={NET_QUERIES}, "
           f"N_full={N_FULL}) ...")
     sample_fn = partial(
@@ -204,7 +204,7 @@ else:
     )
     fit = amortiser_train(
         sample_fn,
-        Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={},
         pps_ProbH1_lwr_quantiles_mesh=NET_TAUS,
         num_steps=NET_STEPS,
@@ -442,7 +442,7 @@ p = (
             strip_background=element_blank(),
             strip_text=element_text(face='bold'))
     + labs(x='Interim', y='rho  (box 25-75%, whiskers 2.5-97.5%)',
-           title='SVI posterior of rho|x vs deepsetXcompAtt q_psi(rho|x)')
+           title='SVI posterior of rho|x vs deepsetScompAtt q_psi(rho|x)')
 )
 pdf_path = os.path.join(
     dir_out, f"{file_prefix}_pps_{SUFFIX}_svi_vs_amortiser_rho_all.pdf",
