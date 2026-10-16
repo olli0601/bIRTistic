@@ -1,33 +1,34 @@
 """
-Amortiser: self-attention over items on caller-supplied per-item feature
-tokens (§13.5 MVN + §14.1 IRT extension of
-``dev/amortised_decision_making.md``). Data-agnostic: works for any
-case study where the caller has pre-pooled the raw participant
-observations into per-item summary features (e.g. Strong-Oakley
-``w_baseline`` / ``w_endline`` for IRT, ``sum_i y_{i, j}`` for MVN
-with the K-row query baked into the token).
+Amortiser: cross-attention over items on caller-supplied per-item
+feature tokens (§13.6 of ``dev/amortised_decision_making.md``).
+Data-agnostic sibling of the self-attention variant in
+``amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead``.
 
-**Where the attention lives.** Between the per-item encoder ``q_tok``
-and the per-item head ``q_psi`` -- it replaces the sum-pool that would
-sit in a plain DeepSets over items with an attention-weighted mix. The
-head then gathers the queried item's post-attention embedding and
-predicts its quantile grid. ``q_tau`` (per-observation encoder over
-participants) is NOT part of this class -- the caller is assumed to
-have run whatever per-item aggregation over participants is appropriate
-for the case study upstream. For a fully-amortised per-participant
-variant see ``amortiser_pps_features_deepsetXcompAtt_...``.
+**Design.** Single learned query per batch element, built from the
+queried item's own raw token features via a small MLP ``q_query``.
+Cross-attention scores that query against the J per-item embeddings
+``q_tok(t_j)``. Attention output = weighted sum over items with weights
+telling "how much information does item j contribute to the queried
+item j*". The head then reads out the multi-quantile grid from
+``(attn_output, tok_query, aux)``.
 
-Batch schema (dict):
-    ``tokens``:    ``(B, J, F)``    -- per-item feature vector, F
-                                       configurable per caller.
+**Where the K-conditioning goes.** Per-token features ``t_j`` still
+carry ``K_{j*, j}`` (baked in by the MVN caller). The queried token
+``t_{j*}`` carries ``K_{j*, j*} = 1`` (self-correlation, maximum);
+its projection through ``q_query`` becomes the attention query. Tokens
+whose embeddings are similar to the queried one (large K-row) attract
+high attention weight -- the "K tells us how much information can be
+gleaned from item j to item j*" intuition is preserved and made
+explicit.
+
+Batch schema (dict; same as itemScompAtt so callers can swap classes
+without changing batch construction):
+
+    ``tokens``:    ``(B, J, F)``    -- per-item feature vector.
     ``mask``:      ``(B, J)``       -- 1 for real item, 0 for padded.
     ``query_idx``: ``(B,)`` int     -- which item to predict.
     ``aux``:       ``(B, A)`` float -- optional scalar extras fed to
-                                       the head (cohort sizes, K-diag,
-                                       ...). If absent, no aux.
-
-Loss target: per-batch-elem prediction of ``rho`` at the queried
-item. Same multi-quantile pinball loss as the other amortiser variants.
+                                       the head. If absent, no aux.
 """
 
 import jax
@@ -46,10 +47,17 @@ class _MLP(nn.Module):
         return nn.Dense(self.dims[-1])(x)
 
 
-class Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
-    """Item-axis self-attention amortiser (data-agnostic)."""
+class Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
+    """Item-axis cross-attention amortiser (data-agnostic).
+
+    Attention is 1 query (built from the queried item's own token
+    features) vs J keys/values (per-item token embeddings). Number of
+    attention scores per batch elem is ``J`` (vs ``J^2`` for
+    itemScompAtt), so this variant is more sample-efficient at large J.
+    """
 
     q_tok_hidden: tuple = (32, 32)
+    q_query_hidden: tuple = (32, 32)
     embed_dim: int = 32
     hidden_dims: tuple = (64, 64)
     num_quantiles: int = 5
@@ -59,60 +67,49 @@ class Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Mod
 
     def setup(self):
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
+        self.q_query = _MLP(dims=(*self.q_query_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
-        # Learned scalar bias added to the attention score at the queried
-        # key position (query-conditional attention weights; §13.5 fix B).
-        self.query_bias_alpha = self.param(
-            'query_bias_alpha', nn.initializers.zeros, (),
-        )
 
-    def _self_attention(self, h, mask, query_idx=None):
-        """h: (B, J, E). mask: (B, J). Single-head self-attention with
-        key-side masking + learned scalar bias on the queried key so
-        every query preferentially attends to the queried token."""
-        scores = jnp.einsum('bqd,bkd->bqk', h, h)
-        scores = scores / jnp.sqrt(float(self.embed_dim))
-        # Query-bias: learn a scalar alpha, add alpha * one_hot(query_idx)
-        # to every row of the scores. Effect: attention softmax at every
-        # query row is nudged toward the queried key. Restores the
-        # query-conditional attention weights that the old cross-attn
-        # design got for free.
-        if query_idx is not None:
-            is_query = jax.nn.one_hot(
-                query_idx.astype(jnp.int32), h.shape[1], dtype=h.dtype,
-            )                                                    # (B, J)
-            scores = scores + self.query_bias_alpha * is_query[:, None, :]
-        mask_k = mask[:, None, :]
-        scores = jnp.where(mask_k > 0, scores, -1e9)
-        w = jax.nn.softmax(scores, axis=-1)
-        return jnp.einsum('bqk,bkd->bqd', w, h)
+    def _cross_attention(self, q, h, mask):
+        """q: (B, E). h: (B, J, E). mask: (B, J). Single query vs J
+        keys/values."""
+        # scores[b, j] = <q_b, h_{b, j}> / sqrt(E).
+        scores = jnp.einsum('bd,bjd->bj', q, h) / jnp.sqrt(float(self.embed_dim))
+        scores = jnp.where(mask > 0, scores, -1e9)
+        w = jax.nn.softmax(scores, axis=-1)                     # (B, J)
+        return jnp.einsum('bj,bjd->bd', w, h)                    # (B, E)
 
     def summary_for_query(self, tokens, mask, query_idx):
         """Attention-picked per-query summary bar_h^(j*) in R^E.
 
-        Returns the gathered post-attention embedding at query index
-        j* -- the vector q_psi actually consumes (aside from tok_query
-        and aux). Used by diagnostic plots that want the query-conditional
-        learned summary.
+        Returns the cross-attention output at query j* -- the vector
+        q_psi actually consumes (aside from tok_query and aux). Used by
+        diagnostic plots that want the query-conditional learned summary.
         """
-        h = self.q_tok(tokens)                                  # (B, J, E)
         idx = query_idx.astype(jnp.int32)                       # (B,)
-        h_attn = self._self_attention(h, mask, query_idx=idx)   # (B, J, E)
-        B = h_attn.shape[0]
+        B = tokens.shape[0]
         b_range = jnp.arange(B, dtype=jnp.int32)
-        return h_attn[b_range, idx]                             # (B, E)
+        h = self.q_tok(tokens)                                  # (B, J, E)
+        tok_query = tokens[b_range, idx]                        # (B, F)
+        q = self.q_query(tok_query)                             # (B, E)
+        return self._cross_attention(q, h, mask)                # (B, E)
 
     def __call__(self, batch):
         tokens = batch['tokens']                                # (B, J, F)
         mask = batch['mask']                                    # (B, J)
-        h = self.q_tok(tokens)                                  # (B, J, E)
         idx = batch['query_idx'].astype(jnp.int32)              # (B,)
-        h_attn = self._self_attention(h, mask, query_idx=idx)   # (B, J, E)
-        B = h_attn.shape[0]
+        B = tokens.shape[0]
         b_range = jnp.arange(B, dtype=jnp.int32)
-        h_query = h_attn[b_range, idx]                          # (B, E)
+        # Per-item token embeddings (keys / values).
+        h = self.q_tok(tokens)                                  # (B, J, E)
+        # Query built from the queried item's raw features (approach ii of
+        # §13.6). J-invariant (no fixed lookup table).
         tok_query = tokens[b_range, idx]                        # (B, F)
-        parts = [h_query, tok_query]
+        q = self.q_query(tok_query)                             # (B, E)
+        # Cross-attention.
+        attn_out = self._cross_attention(q, h, mask)            # (B, E)
+        # Head.
+        parts = [attn_out, tok_query]
         aux = batch.get('aux', None)
         if aux is not None:
             parts.append(aux)

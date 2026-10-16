@@ -21,13 +21,13 @@ frames and then applied to the held-out interim's rows for PPS
 evaluation. This mirrors the "amortise across cohorts" story: one net
 trained once, deployed at any new interim.
 
-Outputs (``_RGEE_`` suffix; matches the Ukraine compare-methods
+Outputs (``_RGEG_`` suffix; matches the Ukraine compare-methods
 loader):
 
-  - ``pcm_1_interim_pps_RGEE_p_h1_xz.pkl``
-  - ``pcm_1_interim_pps_RGEE.csv``
-  - ``pcm_1_interim_pps_RGEE_timing.csv``
-  - ``pcm_1_interim_pps_RGEE_perf_long.pkl``
+  - ``pcm_1_interim_pps_RGEG_p_h1_xz.pkl``
+  - ``pcm_1_interim_pps_RGEG.csv``
+  - ``pcm_1_interim_pps_RGEG_timing.csv``
+  - ``pcm_1_interim_pps_RGEG_perf_long.pkl``
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -73,8 +73,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 from model_pcm import PartialCreditModel
 
@@ -90,10 +90,10 @@ DIR_RGE = os.path.join(
     "/Users/or105/sandbox/bIRTistic",
     "py-ukraine-interim-with-regression-on-endptx-wz-260601",
 )
-dir_out = os.path.join(
+dir_out = os.environ.get('UKR_DIR', os.path.join(
     "/Users/or105/sandbox/bIRTistic",
-    "py-ukraine-interim-amortise-itemScompAtt-net-260716",
-)
+    "py-ukraine-interim-amortise-itemXcompAtt-net-260716",
+))
 os.makedirs(dir_out, exist_ok=True)
 print(f"Output dir: {dir_out}")
 
@@ -103,7 +103,8 @@ pps_H1_min_effect_size_thresh = 0.5
 pps_ProbH1_target_lwr_quantile = 0.89
 
 NET_STEPS = int(os.environ.get('UKR_XCOMPATT_STEPS', 6000))
-NET_BATCH = 64                   # PRIOR samples per step -> B = 64 * J = 1280
+NET_BATCH = int(os.environ.get('UKR_NET_BATCH', 64))   # PRIOR samples per step
+THRESH_SCALE = float(os.environ.get('UKR_THRESH_SCALE', 3.5))  # prior sd on thresholds
 PILOT_S = 2000                   # prior samples for the item_std pilot
 categorical_threshold = 2        # target-side caseness threshold (1-indexed)
 NET_LR = 1e-3
@@ -329,6 +330,7 @@ PRIOR_KW = dict(
     K_categorical=_K_CAT_LVL,
     categorical_threshold=categorical_threshold,
     target_clip=TARGET_CLIP,
+    threshold_scale=THRESH_SCALE,
 )
 
 ITEM_STD_PATH = os.path.join(dir_out, f"{file_prefix}_item_std.npy")
@@ -364,13 +366,14 @@ def sample_fn(rng, S):
 def _predict_with_unstandardise(fit, batch, thresh):
     """Forward-pass batch, multiply predicted quantiles by
     item_std[query_idx] (undo per-item target standardisation), then
-    apply monotone + interp to get p_h1_xz on the true target scale."""
-    apply_fn = fit['apply_fn']
-    params   = fit['params']
-    taus     = np.asarray(fit['pps_ProbH1_lwr_quantiles_mesh'])
+    apply monotone + interp to get p_h1_xz on the true target scale.
+    Returns (p_h1_xz, q_hat, preds) matching predict_amortised_p_h1_for_one_xz."""
+    apply_fn  = fit['apply_fn']
+    params    = fit['params']
+    taus      = np.asarray(fit['pps_ProbH1_lwr_quantiles_mesh'])
     from amortiser_common import _jax_pytree
-    preds = np.asarray(apply_fn(params, _jax_pytree(batch)))    # (B, K_tau) standardised
-    scale = item_std[np.asarray(batch['query_idx']).astype(int)]
+    preds = np.asarray(apply_fn(params, _jax_pytree(batch)))  # (B, K_tau) standardised
+    scale = item_std[np.asarray(batch['query_idx']).astype(int)]  # (B,)
     preds = preds * scale[:, None]                              # unstandardise
     preds = np.maximum.accumulate(preds, axis=1)
     F = np.array([
@@ -398,7 +401,7 @@ else:
           f"({NET_STEPS} steps, batch S={NET_BATCH} -> B={NET_BATCH * J}) ...")
     fit = amortiser_train(
         sample_fn,
-        Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={
             'q_tok_hidden': NET_TOK_HIDDEN,
             'embed_dim': NET_EMBED_DIM,
@@ -499,11 +502,11 @@ dp_h1_xz['pps_ProbH1_target_lwr_quantile'] = pps_ProbH1_target_lwr_quantile
 pps_timing = pd.DataFrame(pps_timing_rows)
 pps_timing['mins_total'] = round((time.time() - t_all0) / 60.0, 3)
 
-pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEE_p_h1_xz.pkl")
+pkl_path = os.path.join(dir_out, f"{file_prefix}_pps_RGEG_p_h1_xz.pkl")
 dp_h1_xz.to_pickle(pkl_path)
-print(f"Saved RGEE P(H_1 | x, z) to: {pkl_path}")
+print(f"Saved RGEG P(H_1 | x, z) to: {pkl_path}")
 pps_timing.to_csv(
-    os.path.join(dir_out, f"{file_prefix}_pps_RGEE_timing.csv"), index=False,
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEG_timing.csv"), index=False,
 )
 
 pps_df = (
@@ -516,7 +519,7 @@ pps_df = (
 )
 pps_df['eta'] = pps_ProbH1_target_lwr_quantile
 pps_df.to_csv(
-    os.path.join(dir_out, f"{file_prefix}_pps_RGEE.csv"), index=False,
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEG.csv"), index=False,
 )
 print(f"\nPPS table head:\n{pps_df.head(20).to_string(index=False)}")
 
@@ -579,9 +582,9 @@ try:
 except Exception:
     pass
 perf = perf.merge(_date_map, on='interim_id', how='left')
-perf_csv = os.path.join(dir_out, f"{file_prefix}_pps_RGEE_perf.csv")
+perf_csv = os.path.join(dir_out, f"{file_prefix}_pps_RGEG_perf.csv")
 perf.to_csv(perf_csv, index=False)
-print(f"Saved RGEE perf CSV to: {perf_csv}")
+print(f"Saved RGEG perf CSV to: {perf_csv}")
 
 # =============================================================================
 # Perf long-form: rho + R^2 (per item x interim) + time (per interim, broadcast
@@ -604,9 +607,9 @@ perf_long['metric'] = pd.Categorical(
 )
 perf_long['method'] = 'Regression endpt amortised xcompAtt (Strong-Oakley)'
 perf_long.to_pickle(
-    os.path.join(dir_out, f"{file_prefix}_pps_RGEE_perf_long.pkl"),
+    os.path.join(dir_out, f"{file_prefix}_pps_RGEG_perf_long.pkl"),
 )
-print(f"Saved RGEE perf long-form pkl.")
+print(f"Saved RGEG perf long-form pkl.")
 
 # =============================================================================
 # Box-stats + boxplot PDF of p(H_1 | x, z) per (item, interim). Mirrors
@@ -665,9 +668,9 @@ box_stats = (
     )
     .reset_index()
 )
-box_pkl = os.path.join(dir_out, f"{file_prefix}_pps_RGEE_p_h1_xz_boxplot.pkl")
+box_pkl = os.path.join(dir_out, f"{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pkl")
 box_stats.to_pickle(box_pkl)
-print(f"Saved RGEE p(H_1 | x, z) box-stats to: {box_pkl}")
+print(f"Saved RGEG p(H_1 | x, z) box-stats to: {box_pkl}")
 
 all_items = list(pd.unique(tmp['item_label_long']))
 color_dict = dict(zip(all_items, _futurama_palette(len(all_items))))
@@ -697,9 +700,9 @@ p = (
     + labs(x='Interim',
            y='p(H_1 | x, z)  [Regression endpt amortised xcompAtt]')
 )
-box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_RGEE_p_h1_xz_boxplot.pdf")
+box_pdf = os.path.join(dir_out, f"{file_prefix}_pps_RGEG_p_h1_xz_boxplot.pdf")
 p.save(box_pdf, verbose=False, limitsize=False)
-print(f"Saved RGEE p(H_1 | x, z) boxplot to: {box_pdf}")
+print(f"Saved RGEG p(H_1 | x, z) boxplot to: {box_pdf}")
 
 # =============================================================================
 # Per-interim diagnostic scatter: SVI posterior draw of rho (rendered as
@@ -727,6 +730,7 @@ amo = _dp_with_month[[
 ]].rename(columns={'q_hat': 'rho'})
 amo['source'] = _source_amo
 box_all = pd.concat([svi, amo], ignore_index=True)
+# Order interims chronologically for x-axis.
 _month_order = (
     _dp_with_month.sort_values('interim_id')['interim_month_year'].drop_duplicates().tolist()
 )

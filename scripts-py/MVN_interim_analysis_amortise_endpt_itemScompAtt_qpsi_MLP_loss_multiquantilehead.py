@@ -14,13 +14,13 @@ Training draws `K` from a mixture of standard families per prior draw
 (identity / AR(1) / block-equicorrelation / factor) so the trained net
 does NOT overfit to the block-equicorr K family used at deployment.
 
-Outputs per J (``_RGED_`` suffix; picked up by the MVN compare-methods
+Outputs per J (``_RGEF_`` suffix; picked up by the MVN compare-methods
 loader alongside the idcomp + xcomp variants):
 
-  - ``mvn_J{J}_pps_RGED_p_h1_xz.pkl``
-  - ``mvn_J{J}_pps_RGED.csv``
-  - ``mvn_J{J}_pps_RGED_timing.csv``
-  - ``mvn_J{J}_pps_RGED_perf.csv``
+  - ``mvn_J{J}_pps_RGEF_p_h1_xz.pkl``
+  - ``mvn_J{J}_pps_RGEF.csv``
+  - ``mvn_J{J}_pps_RGEF_timing.csv``
+  - ``mvn_J{J}_pps_RGEF_perf.csv``
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -61,8 +61,8 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
 )
 
 print("Imports successful")
@@ -79,7 +79,7 @@ DIR_SIM = os.path.join(
 _ROOT_DIR = (
     "/Users/or105/sandbox/bIRTistic/"
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "itemScompAtt-qpsi-MLP-loss-multiquantilehead"
+    "itemXcompAtt-qpsi-MLP-loss-multiquantilehead"
 )
 _DIR_VARIANT = os.environ.get('XCOMPATT_DIR_VARIANT', '_260716')
 dir_out = f"{_ROOT_DIR}{_DIR_VARIANT}"
@@ -178,7 +178,7 @@ else:
     )
     fit = train(
         sample_fn,
-        Amortiser_PPS_features_itemScompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_itemXcompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={
             'q_tok_hidden': NET_Q_TOK_HIDDEN,
             'embed_dim': NET_EMBED_DIM,
@@ -235,7 +235,7 @@ for J in J_GRID:
             )
         keep_cols = ypred_cols[:PPS_Z_TOTAL]
 
-        print(f"\n{'=' * 70}\nJ={J} RGED interim {interim_id}"
+        print(f"\n{'=' * 70}\nJ={J} RGEF interim {interim_id}"
               f" ({interim_date.date()}) n={n_obs} m={interim_m}"
               f" S={PPS_Z_TOTAL}\n{'=' * 70}")
 
@@ -262,7 +262,7 @@ for J in J_GRID:
         scale = float(NET_N_MAX)
 
         # ---- Batch of J elements per posterior draw, converted to the
-        # unified itemScompAtt schema (tokens, mask, query_idx, aux).
+        # unified itemXcompAtt schema (tokens, mask, query_idx, aux).
         S = PPS_Z_TOTAL
         item_labels = dit['item_label'].to_numpy()
         item_types  = dit['item_type'].to_numpy()
@@ -378,16 +378,16 @@ for J in J_GRID:
     pps_df['S'] = PPS_Z_TOTAL
 
     dp_h1_xz.to_pickle(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGED_p_h1_xz.pkl'),
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGEF_p_h1_xz.pkl'),
     )
     perf_all.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGED_perf.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGEF_perf.csv'), index=False,
     )
     timing_all.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGED_timing.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGEF_timing.csv'), index=False,
     )
     pps_df.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGED.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGEF.csv'), index=False,
     )
 
     tab = pps_df.merge(
@@ -398,7 +398,7 @@ for J in J_GRID:
     )
     tab['abs_err'] = (tab['pps'] - tab['pps_analytic']).abs()
     mse = float(((tab['pps'] - tab['pps_analytic']) ** 2).mean())
-    print(f"J={J}: RGED vs analytic PPS: max abs {tab['abs_err'].max():.4f},"
+    print(f"J={J}: RGEF vs analytic PPS: max abs {tab['abs_err'].max():.4f},"
           f" mean {tab['abs_err'].mean():.4f}, MSE {mse:.5f}"
           f" over {len(tab)} (j, interim) cells;"
           f" total J time {(time.time() - t_J0) / 60.0:.2f} min.")

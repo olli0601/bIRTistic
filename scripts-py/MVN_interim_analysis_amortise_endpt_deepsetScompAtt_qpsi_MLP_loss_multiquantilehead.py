@@ -14,13 +14,13 @@ Training draws `K` from a mixture of standard families per prior draw
 (identity / AR(1) / block-equicorrelation / factor) so the trained net
 does NOT overfit to the block-equicorr K family used at deployment.
 
-Outputs per J (``_RGDS_`` suffix; picked up by the MVN compare-methods
+Outputs per J (``_RGDX_`` suffix; picked up by the MVN compare-methods
 loader alongside the idcomp + xcomp variants):
 
-  - ``mvn_J{J}_pps_RGDS_p_h1_xz.pkl``
-  - ``mvn_J{J}_pps_RGDS.csv``
-  - ``mvn_J{J}_pps_RGDS_timing.csv``
-  - ``mvn_J{J}_pps_RGDS_perf.csv``
+  - ``mvn_J{J}_pps_RGDX_p_h1_xz.pkl``
+  - ``mvn_J{J}_pps_RGDX.csv``
+  - ``mvn_J{J}_pps_RGDX_timing.csv``
+  - ``mvn_J{J}_pps_RGDX_perf.csv``
 
 Usage:
     cd /Users/or105/git/bIRTistic
@@ -61,9 +61,10 @@ from amortiser_common import (
     load_fitted_model,
     predict_amortised_p_h1_for_one_xz,
 )
-from amortiser_pps_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead import (
-    Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
+from amortiser_pps_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead import (
+    Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
 )
+import model_mvn_common as mc
 
 print("Imports successful")
 
@@ -79,7 +80,7 @@ DIR_SIM = os.path.join(
 _ROOT_DIR = (
     "/Users/or105/sandbox/bIRTistic/"
     "py-mvn-interim-amortise-endptx-on-wz-with-features-"
-    "deepsetScompAtt-qpsi-MLP-loss-multiquantilehead"
+    "deepsetXcompAtt-qpsi-MLP-loss-multiquantilehead"
 )
 _DIR_VARIANT = os.environ.get('XCOMPATT_DIR_VARIANT', '_260716')
 dir_out = f"{_ROOT_DIR}{_DIR_VARIANT}"
@@ -179,7 +180,7 @@ else:
     )
     fit = train(
         sample_fn,
-        Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead,
+        Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead,
         net_kwargs={},
         pps_ProbH1_lwr_quantiles_mesh=NET_TAUS,
         num_steps=NET_STEPS,
@@ -235,89 +236,28 @@ for J in J_GRID_ACTIVE:
             raise ValueError(
                 f"PPS_Z_TOTAL={PPS_Z_TOTAL} > cached S={len(ypred_cols)}."
             )
-        keep_cols = ypred_cols[:PPS_Z_TOTAL]
 
-        print(f"\n{'=' * 70}\nJ={J} RGDS interim {interim_id}"
+        print(f"\n{'=' * 70}\nJ={J} RGDX interim {interim_id}"
               f" ({interim_date.date()}) n={n_obs} m={interim_m}"
               f" S={PPS_Z_TOTAL}\n{'=' * 70}")
 
-        # ---- Raw per-(participant, item) responses for x cohort.
-        x_wide = (
-            dpi.pivot_table(index='pid', columns='j', values='y')
-            .sort_index()
-            .reindex(columns=range(J))
-            .to_numpy(dtype=np.float64)                # (n_obs, J)
-        )
-        # ---- Raw per-(participant, item, draw) responses for z cohort.
-        zi_sorted = zi_full.sort_values(['pid', 'j']).reset_index(drop=True)
-        ypred_arr = (
-            zi_sorted[keep_cols].to_numpy().T.reshape(
-                PPS_Z_TOTAL, interim_m, J,
-            )                                          # (S, m, J)
-        )
+        # ---- Shared x cohort + z draws (mvn_common): x_wide (n,J), ypred_arr (S,m,J).
+        x_wide, ypred_arr = mc.xz_arrays(dpi, zi_full, J, PPS_Z_TOTAL, interim_m)
 
-        # Pad participants to N_max on both cohorts (network was trained
-        # at N_max = N_full; padded slots masked out).
-        x_pad = np.zeros((NET_N_MAX, J), dtype=np.float32)
-        x_pad[:n_obs] = x_wide.astype(np.float32)
-        mask_x_row = np.zeros((NET_N_MAX,), dtype=np.float32)
-        mask_x_row[:n_obs] = 1.0
-        z_pad_per_s = np.zeros(
-            (PPS_Z_TOTAL, NET_N_MAX, J), dtype=np.float32,
-        )
-        z_pad_per_s[:, :interim_m] = ypred_arr.astype(np.float32)
-        mask_z_row = np.zeros((NET_N_MAX,), dtype=np.float32)
-        mask_z_row[:interim_m] = 1.0
-        sizes_row = np.array(
-            [n_obs / NET_N_MAX, interim_m / NET_N_MAX], dtype=np.float32,
-        )
-
-        # ---- Batch of J query elements per posterior draw. Encoder
-        # tokens are (J_query, N_max, J_tokens, 1); memory scales as
-        # J_query * N_max * J_tokens so J=100 x N_max=1050 x 100 = 42MB
-        # per batch (float32). Keep S loop outer.
+        # ---- Padded nested-DeepSet batch (mvn_common): the static (z-independent) part is
+        # built once per interim; each posterior draw's z is injected in the loop (the x tensor
+        # is the large one -- (J, N_max, J, 1) ~ 42MB at J=100 -- so it is not rebuilt per draw).
         S = PPS_Z_TOTAL
         item_labels = dit['item_label'].to_numpy()
         item_types  = dit['item_type'].to_numpy()
         item_highs  = dit['item_high_label'].to_numpy()
-        # x_responses shape (J_query, N_max, J_tokens, 1) -- shared across
-        # queries (all see same x cohort); broadcast.
-        x_resp_batch = np.broadcast_to(
-            x_pad[None, :, :, None], (J, NET_N_MAX, J, 1),
-        ).astype(np.float32)
-        mask_x_batch = np.broadcast_to(
-            mask_x_row[None, :], (J, NET_N_MAX),
-        ).astype(np.float32)
-        mask_z_batch = np.broadcast_to(
-            mask_z_row[None, :], (J, NET_N_MAX),
-        ).astype(np.float32)
-        # item_metadata: per (b, j) = K[b, j] where b = j_star.
-        item_meta_batch = K.astype(np.float32)[..., None]       # (J_query, J_tok, 1)
-        sizes_batch = np.broadcast_to(
-            sizes_row[None, :], (J, 2),
-        ).astype(np.float32)
-        k_diag_batch = K_diag[:, None].astype(np.float32)       # (J_query, 1)
-        aux_batch = np.concatenate(
-            [sizes_batch, k_diag_batch], axis=-1,
-        ).astype(np.float32)                                    # (J_query, 3)
-        query_idx_batch = np.arange(J, dtype=np.int32)
+        static = mc.deepset_static_batch(x_wide, K, K_diag, n_obs, interim_m, NET_N_MAX, J)
 
         preds_p = np.empty((S, J), dtype=np.float64)
         preds_q = np.empty((S, J), dtype=np.float64)
         med_idx = len(NET_TAUS) // 2
         for s in range(S):
-            z_resp_batch = np.broadcast_to(
-                z_pad_per_s[s][None, :, :, None], (J, NET_N_MAX, J, 1),
-            ).astype(np.float32)
-            batch = {
-                'x_responses':   x_resp_batch,
-                'mask_x':        mask_x_batch,
-                'z_responses':   z_resp_batch,
-                'mask_z':        mask_z_batch,
-                'item_metadata': item_meta_batch,
-                'query_idx':     query_idx_batch,
-                'aux':           aux_batch,
-            }
+            batch = mc.with_z(static, ypred_arr[s])
             p_h1_xz_s, _q_s, preds_s = predict_amortised_p_h1_for_one_xz(
                 fit, batch, pps_H1_min_effect_size_thresh,
             )
@@ -394,16 +334,16 @@ for J in J_GRID_ACTIVE:
     pps_df['S'] = PPS_Z_TOTAL
 
     dp_h1_xz.to_pickle(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGDS_p_h1_xz.pkl'),
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGDX_p_h1_xz.pkl'),
     )
     perf_all.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGDS_perf.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGDX_perf.csv'), index=False,
     )
     timing_all.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGDS_timing.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGDX_timing.csv'), index=False,
     )
     pps_df.to_csv(
-        os.path.join(dir_out, f'mvn_J{J}_pps_RGDS.csv'), index=False,
+        os.path.join(dir_out, f'mvn_J{J}_pps_RGDX.csv'), index=False,
     )
 
     tab = pps_df.merge(
@@ -414,7 +354,7 @@ for J in J_GRID_ACTIVE:
     )
     tab['abs_err'] = (tab['pps'] - tab['pps_analytic']).abs()
     mse = float(((tab['pps'] - tab['pps_analytic']) ** 2).mean())
-    print(f"J={J}: RGDS vs analytic PPS: max abs {tab['abs_err'].max():.4f},"
+    print(f"J={J}: RGDX vs analytic PPS: max abs {tab['abs_err'].max():.4f},"
           f" mean {tab['abs_err'].mean():.4f}, MSE {mse:.5f}"
           f" over {len(tab)} (j, interim) cells;"
           f" total J time {(time.time() - t_J0) / 60.0:.2f} min.")

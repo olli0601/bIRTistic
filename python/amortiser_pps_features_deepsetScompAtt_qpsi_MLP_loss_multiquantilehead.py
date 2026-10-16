@@ -1,54 +1,37 @@
 """
-Amortiser: nested DeepSets over participants + attention over items
-(§9.2 nested-DeepSets IRT pattern + §13.5 attention-over-items on top).
-Fully data-agnostic and fully amortised over arbitrary participant
-cohort sizes ``(n, m)``: caller passes raw participant tensors + masks,
-class does the aggregation over participants internally.
+Amortiser: nested DeepSets over participants + cross-attention across
+items (approach ii of §13.6). Fully data-agnostic; fully amortised
+over arbitrary participant cohort sizes ``(n, m)``.
 
 **Architecture.**
 
-  1. Per ``(participant i, item j)`` token = raw response(s) at that
-     ``(i, j)`` position, optionally concatenated with the item
-     metadata vector (item_type indicator, item_high indicator, ...).
-  2. ``q_tau`` -- per-token MLP shared across ``(i, j)`` -- maps each
-     token to an embedding in ``R^embed_dim``. Analog of ``q_tau`` in
-     §7 DeepSets.
+  1. Per (participant i, item j) token = raw response(s) at that
+     (i, j) position, optionally concatenated with per-item metadata
+     broadcast over the participant axis.
+  2. ``q_tau`` -- shared per-token MLP -- maps to an embedding
+     in ``R^embed_dim``.
   3. Sum-pool over participants (mask-aware) PER ITEM -> per-item
-     summary embedding of shape ``(B, J, embed_dim)``. This is the
-     "learned per-item sufficient statistic".
-  4. ``q_tok`` -- MLP mixing the (pool_x, pool_z) per-item summaries
-     into a single per-item embedding.
-  5. Self-attention across items -> per-item embedding conditioned on
-     all other items.
-  6. Gather at the queried item + optional aux (sizes, etc.) ->
-     ``q_psi`` head -> multi-quantile prediction of ``rho`` for that
-     item.
+     summary embedding of shape ``(B, J, embed_dim)`` -- the learned
+     per-item sufficient statistic aggregated across participants.
+  4. ``q_tok`` -- MLP mixing ``(pool_x, pool_z)`` per item -> per-item
+     embedding ``h_j = q_tok(concat(pool_x_j, pool_z_j)) in R^embed_dim``.
+  5. **Cross-attention (approach ii of §13.6).** Query built from
+     the queried item's own per-item embedding via ``q_query`` MLP;
+     attention over the J per-item embeddings. Number of scores per
+     batch elem: J.
+  6. Gather-free head: attention output + queried item's per-item
+     embedding + optional aux -> ``q_psi`` -> multi-quantile prediction.
 
-**Batch schema (dict).**
+**Batch schema (dict; same as deepsetScompAtt so callers can swap).**
 
-    ``x_responses``:   ``(B, N_max_x, J, R)`` -- observed cohort's
-                        raw per-(participant, item) feature vector.
-    ``mask_x``:        ``(B, N_max_x)``        -- 1 real, 0 padded.
-    ``z_responses``:   ``(B, N_max_z, J, R)``  -- future cohort's raw
-                        per-(participant, item) feature vector.
-    ``mask_z``:        ``(B, N_max_z)``        -- 1 real, 0 padded.
-    ``item_metadata``: ``(B, J, M)`` optional  -- fixed per-item scalar
-                        features (item_type indicator, item_high
-                        indicator, ...); if present, broadcast over the
-                        participant axis and concatenated with the raw
-                        response before ``q_tau``.
-    ``item_mask``:     ``(B, J)`` optional     -- 1 for real item, 0 for
-                        padded; defaults to all ones.
-    ``query_idx``:     ``(B,)`` int            -- which item to predict.
-    ``aux``:           ``(B, A)`` optional     -- scalar extras fed to
-                        the head (e.g. ``(n / N_max, m / N_max)``).
-
-The response feature dimension ``R`` is arbitrary. Examples:
-
-  - Ukraine PCM: two responses per (participant, item) -- ``R = 2`` =
-    (baseline_response, endline_response).
-  - MVN (§3.3): one continuous scalar per (participant, item) -- ``R = 1``.
-  - Categorical: one-hot response per (participant, item) -- ``R = K``.
+    ``x_responses``:   ``(B, N_max_x, J, R)`` -- raw per-(i, j) features.
+    ``mask_x``:        ``(B, N_max_x)``       -- 1 real, 0 padded.
+    ``z_responses``:   ``(B, N_max_z, J, R)`` -- raw per-(i, j) features.
+    ``mask_z``:        ``(B, N_max_z)``       -- 1 real, 0 padded.
+    ``item_metadata``: ``(B, J, M)`` optional -- fixed per-item features.
+    ``item_mask``:     ``(B, J)`` optional    -- 1 real item, 0 padded.
+    ``query_idx``:     ``(B,)`` int           -- which item to predict.
+    ``aux``:           ``(B, A)`` optional    -- scalar extras for head.
 """
 
 import jax
@@ -67,14 +50,30 @@ class _MLP(nn.Module):
         return nn.Dense(self.dims[-1])(x)
 
 
-class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
-    """Nested DeepSets over participants + self-attention over items."""
+class Amortiser_PPS_features_deepsetXcompAtt_qpsi_MLP_loss_multiquantilehead(nn.Module):
+    """Nested DeepSets over participants + cross-attention over items.
+
+    Cross-attention (1 query per batch elem vs J keys/values) built from
+    the queried item's per-item embedding. Number of attention scores
+    per batch elem is J (vs J^2 for deepsetScompAtt), so more
+    sample-efficient at large J.
+    """
 
     q_tau_hidden: tuple = (32, 32)
     q_tok_hidden: tuple = (32, 32)
+    q_query_hidden: tuple = (32, 32)
     embed_dim: int = 32
     hidden_dims: tuple = (64, 64)
     num_quantiles: int = 5
+    # §14.4.7 parametric contraction heads carried into the MVN sanity case
+    # (§13.8). 'plain' returns raw quantiles; 'powerlaw' (A) rebuilds them as a
+    # fixed-shape Gaussian predictive of width C*n^{-p}; 'floor' (C) uses
+    # sqrt(a^2 + b^2/n). n is recovered from aux[...,0] = n / n_max, so the
+    # learned (C, p) live on the TRUE n-scale and compare directly with the
+    # closed-form contraction law. BvM here is exact (Gaussian), so A should
+    # recover p ~ 1/2 and C the plateau-free floor a ~ 0.
+    head_mode: str = 'plain'                    # 'plain' | 'powerlaw' | 'floor'
+    n_max: float = 1050.0                        # aux[...,0] == n / n_max
     default_pps_ProbH1_lwr_quantiles_mesh: tuple = (
         0.05, 0.25, 0.5, 0.75, 0.95,
     )
@@ -82,15 +81,10 @@ class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.
     def setup(self):
         self.q_tau = _MLP(dims=(*self.q_tau_hidden, self.embed_dim))
         self.q_tok = _MLP(dims=(*self.q_tok_hidden, self.embed_dim))
+        self.q_query = _MLP(dims=(*self.q_query_hidden, self.embed_dim))
         self.q_psi = _MLP(dims=(*self.hidden_dims, self.num_quantiles))
-        # Fix-B: learned scalar bias on attention score at queried key
-        # (see itemScompAtt / §13.6).
-        self.query_bias_alpha = self.param(
-            'query_bias_alpha', nn.initializers.zeros, (),
-        )
 
     def _augment_with_meta(self, resp, meta):
-        """resp: (B, N, J, R). meta: (B, J, M). Return (B, N, J, R+M)."""
         if meta is None:
             return resp
         B, N, J, R = resp.shape
@@ -98,27 +92,16 @@ class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         return jnp.concatenate([resp, meta_b], axis=-1)
 
     def _sum_pool_participants(self, e_ij, mask):
-        """e_ij: (B, N, J, E). mask: (B, N). Return (B, J, E).
-        Mean-pool (mask-aware): sum / count. Keeps the pooled magnitude
-        scale-invariant to N so q_tok doesn't saturate as the cohort
-        size varies from tens to thousands."""
         numer = jnp.einsum('bnje,bn->bje', e_ij, mask)
         denom = jnp.maximum(mask.sum(axis=1, keepdims=True), 1.0)
         return numer / denom[:, :, None]
 
-    def _self_attention(self, h, mask, query_idx):
-        """h: (B, J, E). mask: (B, J). Self-attention with fix-B
-        learned scalar bias on queried key."""
-        scores = jnp.einsum('bqd,bkd->bqk', h, h)
-        scores = scores / jnp.sqrt(float(self.embed_dim))
-        is_query = jax.nn.one_hot(
-            query_idx.astype(jnp.int32), h.shape[1], dtype=h.dtype,
-        )
-        scores = scores + self.query_bias_alpha * is_query[:, None, :]
-        mask_k = mask[:, None, :]
-        scores = jnp.where(mask_k > 0, scores, -1e9)
+    def _cross_attention(self, q, h, mask):
+        """q: (B, E). h: (B, J, E). mask: (B, J). 1 query vs J keys/values."""
+        scores = jnp.einsum('bd,bjd->bj', q, h) / jnp.sqrt(float(self.embed_dim))
+        scores = jnp.where(mask > 0, scores, -1e9)
         w = jax.nn.softmax(scores, axis=-1)
-        return jnp.einsum('bqk,bkd->bqd', w, h)
+        return jnp.einsum('bj,bjd->bd', w, h)
 
     def __call__(self, batch):
         x_resp = batch['x_responses']                           # (B, N_x, J, R)
@@ -128,29 +111,51 @@ class Amortiser_PPS_features_deepsetScompAtt_qpsi_MLP_loss_multiquantilehead(nn.
         meta = batch.get('item_metadata', None)                 # (B, J, M) or None
         x_feats = self._augment_with_meta(x_resp, meta)         # (B, N_x, J, R+M)
         z_feats = self._augment_with_meta(z_resp, meta)         # (B, N_z, J, R+M)
-        # Per-(participant, item) embedding.
         e_x = self.q_tau(x_feats)                               # (B, N_x, J, E)
         e_z = self.q_tau(z_feats)                               # (B, N_z, J, E)
-        # Sum-pool over participants per item.
         pool_x_j = self._sum_pool_participants(e_x, mask_x)     # (B, J, E)
         pool_z_j = self._sum_pool_participants(e_z, mask_z)     # (B, J, E)
-        # Per-item token embedding.
         tok = jnp.concatenate([pool_x_j, pool_z_j], axis=-1)    # (B, J, 2E)
         h = self.q_tok(tok)                                     # (B, J, E)
-        # Attention across items.
+        idx = batch['query_idx'].astype(jnp.int32)              # (B,)
+        B = h.shape[0]
+        b_range = jnp.arange(B, dtype=jnp.int32)
+        # Cross-attn query: built from queried item's per-item embedding
+        # (approach ii of §13.6, deepset version). The queried item's
+        # embedding already encodes both cohorts' per-item pool via q_tok.
+        h_query = h[b_range, idx]                               # (B, E)
+        q = self.q_query(h_query)                               # (B, E)
         item_mask = batch.get(
             'item_mask', jnp.ones(h.shape[:2], dtype=h.dtype),
         )
-        idx = batch['query_idx'].astype(jnp.int32)              # (B,)
-        h_attn = self._self_attention(h, item_mask, query_idx=idx)  # (B, J, E)
-        # Gather at query.
-        B = h_attn.shape[0]
-        b_range = jnp.arange(B, dtype=jnp.int32)
-        h_query = h_attn[b_range, idx]                          # (B, E)
-        tok_query = h[b_range, idx]                             # (B, E) -- pre-attn per-item token
-        parts = [h_query, tok_query]
+        attn_out = self._cross_attention(q, h, item_mask)       # (B, E)
+        parts = [attn_out, h_query]
         aux = batch.get('aux', None)
         if aux is not None:
             parts.append(aux)
         head_in = jnp.concatenate(parts, axis=-1)
-        return self.q_psi(head_in)                              # (B, num_quantiles)
+        # Expose the frozen-encoder head input so head-only recalibration
+        # (§14.2.5) can fine-tune q_psi on cached embeddings without
+        # re-running the encoder. Params are unchanged by sow.
+        self.sow('intermediates', 'head_in', head_in)
+        raw = self.q_psi(head_in)                               # (B, num_quantiles)
+
+        if self.head_mode == 'plain':
+            return raw
+        # §14.4.7 parametric contraction heads. aux[...,0] == n / n_max, so
+        # recover n and form prec = n^{-1/2}; the fixed z-quantile multipliers
+        # rebuild a Gaussian predictive whose width follows the BvM law. The
+        # learned (C, p) / (a, b) then live on the TRUE n-scale.
+        n = jnp.maximum(aux[..., 0:1] * self.n_max, 1.0)        # (B, 1)
+        prec = n ** -0.5                                        # (B, 1) = n^{-1/2}
+        zq = jnp.asarray([-1.6449, -0.6745, 0.0, 0.6745, 1.6449])[:self.num_quantiles]
+        zq = zq[None, :]
+        if self.head_mode == 'powerlaw':                       # width = C * n^{-p}
+            m = raw[..., 0:1]; C = jax.nn.softplus(raw[..., 1:2])
+            p = jax.nn.sigmoid(raw[..., 2:3])                  # p in (0,1)
+            self.sow('intermediates', 'p_exp', p)              # toward-1/2 regulariser hook
+            return m + zq * (C * prec ** (2.0 * p))            # prec^{2p} = n^{-p}
+        if self.head_mode == 'floor':                          # width = sqrt(a^2 + b^2/n)
+            m = raw[..., 0:1]; a = jax.nn.softplus(raw[..., 1:2]); b = jax.nn.softplus(raw[..., 2:3])
+            return m + zq * jnp.sqrt(a ** 2 + (b * prec) ** 2)
+        return raw
