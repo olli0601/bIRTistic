@@ -247,11 +247,7 @@ class IRTModel(Model):
         unconditional negatives. group1 = Baseline level, group2 = Endline level (same schema as the
         ordered-prob path, so :meth:`get_endpoints` consumes it unchanged)."""
         drho = self.drho
-        need = {'Baseline', 'Endline', 'ratio', 'diff'}
-        have = set(drho['rho'].unique())
-        if not need.issubset(have):
-            raise ValueError(
-                f"effect_sizes must contain reductions labelled {sorted(need)}; got {sorted(have)}")
+        labels = set(drho['rho'].unique())
 
         arr = np.asarray(self._resolve_draws(draws, draws_file, param_name, verbose=verbose))
         arr = arr.reshape(-1, arr.shape[-2], arr.shape[-1])          # (chain, draw, R, Qcmp) -> (ndraws, R, Qcmp)
@@ -265,7 +261,8 @@ class IRTModel(Model):
             'val': arr.ravel(),
         })
         long = long.merge(drho[['jc', 'r', 'rho']].drop_duplicates(), on=['jc', 'r'])
-        long = long[long['rho'].isin(need)]
+        # one column per reduction label present in the manifest (Baseline/Endline/ratio/diff and/or
+        # app-specific SPR/GMFR/...); arbitrary reductions are carried through, not just the fixed four.
         w = long.pivot_table(index=['draw', 'jc'], columns='rho', values='val').reset_index()
         w.columns.name = None
 
@@ -275,22 +272,40 @@ class IRTModel(Model):
         scope = 'item' if endpoint_type == 'items' else 'item_group'
         w = w[w['scope'] == scope].copy()
 
-        raw_diff = w['diff'].to_numpy(float)                          # Baseline - Endline (red_fn 4)
-        raw_ratio = w['ratio'].to_numpy(float) / 100.0               # (Baseline-Endline)/Baseline (red_fn 3, percent)
+        rho_cols = sorted(labels)
+        label2redfn = drho.drop_duplicates('rho').set_index('rho')['red_fn'].astype(int).to_dict()
+        # Direction rule keyed on the REDUCTION (red_fn), so any app label is oriented correctly:
+        #  - rel% (3 per-participant, 7 group): percent -> fraction, then direction;
+        #  - diff  (4 per-participant, 8 group): direction;
+        #  - direction = keep Baseline-Endline orientation for categorical OR lower-is-better, flip for
+        #    out-of-7 higher-is-better. Each oriented label gets a `<label>2` = unconditional negative.
+        #  - levels (5/6), GMFR (1/9), SCR (2), SPR (= endline level 6 @ thr): passed through raw.
         dir_pos = ((w['item_type'] == 'categorical')
                    | (w['item_high_label'] == 'lower_is_better')).to_numpy()
-        w['group1'] = w['Baseline']
-        w['group2'] = w['Endline']
-        w['diff'] = np.where(dir_pos, raw_diff, -raw_diff)
-        w['ratio'] = np.where(dir_pos, raw_ratio, -raw_ratio)
-        w['diff2'] = -raw_diff
-        w['ratio2'] = -raw_ratio
+        extra2 = []
+        for lab in rho_cols:
+            rf = label2redfn.get(lab)
+            col = w[lab].to_numpy(float)
+            if rf in (3, 7):
+                raw = col / 100.0
+                w[lab] = np.where(dir_pos, raw, -raw)
+                w[lab + '2'] = -raw
+                extra2.append(lab + '2')
+            elif rf in (4, 8):
+                w[lab] = np.where(dir_pos, col, -col)
+                w[lab + '2'] = -col
+                extra2.append(lab + '2')
+        # group1/group2 = raw Baseline/Endline levels (legacy alias), when the manifest carries them.
+        if {'Baseline', 'Endline'}.issubset(labels):
+            w['group1'] = w['Baseline']
+            w['group2'] = w['Endline']
 
         if endpoint_type == 'items':
             keep = ['draw', 'item_type_id', 'item_type', 'item_label', 'construct', 'item_high_label']
         else:
             keep = ['draw', 'item_type', 'construct', 'item_high_label']
-        keep += ['group1', 'group2', 'diff', 'ratio', 'diff2', 'ratio2']
+        extra = extra2 + [c for c in ('group1', 'group2') if c in w.columns]
+        keep += rho_cols + [c for c in extra if c not in rho_cols]
         return w[keep].reset_index(drop=True)
 
     # ------------------------------------------------------------------

@@ -75,14 +75,25 @@ def weekly_dates(dp1, date_col='submission_date', on_group_label='Endline', freq
 
 # ---- the common one-call endpoint extraction --------------------------------------------
 def endpoint_frame(model, fit, rho_specs, h1=0.5, contrast_col=None):
-    """One get_endpoints_per_draw call -> the per-draw endpoint pkl frame. `h1` is a scalar or a
-    {rho_id: threshold} map for pps_H1_x. Adds pps_ratio_x (= pps_rho_x, legacy deploy alias)."""
-    kw = dict(draws=fit['draws'], rho_specs=rho_specs, endpoint_type='items')
-    if contrast_col:
-        kw['contrast_col'] = contrast_col
-    xr = model.get_endpoints_per_draw(**kw).rename(columns={'rho': 'pps_rho_x'})
-    rll = {s['rho_id']: s['rho_label_long'] for s in rho_specs}
-    xr['rho_label_long'] = xr['rho_id'].map(rll)
+    """Per-draw endpoint pkl frame, read from the ONE rho path: the in-model reductions
+    `rho_by_cat_qu_pr`. Each rho_spec's `rho_label` must be a reduction in the model's drho (so the fit
+    already emitted it); we melt those reduction columns to long (one row per draw x item x endpoint).
+    `h1` is a scalar or a {rho_id: threshold} map for pps_H1_x; pps_ratio_x is a legacy deploy alias."""
+    wide = model.get_endpoints_per_draw(
+        draws=fit['draws'], param_name='rho_by_cat_qu_pr', endpoint_type='items')
+    id_vars = [c for c in ('draw', 'item_type_id', 'item_type', 'item_label', 'construct',
+                           'item_high_label') if c in wide.columns]
+    labels = [s['rho_label'] for s in rho_specs]
+    missing = [lab for lab in labels if lab not in wide.columns]
+    if missing:
+        raise ValueError(
+            f"endpoint_frame: rho labels {missing} are not reductions in the model's drho "
+            f"(rho_by_cat_qu columns: {sorted(set(wide.columns) - set(id_vars))}). "
+            "Set the matching reductions on the model (define_effect_sizes / fit_interim_grid reductions=).")
+    xr = wide.melt(id_vars=id_vars, value_vars=labels, var_name='rho_label', value_name='pps_rho_x')
+    xr['rho_id'] = xr['rho_label'].map({s['rho_label']: s['rho_id'] for s in rho_specs})
+    xr['rho_label_long'] = xr['rho_label'].map(
+        {s['rho_label']: s.get('rho_label_long', s['rho_label']) for s in rho_specs})
     xr['pps_ratio_x'] = xr['pps_rho_x']
     thr = xr['rho_id'].map(h1) if isinstance(h1, dict) else h1
     xr['pps_H1_x'] = (xr['pps_rho_x'] > thr).astype(int)
@@ -91,10 +102,17 @@ def endpoint_frame(model, fit, rho_specs, h1=0.5, contrast_col=None):
 
 # ---- the generic interim loop -----------------------------------------------------------
 def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=123,
-                     nsteps=4000, output_samples=2000, prob_width=None, verbose=False, label=''):
+                     nsteps=4000, output_samples=2000, prob_width=None, verbose=False, label='',
+                     reductions=None):
     """SVI at each interim over `grid` (accrue `pids[:n]`). `on_fit(model, fit, k, n, xi) -> DataFrame`
-    returns the per-draw endpoint frame to pickle (built with endpoint_frame or a custom extraction)."""
+    returns the per-draw endpoint frame to pickle (built with endpoint_frame or a custom extraction).
+
+    `reductions` is the app's effect-size manifest spec (list of {red_fn, rho, thr} dicts, or (red_fn,
+    rho) tuples) passed to `define_effect_sizes` so the per-interim fit emits `rho_by_cat_qu` with the
+    app's estimand (per-participant 1/3/4 for pre/post, group-mean 7/8/9 for between-groups). None =
+    the default Baseline/Endline/ratio/diff manifest."""
     from model_pcm import PartialCreditModel
+    from utils import define_effect_sizes
     os.makedirs(dir_out, exist_ok=True)
     if prob_width is not None:
         os.environ.setdefault('PROB_FIT_WIDTH_MULT', str(prob_width))
@@ -107,7 +125,8 @@ def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=1
         pre = f"{dir_out}/{FILE_PREFIX}_{k}"
         print(f"\n=== {label} interim {k}: n={n} ===")
         t0 = time.time()
-        model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed)
+        drho = define_effect_sizes(xi, dit, reductions=reductions) if reductions is not None else None
+        model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed, drho=drho)
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal', lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=verbose)
@@ -120,7 +139,7 @@ def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=1
 def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_full=None,
                             seed=123, nsteps=10000, output_samples=4000,
                             algorithm='AutoLowRankMultivariateNormal', prob_width=None,
-                            verbose=False, label=''):
+                            verbose=False, label='', reductions=None):
     """Weekly-cadence sibling of `fit_interim_grid`: SVI at each calendar cutoff in `dates`.
 
     Unlike the participant-count loop, the interim cohort at week k is everyone whose accrual date is
@@ -131,6 +150,7 @@ def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_fu
     (AutoLowRankMVN, 10k steps, 4000 draws), which differs from the count loop's AutoDiagonalNormal.
     `on_fit(model, fit, k, n_obs, xi) -> DataFrame` returns the per-draw endpoint frame to pickle."""
     from model_pcm import PartialCreditModel
+    from utils import define_effect_sizes
     os.makedirs(dir_out, exist_ok=True)
     if prob_width is not None:
         os.environ.setdefault('PROB_FIT_WIDTH_MULT', str(prob_width))
@@ -154,7 +174,8 @@ def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_fu
         pre = f"{dir_out}/{FILE_PREFIX}_{k}"
         print(f"\n=== {label} week {k} ({date.date()}): n={n_obs} m={m} ===")
         t0 = time.time()
-        model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed)
+        drho = define_effect_sizes(xi, dit, reductions=reductions) if reductions is not None else None
+        model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed, drho=drho)
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm=algorithm, lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=verbose)
