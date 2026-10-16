@@ -35,7 +35,9 @@ DATA = dict(
 )
 # ESTIMAND rho: DASS-21 distress is lower-is-better, so the direction-aware relative change reads as a
 # severity REDUCTION (post vs pre). h1 = success threshold on rho (here >0.5 = a >50% relative reduction).
-RHO_SPECS = [dict(rho_id=1, rho_label='distress_reduction', reduction='mean', compare='ratio', h1=0.5,
+# Per-participant relative severity reduction: red_fn 3 (per-participant rel%), thr=2 so the per-timepoint
+# summary is P(y>=2) = proportion at "moderate or larger" severity (paired pre/post, mean of per-person ratios).
+RHO_SPECS = [dict(rho_id=1, rho_label='distress_reduction', red_fn=3, thr=2, h1=0.5,
                   rho_label_long='DASS-21 distress — relative severity reduction (post vs pre)')]
 
 # =====================================================================================
@@ -86,10 +88,11 @@ def _fit_svi():
     pids = sorted_accrual(dp1); n_full = len(pids)       # accrual order over beneficiaries
     grid = sorted(set([g for g in SVI['early'] if g < n_full] + step_grid(n_full, step=SVI['step'])))
     h1 = {s['rho_id']: s['h1'] for s in RHO_SPECS}
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
     fit_interim_grid(f"{SB}/{SVI['out']}", dp1, d['dit'], pids, grid, SVI['x_formula'],
                      lambda m, f, k, n, xi: endpoint_frame(m, f, RHO_SPECS, h1=h1),
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label='ICRC')
+                     prob_width=SVI['prob_width'], label='ICRC', reductions=reductions)
 
 
 if __name__ == "__main__":

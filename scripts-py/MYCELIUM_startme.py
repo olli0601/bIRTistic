@@ -37,7 +37,7 @@ DATA = dict(
 # ESTIMAND rho: the direction-aware relative mean shift powder-vs-burger, per item (Acceptance/Naturalness
 # up = good, Disgust down = good; item_high_label orients each so higher = better). h1 = success threshold
 # (>0.5 = a >50% relative gain; the observed effects are modest ~0.1-0.27, see the low eta0 sweep).
-RHO_SPECS = [dict(rho_id=1, rho_label='powder_vs_burger', reduction='mean', compare='ratio', h1=0.5,
+RHO_SPECS = [dict(rho_id=1, rho_label='powder_vs_burger', red_fn=7, h1=0.5,
                   rho_label_long='powder-vs-burger relative effect (direction-aware, per construct)')]
 
 # =====================================================================================
@@ -88,10 +88,11 @@ def _fit_svi():
     pids = shuffled_accrual(dp1, seed=SVI['seed'])        # accrual order over respondents
     grid = linspace_grid(len(pids), nint=SVI['n_interims'], floor=SVI['floor'])
     h1 = {s['rho_id']: s['h1'] for s in RHO_SPECS}
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
     fit_interim_grid(f"{SB}/{SVI['out']}", dp1, d['dit'], pids, grid, SVI['x_formula'],
                      lambda m, f, k, n, xi: endpoint_frame(m, f, RHO_SPECS, h1=h1),
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label='mycelium')
+                     prob_width=SVI['prob_width'], label='mycelium', reductions=reductions)
 
 
 if __name__ == "__main__":

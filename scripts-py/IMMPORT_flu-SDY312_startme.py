@@ -31,9 +31,9 @@ DATA = dict(
 )
 # The two endpoints, declared upfront (rho_id -> federated subdir SPR/GMFR). h1_threshold = the CHMP bar:
 # SPR (endline seroprotection rate P(titre>=1:40)) > 0.70; GMFR (GMT fold-rise endline/baseline) > 2.5-fold.
-RHO_SPECS = [dict(rho_id=1, rho_label='SPR: P(titre>=1:40) at endline', reduction='threshold', threshold=3,
-                  compare='endline', h1_threshold=0.70, rho_label_long='seroprotection rate  P(titre ≥ 1:40) at endline'),
-             dict(rho_id=2, rho_label='GMT fold-rise (endline/baseline)', reduction='mean', compare='fold_log2',
+RHO_SPECS = [dict(rho_id=1, rho_label='SPR: P(titre>=1:40) at endline', red_fn=6, thr=3,
+                  h1_threshold=0.70, rho_label_long='seroprotection rate  P(titre ≥ 1:40) at endline'),
+             dict(rho_id=2, rho_label='GMT fold-rise (endline/baseline)', red_fn=1,
                   h1_threshold=2.5, rho_label_long='GMT fold-rise (endline / baseline)')]
 
 # =====================================================================================
@@ -86,6 +86,7 @@ def _fit_svi(study):
     grid = step_grid(len(pids), step=SVI['step'])        # interim sizes
     print(f"##### {study}: {dp1.pid.nunique()} paired participants, {dp1.item_label.nunique()} strains, K={d['K']}")
     h1 = {s['rho_id']: s['h1_threshold'] for s in RHO_SPECS}; any_rows = []
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
 
     def on_fit(m, f, k, n, xi):                          # SPR+GMFR frame + the composite '>=1 met' decision
         xr = endpoint_frame(m, f, RHO_SPECS, h1=h1)
@@ -94,7 +95,8 @@ def _fit_svi(study):
         return xr
     out = f"{SB}/{SVI['out'].format(study=study)}"
     fit_interim_grid(out, dp1, d['dit'], pids, grid, SVI['x_formula'], on_fit,
-                     seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'], label=study)
+                     seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'], label=study,
+                     reductions=reductions)
     pd.concat(any_rows, ignore_index=True).to_csv(f"{out}/{FILE_PREFIX}_any_met.csv", index=False)
 
 

@@ -34,7 +34,7 @@ DATA = dict(
 )
 # ESTIMAND rho: MSPSS support is higher-is-better, so the relative change reads as a GAIN (endline vs
 # baseline). h1 = success threshold on rho (>0.5 would be a >50% gain; REFUGE effects are modest, see eta0).
-RHO_SPECS = [dict(rho_id=1, rho_label='support_gain', reduction='mean', compare='ratio', h1=0.5,
+RHO_SPECS = [dict(rho_id=1, rho_label='support_gain', red_fn=3, h1=0.5,
                   rho_label_long='MSPSS perceived-support relative gain (endline vs baseline)')]
 
 # =====================================================================================
@@ -91,10 +91,11 @@ def _fit_svi():
     grid = linspace_grid(len(pids), nint=SVI['n_interims'], floor=SVI['floor'])
     print(f"##### REFUGE-ED: {len(pids)} linked participants, {dp1.item_label.nunique()} MSPSS items")
     h1 = {s['rho_id']: s['h1'] for s in RHO_SPECS}
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
     fit_interim_grid(f"{SB}/{SVI['out']}", dp1, dit, pids, grid, SVI['x_formula'],
                      lambda m, f, k, n, xi: endpoint_frame(m, f, RHO_SPECS, h1=h1),
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label='REFUGE-ED')
+                     prob_width=SVI['prob_width'], label='REFUGE-ED', reductions=reductions)
 
 
 if __name__ == "__main__":

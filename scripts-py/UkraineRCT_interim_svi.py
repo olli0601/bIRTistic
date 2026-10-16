@@ -40,6 +40,7 @@ sys.path.insert(0, str(_root / 'python'))
 import numpy as np, pandas as pd
 from data_loading import get_data_ukraine_rct
 from model_pcm import PartialCreditModel
+from utils import define_effect_sizes
 
 SB = os.environ.get('UKRAINERCT_SB', "/Users/or105/sandbox/bIRTistic")
 dir_data = ("/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/"
@@ -52,6 +53,9 @@ NSTEPS = int(os.environ.get('UKRAINERCT_STEPS', '10000'))
 S = int(os.environ.get('UKRAINERCT_S', '4000'))
 CAT_THR = int(os.environ.get('UKRAINERCT_CATTHR', '2'))          # caseness cut for the CG-MH items: P(y>=2)
 H1 = float(os.environ.get('UKRAINERCT_H1', '0.5'))              # success threshold on rho (>50% rel. improvement)
+# Between-arm (unpaired intervention vs control) -> group-mean rel% = red_fn 7; thr=CAT_THR => P(y>=2).
+RHO_LABEL = 'rel_improvement'
+REDUCTIONS = [dict(red_fn=7, rho=RHO_LABEL, thr=CAT_THR)]
 svi_algorithm = os.environ.get('UKRAINERCT_SVI', 'AutoLowRankMultivariateNormal')
 os.environ.setdefault('PROB_FIT_WIDTH_MULT', '1.3')
 
@@ -99,12 +103,13 @@ for k, cutoff in enumerate(cutoffs, 1):
     print(f"\n=== interim {k} ({cutoff.date()}): {xi.fid.nunique()} facilitators | "
           f"control n={nb}, intervention n={ne} ===")
     t0 = time.time()
-    model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed)
+    drho = define_effect_sizes(xi, dit, reductions=REDUCTIONS)
+    model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed, drho=drho)
     fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm=svi_algorithm,
                              lr=0.01, num_steps=NSTEPS, output_samples=S, resume=True,
                              with_core_analyses=True, with_additional_analyses=False, verbose=False)
-    xr = model.get_endpoints_per_draw(draws=fit['draws'], categorical_threshold=CAT_THR,
-                                      endpoint_type='items').rename(columns={'ratio': 'pps_ratio_x'})
+    xr = model.get_endpoints_per_draw(draws=fit['draws'], param_name='rho_by_cat_qu_pr',
+                                      endpoint_type='items').rename(columns={RHO_LABEL: 'pps_ratio_x'})
     xr['pps_H1_x'] = (xr['pps_ratio_x'] > H1).astype(int)
     if 'item_high_label' not in xr.columns:
         xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')

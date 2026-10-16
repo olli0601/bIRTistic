@@ -79,33 +79,37 @@ def _fit_svi():
     from fit_to_current_data import (fit_interim_grid, assign_item_group_id, interleaved_accrual, step_grid)
     d = read_data_immport_flu_headhead(DATA['xlsx'], DATA['study'], arms=DATA['arms'])
     dp1 = assign_item_group_id(d['dp'])                  # item_group_id = strain x (arm x phase) difficulty index
-    rho = d['rho_specs']                                 # the 6 loader-declared rhos (short/long label, kind, arm, h1)
+    rho = d['rho_specs']                                 # the 6 loader-declared output rhos (label, arm, col, h1)
+    reductions, across = d['reductions'], d['across']    # drho reductions (SPR/GMFR per arm) + cross-arm diffs
     pids = interleaved_accrual(dp1, DATA['arms'])         # arm-interleaved accrual order
     grid = step_grid(len(pids), step=SVI['step'])
     print(f"##### {DATA['study']} JOINT fit: {dp1.pid.nunique()} pooled participants, "
           f"{dp1.item_label.nunique()} strains, shared {d['shared']}, {len(rho)} rho")
     out = f"{SB}/{SVI['out']}"; any_rows = []
     hh_cols = ['draw', 'arm', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
-               'rho_label_long', 'reduction', 'compare', 'group1', 'group2', 'pps_rho_x', 'pps_H1_x']
+               'rho_label_long', 'pps_rho_x', 'pps_H1_x']
 
-    def _one_rho(m, f, spec):                            # one endpoint off the joint fit, tagged with its labels
-        xr = m.get_endpoints_per_draw(draws=f['draws'], endpoint_type='items', rho_specs=[spec],
-                                      contrast_col='phase').rename(columns={'rho': 'pps_rho_x'})
-        if spec.get('kind') == 'level':                  # a per-arm level -> restrict to its arm
-            xr = xr[xr['arm'] == spec['arm']]
-        xr['rho_label'] = spec['rho_label']; xr['rho_label_long'] = spec['rho_label_long']
-        xr['pps_H1_x'] = (xr['pps_rho_x'] > spec['h1']).astype(int)
-        return xr[hh_cols]
-
-    def on_fit(m, f, k, n, xi):                          # concat all rhos (shared draw index) + composite '>=1 met'
-        joint = pd.concat([_one_rho(m, f, s) for s in rho], ignore_index=True)
+    def on_fit(m, f, k, n, xi):                          # one joint fit -> arm-strata SPR/GMFR + cross-arm diffs
+        wide = m.get_endpoints_per_draw(draws=f['draws'], param_name='rho_by_cat_qu_pr',
+                                        endpoint_type='items', across=across)
+        frames = []                                      # assemble the 6 output endpoints (shared draw index)
+        for s in rho:
+            sub = wide[wide['arm'] == s['arm']][['draw', 'item_label', 'item_type',
+                                                 'item_high_label', s['col']]].dropna(subset=[s['col']])
+            sub = sub.rename(columns={s['col']: 'pps_rho_x'}).assign(
+                arm=s['arm'], rho_id=s['rho_id'], rho_label=s['rho_label'],
+                rho_label_long=s['rho_label_long'])
+            sub['pps_H1_x'] = (sub['pps_rho_x'] > s['h1']).astype(int)
+            frames.append(sub[hh_cols])
+        joint = pd.concat(frames, ignore_index=True)
         lvl = joint[joint.rho_label.isin([s['rho_label'] for s in rho if s['is_level']])]
         _, pps = PartialCreditModel.joint_any_met(lvl, group_keys=['item_label', 'arm'])
         pps['interim'] = k; any_rows.append(pps)
         return joint
     fit_interim_grid(out, dp1, d['dit'], pids, grid, SVI['x_formula'], on_fit,
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label=DATA['study'])
+                     prob_width=SVI['prob_width'], label=DATA['study'], reductions=reductions,
+                     contrast_col='phase_label', strata_col='arm')
     pd.concat(any_rows, ignore_index=True).to_csv(f"{out}/headhead_any_met.csv", index=False)
 
 

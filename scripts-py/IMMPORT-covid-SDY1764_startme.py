@@ -35,11 +35,12 @@ DATA = dict(
         "2025_project_Hope_Groups/data/ImmuneSpace_COVID19_v260920.xlsx"),
     study='SDY1764',              # the one COVID SDY with an ordered-titre assay usable for the PCM
     contrasts=['age', 'severity'],   # subpopulation axes: age = pediatric vs adult; severity = severe vs mild
-    categorical_threshold=2,      # caseness cut passed to the endpoint extraction (ignored for the out-of-7 titre)
 )
 # ESTIMAND rho: the direction-aware SIGNED relative shift in mean log2 titre, group-B vs group-A. h1 = the
 # success threshold (>0.5 = a >50% relative titre gain); the eta0 sweep below spans the signed effect range.
-RHO = dict(rho_label='neut_contrast', h1=0.5)
+# Between-subpopulation (unpaired B vs A) -> group-mean rel% = red_fn 7; out-of-7 titre so thr omitted (=> E[y]).
+RHO_SPECS = [dict(rho_id=1, rho_label='neut_contrast', red_fn=7, h1=0.5,
+                  rho_label_long='neutralising-titre relative contrast (group B vs group A)')]
 
 # =====================================================================================
 # 2) SVI — the interim schedule + fit settings producing each contrast's reference posterior. Reuses the
@@ -85,7 +86,8 @@ AMORTISER = [
 def _fit_svi(contrast):
     """Run the SVI interim grid for one contrast (DATA + SVI + RHO above)."""
     from data_loading import read_data_immport_covid_neut
-    from fit_to_current_data import (fit_interim_grid, assign_item_group_id, shuffled_accrual, linspace_grid)
+    from fit_to_current_data import (fit_interim_grid, assign_item_group_id, shuffled_accrual, linspace_grid,
+                                     endpoint_frame)
     d = read_data_immport_covid_neut(DATA['xlsx'], DATA['study'], group=contrast)
     dp1, dit, K = d['dp'], d['dit'], d['K']; gA, gB = d['groups']
     print(f"##### {DATA['study']} {contrast}: {dp1.pid.nunique()} subjects, K={K}, contrast {gB} vs {gA}; "
@@ -93,19 +95,12 @@ def _fit_svi(contrast):
     dp1 = assign_item_group_id(dp1)                       # item_group_id = (item x subpopulation) difficulty index
     pids = shuffled_accrual(dp1, seed=SVI['seed'])        # accrual order over subjects
     grid = linspace_grid(len(pids), nint=SVI['n_interims'], floor=SVI['floor'])
-    cat_thr, h1 = DATA['categorical_threshold'], RHO['h1']
-
-    def on_fit(m, f, k, n, xi):   # legacy direction-aware endpoint path (matches the original covid producer)
-        xr = m.get_endpoints_per_draw(draws=f['draws'], categorical_threshold=cat_thr,
-                                      endpoint_type='items').rename(columns={'ratio': 'pps_ratio_x'})
-        xr['pps_H1_x'] = (xr['pps_ratio_x'] > h1).astype(int)
-        if 'item_high_label' not in xr.columns:
-            xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')
-        return xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']]
-
+    h1 = {s['rho_id']: s['h1'] for s in RHO_SPECS}
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
     fit_interim_grid(f"{SB}/{SVI['out'].format(contrast=contrast)}", dp1, dit, pids, grid, SVI['x_formula'],
-                     on_fit, seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label=f"{DATA['study']}-{contrast}")
+                     lambda m, f, k, n, xi: endpoint_frame(m, f, RHO_SPECS, h1=h1),
+                     seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
+                     prob_width=SVI['prob_width'], label=f"{DATA['study']}-{contrast}", reductions=reductions)
 
 
 if __name__ == "__main__":

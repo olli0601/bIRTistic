@@ -1003,55 +1003,6 @@ def read_data_chatgpt_rct(file_data: str) -> Dict[str, pd.DataFrame]:
     return {'dp': dp.reset_index(drop=True), 'dit': dit, 'dmeta': dmeta}
 
 
-def read_data_pisa(pisa_dir: str, country: str,
-                   cycles=(2012, 2015, 2018, 2022)) -> Dict[str, pd.DataFrame]:
-    """Read the PISA Math extract (doc §3.11) for one country into common format.
-
-    Cross-sectional international assessment; content-id-matched Math items across
-    cycles (see ``data_web_extracting.build_pisa_math_extract``). Baseline-anchored:
-    ``cycles[0]`` (2012) is the baseline, each later cycle a subsequent interim.
-
-    Parameters
-    ----------
-    pisa_dir : str
-        Directory holding ``pisa_math_{cycle}.parquet`` (+ ``common_math.json``).
-    country : str
-        PISA CNT code (e.g. ``'USA'``).
-
-    Returns
-    -------
-    dict with 'dp' (long: cycle, pid, item_label, y) and 'dit' (item metadata,
-    per-item ``cat_length`` = max category + 1 across the country's cycles).
-    """
-    frames = []
-    for yr in cycles:
-        fp = Path(pisa_dir) / f"pisa_math_{yr}.parquet"
-        if not fp.exists():
-            raise FileNotFoundError(f"missing PISA extract: {fp}")
-        d = pd.read_parquet(fp)
-        d = d[d['CNT'] == country]
-        frames.append(d)
-    long = pd.concat(frames, ignore_index=True)
-    idc = next(c for c in long.columns if 'STU' in c.upper())
-    dp = pd.DataFrame({
-        'cycle': long['cycle'].to_numpy(),
-        'pid_label': (long['cycle'].astype(str) + '_' + long[idc].astype(str)).to_numpy(),
-        'item_label': long['item'].to_numpy(),
-        'y': long['y'].astype(int).to_numpy(),
-    })
-    dp['pid'] = pd.factorize(dp['pid_label'])[0] + 1
-    kmax = dp.groupby('item_label')['y'].max()
-    items = sorted(dp['item_label'].unique())
-    dit = _common_dit(
-        items, 'out-of-7',
-        high_low=lambda i: 'higher_is_better',            # higher score = better performance
-        group_of=lambda i: 'PISA Math',
-        group_long={'PISA Math': 'PISA Math'},
-        endpoint='mean item score (baseline vs cycle)', cat_length=1)
-    dit['cat_length'] = dit['item_label'].map(lambda i: int(kmax[i]) + 1).astype('Int64')
-    return {'dp': dp.reset_index(drop=True), 'dit': dit}
-
-
 def read_data_immport_flu(xlsx_path, study, endline_day=None, min_start_dilution=5.0, arm=None):
     """ImmuneSpace/ImmPort influenza HAI -> paired PCM frame for one study (SDY).
 
@@ -1208,38 +1159,32 @@ def read_data_immport_flu_headhead(xlsx_path, study, arms=('LAIV', 'TIV'),
     dit = pd.concat(dits, ignore_index=True).drop_duplicates('item_label').reset_index(drop=True)
     shared = sorted(set.intersection(*[set(d['dp']['item_label']) for _, d in per]))
     ref, foc = arms[0], arms[1]                                  # e.g. LAIV (reference), TIV
-    # rho definitions declared UPFRONT with the application: each rho carries its own short
-    # `rho_label` and pretty `rho_label_long` (used verbatim in plots), the get_endpoints params,
-    # its H1 threshold `h1`, whether it is a per-arm `level` (restricted to `arm`) or a cross-arm
-    # `diff`, and `is_level` for the composite "at least one met" rule. Built one-by-one downstream
-    # but all indexed on the same draw, then joined -> supports joint decisions.
-    # endpoint-major column order: both arms' SPR, then both arms' GMFR, then the two diffs
+    # The endpoints read off the ONE joint fit via the in-model reductions `rho_by_cat_qu_pr`
+    # (define_effect_sizes with contrast_col='phase_label', strata_col='arm'): per (strain, arm) the fit
+    # emits SPR = red_fn 6 (endline group-mean level) @ thr=3 (P(titre ≥ 1:40)) and GMFR = red_fn 1
+    # (PER-PARTICIPANT geometric mean fold-rise). The two cross-arm differences are EXACT per-draw
+    # contrasts computed by the reader's `across` step (foc − ref of the same reduction on the shared
+    # strain). `reductions` -> the model's drho; `across` -> the reader; `rho_specs` -> the 6 output
+    # endpoints (col = the wide rho column to read, arm = the stratum tag, is_level for the ">=1 met" rule).
+    reductions = [dict(red_fn=6, rho='spr', thr=3), dict(red_fn=1, rho='gmfr')]
+    across = [dict(rho_label='spr', out_label=f'{foc}-{ref}_spr_diff', ref=ref, foc=foc, compare='diff'),
+              dict(rho_label='gmfr', out_label=f'{foc}-{ref}_gmfr_diff', ref=ref, foc=foc, compare='diff')]
     rho_specs = []
-    _lvl = [('spr', 'seroprotection rate  P(titre ≥ 1:40) at endline', 0.70,
-             {'reduction': 'threshold', 'threshold': 3, 'compare': 'endline'}),
-            ('gmfr', 'GMT fold-rise (endline / baseline)', 2.5,
-             {'reduction': 'mean', 'compare': 'fold_log2'})]
-    for tag, long, h1, params in _lvl:
+    _lvl = [('spr', 'seroprotection rate  P(titre ≥ 1:40) at endline', 0.70),
+            ('gmfr', 'GMT fold-rise (endline / baseline)', 2.5)]
+    for tag, long, h1 in _lvl:                                   # endpoint-major: both arms' SPR, both arms' GMFR
         for a in arms:
             rho_specs.append({'rho_id': len(rho_specs) + 1, 'rho_label': f'{a}_{tag}',
-                              'rho_label_long': f'{a} — {long}', 'kind': 'level', 'arm': a,
-                              'is_level': True, 'h1': h1, **params})
-    rho_specs += [
-        {'rho_id': len(rho_specs) + 1, 'rho_label': f'{foc}-{ref}_spr_diff',
-         'rho_label_long': f'{foc} − {ref} — seroprotection-rate difference (shared strain)',
-         'kind': 'diff', 'is_level': False, 'h1': 0.0,
-         'reduction': 'threshold', 'threshold': 3, 'compare': 'endline',
-         'across': 'arm', 'across_within': 'item_label', 'across_values': [ref, foc],
-         'across_compare': 'diff'},
-        {'rho_id': len(rho_specs) + 2, 'rho_label': f'{foc}-{ref}_gmfr_diff',
-         'rho_label_long': f'{foc} − {ref} — GMT fold-rise difference (shared strain)',
-         'kind': 'diff', 'is_level': False, 'h1': 0.0,
-         'reduction': 'mean', 'compare': 'fold_log2',
-         'across': 'arm', 'across_within': 'item_label', 'across_values': [ref, foc],
-         'across_compare': 'diff'},
-    ]
+                              'rho_label_long': f'{a} — {long}', 'arm': a, 'col': tag,
+                              'is_level': True, 'h1': h1})
+    for tag, long in [('spr', 'seroprotection-rate'), ('gmfr', 'GMT fold-rise')]:    # then the two cross-arm diffs
+        rho_specs.append({'rho_id': len(rho_specs) + 1, 'rho_label': f'{foc}-{ref}_{tag}_diff',
+                          'rho_label_long': f'{foc} − {ref} — {long} difference (shared strain)',
+                          'arm': f'{foc}-{ref}', 'col': f'{foc}-{ref}_{tag}_diff',
+                          'is_level': False, 'h1': 0.0})
     return {'dp': dp1, 'dit': dit, 'K': K, 'arms': list(arms), 'shared': shared,
-            'rho_specs': rho_specs, 'endline_day': int(per[0][1]['endline_day'])}
+            'rho_specs': rho_specs, 'reductions': reductions, 'across': across,
+            'endline_day': int(per[0][1]['endline_day'])}
 
 
 def read_data_cavd_nab(nab_parquet, demo_parquet=None, min_start_dilution=5.0,

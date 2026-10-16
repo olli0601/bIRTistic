@@ -235,7 +235,8 @@ class IRTModel(Model):
         return po.merge(cq_map, on='cq_id')
 
     def _rho_by_cat_qu_endpoints_per_draw(self, draws, draws_file, param_name: str,
-                                          endpoint_type: str, verbose: bool = False) -> pd.DataFrame:
+                                          endpoint_type: str, verbose: bool = False,
+                                          across=None) -> pd.DataFrame:
         """Per-draw endpoints read from the in-model reductions ``rho_by_cat_qu_*`` (R x Qcmp) -- the
         Python twin of R ``get_endpoints``. ``self.drho`` is the single source of
         truth: each (reduction r, comparison jc) carries its label ``rho`` in {Baseline, Endline,
@@ -267,7 +268,7 @@ class IRTModel(Model):
         w.columns.name = None
 
         cmpmeta = drho[['jc', 'scope', 'item_type_id', 'item_type', 'item_label',
-                        'construct', 'item_high_label']].drop_duplicates('jc')
+                        'construct', 'item_high_label', 'stratum']].drop_duplicates('jc')
         w = w.merge(cmpmeta, on='jc')
         scope = 'item' if endpoint_type == 'items' else 'item_group'
         w = w[w['scope'] == scope].copy()
@@ -300,13 +301,52 @@ class IRTModel(Model):
             w['group1'] = w['Baseline']
             w['group2'] = w['Endline']
 
+        # Stratum (e.g. 'arm'): exposed under its own name when the manifest is stratified, dropped
+        # otherwise (all-NA) so the un-stratified output is byte-identical to the pre-stratum reader.
+        strata_col = drho.attrs.get('strata_col', None)
+        if strata_col:
+            w = w.rename(columns={'stratum': strata_col})
+        else:
+            w = w.drop(columns=['stratum'])
+
+        # Cross-stratum "across" endpoints (e.g. SDY269 TIV-vs-LAIV diffs): EXACT per-draw contrast of the
+        # same reduction between two strata, matched on `within` (shared item_label). Each spec adds one new
+        # rho column `out_label` carried on rows tagged stratum='foc-ref'; the per-stratum rows keep NaN there.
+        if across:
+            new_rows = []
+            idx = ['draw', 'item_label', 'item_type_id', 'item_type', 'construct', 'item_high_label']
+            for spec in across:
+                rl, out = spec['rho_label'], spec['out_label']
+                ref, foc, comp = spec['ref'], spec['foc'], spec.get('compare', 'diff')
+                within = spec.get('within', 'item_label')
+                sub = w[w[strata_col].isin([ref, foc])]
+                piv = sub.pivot_table(index=[c for c in idx if c in sub.columns], columns=strata_col, values=rl)
+                piv = piv.dropna(subset=[ref, foc])
+                if comp == 'diff':
+                    dv = piv[foc] - piv[ref]
+                elif comp in ('fold', 'ratio'):
+                    dv = piv[foc] / piv[ref]
+                else:
+                    raise ValueError(f"unknown across compare {comp!r}")
+                dd = dv.reset_index(name=out)
+                dd[strata_col] = f'{foc}-{ref}'
+                new_rows.append(dd)
+            if new_rows:
+                from functools import reduce as _reduce
+                mkeys = [c for c in idx if c in new_rows[0].columns] + [strata_col]   # shared id cols + stratum tag
+                diff_df = _reduce(lambda a, b: a.merge(b, on=mkeys, how='outer'), new_rows)
+                w = pd.concat([w, diff_df], ignore_index=True)
+                rho_cols = rho_cols + [s['out_label'] for s in across if s['out_label'] not in rho_cols]
+
         if endpoint_type == 'items':
             keep = ['draw', 'item_type_id', 'item_type', 'item_label', 'construct', 'item_high_label']
         else:
             keep = ['draw', 'item_type', 'construct', 'item_high_label']
+        if strata_col:
+            keep.append(strata_col)
         extra = extra2 + [c for c in ('group1', 'group2') if c in w.columns]
         keep += rho_cols + [c for c in extra if c not in rho_cols]
-        return w[keep].reset_index(drop=True)
+        return w[[c for c in keep if c in w.columns]].reset_index(drop=True)
 
     # ------------------------------------------------------------------
     # Public endpoint methods
@@ -335,23 +375,13 @@ class IRTModel(Model):
         categorical_threshold: Optional[int] = None,
         endpoint_type: Literal["items", "item_groups"] = "items",
         param_name: str = "ordered_prob_by_cat_qu_pr",
-        rho_specs: Optional[list] = None,
-        contrast_col: str = "group",
+        across: Optional[list] = None,
         verbose: bool = False,
     ) -> pd.DataFrame:
         """Per-draw directional ``diff`` and ``ratio`` per item or
         item-group, computed from ``self.dcati`` + ``self.dit`` and the
         supplied posterior. ``categorical_threshold`` defaults to
-        ``self.categorical_threshold`` (set in the constructor).
-
-        If ``rho_specs`` is given, returns instead a long, MULTI-endpoint frame
-        (one row per draw x item x rho) tagged by ``rho_id`` / ``rho_label`` — see
-        :meth:`_rho_endpoints_per_draw`. Each spec picks a per-time-point reduction
-        of the category probabilities (``reduction``) and a way to combine the
-        Baseline / Endline values into the endpoint (``compare``). This is the
-        general path (e.g. influenza HAI needs both a seroprotection-rate endpoint
-        and a GMT-fold-rise endpoint); ``rho_specs=None`` keeps the legacy single
-        ``diff``/``ratio`` behaviour used by every existing caller."""
+        ``self.categorical_threshold`` (set in the constructor)."""
         if endpoint_type not in ("items", "item_groups"):
             raise ValueError("endpoint_type must be either 'items' or 'item_groups'")
         if param_name not in ("ordered_prob_by_cat_qu_pr", "ordered_prob_by_cat_qu_fit",
@@ -364,15 +394,11 @@ class IRTModel(Model):
         # from self.drho (the R get_endpoints path), bypassing the ordered-prob reduction.
         if param_name in ("rho_by_cat_qu_pr", "rho_by_cat_qu_fit"):
             return self._rho_by_cat_qu_endpoints_per_draw(
-                draws, draws_file, param_name, endpoint_type, verbose=verbose)
+                draws, draws_file, param_name, endpoint_type, verbose=verbose, across=across)
         if categorical_threshold is None:
             categorical_threshold = self.categorical_threshold
         po_arr = self._resolve_draws(draws, draws_file, param_name, verbose=verbose)
         po = self._make_po(po_arr)
-
-        if rho_specs is not None:
-            return self._rho_endpoints_per_draw(po, rho_specs, endpoint_type=endpoint_type,
-                                                contrast_col=contrast_col)
 
         dp1 = self.dcati
         dit = self.dit
@@ -455,145 +481,6 @@ class IRTModel(Model):
                .reset_index().rename(columns={'any_met': 'pps_any_met'}))
         return per_draw, pps
 
-    @staticmethod
-    def _apply_rho_compare(piv: pd.DataFrame, compare: str) -> "pd.Series":
-        """Combine the two per-condition summaries (``group1`` = time 0, ``group2`` = time 1)
-        into a scalar endpoint, respecting ``item_high_label`` direction. ``compare``:
-          'endline'/'group2' -> the group2 level only (group1 computed but unused, e.g. a
-                                seroprotection RATE at endline);
-          'baseline'/'group1' -> the group1 level only;
-          'fold'      -> geometric/level fold group2/group1 (good direction);
-          'fold_log2' -> 2**(group2-group1) when the summary is on a log2 scale
-                         (e.g. mean log2-titre -> GMT fold-rise);
-          'ratio'     -> direction-aware relative change vs the group1 baseline (legacy
-                         `get_endpoints`): higher_is_better group2/group1-1, lower_is_better
-                         1-group2/group1;
-          'diff'      -> group2 - group1.
-        For 'lower_is_better' items the group1/group2 roles are swapped for the change-type
-        compares (fold/fold_log2/ratio/diff). ('endline'/'baseline' kept as aliases so a
-        paired design reads naturally; a between-group design can use 'group2'/'group1'.)"""
-        hi = piv['item_high_label'].to_numpy() if 'item_high_label' in piv else np.array(['higher_is_better'] * len(piv))
-        lower = hi == 'lower_is_better'
-        B, E = piv['group1'].to_numpy(float), piv['group2'].to_numpy(float)
-        if compare in ('endline', 'group2'):
-            return pd.Series(E, index=piv.index)
-        if compare in ('baseline', 'group1'):
-            return pd.Series(B, index=piv.index)
-        # change-type: orient so "good" is the numerator/positive
-        num = np.where(lower, B, E)
-        den = np.where(lower, E, B)
-        if compare == 'fold':
-            with np.errstate(divide='ignore', invalid='ignore'):
-                return pd.Series(num / den, index=piv.index)
-        if compare == 'fold_log2':
-            return pd.Series(2.0 ** (num - den), index=piv.index)
-        if compare == 'ratio':                                  # improvement relative to group1 (legacy)
-            with np.errstate(divide='ignore', invalid='ignore'):
-                good = np.where(lower, B - E, E - B)
-                return pd.Series(good / B, index=piv.index)
-        if compare == 'diff':
-            return pd.Series(num - den, index=piv.index)
-        raise ValueError(f"unknown compare {compare!r}")
-
-    def _rho_endpoints_per_draw(self, po: pd.DataFrame, rho_specs: list,
-                                endpoint_type: str = "items",
-                                contrast_col: str = "group") -> pd.DataFrame:
-        """Multi-endpoint per-draw frame. ``po`` is ``_make_po`` output (``.draw``,
-        ``cq_id``, ``prob``, ``item_type_id``, ``item_group_id``, ``y``). Each spec in
-        ``rho_specs`` is a dict with:
-          rho_id, rho_label       identifiers carried into the output;
-          reduction               'threshold' (P(y >= threshold), e.g. seroprotection)
-                                  or 'mean' (E[y]; on the log2-dilution scale this is
-                                  mean log2 titre -> pair with compare='fold_log2' for GMT);
-          threshold               the y cut for reduction='threshold' (y is 0-indexed:
-                                  y>=3 == titre>=1:40 on the HAI ladder start=5);
-          compare                 how group1/group2 combine (see _apply_rho_compare);
-          across/across_*         optional cross-stratum difference (see :meth:`_rho_across`).
-        ``contrast_col`` is the 0/1 axis the endpoint contrasts (0->group1, 1->group2); it is
-        ``'group'`` for the usual paired/between design, but a head-to-head fit whose flexible
-        ``group`` carries arm x time passes ``contrast_col='phase'`` (the within-arm baseline/
-        endline axis) and keeps ``arm`` as a stratum, so SPR/GMFR come out per (item, arm) and the
-        cross-arm difference is a further ``across='arm'`` step. Any per-item_group_id descriptor
-        columns present in ``dcati`` beyond the item (e.g. ``arm``) are carried as strata.
-        Returns columns: draw, item_type_id, item_type, item_label, construct, item_high_label,
-        [strata], rho_id, rho_label, reduction, compare, group1, group2, rho."""
-        dp1, dit = self.dcati, self.dit
-        # strata = per-item_group_id descriptors that are neither the item nor the contrast axis
-        strata = [c for c in ('arm',) if c in dp1.columns and c != contrast_col]
-        struct = dp1[['item_type_id', 'item_group_id', 'item_label', 'item_type',
-                      contrast_col] + strata].drop_duplicates()
-        base = po.merge(struct, on=['item_type_id', 'item_group_id'])
-        base = base.merge(
-            dit[['item_type', 'item_label', 'construct', 'item_high_label']].drop_duplicates(),
-            on=['item_type', 'item_label'])
-        if endpoint_type == 'item_groups':
-            idx = ['.draw', 'item_type', 'construct', 'item_high_label']
-        else:
-            idx = ['.draw', 'item_type_id', 'item_type', 'item_label',
-                   'construct', 'item_high_label'] + strata
-        gkeys = idx + [contrast_col]
-        out = []
-        for spec in rho_specs:
-            red = spec.get('reduction', 'mean')
-            if red == 'threshold':
-                k = int(spec['threshold'])
-                b = base.assign(_w=np.where(base['y'] >= k, base['prob'], 0.0))
-            elif red == 'mean':
-                b = base.assign(_w=base['y'] * base['prob'])
-            else:
-                raise ValueError(f"unknown reduction {red!r}")
-            val = b.groupby(gkeys, as_index=False).agg(value=('_w', 'sum'))
-            if endpoint_type == 'item_groups':     # average the per-item summaries within a group
-                val = val.groupby(idx + [contrast_col], as_index=False).agg(value=('value', 'mean'))
-            piv = (val.pivot_table(index=idx, columns=contrast_col, values='value')
-                   .rename(columns={0: 'group1', 1: 'group2'}).reset_index())
-            for tcol in ('group1', 'group2'):
-                if tcol not in piv.columns:
-                    piv[tcol] = np.nan
-            piv['rho'] = self._apply_rho_compare(piv, spec.get('compare', 'ratio'))
-            if spec.get('across'):
-                piv = self._rho_across(piv, spec)      # cross-arm (or other) difference endpoint
-            piv['rho_id'] = spec.get('rho_id')
-            piv['rho_label'] = spec.get('rho_label', str(spec.get('rho_id')))
-            piv['reduction'] = red
-            piv['compare'] = spec.get('compare', 'ratio')
-            out.append(piv)
-        res = pd.concat(out, ignore_index=True)
-        res.rename(columns={'.draw': 'draw'}, inplace=True)
-        return res
-
-    @staticmethod
-    def _rho_across(piv: pd.DataFrame, spec: dict) -> pd.DataFrame:
-        """Contrast the per-item base endpoint `rho` ACROSS a descriptor column (e.g. `arm`),
-        WITHIN a matching unit (e.g. `strain`), per draw — for a head-to-head difference such as
-        GMFR_diff / SPR_diff on the shared strain. Because both arms come from the SAME joint fit,
-        this is an exact per-draw contrast (no random draw-pairing). Spec keys: `across` (the
-        column, e.g. 'arm'), `across_values` = [ref, foc] (endpoint oriented as foc-vs-ref),
-        `across_within` (matching unit, default 'strain'), `across_compare` ('diff'|'fold'|'ratio',
-        default 'diff'). Output keeps the standard schema with group1 = ref value, group2 = foc
-        value, rho = their contrast; `item_label`/`strain` collapse to the matching unit and `arm`
-        becomes '<foc>-<ref>'. Only units present for BOTH values survive."""
-        ac = spec['across']; within = spec.get('across_within', 'item_label')
-        ref, foc = spec['across_values']; comp = spec.get('across_compare', 'diff')
-        w = piv.pivot_table(index=['.draw', within], columns=ac, values='rho')
-        w = w.dropna(subset=[ref, foc]).reset_index()
-        g1, g2 = w[ref].to_numpy(float), w[foc].to_numpy(float)
-        if comp == 'diff':
-            r = g2 - g1
-        elif comp == 'fold':
-            with np.errstate(divide='ignore', invalid='ignore'):
-                r = g2 / g1
-        elif comp == 'ratio':
-            with np.errstate(divide='ignore', invalid='ignore'):
-                r = g2 / g1 - 1.0
-        else:
-            raise ValueError(f"unknown across_compare {comp!r}")
-        const = {c: piv[c].iloc[0] for c in
-                 ('item_type_id', 'item_type', 'construct', 'item_high_label') if c in piv}
-        res = pd.DataFrame({'.draw': w['.draw'], **{c: const[c] for c in const},
-                            'item_label': w[within], within: w[within],
-                            ac: f'{foc}-{ref}', 'group1': g1, 'group2': g2, 'rho': r})
-        return res
 
     def get_endpoints(
         self,

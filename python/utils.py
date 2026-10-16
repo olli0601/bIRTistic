@@ -807,40 +807,55 @@ def _material_palette(name: str, n: int) -> list[str]:
 _DEFAULT_REDUCTIONS = [(5, 'Baseline'), (6, 'Endline'), (3, 'ratio'), (4, 'diff')]
 
 
-def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=None):
+def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=None,
+                        contrast_col: str = 'group_label', contrast_values=('Baseline', 'Endline'),
+                        strata_col=None):
     """Build the long effect-size manifest `drho` for the PCM / credit / ordered-logit ncats models.
 
     One row per (comparison jc, reduction r). Comparisons are ordered: each item present at BOTH Baseline and
     Endline (jc = 1..n_item), then each (item_type, construct) item-group. red_fn is constant per r across
     comparisons (cartesian). No list columns -- a group's member items are the item rows sharing its construct.
     Returns a pandas DataFrame with columns jc, r, scope, item_type_id, item_type, cmp_key, red_fn, rho, thr,
-    item_label, construct, item_high_label.
+    item_label, construct, item_high_label, stratum.
+
+    `contrast_col`/`contrast_values` name the two-level axis defining the baseline->endline contrast (default
+    `group_label` in {Baseline, Endline}). `strata_col` (e.g. 'arm' for the SDY269 head-to-head) stratifies the
+    comparisons: each item's Baseline/Endline pair is resolved WITHIN its stratum, so a strain shared across arms
+    yields ONE comparison per arm (not a pooled one). The stratum value is carried in drho['stratum'] (NA when
+    absent); the pairing columns are recorded in drho.attrs (contrast_col/contrast_values/strata_col) so
+    reduction_stan_data + the rho reader resolve the same sides. With strata_col=None the output is identical to
+    the pre-stratum manifest (stratum all-NA, cmp_key unchanged).
     """
     import pandas as pd
     import numpy as np
     if reductions is None:
         reductions = _DEFAULT_REDUCTIONS
+    lo, hi = contrast_values
+    scols = [strata_col] if strata_col else []
 
-    iq = dcati[['item_type_id', 'item_label', 'item_group_id', 'group_label']].drop_duplicates()
-    base = (iq[iq['group_label'] == 'Baseline'][['item_type_id', 'item_label']])
-    end = (iq[iq['group_label'] == 'Endline'][['item_type_id', 'item_label']])
-    it = base.merge(end, on=['item_type_id', 'item_label'])  # items at BOTH timepoints
+    iq = dcati[['item_type_id', 'item_label', 'item_group_id', contrast_col] + scols].drop_duplicates()
+    base = iq[iq[contrast_col] == lo][['item_type_id', 'item_label'] + scols]
+    end = iq[iq[contrast_col] == hi][['item_type_id', 'item_label'] + scols]
+    it = base.merge(end, on=['item_type_id', 'item_label'] + scols)  # items at BOTH timepoints (within stratum)
     meta = dit[['item_type_id', 'item_label', 'item_type', 'construct',
                 'item_high_label']].drop_duplicates()
     it = it.merge(meta, on=['item_type_id', 'item_label'])
-    it = it.sort_values(['item_type_id', 'item_label']).reset_index(drop=True)
+    it = it.sort_values(['item_type_id'] + scols + ['item_label']).reset_index(drop=True)
     it['jc'] = np.arange(1, len(it) + 1)
+    it['stratum'] = it[strata_col] if strata_col else pd.NA
     n_item = len(it)
 
-    gr = (it[['item_type_id', 'item_type', 'construct', 'item_high_label']]
+    gr = (it[['item_type_id', 'item_type', 'construct', 'item_high_label', 'stratum']]
           .drop_duplicates().sort_values(['item_type_id', 'construct']).reset_index(drop=True))
     gr['jc'] = np.arange(n_item + 1, n_item + 1 + len(gr))
 
-    comps_item = it.assign(scope='item', cmp_key=it['item_label'])
-    comps_grp = gr.assign(scope='item_group', cmp_key=gr['construct'],
+    sfx = (('@' + it[strata_col].astype(str)) if strata_col else '')
+    gsfx = (('@' + gr['stratum'].astype(str)) if strata_col else '')
+    comps_item = it.assign(scope='item', cmp_key=it['item_label'].astype(str) + sfx)
+    comps_grp = gr.assign(scope='item_group', cmp_key=gr['construct'].astype(str) + gsfx,
                           item_label=pd.NA)
     cols = ['jc', 'scope', 'item_type_id', 'item_type', 'cmp_key', 'item_label',
-            'construct', 'item_high_label']
+            'construct', 'item_high_label', 'stratum']
     cmp = pd.concat([comps_item[cols], comps_grp[cols]], ignore_index=True)
 
     # Reductions may be (red_fn, rho_label) tuples [item-type-default thr] or dicts
@@ -862,7 +877,11 @@ def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=N
     default_thr = np.where(drho['item_type'] == 'categorical', int(categorical_threshold), 0)
     drho['thr'] = np.where(drho['thr_spec'].notna(), drho['thr_spec'], default_thr).astype(int)
     drho = drho.drop(columns=['thr_spec'])
-    return drho.sort_values(['jc', 'r']).reset_index(drop=True)
+    drho = drho.sort_values(['jc', 'r']).reset_index(drop=True)
+    drho.attrs['contrast_col'] = contrast_col
+    drho.attrs['contrast_values'] = tuple(contrast_values)
+    drho.attrs['strata_col'] = strata_col
+    return drho
 
 
 def _reduce_unit_summary(P, thr: int):
@@ -970,30 +989,43 @@ def reduction_stan_data(drho, dcati) -> dict:
     member items (item rows sharing construct). Returns dict(R, Qcmp, Scmp, cmp_cat_type, question_cmp, red_fn,
     cmp_reduce_thr)."""
     import pandas as pd
-    ucmp = drho[['jc', 'scope', 'item_type_id', 'cmp_key']].drop_duplicates().sort_values('jc')
+    contrast_col = drho.attrs.get('contrast_col', 'group_label')
+    lo, hi = drho.attrs.get('contrast_values', ('Baseline', 'Endline'))
+    strata_col = drho.attrs.get('strata_col', None)
+    scols = [strata_col] if strata_col else []
+    ucmp = (drho[['jc', 'scope', 'item_type_id', 'cmp_key', 'item_label', 'construct', 'stratum']]
+            .drop_duplicates('jc').sort_values('jc'))
     ured = drho[['r', 'red_fn']].drop_duplicates().sort_values('r')
     R = int(len(ured))
     Qcmp = int(len(ucmp))
     red_fn = ured['red_fn'].astype(int).tolist()
     cmp_cat_type = ucmp['item_type_id'].astype(int).tolist()
 
-    iq = dcati[['item_type_id', 'item_label', 'item_group_id', 'group_label']].drop_duplicates()
-    base = {(int(r.item_type_id), r.item_label): int(r.item_group_id)
-            for r in iq[iq['group_label'] == 'Baseline'].itertuples()}
-    end = {(int(r.item_type_id), r.item_label): int(r.item_group_id)
-           for r in iq[iq['group_label'] == 'Endline'].itertuples()}
-    item_rows = drho[drho['scope'] == 'item'][['item_type_id', 'item_label', 'construct']].drop_duplicates()
+    # base/end map a (item_type_id, item_label[, stratum]) key to its item_group_id on each side of the
+    # contrast. With a stratum (e.g. arm) a shared item_label resolves to a DIFFERENT item_group_id per
+    # stratum, so arms do not collide; without one the key is (item_type_id, item_label) as before.
+    iq = dcati[['item_type_id', 'item_label', 'item_group_id', contrast_col] + scols].drop_duplicates()
+
+    def _key(r):
+        return (int(r.item_type_id), r.item_label) + ((getattr(r, strata_col),) if strata_col else ())
+    base = {_key(r): int(r.item_group_id) for r in iq[iq[contrast_col] == lo].itertuples()}
+    end = {_key(r): int(r.item_group_id) for r in iq[iq[contrast_col] == hi].itertuples()}
+    item_rows = drho[drho['scope'] == 'item'][['item_type_id', 'item_label', 'construct',
+                                               'stratum']].drop_duplicates()
 
     q1_sets, q2_sets = [], []
     for row in ucmp.itertuples():
         ct = int(row.item_type_id)
         if row.scope == 'item':
-            labs = [row.cmp_key]
+            labs = [row.item_label]
         else:
-            labs = item_rows[(item_rows['item_type_id'] == ct)
-                             & (item_rows['construct'] == row.cmp_key)]['item_label'].tolist()
-        q1_sets.append([base[(ct, l)] for l in labs if (ct, l) in base])
-        q2_sets.append([end[(ct, l)] for l in labs if (ct, l) in end])
+            m = item_rows[(item_rows['item_type_id'] == ct) & (item_rows['construct'] == row.construct)]
+            if strata_col:
+                m = m[m['stratum'] == row.stratum]
+            labs = m['item_label'].tolist()
+        suffix = (row.stratum,) if strata_col else ()
+        q1_sets.append([base[(ct, l) + suffix] for l in labs if (ct, l) + suffix in base])
+        q2_sets.append([end[(ct, l) + suffix] for l in labs if (ct, l) + suffix in end])
 
     Scmp = max(1, max((len(s) for s in q1_sets), default=1), max((len(s) for s in q2_sets), default=1))
     question_cmp = [[[0] * Scmp, [0] * Scmp] for _ in range(Qcmp)]  # [jc][side][s]

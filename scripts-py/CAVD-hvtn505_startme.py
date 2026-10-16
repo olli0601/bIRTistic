@@ -38,7 +38,7 @@ DATA = dict(
 # ESTIMAND rho, declared upfront (its short label = the federated subdir; long label = plot strip). HIV
 # vaccine trials have no informative paired baseline, so rho = the single-timepoint vaccine-vs-placebo
 # relative mean shift (MYCELIUM-style arm=time). h1 = the success threshold on rho used as the SVI decision.
-RHO_SPECS = [dict(rho_id=1, rho_label='vaccine_vs_placebo', reduction='mean', compare='ratio', h1=0.5,
+RHO_SPECS = [dict(rho_id=1, rho_label='vaccine_vs_placebo', red_fn=7, h1=0.5,
                   rho_label_long='BAMA IgG binding response — vaccine-vs-placebo relative effect')]
 
 # =====================================================================================
@@ -90,10 +90,11 @@ def _fit_svi():
     pids = shuffled_accrual(dp1, seed=SVI['seed'])        # accrual order over subjects
     grid = linspace_grid(len(pids), nint=SVI['n_interims'], floor=SVI['floor'])   # the interim sizes
     h1 = {s['rho_id']: s['h1'] for s in RHO_SPECS}        # per-rho success threshold for pps_H1_x
+    reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
     fit_interim_grid(f"{SB}/{SVI['out']}", dp1, d['dit'], pids, grid, SVI['x_formula'],
                      lambda m, f, k, n, xi: endpoint_frame(m, f, RHO_SPECS, h1=h1),
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
-                     prob_width=SVI['prob_width'], label=DATA['protocol'])
+                     prob_width=SVI['prob_width'], label=DATA['protocol'], reductions=reductions)
 
 
 if __name__ == "__main__":
