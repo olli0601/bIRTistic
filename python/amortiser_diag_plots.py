@@ -268,6 +268,7 @@ import os as _os
 import glob as _glob
 import re as _re
 import pickle as _pickle
+from amortiser_io import glob_endpoint_frames, read_endpoint_path
 
 
 def _fed_pal(keys):
@@ -303,9 +304,8 @@ class FederatedDiagnostics:
 
     # ---- config / label resolution -------------------------------------------------------
     def _resolve(self, eps):
-        fs = sorted(_glob.glob(f"{self.SRC}/{self.pfx}_i*_regression_training.pkl"),
-                    key=lambda f: int(_re.search(r'_i(\d+)_', f).group(1)))
-        x = pd.read_pickle(fs[-1]) if fs else pd.DataFrame()
+        fs = glob_endpoint_frames(self.SRC, self.pfx)         # parquet-preferred, sorted by interim
+        x = read_endpoint_path(fs[-1]) if fs else pd.DataFrame()
         # single-rho legacy pkls (Ukraine/covid) carry neither rho_id nor rho_label_long; guard on
         # column presence so the label lookup degrades to the endpoint's own `long`/`rho` (below).
         has = lambda cols: len(x) and set(cols).issubset(x.columns)

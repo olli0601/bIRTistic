@@ -29,6 +29,7 @@ from plotnine import (ggplot, aes, geom_abline, geom_line, geom_point, geom_smoo
                       scale_color_cmap, scale_linetype_manual, scale_color_manual,
                       scale_fill_manual, scale_fill_gradient2)
 from amortiser_common import load_fitted_model
+from amortiser_io import glob_endpoint_frames, read_endpoint_path, load_endpoint_frame
 import amortiser_calibration as cal          # shared §14.4.6/§14.4.7 calibration (MVN + Ukraine)
 from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
     Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net, _MLP)
@@ -75,10 +76,9 @@ CACHE = f"/private/tmp/claude-501/-Users-or105-git-bIRTistic/49372e22-d11b-4882-
 os.makedirs(CACHE, exist_ok=True)
 
 dit = pd.read_csv(f"{WK}/{file_prefix}_1_data_dit.csv")
-_wa = sorted(glob.glob(f"{WK}/{file_prefix}_i*_regression_training.pkl"),
-             key=lambda p: int(p.split('_i')[-1].split('_')[0]))
+_wa = glob_endpoint_frames(WK, file_prefix)            # parquet-preferred, sorted by interim (.pkl fallback)
 INTERIMS = [int(p.split('_i')[-1].split('_')[0]) for p in _wa]
-items = (pd.read_pickle(_wa[0])[['item_label', 'item_type', 'item_high_label']].drop_duplicates()
+items = (read_endpoint_path(_wa[0])[['item_label', 'item_type', 'item_high_label']].drop_duplicates()
          .sort_values(['item_type', 'item_label']).reset_index(drop=True))
 J = len(items); labels = items.item_label.tolist()
 itype = items.item_type.map({'out-of-7': 0., 'categorical': 1.}).to_numpy(np.float32)
@@ -151,7 +151,7 @@ def build(k):
     oute, heade = _fwd(fit['params'], be)
     qse = (np.maximum.accumulate(np.asarray(oute)[0], 1) * sig[:, None]).astype(np.float32)  # (J,5)
     hde = np.asarray(heade)[0].astype(np.float32)                                            # (J, A)
-    wa = pd.read_pickle(f"{WK}/{file_prefix}_i{k}_regression_training.pkl")
+    wa = load_endpoint_frame(f"{WK}/{file_prefix}_i{k}_regression_training")
     piv = wa.pivot_table(index='draw', columns='item_label', values='pps_ratio_x').reindex(columns=labels)
     tgt = np.full((S, J), np.nan)
     idx = piv.index[piv.index < S].to_numpy()

@@ -41,6 +41,7 @@ import numpy as np, pandas as pd
 from data_loading import get_data_ukraine_rct
 from model_pcm import PartialCreditModel
 from utils import define_effect_sizes
+from amortiser_io import save_endpoint_frame
 
 SB = os.environ.get('UKRAINERCT_SB', "/Users/or105/sandbox/bIRTistic")
 dir_data = ("/Users/or105/Library/CloudStorage/OneDrive-ImperialCollegeLondon/"
@@ -113,8 +114,8 @@ for k, cutoff in enumerate(cutoffs, 1):
     xr['pps_H1_x'] = (xr['pps_ratio_x'] > H1).astype(int)
     if 'item_high_label' not in xr.columns:
         xr = xr.merge(dit[['item_label', 'item_high_label']], on='item_label', how='left')
-    xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']].to_pickle(
-        f"{dir_out}/{file_prefix}_i{k}_regression_training.pkl")
+    save_endpoint_frame(xr[['draw', 'item_label', 'item_type', 'item_high_label', 'pps_ratio_x', 'pps_H1_x']],
+                        f"{dir_out}/{file_prefix}_i{k}_regression_training")
     # per-item rho trajectory (median + 95% CrI) for the SVI diagnostics
     for il, g in xr.groupby('item_label'):
         rho_rows.append(dict(interim=k, interim_date=cutoff.date(), item_label=il,

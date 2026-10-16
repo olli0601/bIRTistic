@@ -256,6 +256,7 @@ import shutil as _shutil
 import subprocess as _subprocess
 import sys as _sys
 import pandas as pd
+from amortiser_io import load_endpoint_frame, save_endpoint_frame, endpoint_frame_src
 
 _REPO = _os.path.dirname(_os.path.dirname(__file__))
 DEFAULT_DRIVER = "scripts-py/Ukraine_interim_analysis_amortise_endpt_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead_contraction_bvm.py"
@@ -311,8 +312,10 @@ def _ref_svi(src, pfx, ref, ep, interims):
     """Whole SVI fit symlinked as-is (single rho, all items; endpoint pkl already carries pps_ratio_x)."""
     _symlink(f"{src}/{pfx}_1_data_dit.csv", f"{ref}/{pfx}_1_data_dit.csv")
     for k in interims:
-        for suf in (f"{k}_data_dp1.csv", f"{k}_draws.zarr", f"i{k}_regression_training.pkl"):
+        for suf in (f"{k}_data_dp1.csv", f"{k}_draws.zarr"):
             _symlink(f"{src}/{pfx}_{suf}", f"{ref}/{pfx}_{suf}")
+        epsrc = endpoint_frame_src(f"{src}/{pfx}_i{k}_regression_training")     # parquet (or legacy .pkl)
+        _symlink(epsrc, f"{ref}/{pfx}_i{k}_regression_training.{epsrc.rsplit('.', 1)[1]}")
 
 
 def _ref_rho_id(src, pfx, ref, ep, interims):
@@ -321,10 +324,10 @@ def _ref_rho_id(src, pfx, ref, ep, interims):
     for k in interims:
         _symlink(f"{src}/{pfx}_{k}_data_dp1.csv", f"{ref}/{pfx}_{k}_data_dp1.csv")
         _symlink(f"{src}/{pfx}_{k}_draws.zarr", f"{ref}/{pfx}_{k}_draws.zarr")
-        x = pd.read_pickle(f"{src}/{pfx}_i{k}_regression_training.pkl")
+        x = load_endpoint_frame(f"{src}/{pfx}_i{k}_regression_training")
         r = x[x.rho_id == ep['rho_id']][['draw', 'item_label', 'item_type', 'item_high_label',
                                          'pps_rho_x', 'pps_H1_x']].copy()
-        r.rename(columns={'pps_rho_x': 'pps_ratio_x'}).to_pickle(f"{ref}/{pfx}_i{k}_regression_training.pkl")
+        save_endpoint_frame(r.rename(columns={'pps_rho_x': 'pps_ratio_x'}), f"{ref}/{pfx}_i{k}_regression_training")
 
 
 def _ref_level(src, pfx, ref, ep, interims):
@@ -347,11 +350,11 @@ def _ref_level(src, pfx, ref, ep, interims):
         e['oid'] = np.arange(1, len(e) + 1); e['oidt'] = np.arange(1, len(e) + 1)
         e[_DP_COLS].to_csv(f"{ref}/{pfx}_{k}_data_dp1.csv", index=False)
         _subset_zarr(src, pfx, k, orig_oid, ref)
-        x = pd.read_pickle(f"{src}/{pfx}_i{k}_regression_training.pkl")
+        x = load_endpoint_frame(f"{src}/{pfx}_i{k}_regression_training")
         r = x[(x.rho_label == ep['joint']) & (x.item_label.isin(strains))][
             ['draw', 'item_label', 'pps_rho_x', 'pps_H1_x']].copy()
         r['item_type'] = it; r['item_high_label'] = 'higher_is_better'
-        r.rename(columns={'pps_rho_x': 'pps_ratio_x'}).to_pickle(f"{ref}/{pfx}_i{k}_regression_training.pkl")
+        save_endpoint_frame(r.rename(columns={'pps_rho_x': 'pps_ratio_x'}), f"{ref}/{pfx}_i{k}_regression_training")
 
 
 def _ref_diffstd(src, pfx, ref, ep, interims):
@@ -373,7 +376,7 @@ def _ref_diffstd(src, pfx, ref, ep, interims):
         e['oid'] = np.arange(1, len(e) + 1); e['oidt'] = np.arange(1, len(e) + 1)
         e[_DP_COLS].to_csv(f"{ref}/{pfx}_{k}_data_dp1.csv", index=False)
         _subset_zarr(src, pfx, k, orig_oid, ref)
-        x = pd.read_pickle(f"{src}/{pfx}_i{k}_regression_training.pkl")
+        x = load_endpoint_frame(f"{src}/{pfx}_i{k}_regression_training")
         rows = []
         for strain in shared:
             L = x[(x.rho_label == lo_lab) & (x.item_label == strain)].set_index('draw')['pps_rho_x']
@@ -383,7 +386,7 @@ def _ref_diffstd(src, pfx, ref, ep, interims):
             rows.append(pd.DataFrame(dict(draw=j, item_label=strain, item_type='categorical',
                                           item_high_label='higher_is_better', pps_ratio_x=dstd,
                                           pps_H1_x=(dstd > 0).astype(int))))
-        pd.concat(rows, ignore_index=True).to_pickle(f"{ref}/{pfx}_i{k}_regression_training.pkl")
+        save_endpoint_frame(pd.concat(rows, ignore_index=True), f"{ref}/{pfx}_i{k}_regression_training")
 
 
 _BUILD = {'svi': _ref_svi, 'rho_id': _ref_rho_id, 'level': _ref_level, 'diffstd': _ref_diffstd}

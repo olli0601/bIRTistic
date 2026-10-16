@@ -14,6 +14,7 @@ import glob
 import re
 import numpy as np
 import pandas as pd
+from amortiser_io import glob_endpoint_frames, read_endpoint_path
 
 DEFAULT_PREFIX = "pcm_1_interim"
 
@@ -33,13 +34,12 @@ def _h1(rho_label):
 def rho_contraction_summary(svi_dir, file_prefix=DEFAULT_PREFIX, dp_prefix=None):
     """Per (interim, n, item, rho) boxplot quantiles of the rho posterior across draws."""
     dp_prefix = dp_prefix or file_prefix
-    fs = sorted(glob.glob(f"{svi_dir}/{file_prefix}_i*_regression_training.pkl"),
-                key=lambda p: int(re.search(r'_i(\d+)_', p).group(1)))
+    fs = glob_endpoint_frames(svi_dir, file_prefix)        # parquet-preferred, sorted by interim
     rows = []
     for f in fs:
         k = int(re.search(r'_i(\d+)_', f).group(1))
         n = pd.read_csv(f"{svi_dir}/{dp_prefix}_{k}_data_dp1.csv")['pid'].nunique()
-        x = pd.read_pickle(f).copy()
+        x = read_endpoint_path(f).copy()
         if 'rho_label_long' not in x.columns:
             x['rho_label_long'] = x['rho_label']
         for (item, rid, rlab, rll), g in x.groupby(['item_label', 'rho_id', 'rho_label', 'rho_label_long']):

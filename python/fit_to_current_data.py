@@ -15,6 +15,7 @@ import time
 import itertools
 import numpy as np
 import pandas as pd
+from amortiser_io import save_endpoint_frame
 
 FILE_PREFIX = "pcm_1_interim"
 _PKL_COLS = ['draw', 'item_label', 'item_type', 'item_high_label', 'rho_id', 'rho_label',
@@ -132,7 +133,7 @@ def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=1
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal', lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=verbose)
-        on_fit(model, fit, k, n, xi).to_pickle(f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training.pkl")
+        save_endpoint_frame(on_fit(model, fit, k, n, xi), f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training")
         print(f"  done ({(time.time() - t0) / 60:.1f} min)")
     print(f"{label} SVI grid complete -> {dir_out}")
 
@@ -183,7 +184,7 @@ def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_fu
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm=algorithm, lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,
                                  with_core_analyses=True, with_additional_analyses=False, verbose=verbose)
-        on_fit(model, fit, k, n_obs, xi).to_pickle(f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training.pkl")
+        save_endpoint_frame(on_fit(model, fit, k, n_obs, xi), f"{dir_out}/{FILE_PREFIX}_i{k}_regression_training")
         timing.append(dict(interim_id=k, interim_date=date, n_obs=n_obs, interim_m=m,
                            mins=round((time.time() - t0) / 60, 3)))
         print(f"  done ({(time.time() - t0) / 60:.1f} min)")

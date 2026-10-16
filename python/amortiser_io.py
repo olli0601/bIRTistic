@@ -42,6 +42,51 @@ def load_df_parquet(path: str) -> pd.DataFrame:
     return pd.read_parquet(path, engine='pyarrow')
 
 
+# ---- per-interim endpoint frames (the SVI-reference `..._i{k}_regression_training` tables) ----------
+# These used to be ~6 MB pickles each; columnar parquet+zstd is ~5x smaller, losslessly. All helpers
+# take `base` = the path WITHOUT extension (".../pcm_1_interim_i{k}_regression_training"). Reads prefer
+# parquet and transparently fall back to a legacy `.pkl`, so old fits + untouched scripts keep working.
+import glob as _glob
+import re as _re
+
+_ENDPOINT_SFX = "_regression_training"
+
+
+def save_endpoint_frame(df: "pd.DataFrame", base: str) -> str:
+    """Write a per-interim endpoint frame to `{base}.parquet` and return that path."""
+    p = base + ".parquet"
+    save_df_parquet(df, p)
+    return p
+
+
+def endpoint_frame_src(base: str) -> str:
+    """Existing endpoint-frame path for `base`: parquet if present, else the legacy `.pkl`."""
+    pq = base + ".parquet"
+    return pq if os.path.exists(pq) else base + ".pkl"
+
+
+def read_endpoint_path(path: str) -> "pd.DataFrame":
+    """Read an endpoint frame given a FULL path (parquet or legacy `.pkl`), as returned by
+    :func:`glob_endpoint_frames`."""
+    return load_df_parquet(path) if path.endswith(".parquet") else pd.read_pickle(path)
+
+
+def load_endpoint_frame(base: str) -> "pd.DataFrame":
+    """Read the endpoint frame at `base` (parquet preferred, `.pkl` fallback)."""
+    return read_endpoint_path(endpoint_frame_src(base))
+
+
+def glob_endpoint_frames(dir_: str, pfx: str) -> list:
+    """Endpoint-frame paths in `dir_` sorted by interim id; parquet wins over a same-interim `.pkl`."""
+    found = {}
+    for ext in ("parquet", "pkl"):
+        for f in _glob.glob(f"{dir_}/{pfx}_i*{_ENDPOINT_SFX}.{ext}"):
+            m = _re.search(r'_i(\d+)' + _ENDPOINT_SFX, f)
+            if m and int(m.group(1)) not in found:        # parquet iterated first -> preferred
+                found[int(m.group(1))] = f
+    return [found[k] for k in sorted(found)]
+
+
 def _dir_for(path: str) -> str:
     """Directory path for the new format given either the dir or a legacy .pkl."""
     if path.endswith('.pkl'):
