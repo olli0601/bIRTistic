@@ -274,6 +274,15 @@ _NET = {
     # §14.6 "both": pre-pool SAB AND post-pool cross-attention, same scale-feat config.
     'scale-feat-paired-both': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-both-261006", 0, 2),
     'scale-feat-between': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-between-260929", 0, 2),
+    # PER-PARTICIPANT rel% target (red_fn 3) trained prior-predictively via PP_RED_FN=3 — the SVI-matched
+    # label for the migrated paired apps (REFUGE/ICRC). Same scale-feat config as -paired (widetok=0).
+    'scale-feat-perpart': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-261016", 0, 2),
+    # §14.6 pre-pool SAB (within-participant cross-item self-attention before the pool) on the per-participant target.
+    'scale-feat-perpart-prepool': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-prepool-261016", 0, 2),
+    # §14.6 pre-pool SAB + cross-timepoint perpart_map (per-person signed change + rel-change appended pre-pool).
+    'scale-feat-perpart-crosstime': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-crosstime-261016", 0, 2),
+    # SAB + HIERARCHICAL hyperprior on tau-spread/lambda-scale (calibrated to fitted SVI across apps).
+    'scale-feat-perpart-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-hyper-261017", 0, 2),
     'groupdiff':   ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
 }
 _DP_COLS = ['pid', 'pid_label', 'group', 'group_label', 'item_label', 'y', 'y_stan',

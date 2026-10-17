@@ -204,17 +204,26 @@ for k in INTERIMS:
 # skewed. The head-ft is done in warped space; HK is then UNWARPED so affine/BvM, PPS, eta0 and
 # all plots run in natural units (PPS is warp-invariant; KS unchanged by the monotone map).
 WARP = os.environ.get('RAGD_WARP', 'none')
+ASINH_C = float(os.environ.get('RAGD_ASINH_C', '10.0'))   # asinh scale: linear for |rho|<1/c, compress beyond
 def _warp(v):
     if WARP == 'log2':
         return np.log2(np.clip(v, 1e-6, None))
     if WARP == 'logit':
         c = np.clip(v, 1e-3, 1 - 1e-3); return np.log(c / (1 - c))
+    if WARP == 'asinh':                                    # SIGNED, scale-aware: asinh(c*rho)/c (~rho for small)
+        return np.arcsinh(ASINH_C * v) / ASINH_C
+    if WARP == 'log1p':                                    # SIGNED log-fold: log(1+rho) = log(w_end/w_base)
+        return np.log(np.clip(1.0 + v, 1e-3, None))
     return v
 def _unwarp(v):
     if WARP == 'log2':
         return 2.0 ** v
     if WARP == 'logit':
         return 1.0 / (1.0 + np.exp(-v))
+    if WARP == 'asinh':
+        return np.sinh(ASINH_C * v) / ASINH_C
+    if WARP == 'log1p':
+        return np.expm1(v)
     return v
 TGT_NAT = {}
 if WARP != 'none':

@@ -679,12 +679,12 @@ class FederatedDiagnostics:
 
     def fig_trajectory(self):
         from plotnine import facet_grid, scale_y_continuous, scale_color_manual
-        import matplotlib.cm as cm, matplotlib.colors as mcolors
+        import matplotlib.pyplot as plt, matplotlib.colors as mcolors
         df = self._read_eta('eta0_pps')
         if df.empty:
             return
         df = self._xcat(df, 'interim')
-        thr = sorted(df.eta0_pct.unique()); cmap = cm.get_cmap('viridis'); n = max(1, len(thr) - 1)
+        thr = sorted(df.eta0_pct.unique()); cmap = plt.get_cmap('viridis'); n = max(1, len(thr) - 1)
         cd = {str(int(t)): mcolors.to_hex(cmap(1 - i / n)) for i, t in enumerate(thr)}
         df['eta0'] = pd.Categorical(df.eta0_pct.astype(int).astype(str),
                                     categories=[str(int(t)) for t in thr], ordered=True)

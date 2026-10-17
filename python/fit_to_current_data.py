@@ -104,7 +104,7 @@ def endpoint_frame(model, fit, rho_specs, h1=0.5, contrast_col=None):
 # ---- the generic interim loop -----------------------------------------------------------
 def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=123,
                      nsteps=4000, output_samples=2000, prob_width=None, verbose=False, label='',
-                     reductions=None, contrast_col='group_label', strata_col=None):
+                     reductions=None, contrast_col='group', contrast_values=(0, 1), strata_col=None):
     """SVI at each interim over `grid` (accrue `pids[:n]`). `on_fit(model, fit, k, n, xi) -> DataFrame`
     returns the per-draw endpoint frame to pickle (built with endpoint_frame or a custom extraction).
 
@@ -128,7 +128,7 @@ def fit_interim_grid(dir_out, dp1, dit, pids, grid, x_formula, on_fit, *, seed=1
         print(f"\n=== {label} interim {k}: n={n} ===")
         t0 = time.time()
         drho = (define_effect_sizes(xi, dit, reductions=reductions, contrast_col=contrast_col,
-                                    strata_col=strata_col) if reductions is not None else None)
+                                    contrast_values=contrast_values, strata_col=strata_col) if reductions is not None else None)
         model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed, drho=drho)
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm='AutoDiagonalNormal', lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,
@@ -143,7 +143,7 @@ def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_fu
                             seed=123, nsteps=10000, output_samples=4000,
                             algorithm='AutoLowRankMultivariateNormal', prob_width=None,
                             verbose=False, label='', reductions=None,
-                            contrast_col='group_label', strata_col=None):
+                            contrast_col='group', contrast_values=(0, 1), strata_col=None):
     """Weekly-cadence sibling of `fit_interim_grid`: SVI at each calendar cutoff in `dates`.
 
     Unlike the participant-count loop, the interim cohort at week k is everyone whose accrual date is
@@ -179,7 +179,7 @@ def fit_interim_grid_weekly(dir_out, dp1, dit, dates, x_formula, on_fit, *, n_fu
         print(f"\n=== {label} week {k} ({date.date()}): n={n_obs} m={m} ===")
         t0 = time.time()
         drho = (define_effect_sizes(xi, dit, reductions=reductions, contrast_col=contrast_col,
-                                    strata_col=strata_col) if reductions is not None else None)
+                                    contrast_values=contrast_values, strata_col=strata_col) if reductions is not None else None)
         model = PartialCreditModel(dit=dit, dcati=xi, x_formula=x_formula, seed=seed, drho=drho)
         fit = model.fit_pyro_svi(output_file_prefix=pre, algorithm=algorithm, lr=0.01,
                                  num_steps=nsteps, output_samples=output_samples, resume=True,

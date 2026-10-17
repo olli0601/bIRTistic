@@ -57,7 +57,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-refugee-interim-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed=os.environ.get('REFUGE_FED', 'py-refugee-interim-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated-perpart_261016'),  # parent dir (REFUGE_FED overrides for net experiments)
     title='REFUGE-ED MSPSS',      # figure-title prefix
     item_kind='MSPSS item',       # response-item word (rows = the 12 MSPSS items)
     mixed_units=False,            # single endpoint -> one facet_grid
@@ -68,8 +68,8 @@ AMORTISER = dict(
         rho='support_gain',                  # federated subdir + rho_label the deploy filters on
         instance='S3 rel-change',            # registry net-family label
         build='svi',                         # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat-paired', widetok=0, case_c=2,     # scalar-mean net + token/caseness settings
-        warp='none',                         # signed relative change -> no warp
+        net=os.environ.get('REFUGE_NET', 'scale-feat-perpart'), widetok=0, case_c=2,  # prior-predictive per-participant net (REFUGE_NET overrides)
+        warp=os.environ.get('REFUGE_WARP', 'none'),   # signed rel change; REFUGE_WARP=asinh|log1p to test
         eta0=0.10, grid='0,0.05,0.10,0.15,0.20')])  # eta0 sweep 0-20% (REFUGE effects are modest)
 
 

@@ -808,7 +808,7 @@ _DEFAULT_REDUCTIONS = [(5, 'Baseline'), (6, 'Endline'), (3, 'ratio'), (4, 'diff'
 
 
 def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=None,
-                        contrast_col: str = 'group_label', contrast_values=('Baseline', 'Endline'),
+                        contrast_col: str = 'group', contrast_values=(0, 1),
                         strata_col=None):
     """Build the long effect-size manifest `drho` for the PCM / credit / ordered-logit ncats models.
 
@@ -818,8 +818,10 @@ def define_effect_sizes(dcati, dit, categorical_threshold: int = 3, reductions=N
     Returns a pandas DataFrame with columns jc, r, scope, item_type_id, item_type, cmp_key, red_fn, rho, thr,
     item_label, construct, item_high_label, stratum.
 
-    `contrast_col`/`contrast_values` name the two-level axis defining the baseline->endline contrast (default
-    `group_label` in {Baseline, Endline}). `strata_col` (e.g. 'arm' for the SDY269 head-to-head) stratifies the
+    `contrast_col`/`contrast_values` name the two-level axis defining the baseline->endline contrast. Default
+    is the NUMERIC `group` in {0, 1} (present in every app: 0 = baseline/reference side, 1 = endline/focal) --
+    robust to the free-text `group_label` (which is Baseline/Endline for paired designs but arm/subpopulation
+    names for between-group ones). `strata_col` (e.g. 'arm' for the SDY269 head-to-head) stratifies the
     comparisons: each item's Baseline/Endline pair is resolved WITHIN its stratum, so a strain shared across arms
     yields ONE comparison per arm (not a pooled one). The stratum value is carried in drho['stratum'] (NA when
     absent); the pairing columns are recorded in drho.attrs (contrast_col/contrast_values/strata_col) so
@@ -919,7 +921,8 @@ def _reduce_one(red_fn: int, p1, p2, g1: float, g2: float, thr: int) -> float:
         return float(s / M)
     if red_fn == 3:  # rel% per-participant
         s1 = _reduce_unit_summary(p1, thr); s2 = _reduce_unit_summary(p2, thr)
-        return float(np.mean((s1 - s2) / s1) * 100.0)
+        s1 = np.maximum(s1, 1e-3)                     # floor the per-participant denominator (as the group
+        return float(np.mean((s1 - s2) / s1) * 100.0)  # path floors wb) -> no inf on degenerate E[y]~0 draws
     if red_fn == 4:  # diff per-participant
         return float(np.mean(_reduce_unit_summary(p1, thr) - _reduce_unit_summary(p2, thr)))
     if red_fn == 5:
@@ -927,7 +930,7 @@ def _reduce_one(red_fn: int, p1, p2, g1: float, g2: float, thr: int) -> float:
     if red_fn == 6:
         return float(g2)
     if red_fn == 7:
-        return float((g1 - g2) / g1 * 100.0)
+        return float((g1 - g2) / max(g1, 1e-3) * 100.0)
     if red_fn == 8:
         return float(g1 - g2)
     if red_fn == 9:
@@ -989,8 +992,8 @@ def reduction_stan_data(drho, dcati) -> dict:
     member items (item rows sharing construct). Returns dict(R, Qcmp, Scmp, cmp_cat_type, question_cmp, red_fn,
     cmp_reduce_thr)."""
     import pandas as pd
-    contrast_col = drho.attrs.get('contrast_col', 'group_label')
-    lo, hi = drho.attrs.get('contrast_values', ('Baseline', 'Endline'))
+    contrast_col = drho.attrs.get('contrast_col', 'group')
+    lo, hi = drho.attrs.get('contrast_values', (0, 1))
     strata_col = drho.attrs.get('strata_col', None)
     scols = [strata_col] if strata_col else []
     ucmp = (drho[['jc', 'scope', 'item_type_id', 'cmp_key', 'item_label', 'construct', 'stratum']]

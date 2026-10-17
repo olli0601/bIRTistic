@@ -109,7 +109,7 @@ def _fit_svi():
     fit_interim_grid(out, dp1, d['dit'], pids, grid, SVI['x_formula'], on_fit,
                      seed=SVI['seed'], nsteps=SVI['nsteps'], output_samples=SVI['samples'],
                      prob_width=SVI['prob_width'], label=DATA['study'], reductions=reductions,
-                     contrast_col='phase_label', strata_col='arm')
+                     contrast_col='phase', strata_col='arm')
     pd.concat(any_rows, ignore_index=True).to_csv(f"{out}/headhead_any_met.csv", index=False)
 
 

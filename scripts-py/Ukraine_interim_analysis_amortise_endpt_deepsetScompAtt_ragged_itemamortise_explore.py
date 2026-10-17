@@ -18,6 +18,7 @@ import numpy as np, jax, jax.numpy as jnp, optax
 from amortiser_common import save_trained_model
 from amortiser_pps_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead import (
     Amortiser_PPS_features_deepsetScompAtt_ragged_qpsi_MLP_loss_multiquantilehead as Net)
+from utils import _reduce_one, _reduce_unit_summary        # the migrated reduction catalog (SVI-matched)
 
 SB = "/Users/or105/sandbox/bIRTistic"
 OUT_TAG = os.environ.get('PP_TAG', f"itemamortise-J{os.environ.get('PP_JMAX','64')}-260831")
@@ -25,6 +26,13 @@ dir_out = f"{SB}/py-ukraine-interim-amortise-deepsetScompAtt-{OUT_TAG}"
 os.makedirs(dir_out, exist_ok=True)
 file_prefix = "pcm_1_interim"
 THRESH, M_REF, N_REF, CLIP = 3.5, 2000, 503, 20.0
+# Hierarchical hyperprior on the per-example threshold-spread (s_tau) + discrimination-scale (s_lam),
+# calibrated to the fitted SVI posteriors across apps (tau-sd 1.05..3.52, lambda to ~10 for mycelium): each
+# training example draws its OWN regime so the proposal SPANS the real apps instead of a fixed over-wide
+# THRESH=3.5. PP_HYPER=0 reproduces the fixed THRESH / |t3| prior exactly.
+HYPER = os.environ.get('PP_HYPER', '0') == '1'
+TAU_LOC = float(os.environ.get('PP_TAU_LOC', '2.0')); TAU_LSD = float(os.environ.get('PP_TAU_LSD', '0.45'))
+LAM_LOC = float(os.environ.get('PP_LAM_LOC', '1.0')); LAM_LSD = float(os.environ.get('PP_LAM_LSD', '0.5'))
 JMAX = int(os.environ.get('PP_JMAX', 64)); KMAX = 10
 KVALS = np.array([2, 4, 5, 7, 8, 9, 10]); KP = np.array([.05, .2, .2, .2, .1, .15, .1]); KP /= KP.sum()
 NET_STEPS = int(os.environ.get('PP_STEPS', 6000))
@@ -55,6 +63,12 @@ if GROUPDIFF:
 # token k/(K-1) (the other arm's slot is 0), exactly as the deploy 0-fills the absent arm. Distinct from
 # scale-feat (paired: both slots per participant) and from groupdiff (Cohen's-d target). widetok=0.
 BETWEEN = os.environ.get('PP_BETWEEN', '0') == '1'
+# Prior-predictive label via the MIGRATED reduction catalog (utils._reduce_one), so the training
+# target == the app's SVI target by construction. PP_RED_FN>0 selects the reduction (per-participant
+# 1 GMFR / 3 rel% / 4 diff; group 6 endline / 7 rel% / 8 diff), PP_THR its level threshold (0 => E[y]).
+# PP_RED_FN=0 keeps the legacy hardcoded group rel% / SPR label (unchanged for existing nets).
+RED_FN = int(os.environ.get('PP_RED_FN', '0'))
+THR = int(os.environ.get('PP_THR', '0'))
 if CASEENDLINE:
     META4 = True                                          # SPR needs the caseness threshold in metadata
 META_DIM = 4 if META4 else 3
@@ -62,13 +76,21 @@ R_TOK = 2 * (KMAX - 1) if WIDETOK else 2                  # per-token feature wi
 NET_KW = dict(num_quantiles=5, embed_dim=EMBED_DIM,
               q_tau_hidden=(EMBED_DIM, EMBED_DIM), q_tok_hidden=(EMBED_DIM, EMBED_DIM),
               q_query_hidden=(EMBED_DIM, EMBED_DIM), hidden_dims=HEAD_HIDDEN, head_mode='powerlaw',
-              head_scale=HEAD_SCALE, head_raw=HEAD_RAW)
+              head_scale=HEAD_SCALE, head_raw=HEAD_RAW,
+              # record the post-pool §14.5.2/14.5.3 flags EXPLICITLY (they default True in the module) so the
+              # checkpoint is self-consistent — else load_fitted_model pins them False for a pre-flag net and
+              # the saved True-shaped params (q_query input 2E, separate q_values) mismatch at deploy.
+              query_from_token=True, separate_values=True)
 PREPOOL = os.environ.get('PP_PREPOOL', '0') == '1'       # §14.6: per-participant self-attention before pool
 POSTPOOL = os.environ.get('PP_POSTPOOL', '1') == '1'     # §14.6.2: keep post-pool cross-attention (0=pre-only)
+# CROSS-TIMEPOINT per-participant features (option 2): append each person's signed change d and signed
+# relative change rr = sgn*(ye-yb)/(yb+0.1) to the embed input before the pool (module `perpart_map`) -> the
+# mean-pool then carries the per-person ratio the per-participant estimand needs. PrePool module only.
+PERPART_MAP = os.environ.get('PP_PERPART_MAP', '0') == '1'
 if PREPOOL:   # §14.6: item-general any-J BvM pre-pool amortiser (apple-to-apple vs the post-pool default)
     from amortiser_pps_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead import (
         Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead as Net)
-    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL)
+    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL, perpart_map=PERPART_MAP)
 net = Net(**NET_KW)
 TH_REF = np.random.default_rng(0).standard_normal(M_REF).astype(np.float64)   # fixed reference abilities
 print(f"ITEM-AMORTISE tag={OUT_TAG} JMAX={JMAX} KMAX={KMAX} B={B} steps={NET_STEPS}")
@@ -90,8 +112,10 @@ def gen_example(rng, Jb):
     dr = (rng.random(Jb) < 0.5).astype(int)           # 1 higher-is-better
     cc = np.maximum(2, (K + 1) // 2 + 1)              # caseness threshold per item (2..K)
     beta = rng.standard_normal(2)
-    taus = [(THRESH * rng.standard_normal((2, int(Kj) - 1))).astype(np.float64) for Kj in K]
-    lam = np.abs(rng.standard_t(3.0, size=(Jb, 2))).astype(np.float64); lam[0, 0] = 1.0
+    s_tau = rng.lognormal(np.log(TAU_LOC), TAU_LSD) if HYPER else THRESH   # per-example threshold spread
+    s_lam = rng.lognormal(np.log(LAM_LOC), LAM_LSD) if HYPER else 1.0      # per-example discrimination scale
+    taus = [(s_tau * rng.standard_normal((2, int(Kj) - 1))).astype(np.float64) for Kj in K]
+    lam = (s_lam * np.abs(rng.standard_t(3.0, size=(Jb, 2)))).astype(np.float64); lam[0, 0] = 1.0
     return dict(K=K.astype(int), typ=typ, dr=dr, cc=cc.astype(int), beta=beta, taus=taus, lam=lam)
 
 
@@ -111,6 +135,22 @@ def _bucket(ex, Kval):
     return idx, tau, lam
 
 
+def _rho_via_catalog(p1, p2, dr, typ):
+    """Label for one item via the migrated `_reduce_one`, oriented EXACTLY as the SVI reader
+    (`model_irt._rho_by_cat_qu_endpoints_per_draw`): p1/p2 are the (M_REF, K) baseline/endline
+    per-ability probs (0-indexed y); rel% (3,7) -> /100 then direction; diff (4,8) -> direction;
+    levels/GMFR/SCR -> raw. direction: keep for categorical OR lower-is-better, flip for out-of-7
+    higher-is-better (categorical ~ typ==1, lower_is_better ~ dr==0)."""
+    s1 = _reduce_unit_summary(p1, THR); s2 = _reduce_unit_summary(p2, THR)
+    raw = _reduce_one(RED_FN, p1, p2, float(s1.mean()), float(s2.mean()), THR)
+    dir_pos = (typ == 1) or (dr == 0)
+    if RED_FN in (3, 7):
+        v = raw / 100.0; return v if dir_pos else -v
+    if RED_FN in (4, 8):
+        return raw if dir_pos else -raw
+    return raw                                                        # levels (5/6), GMFR (1/9), SCR (2)
+
+
 def rho_ex(ex):
     rho = np.zeros(len(ex['K']))
     for Kval in np.unique(ex['K']):
@@ -118,6 +158,10 @@ def rho_ex(ex):
         p = _probs(TH_REF, ex['beta'], tau, lam, Kval)                # (M_REF, nK, 2, K)
         ex['typ_bucket'] = ex['typ'][idx]; ex['cc_bucket'] = ex['cc'][idx]
         for a, i in enumerate(idx):
+            if RED_FN > 0:                                            # SVI-matched migrated reduction
+                r = _rho_via_catalog(p[:, a, 0, :], p[:, a, 1, :], ex['dr'][i], ex['typ'][i])
+                rho[i] = float(np.clip(r, -CLIP, CLIP))
+                continue
             w = _wbe(p, Kval, a, ex); wb = max(w[0], 1e-3); we = w[1]
             if CASEENDLINE and ex['typ'][i] == 1:
                 rho[i] = float(np.clip(we, -CLIP, CLIP))    # rho_SPR = endline caseness Pr(y_e>=c); baseline unused
