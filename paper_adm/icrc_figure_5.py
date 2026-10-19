@@ -38,11 +38,11 @@ warnings.filterwarnings('ignore')
 
 SB = os.environ.get('ICRC_SB', "/Users/or105/sandbox/bIRTistic")
 SVI = os.path.join(SB, "py-icrc-dass-drc_260902")
-FED = os.path.join(SB, "py-icrc-dass-drc-amortise-deepsetXcompAtt-itemamortise-J64-"
-                       "ftheadexpand-bvm-federated_260924", "distress_reduction")
+FED = os.path.join(SB, "py-icrc-dass-drc-amortise-deepsetScompAtt-itemamortise-J64-"
+                       "perpart-hyper-logit-bvm-federated_261018", "distress_reduction")
 # parallel deploy: head fine-tune + affine shift but NO BvM reshape (bvm=0) -> its RAGD cdf
-NEW_FED = os.path.join(SB, "py-icrc-dass-drc-amortise-deepsetXcompAtt-itemamortise-J64-"
-                           "scale-feat-ftheadexpand-affine-noBvM-federated_261012", "distress_reduction")
+NEW_FED = os.path.join(SB, "py-icrc-dass-drc-amortise-deepsetScompAtt-itemamortise-J64-"
+                           "perpart-hyper-logit-affine-noBvM-federated_261019", "distress_reduction")
 PFX = "pcm_1_interim"
 SCRATCH = os.environ.get('ICRC_FIG_SCRATCH',
                          "/private/tmp/claude-501/-Users-or105-git-bIRTistic/"
@@ -141,7 +141,7 @@ TIME_LAB = {'Baseline': 'Baseline\nprior to group psychological\nsupport interve
 def panel_b():
     df = pd.read_csv(os.path.join(SVI, f"{PFX}_3_prob_by_question_fit.csv"))
     df['scale'] = _scale_cat(df['item_label'])
-    df['time'] = pd.Categorical(df['time_label'].map(TIME_LAB),
+    df['time'] = pd.Categorical(df['group_label'].map(TIME_LAB),   # migration: time_label -> group_label
                                 categories=[TIME_LAB['Baseline'], TIME_LAB['Endline']], ordered=True)
     # strip the leading severity index ("0 Normal" -> "Normal", "4 Extremely severe" -> "Extremely severe")
     cats = sorted(df['y_label'].unique())
@@ -253,7 +253,7 @@ def panel_e():
     pps['scale'] = _scale_cat(pps['item'])
     thr = sorted(pps['eta0_pct'].unique())
     import matplotlib.cm as cm, matplotlib.colors as mcolors
-    vir = cm.get_cmap('viridis'); nn = max(1, len(thr) - 1)
+    vir = plt.get_cmap('viridis'); nn = max(1, len(thr) - 1)
     eta_col = {str(int(t)): mcolors.to_hex(vir(1 - i / nn)) for i, t in enumerate(thr)}
     pps['eta0'] = pd.Categorical(pps['eta0_pct'].astype(int).astype(str),
                                  categories=[str(int(t)) for t in thr], ordered=True)
@@ -290,17 +290,22 @@ def _place(ax, img, t0, t1):
 
 
 def main():
-    imgB = _render(panel_b(), 'icrc_b.png', 9.4, 3.0)
     imgC = _render(panel_c(), 'icrc_c.png', 7.4, 7.0)
     imgD = _render(panel_d(), 'icrc_d.png', 7.4, 7.0)
     imgE = _render(panel_e(), 'icrc_e.png', 15.0, 3.6)
 
     TL = 0.05                                   # common left frame: (a) table, (c) & (e) plot axes
-    fig = plt.figure(figsize=(15.2, 14.4))
+    FIGW, FIGH = 15.2, 14.4
+    fig = plt.figure(figsize=(FIGW, FIGH))
     gs = fig.add_gridspec(3, 12, height_ratios=[3.3, 7.0, 3.8],
                           hspace=0.08, wspace=0.03, left=0.004, right=0.996, top=0.985, bottom=0.004)
     axA = fig.add_subplot(gs[0, 0:5]); panel_a(axA, TL)    # wider so the table fits
-    axB = fig.add_subplot(gs[0, 6:12]); axB.imshow(imgB, aspect='auto'); axB.axis('off')  # fill to right edge, no whitespace
+    axB = fig.add_subplot(gs[0, 6:12]); axB.axis('off')    # fill to right edge, no whitespace
+    # Render panel (b) at its destination cell's EXACT inch dimensions so plotnine's fonts are
+    # not horizontally squashed by imshow's stretch-to-fill (aspect='auto' matches render==cell aspect).
+    _pB = axB.get_position()
+    imgB = _render(panel_b(), 'icrc_b.png', _pB.width * FIGW, _pB.height * FIGH)
+    axB.imshow(imgB, aspect='auto')
     axC = fig.add_subplot(gs[1, 0:6]); _place(axC, imgC, TL, 0.485)
     axD = fig.add_subplot(gs[1, 6:12]); _place(axD, imgD, 0.55, 0.985)
     axE = fig.add_subplot(gs[2, 0:12]); _place(axE, imgE, TL, 0.86)

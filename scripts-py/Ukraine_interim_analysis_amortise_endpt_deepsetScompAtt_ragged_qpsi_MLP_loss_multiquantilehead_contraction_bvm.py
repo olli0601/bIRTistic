@@ -214,6 +214,8 @@ def _warp(v):
         return np.arcsinh(ASINH_C * v) / ASINH_C
     if WARP == 'log1p':                                    # SIGNED log-fold: log(1+rho) = log(w_end/w_base)
         return np.log(np.clip(1.0 + v, 1e-3, None))
+    if WARP == 'atanh':                                    # tanh-type: spreads BOTH ceilings (rho->+-1), gentler
+        return np.arctanh(np.clip(v, -1.0 + 1e-3, 1.0 - 1e-3))  #   mid-range than logit
     return v
 def _unwarp(v):
     if WARP == 'log2':
@@ -224,6 +226,8 @@ def _unwarp(v):
         return np.sinh(ASINH_C * v) / ASINH_C
     if WARP == 'log1p':
         return np.expm1(v)
+    if WARP == 'atanh':
+        return np.tanh(v)
     return v
 TGT_NAT = {}
 if WARP != 'none':

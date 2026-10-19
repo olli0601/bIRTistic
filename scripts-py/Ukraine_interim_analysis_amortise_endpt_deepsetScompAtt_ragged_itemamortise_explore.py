@@ -87,10 +87,13 @@ POSTPOOL = os.environ.get('PP_POSTPOOL', '1') == '1'     # §14.6.2: keep post-p
 # relative change rr = sgn*(ye-yb)/(yb+0.1) to the embed input before the pool (module `perpart_map`) -> the
 # mean-pool then carries the per-person ratio the per-participant estimand needs. PrePool module only.
 PERPART_MAP = os.environ.get('PP_PERPART_MAP', '0') == '1'
+PRECISION = os.environ.get('PP_PRECISION', '0') == '1'   # multi-moment pool: concat [mean, var] over participants
+QUANTILE = tuple(float(x) for x in os.environ.get('PP_QUANTILE', '').split(',') if x.strip())  # CDF/quantile pool
 if PREPOOL:   # §14.6: item-general any-J BvM pre-pool amortiser (apple-to-apple vs the post-pool default)
     from amortiser_pps_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead import (
         Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiquantilehead as Net)
-    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL, perpart_map=PERPART_MAP)
+    NET_KW.update(prepool_attn=True, post_pool_attn=POSTPOOL, perpart_map=PERPART_MAP,
+                  precision_pool=PRECISION, quantile_pool=QUANTILE)
 net = Net(**NET_KW)
 TH_REF = np.random.default_rng(0).standard_normal(M_REF).astype(np.float64)   # fixed reference abilities
 print(f"ITEM-AMORTISE tag={OUT_TAG} JMAX={JMAX} KMAX={KMAX} B={B} steps={NET_STEPS}")

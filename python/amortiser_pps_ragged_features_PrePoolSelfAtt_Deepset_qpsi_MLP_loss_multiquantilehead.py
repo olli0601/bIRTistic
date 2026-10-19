@@ -52,6 +52,8 @@ class Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiqu
     num_quantiles: int = 5
     head_mode: str = 'plain'
     precision_pool: bool = False
+    quantile_pool: tuple = ()        # empirical-CDF pool: pool these quantiles of the per-participant embedding
+    quantile_maxseg: int = 256       # cap on participants per segment used for the quantile estimate
     z_contrast: bool = False
     raw_pool: bool = False
     perpart_map: bool = False
@@ -104,6 +106,15 @@ class Amortiser_PPS_ragged_features_PrePoolSelfAtt_Deepset_qpsi_MLP_loss_multiqu
             asc = jnp.einsum('tje,tke->tjk', qh, kh) / jnp.sqrt(float(self.embed_dim))
             aw = jax.nn.softmax(asc, axis=-1)                # (T,J,J) cross-item weights within participant
             e = e + self.sab_o(jnp.einsum('tjk,tke->tje', aw, vh))       # residual, single head
+        if self.quantile_pool:                               # empirical-CDF pool: quantiles over participants
+            qlev = jnp.asarray(self.quantile_pool, e.dtype)  # (Q,)
+            T = e.shape[0]; J = e.shape[1]; E = e.shape[-1]; M = int(self.quantile_maxseg)
+            cnt_b = jax.ops.segment_sum(jnp.ones((T,), jnp.int32), seg, num_segments=B)   # (B,)
+            seg_start = jnp.concatenate([jnp.zeros((1,), jnp.int32), jnp.cumsum(cnt_b)[:-1]])
+            within = jnp.minimum(jnp.arange(T) - seg_start[seg], M - 1)                   # within-segment idx (capped)
+            grid = jnp.full((B, M, J, E), jnp.nan, e.dtype).at[seg, within].set(e)        # pad ragged -> dense
+            q = jnp.nanquantile(grid, qlev, axis=1)                                       # (Q, B, J, E)
+            return jnp.moveaxis(jnp.nan_to_num(q), 0, -1).reshape(B, J, E * qlev.shape[0])  # (B, J, E*Q)
         cnt = jax.ops.segment_sum(
             jnp.ones((flat.shape[0], 1, 1), e.dtype), seg, num_segments=B)
         cnt = jnp.maximum(cnt, 1.0)                          # (B, 1, 1)

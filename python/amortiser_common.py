@@ -283,6 +283,25 @@ _NET = {
     'scale-feat-perpart-crosstime': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-crosstime-261016", 0, 2),
     # SAB + HIERARCHICAL hyperprior on tau-spread/lambda-scale (calibrated to fitted SVI across apps).
     'scale-feat-perpart-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-hyper-261017", 0, 2),
+    # WIDETOK (CDF token) per-participant caseness net (red_fn 3 @ thr=2) + SAB — for categorical apps like ICRC.
+    'widetok-perpart': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-perpart-261017", 1, 2),
+    # widetok per-participant caseness + HIERARCHICAL hyperprior (attacks ICRC's large train/deploy shift).
+    'widetok-perpart-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-perpart-hyper-261017", 1, 2),
+    # GROUP rel% (red_fn 7) plain scale-feat, new rho code — regression reproduction of the old ICRC 0.099/0.134.
+    'scale-feat-grouprel': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-grouprel-261017", 0, 2),
+    # SAB + multi-moment (mean+var) pooling, per-participant E[y] (red_fn 3 thr 0).
+    'scale-feat-perpart-moment': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-moment-261018", 0, 2),
+    # SAB + empirical-CDF (quantile) pooling, per-participant E[y] (red_fn 3 thr 0).
+    'scale-feat-perpart-quant': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-quant-261018", 0, 2),
+    # SAB + multi-moment (mean+var) pool + POST-pool attn (post_pool_attn=True) + HIERARCHICAL hyperprior, per-pp E[y].
+    # Tested 2026-10-19: worse on both apps (ICRC 0.245 / REFUGE 0.105) — hyperprior confound; see -preSAB-meanvarpool-postSAB.
+    'scale-feat-perpart-moment-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-moment-hyper-261018", 0, 2),
+    # §19.4 "both"-on-per-participant: pre-pool SAB + mean+var moment pool + POST-pool item self-attn, NO hyperprior.
+    # Tested 2026-10-19: does NOT transfer — REFUGE 0.098/0.192 ties moment, ICRC 0.252/0.234 worse. Not adopted.
+    'scale-feat-perpart-preSAB-meanvarpool-postSAB': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-preSAB-meanvarpool-postSAB-261019", 0, 2),
+    # Consistency variant: pre-pool SAB + PLAIN mean pool (no var) + POST-pool item self-attn + HYPERPRIOR, per-pp E[y].
+    # Keeps post-pool self-attn (as every ScompAtt net) but drops the J=3-overfitting var channel; tests if hyper rescues ICRC.
+    'scale-feat-perpart-preSAB-meanpool-postSAB-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-preSAB-meanpool-postSAB-hyper-261019", 0, 2),
     'groupdiff':   ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-groupdiff-260922", 1, 3),
 }
 _DP_COLS = ['pid', 'pid_label', 'group', 'group_label', 'item_label', 'y', 'y_stan',

@@ -22,7 +22,7 @@ from amortiser_common import federated_deploy
 from amortiser_diag_plots import FederatedDiagnostics
 
 SB = os.environ.get('ICRC_SB', "/Users/or105/sandbox/bIRTistic")      # sandbox root for all output dirs
-SVI_DIR = 'py-icrc-dass-drc_260902'   # the SVI output dir (shared by SVI['out'] and AMORTISER['svi'])
+SVI_DIR = os.environ.get('ICRC_SVI_DIR', 'py-icrc-dass-drc_260902')   # SVI output dir (ICRC_SVI_DIR overrides; shared by SVI['out'] + AMORTISER['svi'])
 
 # =====================================================================================
 # 1) DATA & ANALYSIS — the Andersen workbook + the severity-reduction endpoint (the estimand).
@@ -37,7 +37,7 @@ DATA = dict(
 # severity REDUCTION (post vs pre). h1 = success threshold on rho (here >0.5 = a >50% relative reduction).
 # Per-participant relative severity reduction: red_fn 3 (per-participant rel%), thr=2 so the per-timepoint
 # summary is P(y>=2) = proportion at "moderate or larger" severity (paired pre/post, mean of per-person ratios).
-RHO_SPECS = [dict(rho_id=1, rho_label='distress_reduction', red_fn=3, thr=2, h1=0.5,
+RHO_SPECS = [dict(rho_id=1, rho_label='distress_reduction', red_fn=int(os.environ.get('ICRC_RED_FN', '3')), thr=int(os.environ.get('ICRC_THR', '0')), h1=0.5,
                   rho_label_long='DASS-21 distress — relative severity reduction (post vs pre)')]
 
 # =====================================================================================
@@ -61,7 +61,7 @@ SVI = dict(
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-icrc-dass-drc-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260924',  # parent dir
+    fed=os.environ.get('ICRC_FED', 'py-icrc-dass-drc-amortise-deepsetScompAtt-itemamortise-J64-perpart-hyper-logit-bvm-federated_261018'),  # adopted: generic hyperprior net + logit warp (ICRC_FED overrides)
     title='ICRC DASS-21 (DRC)',   # figure-title prefix
     item_kind='subscale',         # response-item word (rows = the 3 DASS subscales)
     mixed_units=False,            # single endpoint -> one facet_grid
@@ -72,8 +72,8 @@ AMORTISER = dict(
         rho='distress_reduction',          # federated subdir + rho_label the deploy filters on
         instance='S3 rel-change',          # registry net-family label
         build='svi',                       # reference build strategy: reuse the whole SVI fit as-is
-        net='scale-feat-paired', widetok=0, case_c=2,   # scalar-mean net + token/caseness settings
-        warp='none',                       # signed relative change -> no warp
+        net=os.environ.get('ICRC_NET', 'scale-feat-perpart-hyper'), widetok=0, case_c=2,  # ADOPTED: generic hierarchical-hyperprior net (widest training regime, app-agnostic)
+        warp=os.environ.get('ICRC_WARP', 'logit'),  # logit (ceiling-aware) warp default
         eta0=0.50, grid='0.25,0.50,0.75,1.0')])   # eta0 sweep (rel-reduction thresholds 25/50/75/100%)
 
 

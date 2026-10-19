@@ -373,6 +373,7 @@ class IRTModel(Model):
         draws=None,
         draws_file: Optional[str] = None,
         categorical_threshold: Optional[int] = None,
+        category_thresholds: Optional[dict] = None,
         endpoint_type: Literal["items", "item_groups"] = "items",
         param_name: str = "ordered_prob_by_cat_qu_pr",
         across: Optional[list] = None,
@@ -408,17 +409,24 @@ class IRTModel(Model):
         # ``group_label`` is a free display label (Baseline/Endline for a paired design, or
         # e.g. adult/pediatric, mild/severe, vaccine/placebo for a between-group design) used
         # only by the plots. The endpoint (diff/ratio) is group2-vs-group1 either way.
-        for item_type in ('categorical', 'out-of-7'):
+        # EVERY category type carries a threshold (default 0 => expected score E[y]; >=1 => caseness
+        # P(y>=thr)), applied UNIFORMLY -- not gated on item_type=='categorical'. `category_thresholds`
+        # {item_type: thr} overrides the per-type default (categorical -> categorical_threshold, any
+        # other type -> 0). Also iterates whatever types are present (not a hardcoded pair), so no type
+        # is silently dropped. (The in-model rho_by_cat_qu reduction already honours thr per type.)
+        thr_map = dict(category_thresholds or {})
+        for item_type in dp1['item_type'].drop_duplicates():
+            thr_t = int(thr_map.get(item_type,
+                                    categorical_threshold if item_type == 'categorical' else 0))
             tmp = dp1[dp1['item_type'] == item_type][
                 ['item_type_id', 'item_label', 'item_group_id', 'item_type', 'group']
             ].drop_duplicates()
             sub = po.merge(tmp, on=['item_type_id', 'item_group_id'])
             if sub.empty:
                 continue
-            if item_type == 'categorical':
-                sub = sub[sub['y'] >= categorical_threshold]
-                sub = sub.assign(_w=sub['prob'])
-            else:
+            if thr_t >= 1:                                   # caseness P(y >= thr)
+                sub = sub[sub['y'] >= thr_t].assign(_w=lambda d: d['prob'])
+            else:                                            # thr == 0 -> expected score E[y]
                 sub = sub.assign(_w=sub['y'] * sub['prob'])
             sub = sub.groupby(
                 ['.draw', 'item_type_id', 'item_label', 'item_group_id', 'item_type', 'group']

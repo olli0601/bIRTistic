@@ -44,8 +44,8 @@ warnings.filterwarnings('ignore')
 
 SB = os.environ.get('CAVD_SB', "/Users/or105/sandbox/bIRTistic")
 SVI = os.path.join(SB, "py-cavd-vtn505-bama_260918")
-FED = os.path.join(SB, "py-cavd-vtn505-bama-amortise-deepsetXcompAtt-itemamortise-J64-"
-                       "ftheadexpand-bvm-federated_260923", "vaccine_vs_placebo")
+FED = os.path.join(SB, "py-cavd-vtn505-bama-amortise-deepsetScompAtt-itemamortise-J64-"
+                       "ftheadexpand-bvm-federated_261019", "vaccine_vs_placebo")
 PFX = "pcm_1_interim"
 SCRATCH = os.environ.get('HVTN_FIG_SCRATCH',
                          "/private/tmp/claude-501/-Users-or105-git-bIRTistic/"
@@ -125,7 +125,7 @@ pps = _xcat(pps)
 
 # eta0 threshold colours (viridis, darker = harder), shared by c (lines) and d (trajectory)
 _thr = sorted(pps['eta0_pct'].unique())
-_vir = cm.get_cmap('viridis'); _nn = max(1, len(_thr) - 1)
+_vir = plt.get_cmap('viridis'); _nn = max(1, len(_thr) - 1)
 _ETA_COL = {str(int(t)): mcolors.to_hex(_vir(1 - i / _nn)) for i, t in enumerate(_thr)}
 pps['eta0'] = pd.Categorical(pps['eta0_pct'].astype(int).astype(str),
                              categories=[str(int(t)) for t in _thr], ordered=True)
@@ -175,7 +175,7 @@ pD = (
 # =======================================================================================
 _AMORT = dict(
     svi='py-cavd-vtn505-bama_260918',
-    fed='py-cavd-vtn505-bama-amortise-deepsetXcompAtt-itemamortise-J64-ftheadexpand-bvm-federated_260923',
+    fed='py-cavd-vtn505-bama-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-federated_261019',
     title='CAVD HVTN 505 BAMA', item_kind='antigen', mixed_units=False,
     calib_prefix='cavd_bama_amortiser', eta0_units='relative change x100',
     ctag_prefix='cavd-vtn505-fed',
@@ -217,7 +217,7 @@ imgE = _render(pE, 'hv_E_pit.png', WFULL, HE)
 _b1 = Image.open(os.path.join(SVI, f"{PFX}_1_prob_by_question_fit_part1.png"))
 _b10 = Image.open(os.path.join(SVI, f"{PFX}_10_prob_by_question_fit_part1.png"))
 _Wp, _Hp = _b1.size
-_SPLIT = 1300                                                    # row: below the x-title, above the legend
+_SPLIT = int(_Hp * 0.86)                                        # row below the x-title, above the legend (fraction of height; robust to the SVI prob-plot's render size)
 imgB1 = np.asarray(_b1.crop((0, 0, _Wp, _SPLIT)))               # plot only
 imgB10 = np.asarray(_b10.crop((0, 0, _Wp, _SPLIT)))
 imgBleg = np.asarray(_b1.crop((0, _SPLIT, _Wp, _Hp)))          # single antigen legend (wide, short)
