@@ -62,7 +62,7 @@ SVI = dict(out=SVI_DIR)          # knobs live in UkraineRCT_interim_svi.py (Auto
 # =====================================================================================
 AMORTISER = dict(
     svi=SVI_DIR,                  # reference SVI dir the amortiser deploys against (== SVI['out'])
-    fed='py-ukraineRCT-endline-amortise-deepsetScompAtt-itemamortise-J64-ftheadexpand-bvm-stein-federated_260929',
+    fed=os.environ.get('UKRAINERCT_FED', 'py-ukraineRCT-endline-amortise-widetok-grouprel-case-261020'),  # adopted widetok caseness deploy (UKRAINERCT_FED overrides)
     title='Ukraine Hope Groups RCT',   # figure-title prefix
     item_kind='item',             # response-item word (rows = the Ukraine parenting/MH items)
     mixed_units=False,            # single rho (relative change) -> one facet_grid (rows span both item types)
@@ -74,10 +74,12 @@ AMORTISER = dict(
         rho='rel_change',                    # federated subdir + rho_label
         instance='S3 rel-change',            # registry net-family label (the DEFAULT Ukraine instance)
         build='svi',                         # reference build strategy: reuse the whole SVI fit as-is
-        # scale-feat-paired transfers BETTER here than the RCT-trained scale-feat-between (measured:
-        # paired PIT 0.114/marg 0.178 vs between 0.155/0.186) — the between-subjects target is noisier
-        # (half effective n per arm). The between net stays registered but is not the deploy default.
-        net='scale-feat-paired', widetok=0, case_c=2,     # paired scale-feat net (best-calibrated on this RCT)
+        # The estimand is a CASENESS (thr=2) group rel% — a threshold functional — so the token-correct net is
+        # the WIDE (cumulative-exceedance) group-rel% caseness net (not the scalar mean token, §14.4.18 wall).
+        # Measured: widetok-grouprel-case PIT 0.127/marg 0.189 vs scalar scale-feat-paired 0.134/0.201. The
+        # residual gap to the other between-arm apps (~0.09) is the between-subjects design noise (half effective
+        # n per arm), NOT the token. scale-feat-paired (scalar) stays registered as the fallback.
+        net=os.environ.get('UKRAINERCT_NET', 'widetok-grouprel-case'), widetok=1, case_c=2,  # token-correct caseness net
         warp='none',                         # signed relative change -> NO warp (log2/logit undefined)
         eta0=0.2, grid='0,0.1,0.2,0.3,0.4')])      # eta0 success sweep 0-40% (anchor 20% rel. improvement)
 

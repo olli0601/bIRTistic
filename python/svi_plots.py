@@ -24,6 +24,8 @@ def _h1(rho_label):
     rl = str(rho_label).lower()
     if 'diff' in rl:
         return 0.0
+    if 'scr' in rl or 'seroconv' in rl:   # seroconversion before 'spr' (both are rates) -> CHMP > 0.40
+        return 0.40
     if 'spr' in rl or 'seroprot' in rl:
         return 0.70
     if 'gmfr' in rl or 'gmt' in rl or 'fold' in rl:

@@ -633,7 +633,7 @@ class FederatedDiagnostics:
                .assign(rho_pct=lambda d: d.eta0_pct.astype(float)))
         ldf['eta0'] = ldf.eta0_pct.astype(int).astype(str)
         thr = sorted(ldf.eta0_pct.unique()); cd = _fed_pal([str(int(t)) for t in thr])
-        out = f"{self.OUT}/{self.pfx}_pps_RAGD_rho_vs_eta0_lines_by_item.pdf"
+        out = f"{self.OUT}/{self.pfx}_pps_RAGD_interim_rho_vs_eta0_lines_by_item.pdf"
         rhos = self._rhos_in(rdf)
         if not self.mixed:
             d = self._xcat(rdf, 'interim')
@@ -641,8 +641,8 @@ class FederatedDiagnostics:
                  + geom_hline(ldf, aes(yintercept='rho_pct', colour='eta0'), size=.5)
                  + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
                  + self._grid('free_y') + self._theme(w=3.6 * len(self.RHO)) + self._rot()
-                 + labs(x='interim analysis date', y=f'rho  ({self.eta_units})',
-                   title=f'{self.title} — SVI rho predictive vs eta0 thresholds'))
+                 + labs(x='interim analysis date', y=f'p(rho | y_1:n_t)  ({self.eta_units})',
+                   title=f'{self.title} — SVI posterior p(rho | y_1:n_t) vs eta0 thresholds'))
             p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
             return
         wl = self._wrapcols(rhos); subs = []
@@ -656,11 +656,58 @@ class FederatedDiagnostics:
                  + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
                  + self._grid('free_y') + self._theme(w=4.7) + self._rot() + self._strip(i, len(rhos))
                  + theme(legend_position='none')
-                 + labs(x='interim analysis date', y=(f'rho  ({self.eta_units})' if i == 0 else '')))
+                 + labs(x='interim analysis date', y=(f'p(rho | y_1:n_t)  ({self.eta_units})' if i == 0 else '')))
             subs.append(p)
         self._stitch_save(subs, out, 2.6 * len(self.ITEMS),
-                          title=f'{self.title} — SVI rho predictive (grey box) vs eta0 thresholds',
-                          legend=[('SVI rho', '#d9d9d9')] + [(t, cd[t]) for t in [str(int(x)) for x in thr]],
+                          title=f'{self.title} — SVI posterior p(rho | y_1:n_t) (grey box) vs eta0 thresholds',
+                          legend=[('p(rho | y_1:n_t)', '#d9d9d9')] + [(t, cd[t]) for t in [str(int(x)) for x in thr]],
+                          legend_title=f'eta0 threshold ({self.eta_units})')
+
+    def fig_futures_rho_vs_eta0(self, store):
+        """Over-FUTURES predictive p(rho | y_1:n_t, x^s) distributed over future cohorts z^s (the amortiser's
+        marginal mixture, source='amortiser' in the contraction box), same layout as fig_rho_vs_eta0 with the
+        eta0 threshold lines. Contrast with fig_rho_vs_eta0, which shows the current-data posterior p(rho|y_1:n_t)."""
+        from plotnine import scale_color_manual
+        cb = store.get('contbox', {}).get('RAGD')
+        if cb is None or cb.empty:
+            return
+        box = cb[cb.source == 'amortiser'].copy()
+        for c in ('ymin', 'lower', 'middle', 'upper', 'ymax'):   # raw rho -> x100, to match the eta0_pct lines
+            box[c] = box[c].astype(float) * 100.0
+        pdf = self._read_eta('eta0_pps')
+        ldf = (pdf[['item_label', 'rho_label_long', 'eta0_pct']].drop_duplicates()
+               .assign(rho_pct=lambda d: d.eta0_pct.astype(float)))
+        ldf['eta0'] = ldf.eta0_pct.astype(int).astype(str)
+        thr = sorted(ldf.eta0_pct.unique()); cd = _fed_pal([str(int(t)) for t in thr])
+        out = f"{self.OUT}/{self.pfx}_pps_RAGD_interim_futures-rho_vs_eta0_lines_by_item.pdf"
+        rhos = self._rhos_in(box)
+        bx = dict(ymin='ymin', lower='lower', middle='middle', upper='upper', ymax='ymax')
+        if not self.mixed:
+            d = self._xcat(box, 'interim_id')
+            p = (ggplot(d, aes('xlab', **bx)) + geom_boxplot(stat='identity', fill='#f4a582', size=.3, width=.7)
+                 + geom_hline(ldf, aes(yintercept='rho_pct', colour='eta0'), size=.5)
+                 + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
+                 + self._grid('free_y') + self._theme(w=3.6 * len(self.RHO)) + self._rot()
+                 + labs(x='interim analysis date', y=f'p(rho | y_1:n_t, x^s)  ({self.eta_units})',
+                   title=f'{self.title} — amortiser predictive p(rho | y_1:n_t, x^s) over futures z^s vs eta0 thresholds'))
+            p.save(out, verbose=False, limitsize=False); p.save(out[:-4] + '.png', dpi=120, verbose=False, limitsize=False)
+            return
+        wl = self._wrapcols(rhos); subs = []
+        box = self._xcat(box, 'interim_id')
+        for i, r in enumerate(rhos):
+            rw = wl[r]
+            d = self._fill(box[box.rho_label_long == r].copy(), r).assign(rho_label_long=rw)
+            l = ldf[ldf.rho_label_long == r].assign(rho_label_long=rw)
+            p = (ggplot(d, aes('xlab', **bx)) + geom_boxplot(stat='identity', fill='#f4a582', size=.3, width=.7)
+                 + geom_hline(l, aes(yintercept='rho_pct', colour='eta0'), size=.5)
+                 + scale_color_manual(values=cd, name=f'success threshold eta0 ({self.eta_units})')
+                 + self._grid('free_y') + self._theme(w=4.7) + self._rot() + self._strip(i, len(rhos))
+                 + theme(legend_position='none')
+                 + labs(x='interim analysis date', y=(f'p(rho | y_1:n_t, x^s)  ({self.eta_units})' if i == 0 else '')))
+            subs.append(p)
+        self._stitch_save(subs, out, 2.6 * len(self.ITEMS),
+                          title=f'{self.title} — amortiser predictive p(rho | y_1:n_t, x^s) over futures z^s (orange box) vs eta0 thresholds',
+                          legend=[('p(rho | y_1:n_t, x^s)', '#f4a582')] + [(t, cd[t]) for t in [str(int(x)) for x in thr]],
                           legend_title=f'eta0 threshold ({self.eta_units})')
 
     def fig_eta0_sweep(self):
@@ -728,7 +775,7 @@ class FederatedDiagnostics:
         for suf in ('RAGD', 'RAGDbase'):
             self.fig_tests_pit(store, suf); self.fig_tests_coverage(store, suf); self.fig_contraction_cdf(store, suf)
         self.fig_pit_box(store, 'RAGD'); self.fig_contraction_law(store, 'RAGD')
-        self.fig_trajectory(); self.fig_rho_vs_eta0(); self.fig_eta0_sweep()
+        self.fig_trajectory(); self.fig_rho_vs_eta0(); self.fig_futures_rho_vs_eta0(store); self.fig_eta0_sweep()
         for f in _glob.glob(f"{self.FED}/*/*.pdf"):          # subdirs are data-only
             _os.remove(f)
         if self.v:

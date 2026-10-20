@@ -489,6 +489,23 @@ class IRTModel(Model):
                .reset_index().rename(columns={'any_met': 'pps_any_met'}))
         return per_draw, pps
 
+    @staticmethod
+    def joint_all_met(endpoints_long: pd.DataFrame, group_keys, met_col: str = 'pps_H1_x',
+                      draw_col: str = 'draw'):
+        """Composite decision requiring **ALL** endpoints met simultaneously (the conjunction), the
+        strict counterpart of :meth:`joint_any_met`. Same shared-draw frame; evaluated WITHIN a draw
+        as the AND of the per-rho indicators (product == min over 0/1), then the PPS is the fraction
+        of draws meeting all of them. A much stricter bar than "at least one met" — it is the correct
+        joint posterior probability that *every* criterion (e.g. SCR *and* SPR *and* GMFR) holds on
+        the same draw. Returns (per_draw, pps): `per_draw` has one `all_met` per (draw, *group_keys*);
+        `pps` has `pps_all_met` per *group_keys*."""
+        gk = list(group_keys)
+        per_draw = (endpoints_long.groupby([draw_col] + gk)[met_col].min()
+                    .reset_index().rename(columns={met_col: 'all_met'}))
+        pps = (per_draw.groupby(gk)['all_met'].mean()
+               .reset_index().rename(columns={'all_met': 'pps_all_met'}))
+        return per_draw, pps
+
 
     def get_endpoints(
         self,

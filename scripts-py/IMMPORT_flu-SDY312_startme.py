@@ -34,7 +34,11 @@ DATA = dict(
 RHO_SPECS = [dict(rho_id=1, rho_label='SPR: P(titre>=1:40) at endline', red_fn=6, thr=3,
                   h1_threshold=0.70, rho_label_long='seroprotection rate  P(titre ≥ 1:40) at endline'),
              dict(rho_id=2, rho_label='GMT fold-rise (endline/baseline)', red_fn=1,
-                  h1_threshold=2.5, rho_label_long='GMT fold-rise (endline / baseline)')]
+                  h1_threshold=2.5, rho_label_long='GMT fold-rise (endline / baseline)'),
+             # SCR = third CHMP criterion, per-participant seroconversion (red_fn 2: mean_u P(>=4-fold rise),
+             # via the paired joint G=p1'p2). No thr (d>=2 baked in). CHMP bar > 0.40 (adults 18-60).
+             dict(rho_id=3, rho_label='SCR: P(>=4-fold rise)', red_fn=2,
+                  h1_threshold=0.40, rho_label_long='seroconversion rate  P(>=4-fold rise or neg->>=1:40)')]
 
 # =====================================================================================
 # 2) SVI — the interim schedule + fit settings producing the reference posterior per study.
@@ -55,21 +59,30 @@ SVI = dict(
 # =====================================================================================
 _spr = dict(net='widetok-spr', widetok=1, case_c=3, eta0=0.70, grid='0.5,0.6,0.7,0.8')   # SPR net + eta0 sweep
 _gmfr = dict(net='scale-feat-paired', widetok=0, case_c=2, eta0=2.5, grid='2.0,2.5,3.0,3.5')     # GMFR net + eta0 sweep
+# SCR net (S6, per-participant seroconversion): widetok + pre-pool SAB + mean-pool, deploy warp=none (SCR is
+# interior ~0.19-0.51, not boundary-skewed like SPR; logit is a cheap deploy fallback). SCR_NET switches the
+# post-pool variant: 'widetok-scr' = post-OFF (expected best, per-pp pattern §19.4); 'widetok-scr-postSAB' = post-on.
+_scr = dict(net=os.environ.get('SCR_NET', 'widetok-scr'), widetok=1, case_c=3, eta0=0.40, grid='0.3,0.4,0.5,0.6')
 
 
-def _variant(variant, tag, warp_spr, warp_gmfr, headmode=''):
-    """Build one variant's amortiser config; `tag` -> federated parent dir, warps/headmode = the §16.3 remedy."""
+def _variant(variant, tag, warp_spr, warp_gmfr, headmode='', with_scr=False):
+    """Build one variant's amortiser config; `tag` -> federated parent dir, warps/headmode = the §16.3 remedy.
+    `with_scr` appends the SCR (S6) endpoint — only the adopted (cwarp) variant deploys it, since SCR has its
+    own net + warp and does not share the SPR/GMFR head experiment."""
+    eps = [dict(rho='SPR', instance='S1 rate', rho_id=1, build='rho_id', warp=warp_spr, **_spr),
+           dict(rho='GMFR', instance='S2 fold', rho_id=2, build='rho_id', warp=warp_gmfr, **_gmfr)]
+    if with_scr:
+        eps.append(dict(rho='SCR', instance='S6 seroconv', rho_id=3, build='rho_id', warp='none', **_scr))
     return dict(
         svi='py-immport-SDY312_260918',    # shared reference SVI dir (all 3 variants deploy against it)
         fed=f'py-immport-SDY312-amortise-deepsetScompAtt-itemamortise-J64-{tag}-federated_260924',
         title='SDY312 flu HAI', item_kind='strain', mixed_units=False, calib_prefix='flu_amortiser',
         eta0_units='endpoint units x100', headmode=headmode, ctag_prefix=f'flu-SDY312-{variant}',
-        endpoints=[dict(rho='SPR', instance='S1 rate', rho_id=1, build='rho_id', warp=warp_spr, **_spr),
-                   dict(rho='GMFR', instance='S2 fold', rho_id=2, build='rho_id', warp=warp_gmfr, **_gmfr)])
+        endpoints=eps)
 
 
 AMORTISER = [_variant('base', 'ftheadexpand-bvm_260919', 'none', 'none'),
-             _variant('cwarp', 'Cwarp-ftheadexpand-bvm_260920', 'logit', 'log2'),      # §16.3 adopted default
+             _variant('cwarp', 'Cwarp-ftheadexpand-bvm_260920', 'logit', 'log2', with_scr=True),  # §16.3 adopted default; SCR deployed here
              _variant('bfreeq', 'Bfreeq-ftheadexpand-bvm_260920', 'none', 'none', headmode='freeq')]
 
 
@@ -88,10 +101,12 @@ def _fit_svi(study):
     h1 = {s['rho_id']: s['h1_threshold'] for s in RHO_SPECS}; any_rows = []
     reductions = [dict(red_fn=s['red_fn'], rho=s['rho_label'], thr=s.get('thr')) for s in RHO_SPECS]
 
-    def on_fit(m, f, k, n, xi):                          # SPR+GMFR frame + the composite '>=1 met' decision
+    def on_fit(m, f, k, n, xi):                          # SPR+GMFR+SCR frame + BOTH composites (>=1 met / all met)
         xr = endpoint_frame(m, f, RHO_SPECS, h1=h1)
-        _, pps = PartialCreditModel.joint_any_met(xr, group_keys=['item_label'])
-        pps['interim'] = k; pps['n'] = n; any_rows.append(pps)
+        _, pps_any = PartialCreditModel.joint_any_met(xr, group_keys=['item_label'])   # CHMP: SCR v SPR v GMFR
+        _, pps_all = PartialCreditModel.joint_all_met(xr, group_keys=['item_label'])   # strict: SCR ^ SPR ^ GMFR
+        pps = pps_any.merge(pps_all, on='item_label'); pps['interim'] = k; pps['n'] = n
+        any_rows.append(pps)
         return xr
     out = f"{SB}/{SVI['out'].format(study=study)}"
     fit_interim_grid(out, dp1, d['dit'], pids, grid, SVI['x_formula'], on_fit,

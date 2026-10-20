@@ -287,8 +287,15 @@ _NET = {
     'widetok-perpart': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-perpart-261017", 1, 2),
     # widetok per-participant caseness + HIERARCHICAL hyperprior (attacks ICRC's large train/deploy shift).
     'widetok-perpart-hyper': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-perpart-hyper-261017", 1, 2),
+    # S6 SCR (red_fn 2 per-participant seroconversion): widetok (per-pp pre/post joint G=p1'p2) + pre-pool SAB + mean-pool.
+    # Two post variants (per-pp nets calibrate better post-off, §19.4). Deploy warp=none (SCR interior ~0.19-0.51; logit fallback).
+    'widetok-scr': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-scr-261019", 1, 3),          # post-off (expected best)
+    'widetok-scr-postSAB': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-scr-postSAB-261019", 1, 3),  # post-on
     # GROUP rel% (red_fn 7) plain scale-feat, new rho code — regression reproduction of the old ICRC 0.099/0.134.
     'scale-feat-grouprel': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-grouprel-261017", 0, 2),
+    # GROUP rel% (red_fn 7) CASENESS (thr=2): WIDE token (threshold-sufficient) + ScompAtt (post-pool self-attn, NO pre-pool,
+    # mean-pool) — the token-correct net for UkraineRCT's between-arm caseness rel% (scalar scale-feat is under-specified, 0.134).
+    'widetok-grouprel-case': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-widetok-grouprel-case-261020", 1, 2),
     # SAB + multi-moment (mean+var) pooling, per-participant E[y] (red_fn 3 thr 0).
     'scale-feat-perpart-moment': ("py-ukraine-interim-amortise-deepsetScompAtt-itemamortise-J64-scale-feat-perpart-moment-261018", 0, 2),
     # SAB + empirical-CDF (quantile) pooling, per-participant E[y] (red_fn 3 thr 0).
